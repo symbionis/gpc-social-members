@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Playfair_Display, Poppins, Teko } from "next/font/google";
 import "./globals.css";
+import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 
 const playfairDisplay = Playfair_Display({
   subsets: ["latin"],
@@ -45,7 +46,10 @@ export default function RootLayout({
       lang="en"
       className={`${playfairDisplay.variable} ${poppins.variable} ${teko.variable}`}
     >
-      <body>{children}</body>
+      <body>
+        {children}
+        <ServiceWorkerRegistration />
+      </body>
     </html>
   );
 }
