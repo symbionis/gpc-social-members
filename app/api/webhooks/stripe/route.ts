@@ -89,9 +89,17 @@ export async function POST(request: NextRequest) {
       is_active: true,
     });
 
-    // TODO: Trigger payment confirmation email via Postmark
-    console.log(
-      `Payment confirmed for member ${memberId}, card ${cardNumber}`
+    // Trigger payment confirmation email
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    fetch(`${appUrl}/api/email/payment-confirmed`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-secret": process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+      },
+      body: JSON.stringify({ member_id: memberId, card_number: cardNumber }),
+    }).catch((err) =>
+      console.error("Failed to trigger payment confirmation email:", err)
     );
   }
 

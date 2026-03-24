@@ -47,6 +47,12 @@ export default function ApplicationQueue({
     });
 
     if (res.ok) {
+      // Trigger welcome email with checkout link (fire and forget)
+      fetch("/api/email/welcome", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_id: memberId }),
+      });
       router.refresh();
     }
     setProcessing(null);
@@ -61,6 +67,12 @@ export default function ApplicationQueue({
     });
 
     if (res.ok) {
+      // Trigger decline email (fire and forget)
+      fetch("/api/email/declined", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_id: memberId, notes: declineNotes }),
+      });
       setShowDeclineModal(null);
       setDeclineNotes("");
       router.refresh();
