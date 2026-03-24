@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   // Get tier's Stripe price ID
   const { data: tiers } = await adminClient
     .from("membership_tiers")
-    .select("id, name, stripe_price_id, price_cents")
+    .select("id, name, stripe_price_id, price_eur")
     .eq("id", member.tier_id)
     .limit(1);
 

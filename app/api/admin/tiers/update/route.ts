@@ -25,15 +25,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { tier_id, name, price_cents, guest_invitation_limit, stripe_price_id, is_active } =
+  const { tier_id, name, price_eur, guest_invitations_per_season, stripe_price_id, is_active } =
     await request.json();
 
   const { error } = await adminClient
     .from("membership_tiers")
     .update({
       name,
-      price_cents,
-      guest_invitation_limit,
+      price_eur,
+      guest_invitations_per_season,
       stripe_price_id: stripe_price_id || null,
       is_active,
     })

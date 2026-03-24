@@ -23,7 +23,7 @@ export default async function MemberDetailPage({
 
   const [{ data: tiers }, { data: payments }, { data: card }, { data: originators }] =
     await Promise.all([
-      supabase.from("membership_tiers").select("id, name, price_cents"),
+      supabase.from("membership_tiers").select("id, name, price_eur"),
       supabase
         .from("payments")
         .select("*")
@@ -44,7 +44,7 @@ export default async function MemberDetailPage({
   const tierMap = Object.fromEntries(
     (tiers || []).map((t: Record<string, unknown>) => [
       t.id,
-      { name: t.name, price_cents: t.price_cents },
+      { name: t.name, price_eur: t.price_eur },
     ])
   );
   const originatorMap = Object.fromEntries(

@@ -6,11 +6,11 @@ import { useRouter } from "next/navigation";
 interface Tier {
   id: string;
   name: string;
-  price_cents: number;
+  price_eur: number;
   category: string;
   stripe_price_id: string | null;
   benefits: unknown;
-  guest_invitation_limit: number;
+  guest_invitations_per_season: number;
   is_active: boolean;
 }
 
@@ -18,12 +18,12 @@ interface TierManagerProps {
   tiers: Tier[];
 }
 
-function formatPrice(cents: number): string {
+function formatPrice(eur: number): string {
   return new Intl.NumberFormat("fr-CH", {
     style: "currency",
     currency: "EUR",
     minimumFractionDigits: 0,
-  }).format(cents / 100);
+  }).format(eur);
 }
 
 export default function TierManager({ tiers }: TierManagerProps) {
@@ -36,8 +36,8 @@ export default function TierManager({ tiers }: TierManagerProps) {
     setEditing(tier.id);
     setEditData({
       name: tier.name,
-      price_cents: tier.price_cents,
-      guest_invitation_limit: tier.guest_invitation_limit,
+      price_eur: tier.price_eur,
+      guest_invitations_per_season: tier.guest_invitations_per_season,
       stripe_price_id: tier.stripe_price_id,
       is_active: tier.is_active,
     });
@@ -82,15 +82,15 @@ export default function TierManager({ tiers }: TierManagerProps) {
                 </div>
                 <div>
                   <label className="block text-xs font-body text-muted-foreground mb-1">
-                    Price (EUR cents)
+                    Price (EUR)
                   </label>
                   <input
                     type="number"
-                    value={editData.price_cents || 0}
+                    value={editData.price_eur || 0}
                     onChange={(e) =>
                       setEditData({
                         ...editData,
-                        price_cents: parseInt(e.target.value),
+                        price_eur: parseInt(e.target.value),
                       })
                     }
                     className="w-full px-3 py-2 border border-border rounded-lg text-sm font-body"
@@ -98,15 +98,15 @@ export default function TierManager({ tiers }: TierManagerProps) {
                 </div>
                 <div>
                   <label className="block text-xs font-body text-muted-foreground mb-1">
-                    Guest Invitation Limit
+                    Guest Invitations per Season
                   </label>
                   <input
                     type="number"
-                    value={editData.guest_invitation_limit || 0}
+                    value={editData.guest_invitations_per_season || 0}
                     onChange={(e) =>
                       setEditData({
                         ...editData,
-                        guest_invitation_limit: parseInt(e.target.value),
+                        guest_invitations_per_season: parseInt(e.target.value),
                       })
                     }
                     className="w-full px-3 py-2 border border-border rounded-lg text-sm font-body"
@@ -175,10 +175,10 @@ export default function TierManager({ tiers }: TierManagerProps) {
                   )}
                 </div>
                 <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground font-body">
-                  <span>{formatPrice(tier.price_cents)}</span>
+                  <span>{formatPrice(tier.price_eur)}</span>
                   <span>
-                    {tier.guest_invitation_limit} guest
-                    {tier.guest_invitation_limit !== 1 ? "s" : ""}
+                    {tier.guest_invitations_per_season} guest
+                    {tier.guest_invitations_per_season !== 1 ? "s" : ""}
                   </span>
                   {tier.stripe_price_id && (
                     <span className="text-xs font-mono">

@@ -11,14 +11,14 @@ interface Application {
   phone: string | null;
   tier_id: string;
   status: string;
-  connection_note: string | null;
+  originator_note: string | null;
   originator_id: string | null;
   created_at: string;
 }
 
 interface ApplicationQueueProps {
   applications: Application[];
-  tierMap: Record<string, { name: string; price_cents: number }>;
+  tierMap: Record<string, { name: string; price_eur: number }>;
   originatorMap: Record<string, string>;
 }
 
@@ -160,13 +160,13 @@ export default function ApplicationQueue({
               </div>
             </div>
 
-            {app.connection_note && (
+            {app.originator_note && (
               <div className="bg-cream rounded-lg p-3 mb-4">
                 <p className="text-xs text-muted-foreground font-body mb-1">
-                  Connection note
+                  Originator note
                 </p>
                 <p className="text-sm font-body text-marine">
-                  {app.connection_note}
+                  {app.originator_note}
                 </p>
               </div>
             )}

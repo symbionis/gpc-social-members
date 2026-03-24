@@ -40,57 +40,61 @@ export async function POST(request: NextRequest) {
     const { data: existingPayments } = await supabase
       .from("payments")
       .select("id")
-      .eq("stripe_session_id", session.id)
+      .eq("stripe_checkout_session_id", session.id)
       .limit(1);
 
     if (existingPayments && existingPayments.length > 0) {
       return NextResponse.json({ received: true, already_processed: true });
     }
 
-    // Get current season
-    const { data: seasons } = await supabase
-      .from("seasons")
-      .select("id, end_date")
-      .gte("end_date", new Date().toISOString().slice(0, 10))
-      .order("start_date", { ascending: true })
+    // Get member's tier_id for the payment and card records
+    const { data: memberData } = await supabase
+      .from("members")
+      .select("tier_id")
+      .eq("id", memberId)
       .limit(1);
 
-    const season = seasons?.[0];
+    const memberTierId = memberData?.[0]?.tier_id || null;
 
     // Record payment
+    const currentYear = new Date().getFullYear().toString();
     await supabase.from("payments").insert({
       member_id: memberId,
-      season_id: season?.id || null,
-      amount_cents: session.amount_total || 0,
-      status: "paid",
-      stripe_session_id: session.id,
+      tier_id: memberTierId,
+      amount_eur: session.amount_total ? session.amount_total / 100 : 0,
+      payment_status: "paid",
+      stripe_checkout_session_id: session.id,
       stripe_payment_intent_id:
         typeof session.payment_intent === "string"
           ? session.payment_intent
           : null,
+      season: currentYear,
     });
 
     // Activate member
     await supabase
       .from("members")
-      .update({ status: "active", payment_status: "paid" })
+      .update({ status: "active" })
       .eq("id", memberId);
 
     // Generate digital card
     const cardNumber = generateCardNumber();
     const today = new Date().toISOString().slice(0, 10);
-    const validUntil = season?.end_date || `${new Date().getFullYear()}-12-31`;
+    const validUntil = `${new Date().getFullYear()}-12-31`;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const verifyUrl = `${appUrl}/verify/${cardNumber}`;
 
     await supabase.from("membership_cards").insert({
       member_id: memberId,
       card_number: cardNumber,
+      qr_code_data: verifyUrl,
+      tier_id: memberTierId,
       valid_from: today,
       valid_until: validUntil,
       is_active: true,
     });
 
     // Trigger payment confirmation email
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     fetch(`${appUrl}/api/email/payment-confirmed`, {
       method: "POST",
       headers: {

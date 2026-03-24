@@ -10,8 +10,8 @@ interface ProfileFormProps {
     last_name: string;
     email: string;
     phone: string | null;
-    company: string | null;
-    role_title: string | null;
+    company_name: string | null;
+    company_role: string | null;
   };
 }
 
@@ -36,8 +36,8 @@ export default function ProfileForm({ member }: ProfileFormProps) {
         first_name: form.get("first_name"),
         last_name: form.get("last_name"),
         phone: form.get("phone") || null,
-        company: form.get("company") || null,
-        role_title: form.get("role_title") || null,
+        company_name: form.get("company_name") || null,
+        company_role: form.get("company_role") || null,
       }),
     });
 
@@ -124,16 +124,16 @@ export default function ProfileForm({ member }: ProfileFormProps) {
         </div>
         <div>
           <label
-            htmlFor="company"
+            htmlFor="company_name"
             className="block text-sm font-body font-medium text-marine mb-1.5"
           >
             Company
           </label>
           <input
-            id="company"
-            name="company"
+            id="company_name"
+            name="company_name"
             type="text"
-            defaultValue={member.company || ""}
+            defaultValue={member.company_name || ""}
             className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50"
           />
         </div>
@@ -141,16 +141,16 @@ export default function ProfileForm({ member }: ProfileFormProps) {
 
       <div>
         <label
-          htmlFor="role_title"
+          htmlFor="company_role"
           className="block text-sm font-body font-medium text-marine mb-1.5"
         >
           Role
         </label>
         <input
-          id="role_title"
-          name="role_title"
+          id="company_role"
+          name="company_role"
           type="text"
-          defaultValue={member.role_title || ""}
+          defaultValue={member.company_role || ""}
           className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50"
         />
       </div>

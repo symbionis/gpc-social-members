@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
 
   const { data: tiers } = await adminClient
     .from("membership_tiers")
-    .select("name, stripe_price_id, price_cents")
+    .select("name, stripe_price_id, price_eur")
     .eq("id", member.tier_id)
     .limit(1);
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
   let checkoutUrl = "";
 
   // Create Stripe checkout session if tier has a price
-  if (tier?.stripe_price_id && tier.price_cents > 0) {
+  if (tier?.stripe_price_id && tier.price_eur > 0) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     const session = await stripe.checkout.sessions.create({
       mode: "payment",

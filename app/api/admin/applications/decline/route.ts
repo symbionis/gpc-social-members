@@ -48,8 +48,8 @@ export async function POST(request: NextRequest) {
   await adminClient.from("applications").insert({
     member_id,
     reviewed_by: admin.id,
-    decision: "declined",
-    notes: notes || null,
+    status: "declined",
+    review_notes: notes || null,
   });
 
   return NextResponse.json({ success: true });

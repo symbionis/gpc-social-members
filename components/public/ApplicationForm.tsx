@@ -7,9 +7,9 @@ import { useRouter } from "next/navigation";
 interface Tier {
   id: string;
   name: string;
-  price_cents: number;
+  price_eur: number;
   benefits: unknown;
-  guest_invitation_limit: number;
+  guest_invitations_per_season: number;
 }
 
 interface ApplicationFormProps {
@@ -17,12 +17,12 @@ interface ApplicationFormProps {
   tiers: Tier[];
 }
 
-function formatPrice(cents: number): string {
+function formatPrice(eur: number): string {
   return new Intl.NumberFormat("fr-CH", {
     style: "currency",
     currency: "EUR",
     minimumFractionDigits: 0,
-  }).format(cents / 100);
+  }).format(eur);
 }
 
 export default function ApplicationForm({
@@ -45,9 +45,9 @@ export default function ApplicationForm({
     const lastName = form.get("last_name") as string;
     const title = form.get("title") as string;
     const phone = form.get("phone") as string;
-    const company = form.get("company") as string;
-    const roleTitle = form.get("role_title") as string;
-    const connectionNote = form.get("connection_note") as string;
+    const companyName = form.get("company_name") as string;
+    const companyRole = form.get("company_role") as string;
+    const originatorNote = form.get("originator_note") as string;
 
     const supabase = createClient();
 
@@ -82,13 +82,12 @@ export default function ApplicationForm({
       last_name: lastName,
       title: title || null,
       phone: phone || null,
-      company: company || null,
-      role_title: roleTitle || null,
-      connection_note: connectionNote || null,
+      company_name: companyName || null,
+      company_role: companyRole || null,
+      originator_note: originatorNote || null,
       tier_id: selectedTier,
       originator_id: originatorId,
       status: "pending",
-      payment_status: "pending",
     });
 
     setLoading(false);
@@ -130,15 +129,15 @@ export default function ApplicationForm({
                 <span className="font-body font-medium text-marine">
                   {tier.name}
                 </span>
-                {tier.guest_invitation_limit > 0 && (
+                {tier.guest_invitations_per_season > 0 && (
                   <span className="block text-xs text-muted-foreground mt-0.5">
-                    Includes {tier.guest_invitation_limit} guest invitation
-                    {tier.guest_invitation_limit !== 1 ? "s" : ""}
+                    Includes {tier.guest_invitations_per_season} guest invitation
+                    {tier.guest_invitations_per_season !== 1 ? "s" : ""}
                   </span>
                 )}
               </div>
               <span className="font-body font-semibold text-marine">
-                {formatPrice(tier.price_cents)}
+                {formatPrice(tier.price_eur)}
               </span>
             </label>
           ))}
@@ -231,28 +230,28 @@ export default function ApplicationForm({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label
-            htmlFor="company"
+            htmlFor="company_name"
             className="block text-sm font-body font-medium text-marine mb-1.5"
           >
             Company
           </label>
           <input
-            id="company"
-            name="company"
+            id="company_name"
+            name="company_name"
             type="text"
             className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
           />
         </div>
         <div>
           <label
-            htmlFor="role_title"
+            htmlFor="company_role"
             className="block text-sm font-body font-medium text-marine mb-1.5"
           >
             Role
           </label>
           <input
-            id="role_title"
-            name="role_title"
+            id="company_role"
+            name="company_role"
             type="text"
             className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
           />
@@ -261,14 +260,14 @@ export default function ApplicationForm({
 
       <div>
         <label
-          htmlFor="connection_note"
+          htmlFor="originator_note"
           className="block text-sm font-body font-medium text-marine mb-1.5"
         >
           How do you know your host? *
         </label>
         <textarea
-          id="connection_note"
-          name="connection_note"
+          id="originator_note"
+          name="originator_note"
           required
           rows={3}
           className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky resize-none"

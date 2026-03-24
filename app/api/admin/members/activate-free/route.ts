@@ -27,38 +27,43 @@ export async function POST(request: NextRequest) {
 
   const { member_id } = await request.json();
 
-  // Get current season
-  const { data: seasons } = await adminClient
-    .from("seasons")
-    .select("id, end_date")
-    .gte("end_date", new Date().toISOString().slice(0, 10))
-    .order("start_date", { ascending: true })
+  // Get member's tier_id
+  const { data: memberData } = await adminClient
+    .from("members")
+    .select("tier_id")
+    .eq("id", member_id)
     .limit(1);
 
-  const season = seasons?.[0];
+  const memberTierId = memberData?.[0]?.tier_id || null;
 
   // Update member to active
   await adminClient
     .from("members")
-    .update({ status: "active", payment_status: "free" })
+    .update({ status: "active" })
     .eq("id", member_id);
 
   // Create free payment record
+  const currentYear = new Date().getFullYear().toString();
   await adminClient.from("payments").insert({
     member_id,
-    season_id: season?.id || null,
-    amount_cents: 0,
-    status: "free",
+    tier_id: memberTierId,
+    amount_eur: 0,
+    payment_status: "free",
+    season: currentYear,
   });
 
   // Generate card
   const cardNumber = generateCardNumber();
   const today = new Date().toISOString().slice(0, 10);
-  const validUntil = season?.end_date || `${new Date().getFullYear()}-12-31`;
+  const validUntil = `${new Date().getFullYear()}-12-31`;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const verifyUrl = `${appUrl}/verify/${cardNumber}`;
 
   await adminClient.from("membership_cards").insert({
     member_id,
     card_number: cardNumber,
+    qr_code_data: verifyUrl,
+    tier_id: memberTierId,
     valid_from: today,
     valid_until: validUntil,
     is_active: true,

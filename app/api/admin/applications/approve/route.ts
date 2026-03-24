@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
   await adminClient.from("applications").insert({
     member_id,
     reviewed_by: admin.id,
-    decision: "approved",
+    status: "approved",
   });
 
   // Create referral record if originator exists

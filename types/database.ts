@@ -21,6 +21,11 @@ export type PaymentStatus =
   | "overdue"
   | "refunded";
 
+export type ApplicationStatus =
+  | "pending"
+  | "approved"
+  | "declined";
+
 export type AdminRole = "super_admin" | "team_admin";
 
 export type MembershipCategory = "individual" | "corporate";
@@ -32,36 +37,48 @@ export interface Database {
         Row: {
           id: string;
           name: string;
-          price_cents: number;
+          slug: string;
           category: MembershipCategory;
-          stripe_price_id: string | null;
+          price_eur: number;
+          currency: string;
+          company_size_label: string | null;
           benefits: Json | null;
-          guest_invitation_limit: number;
+          guest_invitations_per_season: number;
+          stripe_price_id: string | null;
           is_active: boolean;
+          sort_order: number;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
           name: string;
-          price_cents: number;
+          slug: string;
           category: MembershipCategory;
-          stripe_price_id?: string | null;
+          price_eur: number;
+          currency?: string;
+          company_size_label?: string | null;
           benefits?: Json | null;
-          guest_invitation_limit?: number;
+          guest_invitations_per_season?: number;
+          stripe_price_id?: string | null;
           is_active?: boolean;
+          sort_order?: number;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
           name?: string;
-          price_cents?: number;
+          slug?: string;
           category?: MembershipCategory;
-          stripe_price_id?: string | null;
+          price_eur?: number;
+          currency?: string;
+          company_size_label?: string | null;
           benefits?: Json | null;
-          guest_invitation_limit?: number;
+          guest_invitations_per_season?: number;
+          stripe_price_id?: string | null;
           is_active?: boolean;
+          sort_order?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -77,6 +94,7 @@ export interface Database {
           is_originator: boolean;
           is_approval_committee: boolean;
           invite_code: string | null;
+          invite_link_active: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -90,6 +108,7 @@ export interface Database {
           is_originator?: boolean;
           is_approval_committee?: boolean;
           invite_code?: string | null;
+          invite_link_active?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -103,6 +122,7 @@ export interface Database {
           is_originator?: boolean;
           is_approval_committee?: boolean;
           invite_code?: string | null;
+          invite_link_active?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -111,21 +131,27 @@ export interface Database {
         Row: {
           id: string;
           auth_user_id: string | null;
-          email: string;
+          member_number: string | null;
           title: string | null;
           first_name: string;
           last_name: string;
+          email: string;
           phone: string | null;
-          company: string | null;
-          role_title: string | null;
-          member_number: string | null;
+          address: Json | null;
+          company_name: string | null;
+          company_role: string | null;
+          profile_photo_url: string | null;
           tier_id: string;
           status: MemberStatus;
-          payment_status: PaymentStatus;
           originator_id: string | null;
-          season_id: string | null;
+          originator_note: string | null;
+          approved_by: string | null;
+          approved_at: string | null;
+          declined_reason: string | null;
+          start_date: string | null;
+          end_date: string | null;
           is_migrated: boolean;
-          connection_note: string | null;
+          communication_preferences: Json | null;
           metadata: Json | null;
           created_at: string;
           updated_at: string;
@@ -133,21 +159,27 @@ export interface Database {
         Insert: {
           id?: string;
           auth_user_id?: string | null;
-          email: string;
+          member_number?: string | null;
           title?: string | null;
           first_name: string;
           last_name: string;
+          email: string;
           phone?: string | null;
-          company?: string | null;
-          role_title?: string | null;
-          member_number?: string | null;
+          address?: Json | null;
+          company_name?: string | null;
+          company_role?: string | null;
+          profile_photo_url?: string | null;
           tier_id: string;
           status?: MemberStatus;
-          payment_status?: PaymentStatus;
           originator_id?: string | null;
-          season_id?: string | null;
+          originator_note?: string | null;
+          approved_by?: string | null;
+          approved_at?: string | null;
+          declined_reason?: string | null;
+          start_date?: string | null;
+          end_date?: string | null;
           is_migrated?: boolean;
-          connection_note?: string | null;
+          communication_preferences?: Json | null;
           metadata?: Json | null;
           created_at?: string;
           updated_at?: string;
@@ -155,21 +187,27 @@ export interface Database {
         Update: {
           id?: string;
           auth_user_id?: string | null;
-          email?: string;
+          member_number?: string | null;
           title?: string | null;
           first_name?: string;
           last_name?: string;
+          email?: string;
           phone?: string | null;
-          company?: string | null;
-          role_title?: string | null;
-          member_number?: string | null;
+          address?: Json | null;
+          company_name?: string | null;
+          company_role?: string | null;
+          profile_photo_url?: string | null;
           tier_id?: string;
           status?: MemberStatus;
-          payment_status?: PaymentStatus;
           originator_id?: string | null;
-          season_id?: string | null;
+          originator_note?: string | null;
+          approved_by?: string | null;
+          approved_at?: string | null;
+          declined_reason?: string | null;
+          start_date?: string | null;
+          end_date?: string | null;
           is_migrated?: boolean;
-          connection_note?: string | null;
+          communication_preferences?: Json | null;
           metadata?: Json | null;
           created_at?: string;
           updated_at?: string;
@@ -179,33 +217,51 @@ export interface Database {
         Row: {
           id: string;
           member_id: string;
-          season_id: string | null;
-          amount_cents: number;
-          status: PaymentStatus;
-          stripe_session_id: string | null;
+          tier_id: string | null;
+          amount_eur: number;
+          currency: string;
+          payment_status: PaymentStatus;
           stripe_payment_intent_id: string | null;
+          stripe_checkout_session_id: string | null;
+          stripe_invoice_id: string | null;
+          payment_method: string | null;
+          paid_at: string | null;
+          notes: string | null;
+          season: string | null;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
           member_id: string;
-          season_id?: string | null;
-          amount_cents: number;
-          status?: PaymentStatus;
-          stripe_session_id?: string | null;
+          tier_id?: string | null;
+          amount_eur: number;
+          currency?: string;
+          payment_status?: PaymentStatus;
           stripe_payment_intent_id?: string | null;
+          stripe_checkout_session_id?: string | null;
+          stripe_invoice_id?: string | null;
+          payment_method?: string | null;
+          paid_at?: string | null;
+          notes?: string | null;
+          season?: string | null;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
           member_id?: string;
-          season_id?: string | null;
-          amount_cents?: number;
-          status?: PaymentStatus;
-          stripe_session_id?: string | null;
+          tier_id?: string | null;
+          amount_eur?: number;
+          currency?: string;
+          payment_status?: PaymentStatus;
           stripe_payment_intent_id?: string | null;
+          stripe_checkout_session_id?: string | null;
+          stripe_invoice_id?: string | null;
+          payment_method?: string | null;
+          paid_at?: string | null;
+          notes?: string | null;
+          season?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -215,6 +271,8 @@ export interface Database {
           id: string;
           member_id: string;
           card_number: string;
+          qr_code_data: string | null;
+          tier_id: string | null;
           valid_from: string;
           valid_until: string;
           is_active: boolean;
@@ -224,6 +282,8 @@ export interface Database {
           id?: string;
           member_id: string;
           card_number: string;
+          qr_code_data?: string | null;
+          tier_id?: string | null;
           valid_from: string;
           valid_until: string;
           is_active?: boolean;
@@ -233,6 +293,8 @@ export interface Database {
           id?: string;
           member_id?: string;
           card_number?: string;
+          qr_code_data?: string | null;
+          tier_id?: string | null;
           valid_from?: string;
           valid_until?: string;
           is_active?: boolean;
@@ -243,25 +305,28 @@ export interface Database {
         Row: {
           id: string;
           member_id: string;
+          status: ApplicationStatus;
           reviewed_by: string | null;
-          decision: string;
-          notes: string | null;
+          review_notes: string | null;
+          reviewed_at: string | null;
           created_at: string;
         };
         Insert: {
           id?: string;
           member_id: string;
+          status?: ApplicationStatus;
           reviewed_by?: string | null;
-          decision: string;
-          notes?: string | null;
+          review_notes?: string | null;
+          reviewed_at?: string | null;
           created_at?: string;
         };
         Update: {
           id?: string;
           member_id?: string;
+          status?: ApplicationStatus;
           reviewed_by?: string | null;
-          decision?: string;
-          notes?: string | null;
+          review_notes?: string | null;
+          reviewed_at?: string | null;
           created_at?: string;
         };
       };
@@ -285,33 +350,11 @@ export interface Database {
           created_at?: string;
         };
       };
-      seasons: {
-        Row: {
-          id: string;
-          year: number;
-          start_date: string;
-          end_date: string;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          year: number;
-          start_date: string;
-          end_date: string;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          year?: number;
-          start_date?: string;
-          end_date?: string;
-          created_at?: string;
-        };
-      };
     };
     Enums: {
       member_status: MemberStatus;
       payment_status: PaymentStatus;
+      application_status: ApplicationStatus;
       admin_role: AdminRole;
       membership_category: MembershipCategory;
     };

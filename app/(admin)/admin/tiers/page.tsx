@@ -7,7 +7,7 @@ export default async function TiersPage() {
   const { data: tiers } = await supabase
     .from("membership_tiers")
     .select("*")
-    .order("price_cents", { ascending: true });
+    .order("price_eur", { ascending: true });
 
   return (
     <div>

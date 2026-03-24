@@ -11,7 +11,6 @@ interface Member {
   member_number: string | null;
   tier_id: string;
   status: string;
-  payment_status: string;
   originator_id: string | null;
   created_at: string;
 }
@@ -59,7 +58,6 @@ export default function MemberList({
       "Member Number",
       "Tier",
       "Status",
-      "Payment",
       "Originator",
       "Joined",
     ];
@@ -69,7 +67,6 @@ export default function MemberList({
       m.member_number || "",
       tierMap[m.tier_id] || "",
       m.status,
-      m.payment_status,
       m.originator_id ? originatorMap[m.originator_id] || "" : "",
       new Date(m.created_at).toLocaleDateString("en-GB"),
     ]);

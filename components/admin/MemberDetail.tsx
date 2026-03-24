@@ -11,21 +11,20 @@ interface Member {
   last_name: string;
   email: string;
   phone: string | null;
-  company: string | null;
-  role_title: string | null;
+  company_name: string | null;
+  company_role: string | null;
   member_number: string | null;
   tier_id: string;
   status: string;
-  payment_status: string;
   originator_id: string | null;
-  connection_note: string | null;
+  originator_note: string | null;
   metadata: unknown;
   created_at: string;
 }
 
 interface MemberDetailProps {
   member: Member;
-  tierMap: Record<string, { name: string; price_cents: number }>;
+  tierMap: Record<string, { name: string; price_eur: number }>;
   originatorMap: Record<string, string>;
   payments: Record<string, unknown>[];
   card: Record<string, unknown> | null;
@@ -41,12 +40,12 @@ const statusColors: Record<string, string> = {
   declined: "bg-red-50 text-red-600",
 };
 
-function formatPrice(cents: number): string {
+function formatPrice(eur: number): string {
   return new Intl.NumberFormat("fr-CH", {
     style: "currency",
     currency: "EUR",
     minimumFractionDigits: 0,
-  }).format(cents / 100);
+  }).format(eur);
 }
 
 export default function MemberDetail({
@@ -183,17 +182,11 @@ export default function MemberDetail({
                   : "—"}
               </p>
             </div>
-            <div>
-              <p className="text-muted-foreground font-body">Payment Status</p>
-              <p className="font-body font-medium text-marine capitalize">
-                {member.payment_status}
-              </p>
-            </div>
-            {member.company && (
+            {member.company_name && (
               <div>
                 <p className="text-muted-foreground font-body">Company</p>
                 <p className="font-body font-medium text-marine">
-                  {member.company}
+                  {member.company_name}
                 </p>
               </div>
             )}
@@ -207,13 +200,13 @@ export default function MemberDetail({
             </div>
           </div>
 
-          {member.connection_note && (
+          {member.originator_note && (
             <div className="bg-cream rounded-lg p-3 mb-6">
               <p className="text-xs text-muted-foreground font-body mb-1">
-                Connection note
+                Originator note
               </p>
               <p className="text-sm font-body text-marine">
-                {member.connection_note}
+                {member.originator_note}
               </p>
             </div>
           )}
@@ -300,7 +293,7 @@ export default function MemberDetail({
                   >
                     <div>
                       <p className="font-body text-marine">
-                        {formatPrice(p.amount_cents as number)}
+                        {formatPrice(p.amount_eur as number)}
                       </p>
                       <p className="text-xs text-muted-foreground font-body">
                         {new Date(p.created_at as string).toLocaleDateString(
@@ -309,7 +302,7 @@ export default function MemberDetail({
                       </p>
                     </div>
                     <span className="text-xs font-body capitalize text-muted-foreground">
-                      {p.status as string}
+                      {p.payment_status as string}
                     </span>
                   </div>
                 ))}

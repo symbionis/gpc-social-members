@@ -24,7 +24,7 @@ export default async function AdminDashboardPage() {
       .select("*", { count: "exact", head: true }),
     supabase
       .from("membership_tiers")
-      .select("id, name, price_cents, category"),
+      .select("id, name, price_eur, category"),
     supabase
       .from("members")
       .select("id, first_name, last_name, email, status, created_at")

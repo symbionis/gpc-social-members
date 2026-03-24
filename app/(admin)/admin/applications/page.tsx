@@ -7,7 +7,7 @@ export default async function ApplicationsPage() {
   const { data: applications } = await supabase
     .from("members")
     .select(
-      "id, first_name, last_name, email, phone, tier_id, status, connection_note, originator_id, created_at"
+      "id, first_name, last_name, email, phone, tier_id, status, originator_note, originator_id, created_at"
     )
     .in("status", ["pending", "approved", "declined"])
     .order("created_at", { ascending: false });
@@ -15,7 +15,7 @@ export default async function ApplicationsPage() {
   // Fetch tier names
   const { data: tiers } = await supabase
     .from("membership_tiers")
-    .select("id, name, price_cents");
+    .select("id, name, price_eur");
 
   // Fetch originator names
   const { data: originators } = await supabase
@@ -26,7 +26,7 @@ export default async function ApplicationsPage() {
   const tierMap = Object.fromEntries(
     (tiers || []).map((t: Record<string, unknown>) => [
       t.id,
-      { name: t.name, price_cents: t.price_cents },
+      { name: t.name, price_eur: t.price_eur },
     ])
   );
   const originatorMap = Object.fromEntries(

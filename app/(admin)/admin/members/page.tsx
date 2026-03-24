@@ -7,7 +7,7 @@ export default async function MembersPage() {
   const { data: members } = await supabase
     .from("members")
     .select(
-      "id, first_name, last_name, email, member_number, tier_id, status, payment_status, originator_id, created_at, updated_at"
+      "id, first_name, last_name, email, member_number, tier_id, status, originator_id, created_at, updated_at"
     )
     .order("created_at", { ascending: false });
 

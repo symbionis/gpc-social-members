@@ -21,8 +21,8 @@ export async function POST(request: NextRequest) {
       first_name: body.first_name,
       last_name: body.last_name,
       phone: body.phone,
-      company: body.company,
-      role_title: body.role_title,
+      company_name: body.company_name,
+      company_role: body.company_role,
     })
     .eq("email", user.email);
 

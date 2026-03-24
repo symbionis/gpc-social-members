@@ -16,7 +16,7 @@ export default async function MemberDashboardPage() {
   const { data: members } = await adminClient
     .from("members")
     .select(
-      "id, first_name, last_name, status, payment_status, tier_id, member_number"
+      "id, first_name, last_name, status, tier_id, member_number"
     )
     .eq("email", user.email)
     .limit(1);
@@ -27,7 +27,7 @@ export default async function MemberDashboardPage() {
   // Get tier info
   const { data: tiers } = await adminClient
     .from("membership_tiers")
-    .select("id, name, benefits, guest_invitation_limit")
+    .select("id, name, benefits, guest_invitations_per_season")
     .eq("id", member.tier_id)
     .limit(1);
 
@@ -97,10 +97,10 @@ export default async function MemberDashboardPage() {
               <p className="font-body font-semibold text-marine text-lg">
                 {tier.name}
               </p>
-              {tier.guest_invitation_limit > 0 && (
+              {tier.guest_invitations_per_season > 0 && (
                 <p className="text-xs text-muted-foreground font-body mt-1">
-                  {tier.guest_invitation_limit} guest invitation
-                  {tier.guest_invitation_limit !== 1 ? "s" : ""} per season
+                  {tier.guest_invitations_per_season} guest invitation
+                  {tier.guest_invitations_per_season !== 1 ? "s" : ""} per season
                 </p>
               )}
             </div>
