@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand Colors */
+  --color-marine: #052938;
+  --color-marine-light: #0a3d54;
+  --color-marine-dark: #031c26;
+  --color-sky: #95CEE1;
+  --color-sky-light: #b8dfe9;
+  --color-sky-dark: #6bb8d4;
+  --color-accent-red: #D42A1F;
+  --color-cream: #F8F6F2;
+
+  /* Shadcn/ui compatible tokens */
+  --color-background: #FFFFFF;
+  --color-foreground: #052938;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #052938;
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #052938;
+  --color-primary: #052938;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #95CEE1;
+  --color-secondary-foreground: #052938;
+  --color-muted: #F8F6F2;
+  --color-muted-foreground: #5a6b75;
+  --color-accent: #95CEE1;
+  --color-accent-foreground: #052938;
+  --color-destructive: #D42A1F;
+  --color-destructive-foreground: #FFFFFF;
+  --color-border: #e2e4e7;
+  --color-input: #e2e4e7;
+  --color-ring: #95CEE1;
+
+  --radius-lg: 0.75rem;
+  --radius-md: 0.5rem;
+  --radius-sm: 0.25rem;
+
+  /* Fonts */
+  --font-heading: "Playfair Display", serif;
+  --font-body: "Poppins", sans-serif;
+  --font-accent: "Teko", sans-serif;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+}
