@@ -23,6 +23,9 @@ self.addEventListener("activate", (event) => {
 
 // Fetch: network-first for API, cache-first for card page and static assets
 self.addEventListener("fetch", (event) => {
+  // Skip non-http(s) requests (chrome-extension://, etc.)
+  if (!event.request.url.startsWith("http")) return;
+
   const url = new URL(event.request.url);
 
   // Network-first for API calls
