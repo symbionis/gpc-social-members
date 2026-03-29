@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { submitApplication } from "@/app/(public)/apply/[invite_code]/actions";
 import { useRouter } from "next/navigation";
 
 interface Tier {
@@ -108,47 +108,23 @@ export default function ApplicationForm({
     const companyRole = form.get("company_role") as string;
     const originatorNote = form.get("originator_note") as string;
 
-    const supabase = createClient();
-
-    // Check for duplicate email
-    const { data: existing } = await supabase
-      .from("members")
-      .select("id, status")
-      .eq("email", email)
-      .limit(1);
-
-    if (existing && existing.length > 0) {
-      setLoading(false);
-      const member = existing[0];
-      if (member.status === "active") {
-        setError("This email is already associated with an active membership.");
-      } else if (member.status === "pending") {
-        setError("An application with this email is already under review.");
-      } else {
-        setError("This email is already in our system. Please contact the club for assistance.");
-      }
-      return;
-    }
-
-    // Insert application
-    const { error: insertError } = await supabase.from("members").insert({
+    const result = await submitApplication({
       email,
-      first_name: firstName,
-      last_name: lastName,
-      title: title || null,
-      phone: phone || null,
-      company_name: companyName || null,
-      company_role: companyRole || null,
-      originator_note: originatorNote || null,
-      tier_id: selectedTier,
-      originator_id: originatorId,
-      status: "pending",
+      firstName,
+      lastName,
+      title,
+      phone,
+      companyName,
+      companyRole,
+      originatorNote,
+      tierId: selectedTier,
+      originatorId,
     });
 
     setLoading(false);
 
-    if (insertError) {
-      setError("Something went wrong. Please try again.");
+    if (result.error) {
+      setError(result.error);
       return;
     }
 
