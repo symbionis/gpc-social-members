@@ -1,6 +1,13 @@
 const CACHE_NAME = "gpc-card-v1";
 const CARD_URLS = ["/card"];
 
+// Only cache the card page HTML — never cache JS/CSS bundles.
+// Next.js JS/CSS filenames include content hashes, so stale cache = broken app.
+const CACHEABLE = (url) => {
+  const { pathname } = new URL(url);
+  return pathname === "/card";
+};
+
 // Install: cache card page shell
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -36,11 +43,14 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Cache-first for card page and static assets
+  // Cache-first only for the card page HTML — everything else goes straight to network
+  if (!CACHEABLE(event.request.url)) {
+    return; // Let browser handle it normally
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const fetched = fetch(event.request).then((response) => {
-        // Update cache with fresh response
         if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
