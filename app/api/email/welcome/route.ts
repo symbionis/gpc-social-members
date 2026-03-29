@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 import { NextResponse, type NextRequest } from "next/server";
 
 // Send welcome email with Stripe checkout link after approval
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
   // Create Stripe checkout session if tier has a price
   if (tier?.stripe_price_id && tier.price_eur > 0) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
       customer_email: member.email,
