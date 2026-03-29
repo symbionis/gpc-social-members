@@ -53,15 +53,20 @@ export async function submitApplication(data: {
     return { error: insertError.message };
   }
 
-  // Send confirmation email — non-blocking, failure doesn't affect the result
-  await sendEmail({
+  // Send confirmation email
+  const emailResult = await sendEmail({
     to: data.email,
     templateAlias: "application-received",
     templateModel: {
       first_name: data.firstName,
       last_name: data.lastName,
+      preheader: "We've received your application to the Geneva Polo Club Social Member Club.",
     },
   });
+
+  if (!emailResult.success) {
+    console.error("application-received email failed:", emailResult.error);
+  }
 
   return { error: null };
 }
