@@ -8,7 +8,9 @@ import { NextResponse, type NextRequest } from "next/server";
 // Also handles post-auth routing (admin vs member) in one step
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
+  // APP_URL is a runtime env var (not inlined at build like NEXT_PUBLIC_APP_URL)
   const origin =
+    process.env.APP_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
     (() => {
       const proto = request.headers.get("x-forwarded-proto") ?? "https";
