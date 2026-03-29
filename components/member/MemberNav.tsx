@@ -33,7 +33,7 @@ export default function MemberNav({ member }: MemberNavProps) {
       <div className="mx-auto max-w-4xl px-4 py-4 flex items-center justify-between">
         <div className="flex items-center gap-8">
           <Link href="/dashboard" className="font-heading text-lg font-bold">
-            Geneva Polo Club
+            Geneva Polo Social Members Club
           </Link>
           <nav className="hidden sm:flex items-center gap-1">
             {navLinks.map((link) => (

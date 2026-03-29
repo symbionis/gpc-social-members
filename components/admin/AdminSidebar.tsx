@@ -50,7 +50,7 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
   return (
     <aside className="w-64 bg-marine text-white flex flex-col min-h-screen">
       <div className="p-6 border-b border-white/10">
-        <h1 className="font-heading text-lg font-bold">Geneva Polo Club</h1>
+        <h1 className="font-heading text-lg font-bold">Geneva Polo Social Members Club</h1>
         <p className="text-xs text-white/50 font-body mt-1">Administration</p>
       </div>
       <nav className="flex-1 p-4 space-y-1">

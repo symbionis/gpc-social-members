@@ -54,8 +54,11 @@ export async function POST(request: NextRequest) {
 
   // Generate card
   const cardNumber = generateCardNumber();
-  const today = new Date().toISOString().slice(0, 10);
-  const validUntil = `${new Date().getFullYear()}-12-31`;
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const validUntilDate = new Date(now);
+  validUntilDate.setFullYear(validUntilDate.getFullYear() + 1);
+  const validUntil = validUntilDate.toISOString().slice(0, 10);
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const verifyUrl = `${appUrl}/verify/${cardNumber}`;
 

@@ -10,7 +10,7 @@ export default function PublicLayout({
       <header className="border-b border-border/40">
         <div className="mx-auto max-w-5xl px-6 py-4 flex items-center justify-between">
           <Link href="/" className="font-heading text-xl font-bold text-marine">
-            Geneva Polo Club
+            Geneva Polo Social Members Club
           </Link>
           <Link
             href="/login"
