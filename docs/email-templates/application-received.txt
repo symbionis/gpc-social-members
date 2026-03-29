@@ -1,0 +1,11 @@
+Dear {{first_name}},
+
+Thank you for your interest in joining the Geneva Polo Social Members Club. We have received your application for the {{tier_name}} membership.
+
+Our membership committee will review your application and you will hear from us shortly with the outcome.
+
+Warm regards,
+The Geneva Polo Social Members Club Team
+
+---
+Geneva Polo Social Members Club

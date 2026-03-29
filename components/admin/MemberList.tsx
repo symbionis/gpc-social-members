@@ -12,6 +12,8 @@ interface Member {
   tier_id: string;
   status: string;
   originator_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
   created_at: string;
 }
 
@@ -30,11 +32,16 @@ const statusColors: Record<string, string> = {
   declined: "bg-red-50 text-red-600",
 };
 
-export default function MemberList({
-  members,
-  tierMap,
-  originatorMap,
-}: MemberListProps) {
+function formatDate(d: string | null) {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+export default function MemberList({ members, tierMap, originatorMap }: MemberListProps) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [tierFilter, setTierFilter] = useState("all");
@@ -45,28 +52,21 @@ export default function MemberList({
       `${m.first_name} ${m.last_name} ${m.email} ${m.member_number || ""}`
         .toLowerCase()
         .includes(search.toLowerCase());
-    const matchesStatus =
-      statusFilter === "all" || m.status === statusFilter;
+    const matchesStatus = statusFilter === "all" || m.status === statusFilter;
     const matchesTier = tierFilter === "all" || m.tier_id === tierFilter;
     return matchesSearch && matchesStatus && matchesTier;
   });
 
   function exportCSV() {
-    const headers = [
-      "Name",
-      "Email",
-      "Member Number",
-      "Tier",
-      "Status",
-      "Originator",
-      "Joined",
-    ];
+    const headers = ["Name", "Email", "Member Number", "Tier", "Status", "Start Date", "End Date", "Originator", "Joined"];
     const rows = filtered.map((m) => [
       `${m.first_name} ${m.last_name}`,
       m.email,
       m.member_number || "",
       tierMap[m.tier_id] || "",
       m.status,
+      m.start_date || "",
+      m.end_date || "",
       m.originator_id ? originatorMap[m.originator_id] || "" : "",
       new Date(m.created_at).toLocaleDateString("en-GB"),
     ]);
@@ -103,6 +103,7 @@ export default function MemberList({
           <option value="pending">Pending</option>
           <option value="approved">Approved</option>
           <option value="expired">Expired</option>
+          <option value="suspended">Suspended</option>
           <option value="declined">Declined</option>
         </select>
         <select
@@ -135,24 +136,13 @@ export default function MemberList({
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-cream border-b border-border">
-                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">
-                  Name
-                </th>
-                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">
-                  Email
-                </th>
-                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">
-                  Tier
-                </th>
-                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">
-                  Status
-                </th>
-                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">
-                  Originator
-                </th>
-                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">
-                  Joined
-                </th>
+                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">Name</th>
+                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">Email</th>
+                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">Tier</th>
+                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">Status</th>
+                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">Membership Period</th>
+                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">Originator</th>
+                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">Joined</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -171,23 +161,24 @@ export default function MemberList({
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 font-body text-muted-foreground">
-                    {m.email}
-                  </td>
-                  <td className="px-4 py-3 font-body text-marine">
-                    {tierMap[m.tier_id] || "—"}
-                  </td>
+                  <td className="px-4 py-3 font-body text-muted-foreground">{m.email}</td>
+                  <td className="px-4 py-3 font-body text-marine">{tierMap[m.tier_id] || "—"}</td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-body font-medium ${statusColors[m.status] || "bg-gray-100 text-gray-600"}`}
-                    >
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-body font-medium ${statusColors[m.status] || "bg-gray-100 text-gray-600"}`}>
                       {m.status}
                     </span>
                   </td>
                   <td className="px-4 py-3 font-body text-muted-foreground">
-                    {m.originator_id
-                      ? originatorMap[m.originator_id] || "—"
-                      : "—"}
+                    {m.start_date || m.end_date ? (
+                      <span className="text-xs">
+                        {formatDate(m.start_date)} — {formatDate(m.end_date)}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 font-body text-muted-foreground">
+                    {m.originator_id ? originatorMap[m.originator_id] || "—" : "—"}
                   </td>
                   <td className="px-4 py-3 font-body text-muted-foreground">
                     {new Date(m.created_at).toLocaleDateString("en-GB")}

@@ -1,0 +1,22 @@
+Dear {{first_name}},
+
+Your payment has been confirmed and your {{tier_name}} membership is now active. Welcome to the club.
+
+YOUR MEMBERSHIP CARD
+--------------------
+Name:          {{first_name}} {{last_name}}
+Membership:    {{tier_name}}
+Member No.:    {{member_number}}
+Card No.:      {{card_number}}
+
+Access your digital membership card and member portal anytime by signing in:
+
+{{portal_url}}
+
+We look forward to seeing you fieldside this season.
+
+Warm regards,
+The Geneva Polo Social Members Club Team
+
+---
+Geneva Polo Social Members Club

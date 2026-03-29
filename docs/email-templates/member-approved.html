@@ -1,0 +1,14 @@
+<h1>Welcome, {{first_name}}</h1>
+<p>We are delighted to inform you that your application to the Geneva Polo Social Members Club has been approved.</p>
+<p>You have been accepted as a <strong>{{tier_name}}</strong> member.</p>
+{{#has_payment}}
+<p>To complete your membership and receive your digital membership card, please proceed with the payment below.</p>
+<p style="text-align: center; margin: 32px 0;">
+  <a href="{{{checkout_url}}}" class="button">Complete Payment</a>
+</p>
+{{/has_payment}}
+{{^has_payment}}
+<p>Your membership is now active. You can access your member portal and digital card by signing in.</p>
+{{/has_payment}}
+<p>We look forward to welcoming you fieldside this season.</p>
+<p>Warm regards,<br><strong>The Geneva Polo Social Members Club Team</strong></p>

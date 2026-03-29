@@ -36,13 +36,22 @@ export default async function ApplyPage({ params }: ApplyPageProps) {
     );
   }
 
-  // Fetch individual tiers for the form
-  const { data: tiers } = await supabase
-    .from("membership_tiers")
-    .select("id, name, price_eur, benefits, guest_invitations_per_season")
-    .eq("category", "individual")
-    .eq("is_active", true)
-    .order("price_eur", { ascending: true });
+  // Fetch tiers — individual (excluding Honorary) and corporate separately
+  const [{ data: individualTiers }, { data: corporateTiers }] = await Promise.all([
+    supabase
+      .from("membership_tiers")
+      .select("id, name, price_eur, benefits, guest_invitations_per_season")
+      .eq("category", "individual")
+      .eq("is_active", true)
+      .neq("name", "Honorary Member")
+      .order("price_eur", { ascending: true }),
+    supabase
+      .from("membership_tiers")
+      .select("id, name, price_eur, benefits, guest_invitations_per_season")
+      .eq("category", "corporate")
+      .eq("is_active", true)
+      .order("price_eur", { ascending: true }),
+  ]);
 
   return (
     <div className="min-h-[80vh] py-12 px-4">
@@ -65,7 +74,8 @@ export default async function ApplyPage({ params }: ApplyPageProps) {
 
         <ApplicationForm
           originatorId={originator.id}
-          tiers={tiers || []}
+          individualTiers={individualTiers || []}
+          corporateTiers={corporateTiers || []}
         />
       </div>
     </div>

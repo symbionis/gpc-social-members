@@ -14,25 +14,84 @@ interface Tier {
 
 interface ApplicationFormProps {
   originatorId: string;
-  tiers: Tier[];
+  individualTiers: Tier[];
+  corporateTiers: Tier[];
 }
 
 function formatPrice(eur: number): string {
   return new Intl.NumberFormat("fr-CH", {
     style: "currency",
-    currency: "EUR",
+    currency: "CHF",
     minimumFractionDigits: 0,
   }).format(eur);
 }
 
+function TierSelector({
+  tiers,
+  selectedTier,
+  onChange,
+}: {
+  tiers: Tier[];
+  selectedTier: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <fieldset>
+      <legend className="block text-sm font-body font-medium text-marine mb-3">
+        Membership Tier
+      </legend>
+      <div className="grid gap-3">
+        {tiers.map((tier) => (
+          <label
+            key={tier.id}
+            className={`relative flex items-center justify-between p-4 rounded-lg border-2 cursor-pointer transition-colors ${
+              selectedTier === tier.id
+                ? "border-sky bg-sky/5"
+                : "border-border hover:border-sky/50"
+            }`}
+          >
+            <input
+              type="radio"
+              name="tier_id"
+              value={tier.id}
+              checked={selectedTier === tier.id}
+              onChange={() => onChange(tier.id)}
+              className="sr-only"
+            />
+            <div>
+              <span className="font-body font-medium text-marine">
+                {tier.name}
+              </span>
+              {tier.guest_invitations_per_season > 0 && (
+                <span className="block text-xs text-muted-foreground mt-0.5">
+                  Includes {tier.guest_invitations_per_season} guest invitation
+                  {tier.guest_invitations_per_season !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+            <span className="font-body font-semibold text-marine">
+              {formatPrice(tier.price_eur)}
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 export default function ApplicationForm({
   originatorId,
-  tiers,
+  individualTiers,
+  corporateTiers,
 }: ApplicationFormProps) {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<"individual" | "corporate">("individual");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTier, setSelectedTier] = useState(tiers[0]?.id || "");
+  const [selectedIndividualTier, setSelectedIndividualTier] = useState(individualTiers[0]?.id || "");
+  const [selectedCorporateTier, setSelectedCorporateTier] = useState(corporateTiers[0]?.id || "");
+
+  const selectedTier = activeTab === "individual" ? selectedIndividualTier : selectedCorporateTier;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -64,13 +123,9 @@ export default function ApplicationForm({
       if (member.status === "active") {
         setError("This email is already associated with an active membership.");
       } else if (member.status === "pending") {
-        setError(
-          "An application with this email is already under review."
-        );
+        setError("An application with this email is already under review.");
       } else {
-        setError(
-          "This email is already in our system. Please contact the club for assistance."
-        );
+        setError("This email is already in our system. Please contact the club for assistance.");
       }
       return;
     }
@@ -100,199 +155,204 @@ export default function ApplicationForm({
     router.push("/apply/success");
   }
 
+  const isCorporate = activeTab === "corporate";
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Tier Selection */}
-      <fieldset>
-        <legend className="block text-sm font-body font-medium text-marine mb-3">
-          Membership Tier
-        </legend>
-        <div className="grid gap-3">
-          {tiers.map((tier) => (
-            <label
-              key={tier.id}
-              className={`relative flex items-center justify-between p-4 rounded-lg border-2 cursor-pointer transition-colors ${
-                selectedTier === tier.id
-                  ? "border-sky bg-sky/5"
-                  : "border-border hover:border-sky/50"
-              }`}
-            >
-              <input
-                type="radio"
-                name="tier_id"
-                value={tier.id}
-                checked={selectedTier === tier.id}
-                onChange={() => setSelectedTier(tier.id)}
-                className="sr-only"
-              />
-              <div>
-                <span className="font-body font-medium text-marine">
-                  {tier.name}
-                </span>
-                {tier.guest_invitations_per_season > 0 && (
-                  <span className="block text-xs text-muted-foreground mt-0.5">
-                    Includes {tier.guest_invitations_per_season} guest invitation
-                    {tier.guest_invitations_per_season !== 1 ? "s" : ""}
-                  </span>
-                )}
-              </div>
-              <span className="font-body font-semibold text-marine">
-                {formatPrice(tier.price_eur)}
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
-      {/* Personal Details */}
-      <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr_1fr] gap-4">
-        <div>
-          <label
-            htmlFor="title"
-            className="block text-sm font-body font-medium text-marine mb-1.5"
-          >
-            Title
-          </label>
-          <select
-            id="title"
-            name="title"
-            className="w-full px-3 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
-          >
-            <option value="">—</option>
-            <option value="Mr">Mr</option>
-            <option value="Mrs">Mrs</option>
-          </select>
-        </div>
-        <div>
-          <label
-            htmlFor="first_name"
-            className="block text-sm font-body font-medium text-marine mb-1.5"
-          >
-            First Name *
-          </label>
-          <input
-            id="first_name"
-            name="first_name"
-            type="text"
-            required
-            className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
-          />
-        </div>
-        <div>
-          <label
-            htmlFor="last_name"
-            className="block text-sm font-body font-medium text-marine mb-1.5"
-          >
-            Last Name *
-          </label>
-          <input
-            id="last_name"
-            name="last_name"
-            type="text"
-            required
-            className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label
-            htmlFor="email"
-            className="block text-sm font-body font-medium text-marine mb-1.5"
-          >
-            Email *
-          </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            required
-            className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
-          />
-        </div>
-        <div>
-          <label
-            htmlFor="phone"
-            className="block text-sm font-body font-medium text-marine mb-1.5"
-          >
-            Phone
-          </label>
-          <input
-            id="phone"
-            name="phone"
-            type="tel"
-            className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label
-            htmlFor="company_name"
-            className="block text-sm font-body font-medium text-marine mb-1.5"
-          >
-            Company
-          </label>
-          <input
-            id="company_name"
-            name="company_name"
-            type="text"
-            className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
-          />
-        </div>
-        <div>
-          <label
-            htmlFor="company_role"
-            className="block text-sm font-body font-medium text-marine mb-1.5"
-          >
-            Role
-          </label>
-          <input
-            id="company_role"
-            name="company_role"
-            type="text"
-            className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
-          />
-        </div>
-      </div>
-
-      <div>
-        <label
-          htmlFor="originator_note"
-          className="block text-sm font-body font-medium text-marine mb-1.5"
+    <div>
+      {/* Tab switcher */}
+      <div className="flex rounded-lg border border-border overflow-hidden mb-8">
+        <button
+          type="button"
+          onClick={() => { setActiveTab("individual"); setError(null); }}
+          className={`flex-1 py-3 text-sm font-body font-medium transition-colors ${
+            activeTab === "individual"
+              ? "bg-marine text-white"
+              : "bg-white text-marine hover:bg-marine/5"
+          }`}
         >
-          How do you know your host? *
-        </label>
-        <textarea
-          id="originator_note"
-          name="originator_note"
-          required
-          rows={3}
-          className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky resize-none"
-          placeholder="A brief note about your connection..."
-        />
+          Individual
+        </button>
+        <button
+          type="button"
+          onClick={() => { setActiveTab("corporate"); setError(null); }}
+          className={`flex-1 py-3 text-sm font-body font-medium transition-colors border-l border-border ${
+            activeTab === "corporate"
+              ? "bg-marine text-white"
+              : "bg-white text-marine hover:bg-marine/5"
+          }`}
+        >
+          Corporate
+        </button>
       </div>
 
-      {error && (
-        <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive font-body">
-          {error}
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Tier Selection */}
+        {activeTab === "individual" ? (
+          <TierSelector
+            tiers={individualTiers}
+            selectedTier={selectedIndividualTier}
+            onChange={setSelectedIndividualTier}
+          />
+        ) : (
+          <TierSelector
+            tiers={corporateTiers}
+            selectedTier={selectedCorporateTier}
+            onChange={setSelectedCorporateTier}
+          />
+        )}
+
+        {/* Personal Details */}
+        <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr_1fr] gap-4">
+          <div>
+            <label
+              htmlFor="title"
+              className="block text-sm font-body font-medium text-marine mb-1.5"
+            >
+              Title
+            </label>
+            <select
+              id="title"
+              name="title"
+              className="w-full px-3 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
+            >
+              <option value="">—</option>
+              <option value="Mr">Mr</option>
+              <option value="Mrs">Mrs</option>
+            </select>
+          </div>
+          <div>
+            <label
+              htmlFor="first_name"
+              className="block text-sm font-body font-medium text-marine mb-1.5"
+            >
+              First Name *
+            </label>
+            <input
+              id="first_name"
+              name="first_name"
+              type="text"
+              required
+              className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="last_name"
+              className="block text-sm font-body font-medium text-marine mb-1.5"
+            >
+              Last Name *
+            </label>
+            <input
+              id="last_name"
+              name="last_name"
+              type="text"
+              required
+              className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
+            />
+          </div>
         </div>
-      )}
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full py-3.5 bg-marine text-white rounded-lg font-body font-medium text-sm hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {loading ? "Submitting..." : "Submit Application"}
-      </button>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label
+              htmlFor="email"
+              className="block text-sm font-body font-medium text-marine mb-1.5"
+            >
+              Email *
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              required
+              className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="phone"
+              className="block text-sm font-body font-medium text-marine mb-1.5"
+            >
+              Phone
+            </label>
+            <input
+              id="phone"
+              name="phone"
+              type="tel"
+              className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
+            />
+          </div>
+        </div>
 
-      <p className="text-xs text-center text-muted-foreground font-body">
-        Your application will be reviewed by our membership committee. You will
-        receive an email once a decision has been made.
-      </p>
-    </form>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label
+              htmlFor="company_name"
+              className="block text-sm font-body font-medium text-marine mb-1.5"
+            >
+              Company {isCorporate ? "*" : ""}
+            </label>
+            <input
+              id="company_name"
+              name="company_name"
+              type="text"
+              required={isCorporate}
+              className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="company_role"
+              className="block text-sm font-body font-medium text-marine mb-1.5"
+            >
+              Role {isCorporate ? "*" : ""}
+            </label>
+            <input
+              id="company_role"
+              name="company_role"
+              type="text"
+              required={isCorporate}
+              className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label
+            htmlFor="originator_note"
+            className="block text-sm font-body font-medium text-marine mb-1.5"
+          >
+            How do you know your host? *
+          </label>
+          <textarea
+            id="originator_note"
+            name="originator_note"
+            required
+            rows={3}
+            className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky resize-none"
+            placeholder="A brief note about your connection..."
+          />
+        </div>
+
+        {error && (
+          <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive font-body">
+            {error}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full py-3.5 bg-marine text-white rounded-lg font-body font-medium text-sm hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? "Submitting..." : "Submit Application"}
+        </button>
+
+        <p className="text-xs text-center text-muted-foreground font-body">
+          Your application will be reviewed by our membership committee. You
+          will receive an email once a decision has been made.
+        </p>
+      </form>
+    </div>
   );
 }

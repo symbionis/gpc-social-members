@@ -2,16 +2,12 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse, type NextRequest } from "next/server";
 
-// Auth callback — handles both:
-//   ?token_hash=...&type=... (magic link OTP flow)
-//   ?code=...               (PKCE authorization code flow)
-// Also handles post-auth routing (admin vs member) in one step
+// Member magic link callback — member dashboard takes priority over admin
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type");
   const code = searchParams.get("code");
-  const from = searchParams.get("from"); // "admin" or "member"
 
   if (!token_hash && !code) {
     return NextResponse.redirect(
@@ -19,7 +15,6 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Create a response we can set cookies on
   const response = NextResponse.redirect(`${origin}/login`);
 
   const supabase = createServerClient(
@@ -42,11 +37,9 @@ export async function GET(request: NextRequest) {
   let authError = null;
 
   if (code) {
-    // PKCE authorization code flow (Supabase default email provider)
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     authError = error;
   } else {
-    // Magic link OTP flow (custom SMTP / token_hash)
     const { error } = await supabase.auth.verifyOtp({
       token_hash: token_hash!,
       type: (type ?? "magiclink") as "email" | "magiclink",
@@ -60,71 +53,41 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Password recovery — send to set-new-password page (session already established)
-  if (type === "recovery") {
-    response.headers.set("Location", `${origin}/auth/new-password`);
-    return response;
-  }
-
-  // Get the authenticated user
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user?.email) {
-    return response; // redirects to /login
+    return response;
   }
 
   const adminClient = createAdminClient();
 
   // Link auth_user_id in both tables if needed
-  const { data: adminUsers } = await adminClient
-    .from("admin_users")
-    .select("id, auth_user_id")
-    .eq("email", user.email)
-    .limit(1);
-
-  const adminUser = adminUsers?.[0];
-  if (adminUser && !adminUser.auth_user_id) {
-    await adminClient
-      .from("admin_users")
-      .update({ auth_user_id: user.id })
-      .eq("id", adminUser.id);
-  }
-
-  const { data: members } = await adminClient
-    .from("members")
-    .select("id, auth_user_id")
-    .eq("email", user.email)
-    .limit(1);
+  const [{ data: members }, { data: adminUsers }] = await Promise.all([
+    adminClient.from("members").select("id, auth_user_id").eq("email", user.email).limit(1),
+    adminClient.from("admin_users").select("id, auth_user_id").eq("email", user.email).limit(1),
+  ]);
 
   const member = members?.[0];
+  const adminUser = adminUsers?.[0];
+
   if (member && !member.auth_user_id) {
-    await adminClient
-      .from("members")
-      .update({ auth_user_id: user.id })
-      .eq("id", member.id);
+    await adminClient.from("members").update({ auth_user_id: user.id }).eq("id", member.id);
+  }
+  if (adminUser && !adminUser.auth_user_id) {
+    await adminClient.from("admin_users").update({ auth_user_id: user.id }).eq("id", adminUser.id);
   }
 
-  // Route based on where login was initiated
-  if (from === "admin" && adminUser) {
-    response.headers.set("Location", `${origin}/admin/dashboard`);
-    return response;
-  }
-
-  if (from === "member" && member) {
-    response.headers.set("Location", `${origin}/dashboard`);
-    return response;
-  }
-
-  // Fallback: no "from" param (e.g. old links) — prefer admin if exists
-  if (adminUser) {
-    response.headers.set("Location", `${origin}/admin/dashboard`);
-    return response;
-  }
-
+  // Member portal takes priority — this is the member login path
   if (member) {
     response.headers.set("Location", `${origin}/dashboard`);
+    return response;
+  }
+
+  // Fallback to admin if no member record
+  if (adminUser) {
+    response.headers.set("Location", `${origin}/admin/dashboard`);
     return response;
   }
 

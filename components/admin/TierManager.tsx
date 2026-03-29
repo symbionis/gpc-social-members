@@ -18,12 +18,12 @@ interface TierManagerProps {
   tiers: Tier[];
 }
 
-function formatPrice(eur: number): string {
+function formatPrice(amount: number): string {
   return new Intl.NumberFormat("fr-CH", {
     style: "currency",
-    currency: "EUR",
+    currency: "CHF",
     minimumFractionDigits: 0,
-  }).format(eur);
+  }).format(amount);
 }
 
 export default function TierManager({ tiers }: TierManagerProps) {
@@ -82,7 +82,7 @@ export default function TierManager({ tiers }: TierManagerProps) {
                 </div>
                 <div>
                   <label className="block text-xs font-body text-muted-foreground mb-1">
-                    Price (EUR)
+                    Price (CHF)
                   </label>
                   <input
                     type="number"

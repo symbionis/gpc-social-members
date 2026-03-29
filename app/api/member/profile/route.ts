@@ -23,6 +23,8 @@ export async function POST(request: NextRequest) {
       phone: body.phone,
       company_name: body.company_name,
       company_role: body.company_role,
+      address: body.address ?? null,
+      profile_photo_url: body.profile_photo_url ?? undefined,
     })
     .eq("email", user.email);
 
