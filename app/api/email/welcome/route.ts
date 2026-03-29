@@ -56,7 +56,6 @@ export async function POST(request: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     const session = await getStripe().checkout.sessions.create({
       mode: "payment",
-      payment_method_types: ["card"],
       customer_email: member.email,
       line_items: [{ price: tier.stripe_price_id, quantity: 1 }],
       metadata: { member_id: member.id },
