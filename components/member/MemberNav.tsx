@@ -1,6 +1,6 @@
 "use client";
 
-import { createClient } from "@/lib/supabase/client";
+import { signOut } from "@/app/actions/auth";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -24,8 +24,7 @@ export default function MemberNav({ member }: MemberNavProps) {
   const pathname = usePathname();
 
   async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
+    await signOut();
     router.push("/login");
   }
 

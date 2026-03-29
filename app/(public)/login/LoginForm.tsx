@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { sendMagicLink } from "@/app/actions/auth";
 import { useSearchParams } from "next/navigation";
 
 export default function LoginForm() {
@@ -18,17 +18,11 @@ export default function LoginForm() {
     setLoading(true);
     setError(null);
 
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/member-confirm`,
-      },
-    });
+    const result = await sendMagicLink(email, `${window.location.origin}/auth/member-confirm`);
 
     setLoading(false);
 
-    if (error) {
+    if (result.error) {
       setError("Something went wrong. Please try again.");
       return;
     }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { updatePassword } from "@/app/actions/auth";
 
 export default function NewPasswordForm() {
   const [password, setPassword] = useState("");
@@ -22,11 +22,10 @@ export default function NewPasswordForm() {
     setLoading(true);
     setError(null);
 
-    const supabase = createClient();
-    const { error } = await supabase.auth.updateUser({ password });
+    const result = await updatePassword(password);
 
-    if (error) {
-      setError(error.message);
+    if (result.error) {
+      setError(result.error);
       setLoading(false);
       return;
     }
