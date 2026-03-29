@@ -18,24 +18,15 @@ interface SendEmailOptions {
   to: string;
   templateAlias: string;
   templateModel: Record<string, unknown>;
-  preheader?: string;
 }
 
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://gpc-social-members-production.up.railway.app";
-const LOGO_URL = `${BASE_URL}/images/polo_club_logo.png`;
-
-export async function sendEmail({ to, templateAlias, templateModel, preheader = "" }: SendEmailOptions) {
+export async function sendEmail({ to, templateAlias, templateModel }: SendEmailOptions) {
   try {
     await getClient().sendEmailWithTemplate({
       From: FROM_EMAIL,
       To: to,
       TemplateAlias: templateAlias,
-      TemplateModel: {
-        base_url: BASE_URL,
-        logo_url: LOGO_URL,
-        preheader,
-        ...templateModel,
-      },
+      TemplateModel: templateModel,
     });
     return { success: true };
   } catch (error) {
