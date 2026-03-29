@@ -7,7 +7,14 @@ import { NextResponse, type NextRequest } from "next/server";
 //   ?code=...               (PKCE authorization code flow)
 // Also handles post-auth routing (admin vs member) in one step
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
+  const origin =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (() => {
+      const proto = request.headers.get("x-forwarded-proto") ?? "https";
+      const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+      return `${proto}://${host}`;
+    })();
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type");
   const code = searchParams.get("code");
