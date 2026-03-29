@@ -1,14 +1,14 @@
 <h1>Welcome, {{first_name}}</h1>
-<p>We are delighted to inform you that your application to the Geneva Polo Social Members Club has been approved.</p>
+<p>We are delighted to inform you that your application to the Geneva Polo Club Social Member Club has been approved.</p>
 <p>You have been accepted as a <strong>{{tier_name}}</strong> member.</p>
-{{#has_payment}}
-<p>To complete your membership and receive your digital membership card, please proceed with the payment below.</p>
+{{#checkout_url}}
+<p>To complete your membership and receive your digital membership card, please proceed with payment using the link below.</p>
 <p style="text-align: center; margin: 32px 0;">
-  <a href="{{{checkout_url}}}" class="button">Complete Payment</a>
+  <a href="{{.}}" class="button" style="color: #FFFFFF !important; text-decoration: none; display: inline-block; background-color: #052938; border-radius: 3px; font-family: 'Poppins', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 500; letter-spacing: 1px; text-align: center; padding: 12px 32px; -webkit-text-size-adjust: none;">Complete Payment</a>
 </p>
-{{/has_payment}}
-{{^has_payment}}
-<p>Your membership is now active. You can access your member portal and digital card by signing in.</p>
-{{/has_payment}}
+{{/checkout_url}}
+{{^checkout_url}}
+<p>Your membership is now active. You can access your member portal and digital membership card by signing in.</p>
+{{/checkout_url}}
 <p>We look forward to welcoming you fieldside this season.</p>
-<p>Warm regards,<br><strong>The Geneva Polo Social Members Club Team</strong></p>
+<p>Warm regards,<br><strong>The Geneva Polo Club Team</strong></p>

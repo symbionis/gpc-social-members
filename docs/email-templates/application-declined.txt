@@ -4,7 +4,7 @@ Thank you for your interest in the Geneva Polo Social Members Club. After carefu
 
 {{#notes}}
 Note from the committee:
-{{notes}}
+{{.}}
 
 {{/notes}}
 We appreciate your understanding and wish you all the best.

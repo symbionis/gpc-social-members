@@ -52,6 +52,12 @@ export async function POST(request: NextRequest) {
   let checkoutUrl = "";
 
   // Create Stripe checkout session if tier has a price
+  console.log("[welcome-email] Tier data:", {
+    name: tier?.name,
+    stripe_price_id: tier?.stripe_price_id,
+    price_eur: tier?.price_eur,
+  });
+
   if (tier?.stripe_price_id && tier.price_eur > 0) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     const session = await getStripe().checkout.sessions.create({
@@ -63,18 +69,27 @@ export async function POST(request: NextRequest) {
       cancel_url: `${appUrl}/login?payment=cancelled`,
     });
     checkoutUrl = session.url || "";
+    console.log("[welcome-email] Stripe session created:", {
+      session_id: session.id,
+      url: checkoutUrl,
+    });
+  } else {
+    console.log("[welcome-email] Skipping Stripe — no price_id or price is 0");
   }
+
+  const templateModel = {
+    first_name: member.first_name,
+    last_name: member.last_name,
+    tier_name: tier?.name || "Member",
+    checkout_url: checkoutUrl,
+    has_payment: !!checkoutUrl,
+  };
+  console.log("[welcome-email] Sending email with model:", templateModel);
 
   await sendEmail({
     to: member.email,
     templateAlias: "member-approved",
-    templateModel: {
-      first_name: member.first_name,
-      last_name: member.last_name,
-      tier_name: tier?.name || "Member",
-      checkout_url: checkoutUrl,
-      has_payment: !!checkoutUrl,
-    },
+    templateModel,
   });
 
   return NextResponse.json({ success: true, checkout_url: checkoutUrl });
