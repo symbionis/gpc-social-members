@@ -41,12 +41,18 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Pass Supabase public config via data attributes so the client can read them
+  // at request time. This is the fallback for Railway where NEXT_PUBLIC_ vars
+  // are available at runtime but not baked into the bundle at build time.
   return (
     <html
       lang="en"
       className={`${playfairDisplay.variable} ${poppins.variable} ${teko.variable}`}
     >
-      <body>
+      <body
+        data-supabase-url={process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""}
+        data-supabase-anon-key={process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ""}
+      >
         {children}
         <ServiceWorkerRegistration />
       </body>
