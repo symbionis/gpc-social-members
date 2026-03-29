@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendEmail } from "@/lib/postmark";
 
 export async function submitApplication(data: {
   email: string;
@@ -51,6 +52,16 @@ export async function submitApplication(data: {
   if (insertError) {
     return { error: insertError.message };
   }
+
+  // Send confirmation email — non-blocking, failure doesn't affect the result
+  await sendEmail({
+    to: data.email,
+    templateAlias: "application-received",
+    templateModel: {
+      first_name: data.firstName,
+      last_name: data.lastName,
+    },
+  });
 
   return { error: null };
 }
