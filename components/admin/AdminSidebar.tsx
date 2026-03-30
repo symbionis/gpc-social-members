@@ -16,31 +16,42 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const navLinks = [
-    { href: "/admin/dashboard", label: "Dashboard", icon: "grid" },
-    ...(admin.is_approval_committee || admin.role === "super_admin"
-      ? [
-          {
-            href: "/admin/applications",
-            label: "Applications",
-            icon: "inbox",
-          },
-        ]
-      : []),
-    { href: "/admin/members", label: "Members", icon: "users" },
-    ...(admin.is_originator || admin.role === "super_admin"
-      ? [
-          {
-            href: "/admin/originators",
-            label: "Originators",
-            icon: "share",
-          },
-        ]
-      : []),
-    ...(admin.role === "super_admin"
-      ? [{ href: "/admin/tiers", label: "Tiers", icon: "layers" }]
-      : []),
-  ];
+  const isSuper = admin.role === "super_admin";
+  const isOriginator = admin.role === "originator";
+
+  const navLinks = isOriginator
+    ? [
+        { href: "/admin/originators", label: "My Referrals", icon: "share" },
+      ]
+    : [
+        { href: "/admin/dashboard", label: "Dashboard", icon: "grid" },
+        ...(admin.is_approval_committee || isSuper
+          ? [
+              {
+                href: "/admin/applications",
+                label: "Applications",
+                icon: "inbox",
+              },
+            ]
+          : []),
+        { href: "/admin/members", label: "Members", icon: "users" },
+        ...(admin.is_originator || isSuper
+          ? [
+              {
+                href: "/admin/originators",
+                label: "Originators",
+                icon: "share",
+              },
+            ]
+          : []),
+        ...(isSuper
+          ? [
+              { href: "/admin/tiers", label: "Tiers", icon: "layers" },
+              { href: "/admin/users", label: "Users", icon: "shield" },
+              { href: "/admin/email-templates", label: "Email Templates", icon: "mail" },
+            ]
+          : []),
+      ];
 
   async function handleSignOut() {
     await signOut();

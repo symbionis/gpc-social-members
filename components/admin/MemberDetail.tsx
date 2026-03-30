@@ -34,6 +34,12 @@ interface Member {
   created_at: string;
 }
 
+interface Originator {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
+
 interface MemberDetailProps {
   member: Member;
   tierMap: Record<string, { name: string; price_eur: number }>;
@@ -41,6 +47,7 @@ interface MemberDetailProps {
   payments: Record<string, unknown>[];
   card: Record<string, unknown> | null;
   allTiers: Record<string, unknown>[];
+  allOriginators: Originator[];
 }
 
 const statusColors: Record<string, string> = {
@@ -70,12 +77,16 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-export default function MemberDetail({ member, tierMap, originatorMap, payments, card, allTiers }: MemberDetailProps) {
+export default function MemberDetail({ member, tierMap, originatorMap, payments, card, allTiers, allOriginators }: MemberDetailProps) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState(member.status);
   const [tierId, setTierId] = useState(member.tier_id);
+  const [showRenewalModal, setShowRenewalModal] = useState(false);
+  const [renewalOriginatorId, setRenewalOriginatorId] = useState(allOriginators[0]?.id || "");
+  const [renewalSending, setRenewalSending] = useState(false);
+  const [renewalResult, setRenewalResult] = useState<{ success: boolean; message: string } | null>(null);
 
   async function handleSave() {
     setSaving(true);
@@ -87,6 +98,23 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
     setSaving(false);
     setEditing(false);
     router.refresh();
+  }
+
+  async function handleRequestRenewal() {
+    setRenewalSending(true);
+    setRenewalResult(null);
+    const res = await fetch("/api/admin/members/request-renewal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ member_id: member.id, originator_id: renewalOriginatorId }),
+    });
+    setRenewalSending(false);
+    if (res.ok) {
+      setRenewalResult({ success: true, message: `Renewal email sent to ${member.email}` });
+    } else {
+      const data = await res.json();
+      setRenewalResult({ success: false, message: data.error || "Failed to send renewal email." });
+    }
   }
 
   async function handleActivateFree() {
@@ -222,6 +250,14 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
                       Activate as Free Member
                     </button>
                   )}
+                  {(member.status === "expired" || member.status === "active") && (
+                    <button
+                      onClick={() => { setShowRenewalModal(true); setRenewalResult(null); }}
+                      className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors"
+                    >
+                      Request Renewal
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -270,6 +306,57 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
           </div>
         </div>
       </div>
+
+      {/* Renewal Modal */}
+      {showRenewalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-xl border border-border p-6 w-full max-w-sm">
+            <h2 className="font-heading text-lg font-bold text-marine mb-4">Request Renewal</h2>
+            <p className="text-sm font-body text-muted-foreground mb-4">
+              Select the originator link to use for this renewal. This controls whether the Honorary tier is offered.
+            </p>
+
+            <label className="block text-xs font-body uppercase tracking-wide text-muted-foreground mb-1">
+              Originator
+            </label>
+            <select
+              value={renewalOriginatorId}
+              onChange={(e) => setRenewalOriginatorId(e.target.value)}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm font-body text-marine mb-4"
+            >
+              {allOriginators.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.first_name} {o.last_name}
+                </option>
+              ))}
+            </select>
+
+            {renewalResult && (
+              <p className={`text-sm font-body mb-4 ${renewalResult.success ? "text-green-700" : "text-red-600"}`}>
+                {renewalResult.message}
+              </p>
+            )}
+
+            <div className="flex gap-3">
+              {!renewalResult?.success && (
+                <button
+                  onClick={handleRequestRenewal}
+                  disabled={renewalSending || !renewalOriginatorId}
+                  className="flex-1 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50"
+                >
+                  {renewalSending ? "Sending..." : "Send Renewal Email"}
+                </button>
+              )}
+              <button
+                onClick={() => setShowRenewalModal(false)}
+                className="flex-1 py-2 bg-white border border-border text-marine rounded-lg text-sm font-body font-medium hover:bg-cream transition-colors"
+              >
+                {renewalResult?.success ? "Close" : "Cancel"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
