@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getPostmarkClient } from "@/lib/postmark";
 import { redirect, notFound } from "next/navigation";
+import Link from "next/link";
 import EmailTemplateEditor from "@/components/admin/EmailTemplateEditor";
 
 interface EmailTemplatePageProps {
@@ -55,12 +56,12 @@ export default async function EmailTemplatePage({ params }: EmailTemplatePagePro
   return (
     <div>
       <div className="mb-8">
-        <a
+        <Link
           href="/admin/email-templates"
           className="text-sm text-muted-foreground hover:text-marine font-body"
         >
           &larr; Email Templates
-        </a>
+        </Link>
       </div>
       <h1 className="font-heading text-3xl font-bold text-marine mb-2">
         {template.name}
