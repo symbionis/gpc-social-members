@@ -1,0 +1,251 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+interface Template {
+  templateId: number;
+  alias: string | null;
+  name: string;
+  active: boolean;
+}
+
+interface EmailSetting {
+  id: string;
+  key: string;
+  value: {
+    days_before_expiry?: number;
+    last_run?: string;
+    last_result?: { sent: number; skipped: number };
+  } & Record<string, unknown>;
+  enabled: boolean;
+}
+
+interface EmailTemplateListProps {
+  templates: Template[];
+  settings: EmailSetting[];
+}
+
+export default function EmailTemplateList({ templates, settings }: EmailTemplateListProps) {
+  const router = useRouter();
+
+  const autoRenewalSetting = settings.find((s) => s.key === "auto_renewal_reminder");
+  const [autoRenewalEnabled, setAutoRenewalEnabled] = useState(
+    autoRenewalSetting?.enabled ?? false
+  );
+  const [daysBeforeExpiry, setDaysBeforeExpiry] = useState(
+    autoRenewalSetting?.value?.days_before_expiry ?? 30
+  );
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+  const [runningNow, setRunningNow] = useState(false);
+  const [runResult, setRunResult] = useState<{ sent: number; skipped: number; reason?: string } | null>(null);
+  const [lastRun, setLastRun] = useState(autoRenewalSetting?.value?.last_run ?? null);
+  const [lastResult, setLastResult] = useState(autoRenewalSetting?.value?.last_result ?? null);
+
+  async function handleSaveSettings() {
+    setSavingSettings(true);
+    setSettingsSaved(false);
+
+    await fetch("/api/admin/email-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: "auto_renewal_reminder",
+        enabled: autoRenewalEnabled,
+        value: { days_before_expiry: daysBeforeExpiry },
+      }),
+    });
+
+    setSavingSettings(false);
+    setSettingsSaved(true);
+    setTimeout(() => setSettingsSaved(false), 2000);
+  }
+
+  async function handleRunNow() {
+    setRunningNow(true);
+    setRunResult(null);
+
+    const res = await fetch("/api/admin/email-settings/run-now", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+    setRunningNow(false);
+    setRunResult(data);
+    setLastRun(new Date().toISOString());
+    if (data.sent !== undefined) {
+      setLastResult({ sent: data.sent, skipped: data.skipped });
+    }
+  }
+
+  function formatLastRun(iso: string | null) {
+    if (!iso) return "Never";
+    return new Date(iso).toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* Automated Email Settings */}
+      <div className="bg-white rounded-xl border border-border p-6">
+        <h2 className="font-body font-semibold text-marine mb-4">Automated Emails</h2>
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-6 p-4 rounded-lg border border-border">
+            <div className="flex-1">
+              <p className="font-body font-medium text-marine text-sm">Auto-Renewal Reminders</p>
+              <p className="text-xs text-muted-foreground font-body mt-0.5">
+                Sends <code className="bg-cream px-1 rounded text-xs">membership-expiring</code> email
+                to active members whose card is expiring soon.
+              </p>
+              {autoRenewalEnabled && (
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground font-body">Send</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={90}
+                    value={daysBeforeExpiry}
+                    onChange={(e) => setDaysBeforeExpiry(Number(e.target.value))}
+                    className="w-16 px-2 py-1 border border-border rounded text-sm font-body text-marine text-center"
+                  />
+                  <span className="text-xs text-muted-foreground font-body">days before expiry</span>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setAutoRenewalEnabled((v) => !v)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                autoRenewalEnabled ? "bg-marine" : "bg-gray-200"
+              }`}
+              role="switch"
+              aria-checked={autoRenewalEnabled}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform ${
+                  autoRenewalEnabled ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 mt-4">
+          <button
+            onClick={handleSaveSettings}
+            disabled={savingSettings}
+            className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50"
+          >
+            {savingSettings ? "Saving..." : "Save Settings"}
+          </button>
+          {settingsSaved && (
+            <span className="text-sm text-green-700 font-body">Saved</span>
+          )}
+        </div>
+      </div>
+
+      {/* Cron Status */}
+      <div className="bg-white rounded-xl border border-border p-6">
+        <h2 className="font-body font-semibold text-marine mb-4">Scheduled Job</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+          <div>
+            <p className="text-xs text-muted-foreground font-body uppercase tracking-wide mb-0.5">Schedule</p>
+            <p className="text-sm font-body text-marine">Daily at 00:00 UTC</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground font-body uppercase tracking-wide mb-0.5">Status</p>
+            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-body ${
+              autoRenewalEnabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-500"
+            }`}>
+              {autoRenewalEnabled ? "Active" : "Paused"}
+            </span>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground font-body uppercase tracking-wide mb-0.5">Last Run</p>
+            <p className="text-sm font-body text-marine">{formatLastRun(lastRun)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground font-body uppercase tracking-wide mb-0.5">Last Result</p>
+            <p className="text-sm font-body text-marine">
+              {lastResult ? `${lastResult.sent} sent, ${lastResult.skipped} skipped` : "—"}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRunNow}
+            disabled={runningNow}
+            className="px-4 py-2 bg-white border border-border text-marine rounded-lg text-sm font-body font-medium hover:bg-cream transition-colors disabled:opacity-50"
+          >
+            {runningNow ? "Running..." : "Run Now"}
+          </button>
+          {runResult && (
+            <span className="text-sm font-body text-muted-foreground">
+              {runResult.reason === "disabled"
+                ? "Skipped — auto-renewal is disabled"
+                : `Done: ${runResult.sent} sent, ${runResult.skipped} skipped`}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Template List */}
+      <div className="bg-white rounded-xl border border-border overflow-hidden">
+        <div className="px-6 py-4 border-b border-border">
+          <h2 className="font-body font-semibold text-marine">Postmark Templates</h2>
+        </div>
+        {templates.length === 0 ? (
+          <div className="px-6 py-8 text-center text-muted-foreground font-body text-sm">
+            No templates found. Check your Postmark configuration.
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="px-6 py-3 text-left text-xs font-body uppercase tracking-wide text-muted-foreground">Name</th>
+                <th className="px-6 py-3 text-left text-xs font-body uppercase tracking-wide text-muted-foreground">Alias</th>
+                <th className="px-6 py-3 text-left text-xs font-body uppercase tracking-wide text-muted-foreground">Status</th>
+                <th className="px-6 py-3" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {templates.map((t) => (
+                <tr key={t.templateId} className="hover:bg-cream/50 transition-colors">
+                  <td className="px-6 py-4 font-body text-marine font-medium">{t.name}</td>
+                  <td className="px-6 py-4 font-body text-muted-foreground">
+                    {t.alias ? (
+                      <code className="bg-cream px-1.5 py-0.5 rounded text-xs">{t.alias}</code>
+                    ) : "—"}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-body ${
+                      t.active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-500"
+                    }`}>
+                      {t.active ? "Active" : "Inactive"}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    {t.alias ? (
+                      <button
+                        onClick={() => router.push(`/admin/email-templates/${t.alias}`)}
+                        className="text-xs font-body text-sky-dark hover:underline"
+                      >
+                        Edit
+                      </button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground font-body">No alias</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}

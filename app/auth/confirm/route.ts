@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
   // Link auth_user_id in both tables if needed
   const { data: adminUsers } = await adminClient
     .from("admin_users")
-    .select("id, auth_user_id")
+    .select("id, auth_user_id, role")
     .eq("email", user.email)
     .limit(1);
 
@@ -117,7 +117,8 @@ export async function GET(request: NextRequest) {
 
   // Route based on where login was initiated
   if (from === "admin" && adminUser) {
-    response.headers.set("Location", `${origin}/admin/dashboard`);
+    const adminDest = adminUser.role === "originator" ? "/admin/originators" : "/admin/dashboard";
+    response.headers.set("Location", `${origin}${adminDest}`);
     return response;
   }
 
@@ -128,7 +129,8 @@ export async function GET(request: NextRequest) {
 
   // Fallback: no "from" param (e.g. old links) — prefer admin if exists
   if (adminUser) {
-    response.headers.set("Location", `${origin}/admin/dashboard`);
+    const adminDest = adminUser.role === "originator" ? "/admin/originators" : "/admin/dashboard";
+    response.headers.set("Location", `${origin}${adminDest}`);
     return response;
   }
 

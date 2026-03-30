@@ -62,6 +62,7 @@ export default async function MemberDetailPage({
       payments={payments || []}
       card={card?.[0] || null}
       allTiers={tiers || []}
+      allOriginators={originators || []}
     />
   );
 }

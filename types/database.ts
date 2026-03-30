@@ -26,7 +26,7 @@ export type ApplicationStatus =
   | "approved"
   | "declined";
 
-export type AdminRole = "super_admin" | "team_admin";
+export type AdminRole = "super_admin" | "team_admin" | "originator";
 
 export type MembershipCategory = "individual" | "corporate";
 
@@ -95,6 +95,7 @@ export interface Database {
           is_approval_committee: boolean;
           invite_code: string | null;
           invite_link_active: boolean;
+          can_invite_honorary: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -109,6 +110,7 @@ export interface Database {
           is_approval_committee?: boolean;
           invite_code?: string | null;
           invite_link_active?: boolean;
+          can_invite_honorary?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -123,6 +125,7 @@ export interface Database {
           is_approval_committee?: boolean;
           invite_code?: string | null;
           invite_link_active?: boolean;
+          can_invite_honorary?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -348,6 +351,61 @@ export interface Database {
           originator_id?: string;
           member_id?: string;
           created_at?: string;
+        };
+      };
+      renewal_tokens: {
+        Row: {
+          id: string;
+          member_id: string;
+          originator_id: string;
+          token: string;
+          used: boolean;
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          member_id: string;
+          originator_id: string;
+          token: string;
+          used?: boolean;
+          expires_at: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          member_id?: string;
+          originator_id?: string;
+          token?: string;
+          used?: boolean;
+          expires_at?: string;
+          created_at?: string;
+        };
+      };
+      email_settings: {
+        Row: {
+          id: string;
+          key: string;
+          value: Json;
+          enabled: boolean;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          key: string;
+          value?: Json;
+          enabled?: boolean;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          key?: string;
+          value?: Json;
+          enabled?: boolean;
+          updated_at?: string;
+          updated_by?: string | null;
         };
       };
     };

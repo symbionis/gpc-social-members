@@ -13,14 +13,14 @@ export default async function ApplyPage({ params }: ApplyPageProps) {
   // Validate invite code — must belong to an active originator
   const { data: originators } = await supabase
     .from("admin_users")
-    .select("id, first_name, last_name, invite_code")
+    .select("id, first_name, last_name, invite_code, invite_link_active, can_invite_honorary")
     .eq("invite_code", invite_code)
     .eq("is_originator", true)
     .limit(1);
 
   const originator = originators?.[0];
 
-  if (!originator) {
+  if (!originator || originator.invite_link_active === false) {
     return (
       <>
       <div className="h-20 bg-marine" />
@@ -39,15 +39,20 @@ export default async function ApplyPage({ params }: ApplyPageProps) {
     );
   }
 
-  // Fetch tiers — individual (excluding Honorary) and corporate separately
+  // Fetch tiers — include Honorary only if originator has permission
+  let individualQuery = supabase
+    .from("membership_tiers")
+    .select("id, name, price_eur, benefits, guest_invitations_per_season")
+    .eq("category", "individual")
+    .eq("is_active", true)
+    .order("price_eur", { ascending: true });
+
+  if (!originator.can_invite_honorary) {
+    individualQuery = individualQuery.neq("name", "Honorary Member");
+  }
+
   const [{ data: individualTiers }, { data: corporateTiers }] = await Promise.all([
-    supabase
-      .from("membership_tiers")
-      .select("id, name, price_eur, benefits, guest_invitations_per_season")
-      .eq("category", "individual")
-      .eq("is_active", true)
-      .neq("name", "Honorary Member")
-      .order("price_eur", { ascending: true }),
+    individualQuery,
     supabase
       .from("membership_tiers")
       .select("id, name, price_eur, benefits, guest_invitations_per_season")

@@ -1,0 +1,23 @@
+{{first_name}}, your membership is expiring soon.
+
+Your Geneva Polo Social Members Club membership expires on {{expiry_date}}.
+
+Renew now to keep your access to the fieldside lounge, social calendar, partner benefits, and everything that makes the club feel like home.
+
+The new season is just around the corner — don't miss it.
+
+Renew your membership:
+
+{{#renewal_url}}
+{{.}}
+{{/renewal_url}}
+
+This link is valid for 30 days.
+
+See you fieldside.
+
+Warm regards,
+The Geneva Polo Club Team
+
+---
+Geneva Polo Club — Social Members Club

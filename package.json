@@ -9,29 +9,31 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2",
     "@supabase/ssr": "^0.5",
-    "stripe": "^20",
+    "@supabase/supabase-js": "^2",
+    "@tailwindcss/postcss": "^4",
+    "class-variance-authority": "^0.7",
+    "clsx": "^2",
+    "lucide-react": "^0.468",
+    "next": "^15",
+    "node-cron": "^4.2.1",
     "postmark": "^4",
     "qrcode.react": "^4",
-    "next": "^15",
     "react": "^19",
     "react-dom": "^19",
-    "tailwindcss": "^4",
-    "@tailwindcss/postcss": "^4",
-    "clsx": "^2",
+    "stripe": "^20",
     "tailwind-merge": "^3",
-    "class-variance-authority": "^0.7",
-    "lucide-react": "^0.468"
+    "tailwindcss": "^4"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
     "@types/node": "^22",
+    "@types/node-cron": "^3.0.11",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@eslint/eslintrc": "^3",
     "eslint": "^9",
     "eslint-config-next": "^15",
-    "supabase": "^1"
+    "supabase": "^1",
+    "typescript": "^5"
   }
 }

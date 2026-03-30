@@ -47,20 +47,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ received: true, already_processed: true });
     }
 
-    // Get member's tier_id for the payment and card records
-    const { data: memberData } = await supabase
-      .from("members")
-      .select("tier_id")
-      .eq("id", memberId)
-      .limit(1);
+    const isRenewal = session.metadata?.renewal === "true";
 
-    const memberTierId = memberData?.[0]?.tier_id || null;
+    // For renewals, use the tier selected on the renewal form (passed in metadata)
+    // For initial payments, read the member's current tier
+    let tierId: string | null = session.metadata?.tier_id || null;
+    if (!tierId) {
+      const { data: memberData } = await supabase
+        .from("members")
+        .select("tier_id")
+        .eq("id", memberId)
+        .limit(1);
+      tierId = memberData?.[0]?.tier_id || null;
+    }
 
     // Record payment
     const currentYear = new Date().getFullYear().toString();
     await supabase.from("payments").insert({
       member_id: memberId,
-      tier_id: memberTierId,
+      tier_id: tierId,
       amount_eur: session.amount_total ? session.amount_total / 100 : 0,
       payment_status: "paid",
       stripe_checkout_session_id: session.id,
@@ -71,10 +76,10 @@ export async function POST(request: NextRequest) {
       season: currentYear,
     });
 
-    // Activate member
+    // Activate member (and update tier if renewal with different tier)
     await supabase
       .from("members")
-      .update({ status: "active" })
+      .update({ status: "active", tier_id: tierId })
       .eq("id", memberId);
 
     // Generate digital card
@@ -87,15 +92,40 @@ export async function POST(request: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     const verifyUrl = `${appUrl}/verify/${cardNumber}`;
 
-    await supabase.from("membership_cards").insert({
-      member_id: memberId,
-      card_number: cardNumber,
-      qr_code_data: verifyUrl,
-      tier_id: memberTierId,
-      valid_from: today,
-      valid_until: validUntil,
-      is_active: true,
-    });
+    const { data: newCards } = await supabase
+      .from("membership_cards")
+      .insert({
+        member_id: memberId,
+        card_number: cardNumber,
+        qr_code_data: verifyUrl,
+        tier_id: tierId,
+        valid_from: today,
+        valid_until: validUntil,
+        is_active: true,
+      })
+      .select("id")
+      .limit(1);
+
+    const newCardId = newCards?.[0]?.id;
+
+    // Deactivate old cards whenever a new card is issued
+    if (newCardId) {
+      await supabase
+        .from("membership_cards")
+        .update({ is_active: false })
+        .eq("member_id", memberId)
+        .neq("id", newCardId)
+        .eq("is_active", true);
+    }
+
+    // Mark renewal token used if present in metadata
+    const renewalTokenId = session.metadata?.renewal_token_id;
+    if (renewalTokenId) {
+      await supabase
+        .from("renewal_tokens")
+        .update({ used: true })
+        .eq("id", renewalTokenId);
+    }
 
     // Trigger payment confirmation email
     fetch(`${appUrl}/api/email/payment-confirmed`, {

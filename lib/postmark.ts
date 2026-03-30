@@ -14,6 +14,10 @@ function getClient(): ServerClient {
   return _client;
 }
 
+export function getPostmarkClient(): ServerClient {
+  return getClient();
+}
+
 interface SendEmailOptions {
   to: string;
   templateAlias: string;
