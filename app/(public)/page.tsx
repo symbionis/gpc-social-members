@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import {
   Wine,
   CalendarHeart,
@@ -272,11 +273,12 @@ export default function HomePage() {
                 key={img.src}
                 className="aspect-[4/3] rounded-sm overflow-hidden"
               >
-                <img
+                <Image
                   src={img.src}
                   alt={img.alt}
+                  width={800}
+                  height={600}
                   className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
-                  loading="lazy"
                 />
               </div>
             ))}
