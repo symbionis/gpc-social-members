@@ -43,11 +43,12 @@ const benefits = [
 ];
 
 const galleryImages = [
-  { src: "/images/DSC_8660-copy-2048x1365.jpg", alt: "Polo match in action" },
-  { src: "/images/chesterfield-lounge.jpg", alt: "The fieldside lounge" },
-  { src: "/images/match-day.jpg", alt: "Match day at the club" },
-  { src: "/images/Paddock-Polo.jpg", alt: "The paddock" },
-  { src: "/images/fieldside-panoramic.jpg", alt: "Fieldside panoramic view" },
+  { src: "/images/Website/GPC_23.06B_0113-1-scaled.jpg", alt: "Match day at the club" },
+  { src: "/images/Website/0P0A4314-scaled.jpg", alt: "Polo in action" },
+  { src: "/images/Website/Specators-3-scaled.jpg", alt: "Members watching fieldside" },
+  { src: "/images/Website/Treehouse-4-scaled.jpg", alt: "The treehouse" },
+  { src: "/images/Website/0P0A5454-scaled.jpg", alt: "The sport" },
+  { src: "/images/Website/chesterfield-lounge.jpg", alt: "The fieldside lounge" },
 ];
 
 /* ── Decorative SVG ornament — crossed polo mallets ── */
@@ -95,7 +96,7 @@ export default function HomePage() {
         {/* Background image */}
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-          style={{ backgroundImage: "url('/images/fieldside-panoramic.jpg')" }}
+          style={{ backgroundImage: "url('/images/Website/Baniere-website.png')" }}
         />
         {/* Dark overlay */}
         <div className="absolute inset-0 bg-marine/80" />
