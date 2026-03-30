@@ -250,7 +250,7 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
                       Activate as Free Member
                     </button>
                   )}
-                  {(member.status === "expired" || member.status === "active") && (
+                  {member.status === "expired" && (
                     <button
                       onClick={() => { setShowRenewalModal(true); setRenewalResult(null); }}
                       className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors"

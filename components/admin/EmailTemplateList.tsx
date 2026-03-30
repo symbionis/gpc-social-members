@@ -13,7 +13,11 @@ interface Template {
 interface EmailSetting {
   id: string;
   key: string;
-  value: { days_before_expiry?: number } & Record<string, unknown>;
+  value: {
+    days_before_expiry?: number;
+    last_run?: string;
+    last_result?: { sent: number; skipped: number };
+  } & Record<string, unknown>;
   enabled: boolean;
 }
 
@@ -34,6 +38,10 @@ export default function EmailTemplateList({ templates, settings }: EmailTemplate
   );
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [runningNow, setRunningNow] = useState(false);
+  const [runResult, setRunResult] = useState<{ sent: number; skipped: number; reason?: string } | null>(null);
+  const [lastRun, setLastRun] = useState(autoRenewalSetting?.value?.last_run ?? null);
+  const [lastResult, setLastResult] = useState(autoRenewalSetting?.value?.last_result ?? null);
 
   async function handleSaveSettings() {
     setSavingSettings(true);
@@ -52,6 +60,34 @@ export default function EmailTemplateList({ templates, settings }: EmailTemplate
     setSavingSettings(false);
     setSettingsSaved(true);
     setTimeout(() => setSettingsSaved(false), 2000);
+  }
+
+  async function handleRunNow() {
+    setRunningNow(true);
+    setRunResult(null);
+
+    const res = await fetch("/api/admin/email-settings/run-now", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+    setRunningNow(false);
+    setRunResult(data);
+    setLastRun(new Date().toISOString());
+    if (data.sent !== undefined) {
+      setLastResult({ sent: data.sent, skipped: data.skipped });
+    }
+  }
+
+  function formatLastRun(iso: string | null) {
+    if (!iso) return "Never";
+    return new Date(iso).toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 
   return (
@@ -108,6 +144,51 @@ export default function EmailTemplateList({ templates, settings }: EmailTemplate
           </button>
           {settingsSaved && (
             <span className="text-sm text-green-700 font-body">Saved</span>
+          )}
+        </div>
+      </div>
+
+      {/* Cron Status */}
+      <div className="bg-white rounded-xl border border-border p-6">
+        <h2 className="font-body font-semibold text-marine mb-4">Scheduled Job</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+          <div>
+            <p className="text-xs text-muted-foreground font-body uppercase tracking-wide mb-0.5">Schedule</p>
+            <p className="text-sm font-body text-marine">Daily at 00:00 UTC</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground font-body uppercase tracking-wide mb-0.5">Status</p>
+            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-body ${
+              autoRenewalEnabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-500"
+            }`}>
+              {autoRenewalEnabled ? "Active" : "Paused"}
+            </span>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground font-body uppercase tracking-wide mb-0.5">Last Run</p>
+            <p className="text-sm font-body text-marine">{formatLastRun(lastRun)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground font-body uppercase tracking-wide mb-0.5">Last Result</p>
+            <p className="text-sm font-body text-marine">
+              {lastResult ? `${lastResult.sent} sent, ${lastResult.skipped} skipped` : "—"}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRunNow}
+            disabled={runningNow}
+            className="px-4 py-2 bg-white border border-border text-marine rounded-lg text-sm font-body font-medium hover:bg-cream transition-colors disabled:opacity-50"
+          >
+            {runningNow ? "Running..." : "Run Now"}
+          </button>
+          {runResult && (
+            <span className="text-sm font-body text-muted-foreground">
+              {runResult.reason === "disabled"
+                ? "Skipped — auto-renewal is disabled"
+                : `Done: ${runResult.sent} sent, ${runResult.skipped} skipped`}
+            </span>
           )}
         </div>
       </div>

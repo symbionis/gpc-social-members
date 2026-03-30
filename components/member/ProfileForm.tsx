@@ -26,6 +26,90 @@ interface ProfileFormProps {
   };
 }
 
+const DIAL_CODES = [
+  { code: "+1",   label: "+1 (US/CA)" },
+  { code: "+7",   label: "+7 (RU/KZ)" },
+  { code: "+27",  label: "+27 (ZA)" },
+  { code: "+31",  label: "+31 (NL)" },
+  { code: "+32",  label: "+32 (BE)" },
+  { code: "+33",  label: "+33 (FR)" },
+  { code: "+34",  label: "+34 (ES)" },
+  { code: "+36",  label: "+36 (HU)" },
+  { code: "+39",  label: "+39 (IT)" },
+  { code: "+40",  label: "+40 (RO)" },
+  { code: "+41",  label: "+41 (CH)" },
+  { code: "+43",  label: "+43 (AT)" },
+  { code: "+44",  label: "+44 (GB)" },
+  { code: "+45",  label: "+45 (DK)" },
+  { code: "+46",  label: "+46 (SE)" },
+  { code: "+47",  label: "+47 (NO)" },
+  { code: "+48",  label: "+48 (PL)" },
+  { code: "+49",  label: "+49 (DE)" },
+  { code: "+52",  label: "+52 (MX)" },
+  { code: "+54",  label: "+54 (AR)" },
+  { code: "+55",  label: "+55 (BR)" },
+  { code: "+56",  label: "+56 (CL)" },
+  { code: "+57",  label: "+57 (CO)" },
+  { code: "+61",  label: "+61 (AU)" },
+  { code: "+64",  label: "+64 (NZ)" },
+  { code: "+65",  label: "+65 (SG)" },
+  { code: "+81",  label: "+81 (JP)" },
+  { code: "+82",  label: "+82 (KR)" },
+  { code: "+86",  label: "+86 (CN)" },
+  { code: "+90",  label: "+90 (TR)" },
+  { code: "+91",  label: "+91 (IN)" },
+  { code: "+212", label: "+212 (MA)" },
+  { code: "+351", label: "+351 (PT)" },
+  { code: "+352", label: "+352 (LU)" },
+  { code: "+353", label: "+353 (IE)" },
+  { code: "+357", label: "+357 (CY)" },
+  { code: "+358", label: "+358 (FI)" },
+  { code: "+370", label: "+370 (LT)" },
+  { code: "+371", label: "+371 (LV)" },
+  { code: "+372", label: "+372 (EE)" },
+  { code: "+380", label: "+380 (UA)" },
+  { code: "+385", label: "+385 (HR)" },
+  { code: "+386", label: "+386 (SI)" },
+  { code: "+420", label: "+420 (CZ)" },
+  { code: "+421", label: "+421 (SK)" },
+  { code: "+852", label: "+852 (HK)" },
+  { code: "+966", label: "+966 (SA)" },
+  { code: "+971", label: "+971 (AE)" },
+  { code: "+972", label: "+972 (IL)" },
+  { code: "+974", label: "+974 (QA)" },
+];
+
+// Split an existing phone value like "+41791234567" into dial code + local number
+function parsePhone(phone: string | null): { dialCode: string; local: string } {
+  if (!phone) return { dialCode: "+41", local: "" };
+  // Try longest dial codes first to avoid +1 matching +1868
+  const sorted = [...DIAL_CODES].sort((a, b) => b.code.length - a.code.length);
+  for (const { code } of sorted) {
+    if (phone.startsWith(code)) {
+      return { dialCode: code, local: phone.slice(code.length).trim() };
+    }
+  }
+  // No match — return raw value as local, default dial code
+  return { dialCode: "+41", local: phone };
+}
+
+const COUNTRIES = [
+  "Afghanistan", "Albania", "Algeria", "Argentina", "Armenia", "Australia", "Austria",
+  "Azerbaijan", "Bahrain", "Bangladesh", "Belarus", "Belgium", "Bolivia", "Bosnia and Herzegovina",
+  "Brazil", "Bulgaria", "Cambodia", "Canada", "Chile", "China", "Colombia", "Croatia",
+  "Cyprus", "Czech Republic", "Denmark", "Ecuador", "Egypt", "Estonia", "Ethiopia",
+  "Finland", "France", "Georgia", "Germany", "Ghana", "Greece", "Guatemala", "Honduras",
+  "Hungary", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy",
+  "Japan", "Jordan", "Kazakhstan", "Kenya", "Kuwait", "Latvia", "Lebanon", "Lithuania",
+  "Luxembourg", "Malaysia", "Mexico", "Moldova", "Monaco", "Morocco", "Netherlands",
+  "New Zealand", "Nigeria", "Norway", "Oman", "Pakistan", "Panama", "Paraguay", "Peru",
+  "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Saudi Arabia",
+  "Serbia", "Singapore", "Slovakia", "Slovenia", "South Africa", "South Korea", "Spain",
+  "Sri Lanka", "Sweden", "Switzerland", "Taiwan", "Thailand", "Tunisia", "Turkey",
+  "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay",
+  "Uzbekistan", "Venezuela", "Vietnam", "Zimbabwe",
+];
+
 export default function ProfileForm({ member }: ProfileFormProps) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -36,16 +120,20 @@ export default function ProfileForm({ member }: ProfileFormProps) {
   const [photoUrl, setPhotoUrl] = useState<string | null>(member.profile_photo_url);
   const address = member.address as Address | null;
 
+  const parsedPhone = parsePhone(member.phone);
+  const [dialCode, setDialCode] = useState(parsedPhone.dialCode);
+  const [localPhone, setLocalPhone] = useState(parsedPhone.local);
+
   async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || !member.auth_user_id) return;
+    if (!file) return;
 
     setUploading(true);
     setError(null);
 
     const supabase = createClient();
     const ext = file.name.split(".").pop();
-    const path = `${member.auth_user_id}/avatar.${ext}`;
+    const path = `${member.id}/avatar.${ext}`;
 
     const { error: uploadError } = await supabase.storage
       .from("profile-photos")
@@ -85,7 +173,7 @@ export default function ProfileForm({ member }: ProfileFormProps) {
       body: JSON.stringify({
         first_name: form.get("first_name"),
         last_name: form.get("last_name"),
-        phone: form.get("phone") || null,
+        phone: localPhone ? `${dialCode}${localPhone.replace(/^0/, "")}` : null,
         company_name: form.get("company_name") || null,
         company_role: form.get("company_role") || null,
         address: {
@@ -170,8 +258,25 @@ export default function ProfileForm({ member }: ProfileFormProps) {
           </div>
           <div className="mt-4">
             <label htmlFor="phone" className="block text-sm font-body font-medium text-marine mb-1.5">Phone</label>
-            <input id="phone" name="phone" type="tel" defaultValue={member.phone || ""}
-              className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50" />
+            <div className="flex gap-2">
+              <select
+                value={dialCode}
+                onChange={(e) => setDialCode(e.target.value)}
+                className="w-36 shrink-0 px-3 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50"
+              >
+                {DIAL_CODES.map(({ code, label }) => (
+                  <option key={code} value={code}>{label}</option>
+                ))}
+              </select>
+              <input
+                id="phone"
+                type="tel"
+                value={localPhone}
+                onChange={(e) => setLocalPhone(e.target.value)}
+                placeholder="79 123 45 67"
+                className="flex-1 px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50"
+              />
+            </div>
           </div>
         </div>
 
@@ -198,8 +303,13 @@ export default function ProfileForm({ member }: ProfileFormProps) {
             </div>
             <div>
               <label htmlFor="country" className="block text-sm font-body font-medium text-marine mb-1.5">Country</label>
-              <input id="country" name="country" type="text" defaultValue={address?.country || ""}
-                className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50" />
+              <select id="country" name="country" defaultValue={address?.country || ""}
+                className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50">
+                <option value="">Select country</option>
+                {COUNTRIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
             </div>
           </div>
         </div>

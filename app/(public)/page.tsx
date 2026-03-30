@@ -42,7 +42,13 @@ const benefits = [
   },
 ];
 
-const galleryPlaceholders = Array.from({ length: 6 }, (_, i) => i);
+const galleryImages = [
+  { src: "/images/DSC_8660-copy-2048x1365.jpg", alt: "Polo match in action" },
+  { src: "/images/chesterfield-lounge.jpg", alt: "The fieldside lounge" },
+  { src: "/images/match-day.jpg", alt: "Match day at the club" },
+  { src: "/images/Paddock-Polo.jpg", alt: "The paddock" },
+  { src: "/images/fieldside-panoramic.jpg", alt: "Fieldside panoramic view" },
+];
 
 /* ── Decorative SVG ornament — crossed polo mallets ── */
 function Ornament({ className = "" }: { className?: string }) {
@@ -85,9 +91,14 @@ export default function HomePage() {
   return (
     <>
       {/* ── Hero ── */}
-      <section className="bg-marine text-white relative overflow-hidden">
-        {/* Subtle radial glow */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(149,206,225,0.08)_0%,_transparent_70%)]" />
+      <section className="text-white relative overflow-hidden">
+        {/* Background image */}
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+          style={{ backgroundImage: "url('/images/fieldside-panoramic.jpg')" }}
+        />
+        {/* Dark overlay */}
+        <div className="absolute inset-0 bg-marine/80" />
         <div className="relative mx-auto max-w-5xl px-6 py-28 sm:py-36 lg:py-44 text-center">
           <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky mb-6">
             Geneva Polo Club
@@ -255,14 +266,17 @@ export default function HomePage() {
             <Rule className="text-marine" />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {galleryPlaceholders.map((i) => (
+            {galleryImages.map((img) => (
               <div
-                key={i}
-                className="aspect-[4/3] bg-marine/5 rounded-sm flex items-center justify-center"
+                key={img.src}
+                className="aspect-[4/3] rounded-sm overflow-hidden"
               >
-                <span className="text-marine/15 font-body text-sm">
-                  Photo {i + 1}
-                </span>
+                <img
+                  src={img.src}
+                  alt={img.alt}
+                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                  loading="lazy"
+                />
               </div>
             ))}
           </div>

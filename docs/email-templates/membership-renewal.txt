@@ -1,0 +1,21 @@
+Welcome back, {{first_name}},
+
+Your membership at the Geneva Polo Social Members Club has come to an end, and we'd love to have you back for another season.
+
+The fields are waiting, the community is growing, and there's a seat with your name on it fieldside.
+
+Renew your membership using the link below:
+
+{{#renewal_url}}
+{{.}}
+{{/renewal_url}}
+
+This link is valid for 30 days.
+
+We look forward to welcoming you fieldside again.
+
+Warm regards,
+The Geneva Polo Club Team
+
+---
+Geneva Polo Club — Social Members Club

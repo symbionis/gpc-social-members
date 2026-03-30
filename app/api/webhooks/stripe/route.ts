@@ -108,22 +108,23 @@ export async function POST(request: NextRequest) {
 
     const newCardId = newCards?.[0]?.id;
 
-    // If renewal: deactivate old cards and mark renewal token used
-    if (isRenewal && newCardId) {
+    // Deactivate old cards whenever a new card is issued
+    if (newCardId) {
       await supabase
         .from("membership_cards")
         .update({ is_active: false })
         .eq("member_id", memberId)
         .neq("id", newCardId)
         .eq("is_active", true);
+    }
 
-      const renewalTokenId = session.metadata?.renewal_token_id;
-      if (renewalTokenId) {
-        await supabase
-          .from("renewal_tokens")
-          .update({ used: true })
-          .eq("id", renewalTokenId);
-      }
+    // Mark renewal token used if present in metadata
+    const renewalTokenId = session.metadata?.renewal_token_id;
+    if (renewalTokenId) {
+      await supabase
+        .from("renewal_tokens")
+        .update({ used: true })
+        .eq("id", renewalTokenId);
     }
 
     // Trigger payment confirmation email

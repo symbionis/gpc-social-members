@@ -16,14 +16,15 @@ export default async function OriginatorsPage() {
     .eq("email", user?.email || "")
     .limit(1);
   const currentAdmin = admins?.[0];
+  const isSuperAdmin = currentAdmin?.role === "super_admin";
 
   // Get originators — super_admin sees all, team_admin sees only self
   let originatorQuery = supabase
     .from("admin_users")
-    .select("id, first_name, last_name, email, invite_code")
+    .select("id, first_name, last_name, email, invite_code, invite_link_active, can_invite_honorary")
     .eq("is_originator", true);
 
-  if (currentAdmin?.role !== "super_admin") {
+  if (!isSuperAdmin) {
     originatorQuery = originatorQuery.eq("id", currentAdmin?.id || "");
   }
 
@@ -38,7 +39,21 @@ export default async function OriginatorsPage() {
       (originators || []).map((o: Record<string, unknown>) => o.id)
     );
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  // Get admin users who are NOT already originators (for the add dropdown)
+  let availableAdmins: { id: string; first_name: string; last_name: string; email: string }[] = [];
+  if (isSuperAdmin) {
+    const { data } = await supabase
+      .from("admin_users")
+      .select("id, first_name, last_name, email")
+      .eq("is_originator", false)
+      .order("first_name", { ascending: true });
+    availableAdmins = data || [];
+  }
+
+  const appUrl =
+    process.env.APP_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    "http://localhost:3000";
 
   return (
     <div>
@@ -49,6 +64,8 @@ export default async function OriginatorsPage() {
         originators={originators || []}
         referrals={referrals || []}
         appUrl={appUrl}
+        isSuperAdmin={isSuperAdmin}
+        availableAdmins={availableAdmins}
       />
     </div>
   );
