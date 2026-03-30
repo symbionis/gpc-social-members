@@ -53,7 +53,7 @@ export async function submitApplication(data: {
     return { error: insertError.message };
   }
 
-  // Send confirmation email
+  // Send confirmation email to applicant
   const emailResult = await sendEmail({
     to: data.email,
     templateAlias: "application-received",
@@ -66,6 +66,41 @@ export async function submitApplication(data: {
 
   if (!emailResult.success) {
     console.error("application-received email failed:", emailResult.error);
+  }
+
+  // Notify all approval committee members and super admins
+  const { data: committee } = await supabase
+    .from("admin_users")
+    .select("email, first_name")
+    .or("is_approval_committee.eq.true,role.eq.super_admin");
+
+  if (committee && committee.length > 0) {
+    const adminUrl = `${process.env.NEXT_PUBLIC_APP_URL}/admin/applications`;
+    const applicantCompany = [data.companyName, data.companyRole].filter(Boolean).join(" — ");
+
+    const notifyResults = await Promise.all(
+      committee.map((admin) =>
+        sendEmail({
+          to: admin.email,
+          templateAlias: "new-application-pending",
+          templateModel: {
+            recipient_first_name: admin.first_name,
+            applicant_name: `${data.firstName} ${data.lastName}`,
+            applicant_email: data.email,
+            applicant_company: data.companyName || "—",
+            applicant_role: data.companyRole || "—",
+            originator_note: data.originatorNote || null,
+            admin_url: adminUrl,
+            preheader: `New application from ${data.firstName} ${data.lastName}${applicantCompany ? ` (${applicantCompany})` : ""} is awaiting review.`,
+          },
+        })
+      )
+    );
+
+    const failed = notifyResults.filter((r) => !r.success);
+    if (failed.length > 0) {
+      console.error(`new-application-pending email failed for ${failed.length} recipient(s)`);
+    }
   }
 
   return { error: null };
