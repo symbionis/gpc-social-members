@@ -2,6 +2,8 @@ import Link from "next/link";
 
 export default function ApplicationSuccessPage() {
   return (
+    <>
+    <div className="h-20 bg-marine" />
     <div className="min-h-[80vh] flex items-center justify-center px-4">
       <div className="text-center max-w-md">
         <div className="w-16 h-16 bg-sky/20 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -38,5 +40,6 @@ export default function ApplicationSuccessPage() {
         </Link>
       </div>
     </div>
+    </>
   );
 }

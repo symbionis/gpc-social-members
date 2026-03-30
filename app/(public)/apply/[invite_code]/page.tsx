@@ -22,6 +22,8 @@ export default async function ApplyPage({ params }: ApplyPageProps) {
 
   if (!originator) {
     return (
+      <>
+      <div className="h-20 bg-marine" />
       <div className="min-h-[80vh] flex items-center justify-center px-4">
         <div className="text-center max-w-md">
           <h1 className="font-heading text-3xl font-bold text-marine mb-4">
@@ -33,6 +35,7 @@ export default async function ApplyPage({ params }: ApplyPageProps) {
           </p>
         </div>
       </div>
+      </>
     );
   }
 
@@ -54,6 +57,8 @@ export default async function ApplyPage({ params }: ApplyPageProps) {
   ]);
 
   return (
+    <>
+    <div className="h-20 bg-marine" />
     <div className="min-h-[80vh] py-12 px-4">
       <div className="mx-auto max-w-2xl">
         <div className="text-center mb-10">
@@ -79,5 +84,6 @@ export default async function ApplyPage({ params }: ApplyPageProps) {
         />
       </div>
     </div>
+    </>
   );
 }
