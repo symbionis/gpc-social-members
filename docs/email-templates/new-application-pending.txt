@@ -1,0 +1,17 @@
+New Membership Application
+
+Dear {{recipient_first_name}},
+
+A new membership application has been submitted and is awaiting your review.
+
+Name:    {{applicant_name}}
+Email:   {{applicant_email}}
+Company: {{applicant_company}}
+Role:    {{applicant_role}}
+{{#originator_note}}Note:    {{originator_note}}
+{{/originator_note}}
+
+Review the application here: {{admin_url}}
+
+Warm regards,
+Geneva Polo Social Members Club
