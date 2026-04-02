@@ -15,19 +15,19 @@ const benefits = [
     icon: Wine,
     title: "Fieldside Lounge",
     description:
-      "Your spot by the field. A private members' area where the match is the backdrop, not the main event. Coffee and croissants on Saturday mornings, a glass of something good on Wednesday evenings.",
+      "Your privileged field-side lounge to enjoy the matches. A private members' area where the action rumbles in the backdrop. Coffee and croissants, or a Mimosa on Saturday & Sunday mornings, a glass of something tasty on Wednesday evenings. We welcome you to meet the community in this warm vibe and setting!",
   },
   {
     icon: CalendarHeart,
     title: "Social Calendar",
     description:
-      "Beyond polo — long-table dinners, wine and cigar tastings, fireside chats with guest speakers, lounge music evenings, and seasonal celebrations. Events designed for conversation, not networking.",
+      "Beyond polo — long-table dinners, wine and cigar tastings, fireside chats with guest speakers, lounge music evenings, and seasonal celebrations. Events designed for authentic connection — not superficial \"networking\".",
   },
   {
     icon: Handshake,
     title: "Partner Benefits",
     description:
-      "Preferential rates and exclusive access from the club's curated partners — spanning hospitality, wellness, lifestyle, and travel. Tangible value that extends beyond the field.",
+      "Preferential rates and exclusive offers from the club's curated partners — spanning hospitality, luxury, wellness, lifestyle, travel and more. Tangible value that extends beyond the field!",
   },
   {
     icon: Trophy,
@@ -44,11 +44,11 @@ const benefits = [
 ];
 
 const galleryImages = [
-  { src: "/images/Website/GPC_23.06B_0113-1-scaled.jpg", alt: "Match day at the club" },
-  { src: "/images/Website/0P0A4314-scaled.jpg", alt: "Polo in action" },
+    { src: "/images/Website/0P0A4314-scaled.jpg", alt: "Polo in action" },
   { src: "/images/Website/Specators-3-scaled.jpg", alt: "Members watching fieldside" },
-  { src: "/images/Website/Treehouse-4-scaled.jpg", alt: "The treehouse" },
-  { src: "/images/Website/0P0A5454-scaled.jpg", alt: "The sport" },
+  { src: "/images/Website/0P0A4893-scaled.jpg", alt: "The sport" },
+  { src: "/images/Website/match-day.jpg", alt: "Kids on horses" },
+  { src: "/images/Website/IMG_5470-scaled.jpg", alt: "The Bar" },
   { src: "/images/Website/chesterfield-lounge.jpg", alt: "The fieldside lounge" },
 ];
 
@@ -97,12 +97,12 @@ export default function HomePage() {
         {/* Background image */}
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-          style={{ backgroundImage: "url('/images/Website/Baniere-website.png')" }}
+          style={{ backgroundImage: "url('/images/Website/0P0A4893-scaled.jpg')" }}
         />
         {/* Dark overlay */}
         <div className="absolute inset-0 bg-marine/80" />
         <div className="relative mx-auto max-w-5xl px-6 py-28 sm:py-36 lg:py-44 text-center">
-          <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky mb-6">
+          <p className="font-accent text-base tracking-[0.3em] uppercase text-sky mb-6">
             Geneva Polo Club
           </p>
           <h1 className="font-heading text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">
@@ -124,7 +124,7 @@ export default function HomePage() {
       {/* ── The Club ── */}
       <section className="bg-white">
         <div className="mx-auto max-w-3xl px-6 py-20 sm:py-28 text-center">
-          <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky mb-4">
+          <p className="font-accent text-base tracking-[0.3em] uppercase text-sky mb-4">
             The Club
           </p>
           <h2 className="font-heading text-3xl sm:text-4xl font-bold text-marine mb-8">
@@ -139,9 +139,10 @@ export default function HomePage() {
           </p>
           <blockquote className="border-l-2 border-sky pl-6 text-left max-w-xl mx-auto">
             <p className="font-heading text-lg sm:text-xl italic text-marine/80 leading-relaxed mb-4">
-              &ldquo;We didn&rsquo;t set out to build an exclusive club. We
-              wanted to create a place where people put their guard down and
-              connect for real — fieldside, around good food, with the horses
+              &ldquo;We didn&rsquo;t set out to build an ultra-luxury club. We
+              are clearly exclusive but more over authentic and natural &mdash; a
+              place where people can relax find positive vibes and real
+              connections &mdash; fieldside, with good food &amp; drink, horses
               and the open sky.&rdquo;
             </p>
             <cite className="font-body text-sm text-marine/50 not-italic">
@@ -156,7 +157,7 @@ export default function HomePage() {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(149,206,225,0.06)_0%,_transparent_60%)]" />
         <div className="relative mx-auto max-w-5xl px-6 py-20 sm:py-28">
           <div className="text-center mb-14">
-            <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky mb-4">
+            <p className="font-accent text-base tracking-[0.3em] uppercase text-sky mb-4">
               Membership
             </p>
             <h2 className="font-heading text-3xl sm:text-4xl font-bold text-white mb-4">
@@ -190,7 +191,7 @@ export default function HomePage() {
         <div className="grid grid-cols-1 lg:grid-cols-2">
           {/* Left — Nature & Wellbeing */}
           <div className="bg-cream px-6 sm:px-12 lg:px-16 py-20 sm:py-28">
-            <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky-dark mb-4">
+            <p className="font-accent text-base tracking-[0.3em] uppercase text-sky-dark mb-4">
               Nature & Wellbeing
             </p>
             <h2 className="font-heading text-2xl sm:text-3xl font-bold text-marine mb-6">
@@ -202,18 +203,26 @@ export default function HomePage() {
               a hundred horses. The land is managed with care — organic,
               regenerative, respectful of the natural balance.
             </p>
-            <p className="font-body text-base leading-relaxed text-marine/60">
+            <p className="font-body text-base leading-relaxed text-marine/60 mb-4">
               Within the grounds, The Holistic Space offers a destination for
               tranquility and self-discovery — including the traditional
               Russian banya beside a tranquil pond. Wellness here isn&rsquo;t
               a programme. It&rsquo;s what happens when you spend your
               weekends outdoors, among horses, in good company.
             </p>
+            <Link
+              href="https://www.holisticspace.org/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-body text-sm text-sky-dark underline underline-offset-4 hover:text-marine transition-colors"
+            >
+              Discover The Holistic Space →
+            </Link>
           </div>
 
           {/* Right — The Community */}
           <div className="bg-white px-6 sm:px-12 lg:px-16 py-20 sm:py-28 lg:border-l border-border/40">
-            <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky mb-4">
+            <p className="font-accent text-base tracking-[0.3em] uppercase text-sky mb-4">
               The Community
             </p>
             <h2 className="font-heading text-2xl sm:text-3xl font-bold text-marine mb-6">
@@ -259,7 +268,7 @@ export default function HomePage() {
       <section className="bg-white">
         <div className="mx-auto max-w-6xl px-6 py-20 sm:py-28">
           <div className="text-center mb-12">
-            <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky mb-4">
+            <p className="font-accent text-base tracking-[0.3em] uppercase text-sky mb-4">
               Fieldside
             </p>
             <h2 className="font-heading text-3xl sm:text-4xl font-bold text-marine mb-4">
@@ -290,7 +299,7 @@ export default function HomePage() {
       <section className="bg-cream">
         <div className="mx-auto max-w-3xl px-6 py-20 sm:py-28 text-center">
           <Ornament className="text-marine mb-10" />
-          <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky-dark mb-4">
+          <p className="font-accent text-base tracking-[0.3em] uppercase text-sky-dark mb-4">
             The Season
           </p>
           <h2 className="font-heading text-3xl sm:text-4xl font-bold text-marine mb-8">

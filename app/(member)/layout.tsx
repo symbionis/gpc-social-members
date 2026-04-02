@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import MemberNav from "@/components/member/MemberNav";
+import MemberFooter from "@/components/member/MemberFooter";
 
 export default async function MemberLayout({
   children,
@@ -29,9 +30,10 @@ export default async function MemberLayout({
   }
 
   return (
-    <div className="min-h-screen bg-cream">
+    <div className="min-h-screen bg-cream flex flex-col">
       <MemberNav member={member} />
-      <main className="mx-auto max-w-4xl px-4 py-8">{children}</main>
+      <main className="flex-1 mx-auto w-full max-w-4xl px-4 py-8">{children}</main>
+      <MemberFooter />
     </div>
   );
 }

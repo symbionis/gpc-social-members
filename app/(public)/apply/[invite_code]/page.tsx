@@ -67,7 +67,7 @@ export default async function ApplyPage({ params }: ApplyPageProps) {
     <div className="min-h-[80vh] py-12 px-4">
       <div className="mx-auto max-w-2xl">
         <div className="text-center mb-10">
-          <p className="text-sm font-accent uppercase tracking-widest text-sky-dark mb-2">
+          <p className="text-base font-accent uppercase tracking-widest text-sky-dark mb-2">
             INVITATION FROM
           </p>
           <p className="font-heading text-lg text-marine mb-6">

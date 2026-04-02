@@ -88,6 +88,7 @@ export default function ApplicationForm({
   const [activeTab, setActiveTab] = useState<"individual" | "corporate">("individual");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linkedinError, setLinkedinError] = useState<string | null>(null);
   const [selectedIndividualTier, setSelectedIndividualTier] = useState(individualTiers[0]?.id || "");
   const [selectedCorporateTier, setSelectedCorporateTier] = useState(corporateTiers[0]?.id || "");
 
@@ -107,6 +108,14 @@ export default function ApplicationForm({
     const companyName = form.get("company_name") as string;
     const companyRole = form.get("company_role") as string;
     const originatorNote = form.get("originator_note") as string;
+    const linkedinUrl = (form.get("linkedin_url") as string).trim();
+
+    if (linkedinUrl && !/^https?:\/\/(www\.)?linkedin\.com\/.+/.test(linkedinUrl)) {
+      setLinkedinError("Please enter a valid LinkedIn URL (e.g. https://linkedin.com/in/yourname)");
+      setLoading(false);
+      return;
+    }
+    setLinkedinError(null);
 
     const result = await submitApplication({
       email,
@@ -117,6 +126,7 @@ export default function ApplicationForm({
       companyName,
       companyRole,
       originatorNote,
+      linkedinUrl,
       tierId: selectedTier,
       originatorId,
     });
@@ -298,7 +308,7 @@ export default function ApplicationForm({
             htmlFor="originator_note"
             className="block text-sm font-body font-medium text-marine mb-1.5"
           >
-            How do you know your host? *
+            How do you know your host, and why do you wish to become a member? *
           </label>
           <textarea
             id="originator_note"
@@ -309,6 +319,46 @@ export default function ApplicationForm({
             placeholder="A brief note about your connection..."
           />
         </div>
+
+        <div>
+          <label
+            htmlFor="linkedin_url"
+            className="block text-sm font-body font-medium text-marine mb-1.5"
+          >
+            LinkedIn Profile
+          </label>
+          <input
+            id="linkedin_url"
+            name="linkedin_url"
+            type="url"
+            className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
+            placeholder="https://linkedin.com/in/yourname"
+          />
+          {linkedinError && (
+            <p className="mt-1.5 text-xs text-destructive font-body">{linkedinError}</p>
+          )}
+        </div>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            name="terms_agreed"
+            required
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-sky-dark focus:ring-sky/50"
+          />
+          <span className="font-body text-sm text-marine/70 leading-relaxed">
+            In submitting my application I agree to the{" "}
+            <a
+              href="/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4 text-marine hover:text-sky-dark transition-colors"
+            >
+              General Terms &amp; Conditions
+            </a>
+            .
+          </span>
+        </label>
 
         {error && (
           <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive font-body">

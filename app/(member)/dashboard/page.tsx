@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import PayNowButton from "./PayNowButton";
 
 export default async function MemberDashboardPage() {
   const supabase = await createClient();
@@ -16,13 +17,19 @@ export default async function MemberDashboardPage() {
   const { data: members } = await adminClient
     .from("members")
     .select(
-      "id, first_name, last_name, status, tier_id, member_number"
+      "id, first_name, last_name, status, tier_id, member_number, metadata"
     )
     .eq("email", user.email)
     .limit(1);
 
   const member = members?.[0];
   if (!member) redirect("/login");
+
+  // First-login redirect: show welcome letter to newly active members
+  const metadata = (member.metadata as Record<string, unknown>) || {};
+  if (member.status === "active" && !metadata.welcome_seen) {
+    redirect("/welcome");
+  }
 
   // Get tier info
   const { data: tiers } = await adminClient
@@ -110,6 +117,7 @@ export default async function MemberDashboardPage() {
               {member.member_number}
             </p>
           )}
+          {member.status === "approved" && <PayNowButton />}
         </div>
 
         {/* Card Preview */}
@@ -173,7 +181,38 @@ export default async function MemberDashboardPage() {
             </p>
           </div>
         )}
+
+        {/* WhatsApp Community */}
+        {member.status === "active" && (
+          <a
+            href="https://chat.whatsapp.com/JuKTd9XCImL5tZjwYId48v"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-white rounded-xl border border-border p-6 hover:border-sky/50 transition-colors group block"
+          >
+            <p className="text-sm font-body text-muted-foreground mb-2">
+              Community
+            </p>
+            <p className="font-body font-semibold text-marine">
+              Join the WhatsApp Group
+            </p>
+            <p className="text-xs text-muted-foreground font-body mt-1 group-hover:text-sky-dark transition-colors">
+              Stay up to date with events, offers &amp; club news &rarr;
+            </p>
+          </a>
+        )}
       </div>
+
+      {member.status === "active" && (
+        <div className="mt-6 text-center">
+          <Link
+            href="/welcome"
+            className="text-xs font-body text-muted-foreground underline underline-offset-4 hover:text-marine transition-colors"
+          >
+            View welcome letter
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

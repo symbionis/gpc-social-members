@@ -1,10 +1,14 @@
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/server";
 
-export default function PublicLayout({
+export default async function PublicLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
   return (
     <div className="min-h-screen bg-white flex flex-col">
       <header className="absolute top-0 left-0 right-0 z-10">
@@ -13,12 +17,18 @@ export default function PublicLayout({
             <span className="text-lg font-bold text-white block">Geneva Polo Club</span>
             <span className="text-[10px] font-light tracking-[0.25em] uppercase text-sky block">Social Members</span>
           </Link>
-          <Link
-            href="/login"
-            className="text-sm font-body text-white/70 hover:text-white transition-colors"
-          >
-            Member Login
-          </Link>
+          {user ? (
+            <Link href="/dashboard" className="text-sm font-body text-white/70 hover:text-white transition-colors">
+              My Club House
+            </Link>
+          ) : (
+            <Link
+              href="/login"
+              className="text-sm font-body text-white/70 hover:text-white transition-colors"
+            >
+              Member Login
+            </Link>
+          )}
         </div>
       </header>
       <main className="flex-1">{children}</main>

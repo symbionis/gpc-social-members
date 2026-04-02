@@ -6,7 +6,11 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "node .next/standalone/server.js",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "npx playwright test",
+    "test:admin": "npx playwright test --project=admin",
+    "test:member": "npx playwright test --project=member",
+    "test:public": "npx playwright test --project=public"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5",
@@ -27,10 +31,12 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.58.2",
     "@types/node": "^22",
     "@types/node-cron": "^3.0.11",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.3.1",
     "eslint": "^9",
     "eslint-config-next": "^15",
     "supabase": "^1",

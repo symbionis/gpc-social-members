@@ -29,7 +29,7 @@ export default function MembershipCard({
         {/* Header */}
         <div className="text-center">
           <p className="font-accent text-xs uppercase tracking-[0.25em] text-sky mb-1">
-            SOCIAL MEMBER CLUB
+            SOCIAL MEMBER
           </p>
           <h2 className="font-heading text-2xl font-bold leading-tight">
             Geneva Polo Club

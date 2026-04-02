@@ -12,6 +12,7 @@ export async function submitApplication(data: {
   companyName: string;
   companyRole: string;
   originatorNote: string;
+  linkedinUrl: string;
   tierId: string;
   originatorId: string;
 }) {
@@ -44,6 +45,7 @@ export async function submitApplication(data: {
     company_name: data.companyName || null,
     company_role: data.companyRole || null,
     originator_note: data.originatorNote || null,
+    linkedin_url: data.linkedinUrl || null,
     tier_id: data.tierId,
     originator_id: data.originatorId,
     status: "pending",
