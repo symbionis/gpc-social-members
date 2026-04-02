@@ -382,6 +382,111 @@ export interface Database {
           created_at?: string;
         };
       };
+      event_types: {
+        Row: {
+          id: string;
+          name: string;
+          slug: string;
+          color: string;
+          sort_order: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          slug: string;
+          color?: string;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          slug?: string;
+          color?: string;
+          sort_order?: number;
+          created_at?: string;
+        };
+      };
+      events: {
+        Row: {
+          id: string;
+          event_type_id: string;
+          season_id: string | null;
+          title: string;
+          description: string | null;
+          start_date: string;
+          end_date: string | null;
+          start_time: string | null;
+          location: string | null;
+          is_confirmed: boolean;
+          is_published: boolean;
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          event_type_id: string;
+          season_id?: string | null;
+          title: string;
+          description?: string | null;
+          start_date: string;
+          end_date?: string | null;
+          start_time?: string | null;
+          location?: string | null;
+          is_confirmed?: boolean;
+          is_published?: boolean;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          event_type_id?: string;
+          season_id?: string | null;
+          title?: string;
+          description?: string | null;
+          start_date?: string;
+          end_date?: string | null;
+          start_time?: string | null;
+          location?: string | null;
+          is_confirmed?: boolean;
+          is_published?: boolean;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      lounge_sessions: {
+        Row: {
+          id: string;
+          day_of_week: string;
+          time_slot: string;
+          field_number: number;
+          is_open: boolean;
+          updated_by: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          day_of_week: string;
+          time_slot: string;
+          field_number?: number;
+          is_open?: boolean;
+          updated_by?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          day_of_week?: string;
+          time_slot?: string;
+          field_number?: number;
+          is_open?: boolean;
+          updated_by?: string | null;
+          updated_at?: string;
+        };
+      };
       email_settings: {
         Row: {
           id: string;
