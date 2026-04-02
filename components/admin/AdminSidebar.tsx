@@ -35,6 +35,8 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
             ]
           : []),
         { href: "/admin/members", label: "Members", icon: "users" },
+        { href: "/admin/events", label: "Events", icon: "calendar" },
+        { href: "/admin/lounge", label: "Lounge", icon: "coffee" },
         ...(admin.is_originator || isSuper
           ? [
               {
