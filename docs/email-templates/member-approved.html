@@ -10,5 +10,8 @@
 {{^checkout_url}}
 <p>Your membership is now active. You can access your member portal and digital membership card by signing in.</p>
 {{/checkout_url}}
+{{#dashboard_url}}
+<p style="font-size: 13px; color: #6b7280;">If the payment link above has expired, you can always complete your payment by logging in to your member dashboard at <a href="{{.}}" style="color: #5BA4C9;">{{.}}</a>.</p>
+{{/dashboard_url}}
 <p>We look forward to welcoming you fieldside this season.</p>
 <p>Warm regards,<br><strong>The Geneva Polo Club Team</strong></p>

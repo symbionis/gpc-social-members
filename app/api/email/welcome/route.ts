@@ -77,12 +77,14 @@ export async function POST(request: NextRequest) {
     console.log("[welcome-email] Skipping Stripe — no price_id or price is 0");
   }
 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const templateModel = {
     first_name: member.first_name,
     last_name: member.last_name,
     tier_name: tier?.name || "Member",
     checkout_url: checkoutUrl,
     has_payment: !!checkoutUrl,
+    dashboard_url: `${appUrl}/login`,
   };
   console.log("[welcome-email] Sending email with model:", templateModel);
 

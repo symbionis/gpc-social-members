@@ -1,0 +1,23 @@
+{{first_name}}, your membership is almost ready.
+
+Your application to the Geneva Polo Club Social Member Club was approved — congratulations! We just need you to complete your payment to activate your {{tier_name}} membership.
+
+Once payment is confirmed, you will receive your digital membership card and gain full access to the club, events, and partner benefits.
+
+Complete your payment:
+
+{{#checkout_url}}
+{{.}}
+{{/checkout_url}}
+
+{{#dashboard_url}}
+You can also complete your payment anytime by logging in to your member dashboard at {{.}}
+{{/dashboard_url}}
+
+We look forward to welcoming you fieldside this season.
+
+Warm regards,
+The Geneva Polo Club Team
+
+---
+Geneva Polo Club — Social Members Club

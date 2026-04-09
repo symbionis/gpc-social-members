@@ -1,0 +1,13 @@
+<h1>{{first_name}}, your membership is almost ready</h1>
+<p>Your application to the Geneva Polo Club Social Member Club was approved — congratulations! We just need you to complete your payment to activate your <strong>{{tier_name}}</strong> membership.</p>
+<p>Once payment is confirmed, you will receive your digital membership card and gain full access to the club, events, and partner benefits.</p>
+{{#checkout_url}}
+<p style="text-align: center; margin: 32px 0;">
+  <a href="{{.}}" class="button" style="color: #FFFFFF !important; text-decoration: none; display: inline-block; background-color: #052938; border-radius: 3px; font-family: 'Poppins', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 500; letter-spacing: 1px; text-align: center; padding: 12px 32px; -webkit-text-size-adjust: none;">Complete Payment</a>
+</p>
+{{/checkout_url}}
+{{#dashboard_url}}
+<p style="font-size: 13px; color: #6b7280;">You can also complete your payment anytime by logging in to your member dashboard at <a href="{{.}}" style="color: #5BA4C9;">{{.}}</a>.</p>
+{{/dashboard_url}}
+<p>We look forward to welcoming you fieldside this season.</p>
+<p>Warm regards,<br><strong>The Geneva Polo Club Team</strong></p>

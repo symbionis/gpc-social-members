@@ -13,6 +13,10 @@ To complete your membership and receive your digital membership card, please pro
 Your membership is now active. You can access your member portal and digital card by signing in.
 {{/checkout_url}}
 
+{{#dashboard_url}}
+If the payment link above has expired, you can always complete your payment by logging in to your member dashboard at {{.}}
+{{/dashboard_url}}
+
 We look forward to welcoming you fieldside this season.
 
 Warm regards,

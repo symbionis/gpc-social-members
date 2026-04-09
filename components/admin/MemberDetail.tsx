@@ -87,6 +87,8 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
   const [renewalOriginatorId, setRenewalOriginatorId] = useState(allOriginators[0]?.id || "");
   const [renewalSending, setRenewalSending] = useState(false);
   const [renewalResult, setRenewalResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [resendingPaymentLink, setResendingPaymentLink] = useState(false);
+  const [resendPaymentResult, setResendPaymentResult] = useState<{ success: boolean; message: string } | null>(null);
 
   async function handleSave() {
     setSaving(true);
@@ -115,6 +117,28 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
       const data = await res.json();
       setRenewalResult({ success: false, message: data.error || "Failed to send renewal email." });
     }
+  }
+
+  async function handleResendPaymentLink() {
+    setResendingPaymentLink(true);
+    setResendPaymentResult(null);
+    try {
+      const res = await fetch("/api/email/welcome", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_id: member.id }),
+      });
+      if (res.ok) {
+        setResendPaymentResult({ success: true, message: `Payment link sent to ${member.email}` });
+        router.refresh();
+      } else {
+        const data = await res.json();
+        setResendPaymentResult({ success: false, message: data.error || "Failed to send payment link." });
+      }
+    } catch {
+      setResendPaymentResult({ success: false, message: "Network error. Please try again." });
+    }
+    setResendingPaymentLink(false);
   }
 
   async function handleActivateFree() {
@@ -246,9 +270,18 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
                     Edit
                   </button>
                   {member.status === "approved" && (
-                    <button onClick={handleActivateFree} disabled={saving} className="px-4 py-2 bg-sky text-marine rounded-lg text-sm font-body font-medium hover:bg-sky-light transition-colors disabled:opacity-50">
-                      Activate as Free Member
-                    </button>
+                    <>
+                      <button onClick={handleActivateFree} disabled={saving} className="px-4 py-2 bg-sky text-marine rounded-lg text-sm font-body font-medium hover:bg-sky-light transition-colors disabled:opacity-50">
+                        Activate as Free Member
+                      </button>
+                      <button
+                        onClick={handleResendPaymentLink}
+                        disabled={resendingPaymentLink}
+                        className="px-4 py-2 bg-sky-dark text-white rounded-lg text-sm font-body font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                      >
+                        {resendingPaymentLink ? "Sending..." : "Resend Payment Link"}
+                      </button>
+                    </>
                   )}
                   {member.status === "expired" && (
                     <button
@@ -261,6 +294,11 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
                 </>
               )}
             </div>
+            {resendPaymentResult && (
+              <p className={`text-sm font-body mt-3 ${resendPaymentResult.success ? "text-green-700" : "text-red-600"}`}>
+                {resendPaymentResult.message}
+              </p>
+            )}
           </div>
         </div>
 
