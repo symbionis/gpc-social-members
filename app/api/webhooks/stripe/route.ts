@@ -76,6 +76,7 @@ async function activateMembership(memberId: string, tierId: string | null) {
         first_name: m.first_name,
         last_name: m.last_name,
         tier_name: tierName,
+        has_card: true,
         card_number: cardNumber,
         portal_url: `${appUrl}/login`,
         checkout_url: null,
