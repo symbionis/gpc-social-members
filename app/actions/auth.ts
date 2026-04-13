@@ -1,20 +1,75 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function signOut() {
   const supabase = await createClient();
   await supabase.auth.signOut();
 }
 
-export async function sendMagicLink(email: string, redirectTo: string) {
+export async function sendOtpCode(email: string) {
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: redirectTo },
-  });
+  const { error } = await supabase.auth.signInWithOtp({ email });
   if (error) return { error: error.message };
   return { error: null };
+}
+
+export async function verifyOtpCode(
+  email: string,
+  token: string,
+  portal: "member" | "admin"
+) {
+  const supabase = await createClient();
+  const { error } = await supabase.auth.verifyOtp({
+    email,
+    token,
+    type: "email",
+  });
+  if (error) return { error: "Invalid or expired code. Please try again.", redirect: null };
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    return { error: "Authentication failed. Please try again.", redirect: null };
+  }
+
+  const adminClient = createAdminClient();
+
+  const [{ data: members }, { data: adminUsers }] = await Promise.all([
+    adminClient.from("members").select("id, auth_user_id").eq("email", user.email).limit(1),
+    adminClient.from("admin_users").select("id, auth_user_id, role").eq("email", user.email).limit(1),
+  ]);
+
+  const member = members?.[0];
+  const adminUser = adminUsers?.[0];
+
+  // Link auth_user_id if needed
+  if (member && !member.auth_user_id) {
+    await adminClient.from("members").update({ auth_user_id: user.id }).eq("id", member.id);
+  }
+  if (adminUser && !adminUser.auth_user_id) {
+    await adminClient.from("admin_users").update({ auth_user_id: user.id }).eq("id", adminUser.id);
+  }
+
+  // Route based on portal
+  if (portal === "member") {
+    if (member) return { error: null, redirect: "/dashboard" };
+    if (adminUser) return { error: null, redirect: "/admin/dashboard" };
+    await supabase.auth.signOut();
+    return { error: "No membership found for this email.", redirect: null };
+  }
+
+  // Admin portal
+  if (adminUser) {
+    const dest = adminUser.role === "originator" ? "/admin/originators" : "/admin/dashboard";
+    return { error: null, redirect: dest };
+  }
+  if (member) return { error: null, redirect: "/dashboard" };
+  await supabase.auth.signOut();
+  return { error: "You do not have admin access.", redirect: null };
 }
 
 export async function sendPasswordReset(email: string, redirectTo: string) {
