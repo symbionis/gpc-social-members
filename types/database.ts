@@ -21,6 +21,16 @@ export type PaymentStatus =
   | "overdue"
   | "refunded";
 
+export type PaymentCaptureStatus =
+  | "pending"
+  | "authorized"
+  | "hold_expired"
+  | "charging_offsession"
+  | "succeeded"
+  | "failed"
+  | "requires_action"
+  | "cancelled";
+
 export type ApplicationStatus =
   | "pending"
   | "approved"
@@ -140,9 +150,10 @@ export interface Database {
           last_name: string;
           email: string;
           phone: string | null;
-          address: Json | null;
+          address: string | null;
           company_name: string | null;
           company_role: string | null;
+          linkedin_url: string | null;
           profile_photo_url: string | null;
           tier_id: string;
           status: MemberStatus;
@@ -156,6 +167,9 @@ export interface Database {
           is_migrated: boolean;
           communication_preferences: Json | null;
           metadata: Json | null;
+          stripe_customer_id: string | null;
+          consent_given_at: string | null;
+          consent_ip: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -168,9 +182,10 @@ export interface Database {
           last_name: string;
           email: string;
           phone?: string | null;
-          address?: Json | null;
+          address?: string | null;
           company_name?: string | null;
           company_role?: string | null;
+          linkedin_url?: string | null;
           profile_photo_url?: string | null;
           tier_id: string;
           status?: MemberStatus;
@@ -184,6 +199,9 @@ export interface Database {
           is_migrated?: boolean;
           communication_preferences?: Json | null;
           metadata?: Json | null;
+          stripe_customer_id?: string | null;
+          consent_given_at?: string | null;
+          consent_ip?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -196,9 +214,10 @@ export interface Database {
           last_name?: string;
           email?: string;
           phone?: string | null;
-          address?: Json | null;
+          address?: string | null;
           company_name?: string | null;
           company_role?: string | null;
+          linkedin_url?: string | null;
           profile_photo_url?: string | null;
           tier_id?: string;
           status?: MemberStatus;
@@ -212,6 +231,9 @@ export interface Database {
           is_migrated?: boolean;
           communication_preferences?: Json | null;
           metadata?: Json | null;
+          stripe_customer_id?: string | null;
+          consent_given_at?: string | null;
+          consent_ip?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -224,11 +246,20 @@ export interface Database {
           amount_eur: number;
           currency: string;
           payment_status: PaymentStatus;
+          payment_capture_status: PaymentCaptureStatus | null;
           stripe_payment_intent_id: string | null;
           stripe_checkout_session_id: string | null;
           stripe_invoice_id: string | null;
+          stripe_payment_method_id: string | null;
           payment_method: string | null;
           paid_at: string | null;
+          authorized_at: string | null;
+          capture_before: string | null;
+          payment_failed_at: string | null;
+          payment_retry_deadline: string | null;
+          reminder_day1_sent: boolean;
+          reminder_day3_sent: boolean;
+          reminder_day4_sent: boolean;
           notes: string | null;
           season: string | null;
           created_at: string;
@@ -241,11 +272,20 @@ export interface Database {
           amount_eur: number;
           currency?: string;
           payment_status?: PaymentStatus;
+          payment_capture_status?: PaymentCaptureStatus | null;
           stripe_payment_intent_id?: string | null;
           stripe_checkout_session_id?: string | null;
           stripe_invoice_id?: string | null;
+          stripe_payment_method_id?: string | null;
           payment_method?: string | null;
           paid_at?: string | null;
+          authorized_at?: string | null;
+          capture_before?: string | null;
+          payment_failed_at?: string | null;
+          payment_retry_deadline?: string | null;
+          reminder_day1_sent?: boolean;
+          reminder_day3_sent?: boolean;
+          reminder_day4_sent?: boolean;
           notes?: string | null;
           season?: string | null;
           created_at?: string;
@@ -258,11 +298,20 @@ export interface Database {
           amount_eur?: number;
           currency?: string;
           payment_status?: PaymentStatus;
+          payment_capture_status?: PaymentCaptureStatus | null;
           stripe_payment_intent_id?: string | null;
           stripe_checkout_session_id?: string | null;
           stripe_invoice_id?: string | null;
+          stripe_payment_method_id?: string | null;
           payment_method?: string | null;
           paid_at?: string | null;
+          authorized_at?: string | null;
+          capture_before?: string | null;
+          payment_failed_at?: string | null;
+          payment_retry_deadline?: string | null;
+          reminder_day1_sent?: boolean;
+          reminder_day3_sent?: boolean;
+          reminder_day4_sent?: boolean;
           notes?: string | null;
           season?: string | null;
           created_at?: string;
@@ -338,18 +387,27 @@ export interface Database {
           id: string;
           originator_id: string;
           member_id: string;
+          invite_code_used: string | null;
+          status: string;
+          converted_at: string | null;
           created_at: string;
         };
         Insert: {
           id?: string;
           originator_id: string;
           member_id: string;
+          invite_code_used?: string | null;
+          status?: string;
+          converted_at?: string | null;
           created_at?: string;
         };
         Update: {
           id?: string;
           originator_id?: string;
           member_id?: string;
+          invite_code_used?: string | null;
+          status?: string;
+          converted_at?: string | null;
           created_at?: string;
         };
       };
@@ -379,6 +437,67 @@ export interface Database {
           token?: string;
           used?: boolean;
           expires_at?: string;
+          created_at?: string;
+        };
+      };
+      payment_retry_tokens: {
+        Row: {
+          id: string;
+          member_id: string;
+          payment_id: string;
+          token: string;
+          used: boolean;
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          member_id: string;
+          payment_id: string;
+          token: string;
+          used?: boolean;
+          expires_at: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          member_id?: string;
+          payment_id?: string;
+          token?: string;
+          used?: boolean;
+          expires_at?: string;
+          created_at?: string;
+        };
+      };
+      seasons: {
+        Row: {
+          id: string;
+          name: string;
+          slug: string;
+          start_date: string;
+          end_date: string;
+          renewal_open_date: string | null;
+          is_current: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          slug: string;
+          start_date: string;
+          end_date: string;
+          renewal_open_date?: string | null;
+          is_current?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          slug?: string;
+          start_date?: string;
+          end_date?: string;
+          renewal_open_date?: string | null;
+          is_current?: boolean;
           created_at?: string;
         };
       };
@@ -517,6 +636,7 @@ export interface Database {
     Enums: {
       member_status: MemberStatus;
       payment_status: PaymentStatus;
+      payment_capture_status: PaymentCaptureStatus;
       application_status: ApplicationStatus;
       admin_role: AdminRole;
       membership_category: MembershipCategory;

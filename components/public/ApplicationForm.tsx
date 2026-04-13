@@ -3,14 +3,11 @@
 import { useState } from "react";
 import { submitApplication } from "@/app/(public)/apply/[invite_code]/actions";
 import { useRouter } from "next/navigation";
+import PaymentSection from "./PaymentSection";
+import type { Database } from "@/types/database";
 
-interface Tier {
-  id: string;
-  name: string;
-  price_eur: number;
-  benefits: unknown;
-  guest_invitations_per_season: number;
-}
+type TierRow = Database["public"]["Tables"]["membership_tiers"]["Row"];
+type Tier = Pick<TierRow, "id" | "name" | "price_eur" | "benefits" | "guest_invitations_per_season">;
 
 interface ApplicationFormProps {
   originatorId: string;
@@ -92,7 +89,14 @@ export default function ApplicationForm({
   const [selectedIndividualTier, setSelectedIndividualTier] = useState(individualTiers[0]?.id || "");
   const [selectedCorporateTier, setSelectedCorporateTier] = useState(corporateTiers[0]?.id || "");
 
+  // Payment step state
+  const [step, setStep] = useState<"form" | "payment">("form");
+  const [memberId, setMemberId] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string>("");
+
   const selectedTier = activeTab === "individual" ? selectedIndividualTier : selectedCorporateTier;
+  const allTiers = [...individualTiers, ...corporateTiers];
+  const currentTier = allTiers.find((t) => t.id === selectedTier);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -129,6 +133,7 @@ export default function ApplicationForm({
       linkedinUrl,
       tierId: selectedTier,
       originatorId,
+      consentGivenAt: new Date().toISOString(),
     });
 
     setLoading(false);
@@ -138,10 +143,54 @@ export default function ApplicationForm({
       return;
     }
 
+    // Move to payment step
+    setMemberId(result.member_id);
+    setStep("payment");
+  }
+
+  function handlePaymentSuccess() {
     router.push("/apply/success");
   }
 
   const isCorporate = activeTab === "corporate";
+
+  if (step === "payment" && memberId && currentTier) {
+    return (
+      <div className="space-y-6">
+        <div className="p-4 bg-sky/5 border border-sky/20 rounded-lg">
+          <p className="text-sm font-body text-marine">
+            <strong>Application submitted.</strong> Please authorize payment to
+            complete your application.
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between p-4 rounded-lg border border-border">
+          <span className="font-body text-sm text-marine">{currentTier.name}</span>
+          <span className="font-body font-semibold text-marine">
+            {formatPrice(currentTier.price_eur)}
+          </span>
+        </div>
+
+        {paymentError && (
+          <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive font-body">
+            {paymentError}
+          </div>
+        )}
+
+        <PaymentSection
+          amount={currentTier.price_eur}
+          memberId={memberId}
+          onSuccess={handlePaymentSuccess}
+          onError={setPaymentError}
+        />
+
+        <p className="text-xs text-center text-muted-foreground font-body">
+          Your card will only be charged if your application is approved by the
+          membership committee.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -360,6 +409,25 @@ export default function ApplicationForm({
           </span>
         </label>
 
+        {/* Payment consent checkbox */}
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            name="payment_consent"
+            required
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-sky-dark focus:ring-sky/50"
+          />
+          <span className="font-body text-sm text-marine/70 leading-relaxed">
+            I authorize a hold of{" "}
+            <strong className="text-marine">
+              {currentTier ? formatPrice(currentTier.price_eur) : "—"}
+            </strong>{" "}
+            on my card. This amount will only be charged if my application is
+            approved by the membership committee. If declined, the hold will be
+            released.
+          </span>
+        </label>
+
         {error && (
           <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive font-body">
             {error}
@@ -371,7 +439,7 @@ export default function ApplicationForm({
           disabled={loading}
           className="w-full py-3.5 bg-marine text-white rounded-lg font-body font-medium text-sm hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? "Submitting..." : "Submit Application"}
+          {loading ? "Submitting..." : "Continue to Payment"}
         </button>
 
         <p className="text-xs text-center text-muted-foreground font-body">

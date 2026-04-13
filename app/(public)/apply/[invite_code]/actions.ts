@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
+import { headers } from "next/headers";
 
 export async function submitApplication(data: {
   email: string;
@@ -15,8 +16,15 @@ export async function submitApplication(data: {
   linkedinUrl: string;
   tierId: string;
   originatorId: string;
-}) {
+  consentGivenAt?: string;
+}): Promise<{ error: string | null; member_id: string | null }> {
   const supabase = createAdminClient();
+
+  // Extract client IP server-side from request headers
+  const headersList = await headers();
+  const consentIp = headersList.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || headersList.get("x-real-ip")
+    || null;
 
   // Check for duplicate email
   const { data: existing } = await supabase
@@ -28,31 +36,37 @@ export async function submitApplication(data: {
   if (existing && existing.length > 0) {
     const member = existing[0];
     if (member.status === "active") {
-      return { error: "This email is already associated with an active membership." };
+      return { error: "This email is already associated with an active membership.", member_id: null };
     } else if (member.status === "pending") {
-      return { error: "An application with this email is already under review." };
+      return { error: "An application with this email is already under review.", member_id: null };
     } else {
-      return { error: "This email is already in our system. Please contact the club for assistance." };
+      return { error: "This email is already in our system. Please contact the club for assistance.", member_id: null };
     }
   }
 
-  const { error: insertError } = await supabase.from("members").insert({
-    email: data.email,
-    first_name: data.firstName,
-    last_name: data.lastName,
-    title: data.title || null,
-    phone: data.phone || null,
-    company_name: data.companyName || null,
-    company_role: data.companyRole || null,
-    originator_note: data.originatorNote || null,
-    linkedin_url: data.linkedinUrl || null,
-    tier_id: data.tierId,
-    originator_id: data.originatorId,
-    status: "pending",
-  });
+  const { data: inserted, error: insertError } = await supabase
+    .from("members")
+    .insert({
+      email: data.email,
+      first_name: data.firstName,
+      last_name: data.lastName,
+      title: data.title || null,
+      phone: data.phone || null,
+      company_name: data.companyName || null,
+      company_role: data.companyRole || null,
+      originator_note: data.originatorNote || null,
+      linkedin_url: data.linkedinUrl || null,
+      tier_id: data.tierId,
+      originator_id: data.originatorId,
+      status: "pending",
+      consent_given_at: data.consentGivenAt || null,
+      consent_ip: consentIp,
+    })
+    .select("id")
+    .single();
 
   if (insertError) {
-    return { error: insertError.message };
+    return { error: insertError.message, member_id: null };
   }
 
   // Send confirmation email to applicant
@@ -70,40 +84,8 @@ export async function submitApplication(data: {
     console.error("application-received email failed:", emailResult.error);
   }
 
-  // Notify all approval committee members and super admins
-  const { data: committee } = await supabase
-    .from("admin_users")
-    .select("email, first_name")
-    .or("is_approval_committee.eq.true,role.eq.super_admin");
+  // Committee notification is now sent after successful card authorization
+  // (in the payment_intent.amount_capturable_updated webhook handler)
 
-  if (committee && committee.length > 0) {
-    const adminUrl = `${process.env.NEXT_PUBLIC_APP_URL}/admin/applications`;
-    const applicantCompany = [data.companyName, data.companyRole].filter(Boolean).join(" — ");
-
-    const notifyResults = await Promise.all(
-      committee.map((admin) =>
-        sendEmail({
-          to: admin.email,
-          templateAlias: "new-application-pending",
-          templateModel: {
-            recipient_first_name: admin.first_name,
-            applicant_name: `${data.firstName} ${data.lastName}`,
-            applicant_email: data.email,
-            applicant_company: data.companyName || "—",
-            applicant_role: data.companyRole || "—",
-            originator_note: data.originatorNote || null,
-            admin_url: adminUrl,
-            preheader: `New application from ${data.firstName} ${data.lastName}${applicantCompany ? ` (${applicantCompany})` : ""} is awaiting review.`,
-          },
-        })
-      )
-    );
-
-    const failed = notifyResults.filter((r) => !r.success);
-    if (failed.length > 0) {
-      console.error(`new-application-pending email failed for ${failed.length} recipient(s)`);
-    }
-  }
-
-  return { error: null };
+  return { error: null, member_id: inserted.id };
 }

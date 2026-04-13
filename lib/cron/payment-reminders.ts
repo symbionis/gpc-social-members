@@ -43,8 +43,27 @@ export async function runPaymentReminders(): Promise<PaymentReminderResult> {
     return { sent: 0, skipped: 0 };
   }
 
+  // Skip members on the new capture flow (they have payment_capture_status set)
+  const memberIds = members.map((m) => m.id);
+  const { data: capturePayments } = await supabase
+    .from("payments")
+    .select("member_id")
+    .in("member_id", memberIds)
+    .not("payment_capture_status", "is", null);
+
+  const captureFlowMemberIds = new Set(
+    (capturePayments || []).map((p) => p.member_id)
+  );
+  const legacyMembers = members.filter((m) => !captureFlowMemberIds.has(m.id));
+
+  if (legacyMembers.length === 0) {
+    await updateLastRun(supabase, setting.id, 0, members.length);
+    return { sent: 0, skipped: members.length, reason: "all on new capture flow" };
+  }
+
   // Collect unique tier IDs and fetch tiers
-  const tierIds = [...new Set(members.map((m) => m.tier_id).filter(Boolean))];
+  // Use legacyMembers from here on
+  const tierIds = [...new Set(legacyMembers.map((m) => m.tier_id).filter(Boolean))];
 
   const { data: tiers } = await supabase
     .from("membership_tiers")
@@ -59,7 +78,7 @@ export async function runPaymentReminders(): Promise<PaymentReminderResult> {
   let sent = 0;
   let skipped = 0;
 
-  for (const member of members) {
+  for (const member of legacyMembers) {
     const tier = tierMap.get(member.tier_id);
 
     if (!tier?.stripe_price_id || tier.price_eur <= 0) {
