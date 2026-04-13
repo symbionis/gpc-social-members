@@ -4,10 +4,12 @@ import ApplicationForm from "@/components/public/ApplicationForm";
 
 interface ApplyPageProps {
   params: Promise<{ invite_code: string }>;
+  searchParams: Promise<{ resume?: string }>;
 }
 
-export default async function ApplyPage({ params }: ApplyPageProps) {
+export default async function ApplyPage({ params, searchParams }: ApplyPageProps) {
   const { invite_code } = await params;
+  const { resume } = await searchParams;
   const supabase = createAdminClient();
 
   // Validate invite code — must belong to an active originator
@@ -61,6 +63,24 @@ export default async function ApplyPage({ params }: ApplyPageProps) {
       .order("price_eur", { ascending: true }),
   ]);
 
+  // Validate resume param — only allow pending members with no authorized payment
+  let resumeMemberId: string | null = null;
+  let resumeTierId: string | null = null;
+  if (resume) {
+    const { data: resumeMembers } = await supabase
+      .from("members")
+      .select("id, status, tier_id")
+      .eq("id", resume)
+      .eq("status", "pending")
+      .eq("originator_id", originator.id)
+      .limit(1);
+
+    if (resumeMembers?.[0]) {
+      resumeMemberId = resumeMembers[0].id;
+      resumeTierId = resumeMembers[0].tier_id;
+    }
+  }
+
   return (
     <>
     <div className="h-20 bg-marine" />
@@ -86,6 +106,8 @@ export default async function ApplyPage({ params }: ApplyPageProps) {
           originatorId={originator.id}
           individualTiers={individualTiers || []}
           corporateTiers={corporateTiers || []}
+          resumeMemberId={resumeMemberId}
+          resumeTierId={resumeTierId}
         />
       </div>
     </div>

@@ -77,10 +77,18 @@ export default function ApplicationQueue({
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
+  function isIncomplete(app: Application) {
+    return app.status === "pending" && !paymentMap[app.id];
+  }
+
   const filtered =
-    filter === "all"
-      ? applications
-      : applications.filter((a) => a.status === filter);
+    filter === "incomplete"
+      ? applications.filter(isIncomplete)
+      : filter === "pending"
+        ? applications.filter((a) => a.status === "pending" && !isIncomplete(a))
+        : filter === "all"
+          ? applications
+          : applications.filter((a) => a.status === filter);
 
   async function handleApprove(memberId: string) {
     setProcessing(memberId);
@@ -111,6 +119,27 @@ export default function ApplicationQueue({
 
     setProcessing(null);
     setShowHoldExpiredConfirm(null);
+  }
+
+  async function handleSendReminder(memberId: string) {
+    setProcessing(memberId);
+    setActionError(null);
+    setActionMessage(null);
+
+    const res = await fetch("/api/admin/applications/send-reminder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ member_id: memberId }),
+    });
+
+    if (res.ok) {
+      setActionMessage("Reminder sent successfully.");
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data.error || "Failed to send reminder.");
+    }
+
+    setProcessing(null);
   }
 
   async function handleDecline(memberId: string) {
@@ -160,7 +189,7 @@ export default function ApplicationQueue({
 
       {/* Filter tabs */}
       <div className="flex gap-2 mb-6">
-        {["pending", "approved", "declined", "all"].map((f) => (
+        {["pending", "incomplete", "approved", "declined", "all"].map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -188,11 +217,12 @@ export default function ApplicationQueue({
         {filtered.map((app) => {
           const payment = paymentMap[app.id];
           const isHoldExpired = payment?.payment_capture_status === "hold_expired";
+          const incomplete = isIncomplete(app);
 
           return (
             <div
               key={app.id}
-              className="bg-white rounded-xl border border-border p-6"
+              className={`bg-white rounded-xl border p-6 ${incomplete ? "border-amber-200" : "border-border"}`}
             >
               <div className="flex items-start justify-between mb-4">
                 <div>
@@ -205,9 +235,13 @@ export default function ApplicationQueue({
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {payment && (
+                  {incomplete ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
+                      Incomplete
+                    </span>
+                  ) : payment ? (
                     <PaymentStatusBadge status={payment.payment_capture_status} />
-                  )}
+                  ) : null}
                   <span
                     className={`px-2.5 py-1 rounded-full text-xs font-body font-medium ${
                       app.status === "pending"
@@ -280,7 +314,19 @@ export default function ApplicationQueue({
                 </div>
               )}
 
-              {app.status === "pending" && (
+              {app.status === "pending" && incomplete && (
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => handleSendReminder(app.id)}
+                    disabled={processing === app.id}
+                    className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-body font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
+                  >
+                    {processing === app.id ? "Sending..." : "Send Reminder"}
+                  </button>
+                </div>
+              )}
+
+              {app.status === "pending" && !incomplete && (
                 <div className="flex gap-3">
                   {isHoldExpired ? (
                     <button

@@ -14,6 +14,8 @@ interface ApplicationFormProps {
   originatorId: string;
   individualTiers: Tier[];
   corporateTiers: Tier[];
+  resumeMemberId?: string | null;
+  resumeTierId?: string | null;
 }
 
 function formatPrice(eur: number): string {
@@ -81,18 +83,24 @@ export default function ApplicationForm({
   originatorId,
   individualTiers,
   corporateTiers,
+  resumeMemberId,
+  resumeTierId,
 }: ApplicationFormProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"individual" | "corporate">("individual");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linkedinError, setLinkedinError] = useState<string | null>(null);
-  const [selectedIndividualTier, setSelectedIndividualTier] = useState(individualTiers[0]?.id || "");
-  const [selectedCorporateTier, setSelectedCorporateTier] = useState(corporateTiers[0]?.id || "");
+  const [selectedIndividualTier, setSelectedIndividualTier] = useState(
+    (resumeTierId && individualTiers.some(t => t.id === resumeTierId) ? resumeTierId : individualTiers[0]?.id) || ""
+  );
+  const [selectedCorporateTier, setSelectedCorporateTier] = useState(
+    (resumeTierId && corporateTiers.some(t => t.id === resumeTierId) ? resumeTierId : corporateTiers[0]?.id) || ""
+  );
 
-  // Payment step state
-  const [step, setStep] = useState<"form" | "payment">("form");
-  const [memberId, setMemberId] = useState<string | null>(null);
+  // Payment step state — skip to payment if resuming
+  const [step, setStep] = useState<"form" | "payment">(resumeMemberId ? "payment" : "form");
+  const [memberId, setMemberId] = useState<string | null>(resumeMemberId || null);
   const [paymentError, setPaymentError] = useState<string>("");
   const [dialCode, setDialCode] = useState("+41");
 

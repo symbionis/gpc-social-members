@@ -1,0 +1,17 @@
+Complete Your Application
+
+Dear {{first_name}},
+
+We noticed you started an application to join the Geneva Polo Club Social Member Club but haven't completed the payment authorization step yet.
+
+To finalize your application and submit it for review by our membership committee, please click the link below:
+
+{{resume_url}}
+
+Your card will not be charged at this stage. A hold will be placed and only captured if your application is approved.
+
+Warm regards,
+The Geneva Polo Club Team
+
+---
+Geneva Polo Social Members Club
