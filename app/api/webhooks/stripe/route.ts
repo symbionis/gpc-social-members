@@ -50,25 +50,41 @@ async function activateMembership(memberId: string, tierId: string | null) {
       .eq("is_active", true);
   }
 
-  // Get member info for email
+  // Get member + tier info for email
   const { data: members } = await supabase
     .from("members")
-    .select("email, first_name")
+    .select("email, first_name, last_name, tier_id")
     .eq("id", memberId)
     .limit(1);
 
   if (members?.[0]) {
+    const m = members[0];
+    let tierName = "Member";
+    if (m.tier_id) {
+      const { data: tiers } = await supabase
+        .from("membership_tiers")
+        .select("name")
+        .eq("id", m.tier_id)
+        .limit(1);
+      if (tiers?.[0]) tierName = tiers[0].name;
+    }
+
     await sendEmail({
-      to: members[0].email,
-      templateAlias: "payment-confirmed",
+      to: m.email,
+      templateAlias: "member-approved",
       templateModel: {
-        first_name: members[0].first_name,
+        first_name: m.first_name,
+        last_name: m.last_name,
+        tier_name: tierName,
         card_number: cardNumber,
         portal_url: `${appUrl}/login`,
+        checkout_url: null,
+        has_payment: null,
+        dashboard_url: null,
         preheader: "Your membership is now active. Welcome to the Geneva Polo Club!",
       },
     }).catch((err) =>
-      console.error("[webhook] payment-confirmed email failed:", err)
+      console.error("[webhook] member-approved email failed:", err)
     );
   }
 

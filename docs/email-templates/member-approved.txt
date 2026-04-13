@@ -9,9 +9,24 @@ To complete your membership and receive your digital membership card, please pro
 
 {{.}}
 {{/checkout_url}}
+{{#card_number}}
+Your membership is now active and your digital membership card is ready.
+
+YOUR MEMBERSHIP CARD
+--------------------
+Name:          {{first_name}} {{last_name}}
+Membership:    {{tier_name}}
+Card No.:      {{card_number}}
+
+Access your digital membership card and member portal anytime by signing in:
+
+{{portal_url}}
+{{/card_number}}
+{{^card_number}}
 {{^checkout_url}}
 Your membership is now active. You can access your member portal and digital card by signing in.
 {{/checkout_url}}
+{{/card_number}}
 
 {{#dashboard_url}}
 If the payment link above has expired, you can always complete your payment by logging in to your member dashboard at {{.}}
