@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
         amount: amountInCentimes,
         currency: "chf",
         customer: member.stripe_customer_id || undefined,
+        payment_method_types: ["card"],
         metadata: {
           member_id: member.id,
           tier_slug: tier.slug,
