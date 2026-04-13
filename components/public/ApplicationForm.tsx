@@ -439,7 +439,7 @@ export default function ApplicationForm({
           disabled={loading}
           className="w-full py-3.5 bg-marine text-white rounded-lg font-body font-medium text-sm hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? "Submitting..." : "Continue to Payment"}
+          {loading ? "Submitting..." : "Authorize Hold"}
         </button>
 
         <p className="text-xs text-center text-muted-foreground font-body">
