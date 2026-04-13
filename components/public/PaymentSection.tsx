@@ -160,10 +160,10 @@ export default function PaymentSection(props: PaymentSectionProps) {
         setupFutureUsage: "off_session",
         paymentMethodTypes: ["card"],
         appearance: {
-          theme: "stripe",
+          theme: "flat",
           variables: {
             colorPrimary: "#052938",
-            fontFamily: "inherit",
+            colorBackground: "#dbdbdb",
           },
         },
       }}
