@@ -272,6 +272,21 @@ export async function POST(request: NextRequest) {
 
       if (memberData?.[0]) {
         const m = memberData[0];
+
+        // Send application-received email to applicant (after card auth, not on form submit)
+        await sendEmail({
+          to: m.email,
+          templateAlias: "application-received",
+          templateModel: {
+            first_name: m.first_name,
+            last_name: m.last_name,
+            preheader: "We've received your application to the Geneva Polo Club Social Member Club.",
+          },
+        }).catch((err) =>
+          console.error("[webhook] application-received email failed:", err)
+        );
+
+        // Notify committee — card is authorized, application is ready for review
         await notifyCommittee(memberId, {
           name: `${m.first_name} ${m.last_name}`,
           email: m.email,

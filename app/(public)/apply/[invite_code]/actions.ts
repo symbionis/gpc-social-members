@@ -70,23 +70,9 @@ export async function submitApplication(data: {
     return { error: insertError.message, member_id: null };
   }
 
-  // Send confirmation email to applicant
-  const emailResult = await sendEmail({
-    to: data.email,
-    templateAlias: "application-received",
-    templateModel: {
-      first_name: data.firstName,
-      last_name: data.lastName,
-      preheader: "We've received your application to the Geneva Polo Club Social Member Club.",
-    },
-  });
-
-  if (!emailResult.success) {
-    console.error("application-received email failed:", emailResult.error);
-  }
-
-  // Committee notification is now sent after successful card authorization
+  // Application-received email is sent after successful card authorization
   // (in the payment_intent.amount_capturable_updated webhook handler)
+  // Committee notification is also sent there
 
   return { error: null, member_id: inserted.id };
 }
