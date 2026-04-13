@@ -233,11 +233,11 @@ export default function PaymentRetryForm({
             mode: "payment",
             amount: Math.round(amount * 100),
             currency: "chf",
+            paymentMethodTypes: ["card"],
             appearance: {
-              theme: "stripe",
+              theme: "flat",
               variables: {
                 colorPrimary: "#052938",
-                fontFamily: "inherit",
               },
             },
           }}
