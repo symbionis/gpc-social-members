@@ -1,16 +1,17 @@
-New Membership Application
+{{#is_urgent}}URGENT: {{/is_urgent}}Membership Application
 
 Dear {{recipient_first_name}},
 
-A new membership application has been submitted and is awaiting your review.
-
+{{#is_urgent}}This application expires in {{hours_remaining}} hours. Please review it as soon as possible.
+{{/is_urgent}}{{^is_urgent}}{{#is_reminder}}Reminder: This application has {{days_remaining}} days remaining before the payment hold expires.
+{{/is_reminder}}{{/is_urgent}}{{^is_reminder}}A new membership application has been submitted and is awaiting your review.
+{{/is_reminder}}
 Name:    {{applicant_name}}
 Email:   {{applicant_email}}
 Company: {{applicant_company}}
 Role:    {{applicant_role}}
 {{#originator_note}}Note:    {{originator_note}}
 {{/originator_note}}
-
 Review the application here: {{admin_url}}
 
 Warm regards,
