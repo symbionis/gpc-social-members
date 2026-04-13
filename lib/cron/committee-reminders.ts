@@ -69,31 +69,43 @@ export async function runCommitteeReminders(): Promise<CommitteeReminderResult> 
 
     type ReminderLevel = { flag: "reminder_day1_sent" | "reminder_day3_sent" | "reminder_day4_sent"; alias: string; subject: string };
 
-    let reminderToSend: ReminderLevel | null = null;
+    // Collect all unsent reminders that are due — send each independently
+    // so a missed cron run doesn't cause earlier reminders to be skipped
+    const remindersToSend: ReminderLevel[] = [];
 
-    if (elapsed >= day4Threshold && !payment.reminder_day4_sent) {
-      reminderToSend = {
-        flag: "reminder_day4_sent",
-        alias: "committee-reminder-urgent",
-        subject: `URGENT: Application from ${applicantName} expires tomorrow`,
-      };
-    } else if (elapsed >= day3Threshold && !payment.reminder_day3_sent) {
-      reminderToSend = {
-        flag: "reminder_day3_sent",
-        alias: "committee-reminder-day3",
-        subject: `Reminder: Application from ${applicantName} — ${daysRemaining} days remaining`,
-      };
-    } else if (elapsed >= day1Threshold && !payment.reminder_day1_sent) {
-      reminderToSend = {
+    if (elapsed >= day1Threshold && !payment.reminder_day1_sent) {
+      remindersToSend.push({
         flag: "reminder_day1_sent",
         alias: "committee-reminder-day1",
         subject: `New application from ${applicantName} — ${daysRemaining} days remaining`,
-      };
+      });
+    }
+    if (elapsed >= day3Threshold && !payment.reminder_day3_sent) {
+      remindersToSend.push({
+        flag: "reminder_day3_sent",
+        alias: "committee-reminder-day3",
+        subject: `Reminder: Application from ${applicantName} — ${daysRemaining} days remaining`,
+      });
+    }
+    if (elapsed >= day4Threshold && !payment.reminder_day4_sent) {
+      remindersToSend.push({
+        flag: "reminder_day4_sent",
+        alias: "committee-reminder-urgent",
+        subject: `URGENT: Application from ${applicantName} expires tomorrow`,
+      });
     }
 
-    if (!reminderToSend) {
+    if (remindersToSend.length === 0) {
       skipped++;
       continue;
+    }
+
+    // Send only the highest-priority unsent reminder to avoid flooding,
+    // but mark all lower flags as sent so they aren't retried
+    const reminderToSend = remindersToSend[remindersToSend.length - 1];
+    const flagsToSet: Record<string, boolean> = {};
+    for (const r of remindersToSend) {
+      flagsToSet[r.flag] = true;
     }
 
     // Send to all committee members
@@ -120,10 +132,10 @@ export async function runCommitteeReminders(): Promise<CommitteeReminderResult> 
 
     const succeeded = results.filter((r) => (r as { success: boolean }).success).length;
     if (succeeded > 0) {
-      // Set the reminder flag
+      // Set all due reminder flags (prevents re-sending skipped lower-priority ones)
       await supabase
         .from("payments")
-        .update({ [reminderToSend.flag]: true })
+        .update(flagsToSet)
         .eq("id", payment.id);
       sent++;
     } else {
@@ -153,10 +165,12 @@ export async function runHoldExpirySafetyNet(): Promise<{ caught: number }> {
       `[hold-expiry-safety] Transitioning payment ${payment.id} (PI: ${payment.stripe_payment_intent_id}) to hold_expired — webhook was missed`
     );
 
+    // Only transition if still authorized — avoids overwriting 'cancelled' from a concurrent decline
     await supabase
       .from("payments")
       .update({ payment_capture_status: "hold_expired" })
-      .eq("id", payment.id);
+      .eq("id", payment.id)
+      .eq("payment_capture_status", "authorized");
   }
 
   return { caught: stalePayments.length };

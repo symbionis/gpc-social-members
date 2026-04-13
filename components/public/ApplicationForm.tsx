@@ -4,14 +4,10 @@ import { useState } from "react";
 import { submitApplication } from "@/app/(public)/apply/[invite_code]/actions";
 import { useRouter } from "next/navigation";
 import PaymentSection from "./PaymentSection";
+import type { Database } from "@/types/database";
 
-interface Tier {
-  id: string;
-  name: string;
-  price_eur: number;
-  benefits: unknown;
-  guest_invitations_per_season: number;
-}
+type TierRow = Database["public"]["Tables"]["membership_tiers"]["Row"];
+type Tier = Pick<TierRow, "id" | "name" | "price_eur" | "benefits" | "guest_invitations_per_season">;
 
 interface ApplicationFormProps {
   originatorId: string;

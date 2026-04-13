@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import ApplicationQueue from "@/components/admin/ApplicationQueue";
+import type { PaymentCaptureStatus } from "@/types/database";
 
 export default async function ApplicationsPage() {
   const supabase = createAdminClient();
@@ -24,11 +25,11 @@ export default async function ApplicationsPage() {
     : { data: [] };
 
   // Build a map of member_id -> latest payment capture info
-  const paymentMap: Record<string, { payment_capture_status: string; capture_before: string | null; authorized_at: string | null }> = {};
+  const paymentMap: Record<string, { payment_capture_status: PaymentCaptureStatus; capture_before: string | null; authorized_at: string | null }> = {};
   for (const p of payments || []) {
     if (!paymentMap[p.member_id]) {
       paymentMap[p.member_id] = {
-        payment_capture_status: p.payment_capture_status,
+        payment_capture_status: p.payment_capture_status as PaymentCaptureStatus,
         capture_before: p.capture_before,
         authorized_at: p.authorized_at,
       };

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import type { MemberStatus, PaymentCaptureStatus } from "@/types/database";
 
 interface Application {
   id: string;
@@ -10,14 +11,14 @@ interface Application {
   email: string;
   phone: string | null;
   tier_id: string;
-  status: string;
+  status: MemberStatus;
   originator_note: string | null;
   originator_id: string | null;
   created_at: string;
 }
 
 interface PaymentInfo {
-  payment_capture_status: string;
+  payment_capture_status: PaymentCaptureStatus;
   capture_before: string | null;
   authorized_at: string | null;
 }
@@ -29,8 +30,8 @@ interface ApplicationQueueProps {
   paymentMap: Record<string, PaymentInfo>;
 }
 
-function PaymentStatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
+function PaymentStatusBadge({ status }: { status: PaymentCaptureStatus }) {
+  const styles: Record<PaymentCaptureStatus, string> = {
     authorized: "bg-green-100 text-green-800",
     hold_expired: "bg-orange-100 text-orange-800",
     succeeded: "bg-green-100 text-green-800",
@@ -41,7 +42,7 @@ function PaymentStatusBadge({ status }: { status: string }) {
     cancelled: "bg-gray-100 text-gray-500",
   };
 
-  const labels: Record<string, string> = {
+  const labels: Record<PaymentCaptureStatus, string> = {
     authorized: "Card Authorized",
     hold_expired: "Hold Expired",
     succeeded: "Paid",
@@ -54,9 +55,9 @@ function PaymentStatusBadge({ status }: { status: string }) {
 
   return (
     <span
-      className={`px-2 py-0.5 rounded-full text-xs font-body font-medium ${styles[status] || "bg-gray-100 text-gray-600"}`}
+      className={`px-2 py-0.5 rounded-full text-xs font-body font-medium ${styles[status]}`}
     >
-      {labels[status] || status}
+      {labels[status]}
     </span>
   );
 }
