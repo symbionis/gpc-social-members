@@ -1,0 +1,16 @@
+Payment Update Required
+
+Dear {{first_name}},
+
+Great news — your application to the Geneva Polo Club Social Member Club has been approved by our membership committee.
+
+However, we were unable to process the payment on your card. To activate your membership and receive your digital membership card, please update your payment details using the link below:
+
+{{retry_url}}
+
+This link is valid for 14 days. If you have any questions or need assistance, please don't hesitate to reach out.
+
+We look forward to welcoming you fieldside this season.
+
+Warm regards,
+The Geneva Polo Club Team
