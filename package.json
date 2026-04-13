@@ -13,6 +13,8 @@
     "test:public": "npx playwright test --project=public"
   },
   "dependencies": {
+    "@stripe/react-stripe-js": "^6.1.0",
+    "@stripe/stripe-js": "^9.1.0",
     "@supabase/ssr": "^0.5",
     "@supabase/supabase-js": "^2",
     "@tailwindcss/postcss": "^4",
