@@ -62,10 +62,10 @@ export async function middleware(request: NextRequest) {
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://maps.googleapis.com",
     "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
-    "style-src 'self' 'unsafe-inline'",
-    "font-src 'self' https://fonts.gstatic.com https://js.stripe.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com https://js.stripe.com https://b.stripecdn.com https://*.stripecdn.com",
     "img-src 'self' data: blob: https://*.stripe.com https://*.supabase.co",
-    "connect-src 'self' https://*.stripe.com https://*.supabase.co https://api.postmarkapp.com",
+    "connect-src 'self' https://*.stripe.com https://*.supabase.co https://api.postmarkapp.com https://fonts.googleapis.com https://fonts.gstatic.com",
   ].join("; "));
 
   return supabaseResponse;

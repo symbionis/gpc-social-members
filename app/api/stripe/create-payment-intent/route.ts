@@ -98,6 +98,7 @@ export async function POST(request: NextRequest) {
         customer: customerId,
         capture_method: "manual",
         setup_future_usage: "off_session",
+        payment_method_types: ["card"],
         metadata: {
           member_id: member.id,
           tier_slug: tier.slug,

@@ -158,6 +158,7 @@ export default function PaymentSection(props: PaymentSectionProps) {
         currency: "chf",
         captureMethod: "manual",
         setupFutureUsage: "off_session",
+        paymentMethodTypes: ["card"],
         appearance: {
           theme: "stripe",
           variables: {
