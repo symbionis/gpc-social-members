@@ -4,6 +4,32 @@ import { getStripe } from "@/lib/stripe";
 import { sendEmail } from "@/lib/postmark";
 import { NextResponse, type NextRequest } from "next/server";
 import { randomUUID } from "crypto";
+import Stripe from "stripe";
+
+async function recordApprovalAudit(
+  adminClient: ReturnType<typeof createAdminClient>,
+  memberId: string,
+  adminId: string
+) {
+  await adminClient.from("applications").insert({
+    member_id: memberId,
+    reviewed_by: adminId,
+    status: "approved",
+  });
+
+  const { data: members } = await adminClient
+    .from("members")
+    .select("originator_id")
+    .eq("id", memberId)
+    .limit(1);
+
+  if (members?.[0]?.originator_id) {
+    await adminClient.from("referrals").insert({
+      originator_id: members[0].originator_id,
+      member_id: memberId,
+    });
+  }
+}
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -51,20 +77,7 @@ export async function POST(request: NextRequest) {
     // --- NEW FLOW: PaymentIntent manual capture ---
 
     if (payment.payment_capture_status === "authorized") {
-      // Within hold window — capture the existing PaymentIntent
-      try {
-        await stripe.paymentIntents.capture(
-          payment.stripe_payment_intent_id,
-          {},
-          { idempotencyKey: `pi_capture_${payment.stripe_payment_intent_id}` }
-        );
-      } catch (err) {
-        console.error("[approve] Stripe capture failed:", err);
-        return NextResponse.json(
-          { error: "Failed to capture payment. The hold may have expired." },
-          { status: 500 }
-        );
-      }
+      // Within hold window — lock first, then capture
 
       // Optimistic lock: update from pending → approved
       const { data: updated, error: updateError } = await adminClient
@@ -82,19 +95,69 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // Now capture — if this fails, revert the member status
+      try {
+        await stripe.paymentIntents.capture(
+          payment.stripe_payment_intent_id,
+          {},
+          { idempotencyKey: `pi_capture_${payment.stripe_payment_intent_id}` }
+        );
+      } catch (err) {
+        console.error("[approve] Stripe capture failed, reverting member status:", err);
+        await adminClient
+          .from("members")
+          .update({ status: "pending", approved_by: null, approved_at: null })
+          .eq("id", member_id);
+        return NextResponse.json(
+          { error: "Failed to capture payment. The hold may have expired." },
+          { status: 500 }
+        );
+      }
+
       // Membership activation + card generation happens in the webhook handler
       // (payment_intent.succeeded fires after capture)
+      await recordApprovalAudit(adminClient, member_id, admin.id);
 
     } else if (payment.payment_capture_status === "hold_expired") {
       // Past hold window — attempt off-session charge on saved PaymentMethod
 
-      // Optimistic lock first
+      // Validate required fields before proceeding
+      const { data: memberRow } = await adminClient
+        .from("members")
+        .select("stripe_customer_id, tier_id")
+        .eq("id", member_id)
+        .limit(1);
+
+      const memberInfo = memberRow?.[0];
+      if (!memberInfo?.stripe_customer_id || !payment.stripe_payment_method_id) {
+        return NextResponse.json(
+          { error: "Missing payment credentials for off-session charge." },
+          { status: 500 }
+        );
+      }
+
+      // Get tier amount — guard against missing tier
+      const { data: tiers } = await adminClient
+        .from("membership_tiers")
+        .select("price_eur, slug")
+        .eq("id", memberInfo.tier_id)
+        .limit(1);
+
+      const tier = tiers?.[0];
+      if (!tier || tier.price_eur <= 0) {
+        return NextResponse.json(
+          { error: "Tier not found or has no price configured." },
+          { status: 500 }
+        );
+      }
+
+      // Optimistic lock
       const { data: updated, error: updateError } = await adminClient
         .from("members")
         .update({ status: "approved", approved_by: admin.id, approved_at: new Date().toISOString() })
         .eq("id", member_id)
         .eq("status", "pending")
-        .select("id, stripe_customer_id, tier_id")
+        .select("id")
         .limit(1);
 
       if (updateError || !updated?.length) {
@@ -104,64 +167,54 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const member = updated[0];
+      const amountInCentimes = Math.round(tier.price_eur * 100);
 
-      // Set intermediate state
-      await adminClient
-        .from("payments")
-        .update({ payment_capture_status: "charging_offsession" })
-        .eq("id", payment.id);
-
-      // Get tier amount
-      const { data: tiers } = await adminClient
-        .from("membership_tiers")
-        .select("price_eur, slug")
-        .eq("id", member.tier_id)
-        .limit(1);
-
-      const tier = tiers?.[0];
-      const amountInCentimes = Math.round((tier?.price_eur || 0) * 100);
-
+      // Update payments row with new PI id BEFORE confirming, so webhook can find it
+      // Use stable idempotency key based on payment row ID
       try {
+        // Create PI without confirming first
         const newPI = await stripe.paymentIntents.create(
           {
             amount: amountInCentimes,
             currency: "chf",
-            customer: member.stripe_customer_id!,
-            payment_method: payment.stripe_payment_method_id!,
+            customer: memberInfo.stripe_customer_id,
+            payment_method: payment.stripe_payment_method_id,
             off_session: true,
-            confirm: true,
-            metadata: { member_id, tier_slug: tier?.slug || "" },
+            metadata: { member_id, tier_slug: tier.slug, payment_id: payment.id },
           },
-          { idempotencyKey: `pi_offsession_${member_id}_${Date.now()}` }
+          { idempotencyKey: `pi_offsession_${payment.id}` }
         );
 
-        // Update payment record with new PI
+        // Update payments row BEFORE confirming so webhook can find this row
         await adminClient
           .from("payments")
           .update({
             stripe_payment_intent_id: newPI.id,
-            payment_capture_status: "succeeded",
+            payment_capture_status: "charging_offsession",
           })
           .eq("id", payment.id);
 
-        // Membership activation happens via payment_intent.succeeded webhook
+        // Now confirm — webhook may fire after this
+        await stripe.paymentIntents.confirm(newPI.id);
+
+        // Do NOT write 'succeeded' here — let the webhook own that transition
+        await recordApprovalAudit(adminClient, member_id, admin.id);
 
       } catch (err: unknown) {
-        const stripeErr = err as { code?: string; raw?: { payment_intent?: { id: string } } };
-
-        if (stripeErr.code === "authentication_required") {
+        if (err instanceof Stripe.errors.StripeCardError && err.code === "authentication_required") {
           // SCA required — save the new PI and email applicant
-          const newPIId = stripeErr.raw?.payment_intent?.id;
-          await adminClient
-            .from("payments")
-            .update({
-              stripe_payment_intent_id: newPIId || null,
-              payment_capture_status: "requires_action",
-            })
-            .eq("id", payment.id);
+          const newPIId = (err.raw as { payment_intent?: { id: string } })?.payment_intent?.id;
 
-          // Get member email for notification
+          if (newPIId) {
+            await adminClient
+              .from("payments")
+              .update({
+                stripe_payment_intent_id: newPIId,
+                payment_capture_status: "requires_action",
+              })
+              .eq("id", payment.id);
+          }
+
           const { data: memberData } = await adminClient
             .from("members")
             .select("email, first_name")
@@ -169,7 +222,6 @@ export async function POST(request: NextRequest) {
             .limit(1);
 
           if (memberData?.[0]) {
-            // Create retry token for SCA completion
             const token = randomUUID();
             const expiresAt = new Date();
             expiresAt.setDate(expiresAt.getDate() + 14);
@@ -191,6 +243,8 @@ export async function POST(request: NextRequest) {
               },
             });
           }
+
+          await recordApprovalAudit(adminClient, member_id, admin.id);
 
           return NextResponse.json({
             success: true,
@@ -238,6 +292,8 @@ export async function POST(request: NextRequest) {
             });
           }
 
+          await recordApprovalAudit(adminClient, member_id, admin.id);
+
           return NextResponse.json({
             success: true,
             payment_status: "failed",
@@ -276,15 +332,19 @@ export async function POST(request: NextRequest) {
     let checkoutUrl = "";
 
     if (tier?.stripe_price_id && tier.price_eur > 0) {
-      const session = await stripe.checkout.sessions.create({
-        mode: "payment",
-        customer_email: member.email,
-        line_items: [{ price: tier.stripe_price_id, quantity: 1 }],
-        metadata: { member_id: member.id },
-        success_url: `${appUrl}/login?payment=success`,
-        cancel_url: `${appUrl}/login?payment=cancelled`,
-      });
-      checkoutUrl = session.url || "";
+      try {
+        const session = await stripe.checkout.sessions.create({
+          mode: "payment",
+          customer_email: member.email,
+          line_items: [{ price: tier.stripe_price_id, quantity: 1 }],
+          metadata: { member_id: member.id },
+          success_url: `${appUrl}/login?payment=success`,
+          cancel_url: `${appUrl}/login?payment=cancelled`,
+        });
+        checkoutUrl = session.url || "";
+      } catch (err) {
+        console.error("[approve] Legacy Checkout Session creation failed:", err);
+      }
     }
 
     await sendEmail({
@@ -299,28 +359,8 @@ export async function POST(request: NextRequest) {
         dashboard_url: `${appUrl}/login`,
       },
     });
-  }
 
-  // Create application audit entry
-  await adminClient.from("applications").insert({
-    member_id,
-    reviewed_by: admin.id,
-    status: "approved",
-  });
-
-  // Create referral record if originator exists
-  const { data: members } = await adminClient
-    .from("members")
-    .select("originator_id")
-    .eq("id", member_id)
-    .limit(1);
-
-  const memberForReferral = members?.[0];
-  if (memberForReferral?.originator_id) {
-    await adminClient.from("referrals").insert({
-      originator_id: memberForReferral.originator_id,
-      member_id,
-    });
+    await recordApprovalAudit(adminClient, member_id, admin.id);
   }
 
   return NextResponse.json({ success: true });

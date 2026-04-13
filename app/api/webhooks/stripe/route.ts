@@ -278,30 +278,49 @@ export async function POST(request: NextRequest) {
 
       if (!memberId) break;
 
-      // Idempotency: check if already succeeded
-      const { data: existingSucceeded } = await supabase
-        .from("payments")
-        .select("id, payment_capture_status, tier_id")
-        .eq("stripe_payment_intent_id", pi.id)
+      // Verify member has been approved before activating
+      const { data: memberCheck } = await supabase
+        .from("members")
+        .select("status")
+        .eq("id", memberId)
         .limit(1);
 
-      if (existingSucceeded?.[0]?.payment_capture_status === "succeeded") break;
+      if (!memberCheck?.[0] || !["approved", "active"].includes(memberCheck[0].status)) {
+        console.log("[webhook] payment_intent.succeeded skipped — member not approved", {
+          pi_id: pi.id,
+          memberId,
+          memberStatus: memberCheck?.[0]?.status,
+        });
+        break;
+      }
 
-      const paymentRow = existingSucceeded?.[0];
-      const tierId = paymentRow?.tier_id || null;
-
-      // Update payment status
-      await supabase
+      // Atomic idempotency: conditional update only if not already succeeded
+      const { data: updatedPayment } = await supabase
         .from("payments")
         .update({
           payment_capture_status: "succeeded",
           payment_status: "paid",
           paid_at: new Date().toISOString(),
         })
-        .eq("stripe_payment_intent_id", pi.id);
+        .eq("stripe_payment_intent_id", pi.id)
+        .neq("payment_capture_status", "succeeded")
+        .select("id, tier_id")
+        .limit(1);
+
+      if (!updatedPayment?.length) {
+        console.log("[webhook] payment_intent.succeeded skipped — already processed", { pi_id: pi.id });
+        break;
+      }
+
+      const tierId = updatedPayment[0].tier_id || null;
 
       // Activate membership + generate card
-      await activateMembership(memberId, tierId);
+      try {
+        await activateMembership(memberId, tierId);
+      } catch (err) {
+        console.error("[webhook] activateMembership failed:", err);
+        return NextResponse.json({ error: "Activation failed" }, { status: 500 });
+      }
 
       break;
     }

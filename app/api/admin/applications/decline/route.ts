@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     .from("payments")
     .select("id, stripe_payment_intent_id, payment_capture_status")
     .eq("member_id", member_id)
-    .in("payment_capture_status", ["authorized", "hold_expired"])
+    .in("payment_capture_status", ["pending", "authorized", "hold_expired", "requires_action"])
     .limit(1);
 
   const payment = payments?.[0];

@@ -3,7 +3,8 @@ import { getStripe } from "@/lib/stripe";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function POST(request: NextRequest) {
-  const { member_id } = await request.json();
+  const body = await request.json();
+  const member_id = typeof body.member_id === "string" ? body.member_id : null;
 
   if (!member_id) {
     return NextResponse.json(
@@ -13,6 +14,30 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createAdminClient();
+
+  // Check for an existing payment row for this member (prevents duplicate rows on retry)
+  const { data: existingPayments } = await supabase
+    .from("payments")
+    .select("id, stripe_payment_intent_id, payment_capture_status")
+    .eq("member_id", member_id)
+    .not("payment_capture_status", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const existingPayment = existingPayments?.[0];
+  if (existingPayment?.stripe_payment_intent_id) {
+    // Return existing PI's client secret instead of creating a duplicate
+    try {
+      const existingPI = await getStripe().paymentIntents.retrieve(
+        existingPayment.stripe_payment_intent_id
+      );
+      if (existingPI.client_secret && existingPI.status !== "canceled") {
+        return NextResponse.json({ clientSecret: existingPI.client_secret });
+      }
+    } catch {
+      // PI may have been cleaned up — proceed to create new one
+    }
+  }
 
   // Look up member and tier
   const { data: members } = await supabase

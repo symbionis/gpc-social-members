@@ -3,7 +3,9 @@ import { getStripe } from "@/lib/stripe";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function POST(request: NextRequest) {
-  const { token, member_id } = await request.json();
+  const body = await request.json();
+  const token = typeof body.token === "string" ? body.token : null;
+  const member_id = typeof body.member_id === "string" ? body.member_id : null;
 
   if (!token || !member_id) {
     return NextResponse.json(
@@ -14,33 +16,25 @@ export async function POST(request: NextRequest) {
 
   const supabase = createAdminClient();
 
-  // Validate token
-  const { data: tokens } = await supabase
+  // Atomically claim the token (compare-and-swap: used=false → used=true)
+  const { data: claimed, error: claimError } = await supabase
     .from("payment_retry_tokens")
-    .select("id, member_id, payment_id, used, expires_at")
+    .update({ used: true })
     .eq("token", token)
     .eq("member_id", member_id)
+    .eq("used", false)
+    .gt("expires_at", new Date().toISOString())
+    .select("id, member_id, payment_id")
     .limit(1);
 
-  const retryToken = tokens?.[0];
-
-  if (!retryToken) {
-    return NextResponse.json({ error: "Invalid token" }, { status: 400 });
-  }
-
-  if (retryToken.used) {
+  if (claimError || !claimed?.length) {
     return NextResponse.json(
-      { error: "This payment link has already been used" },
+      { error: "This payment link is invalid, expired, or has already been used." },
       { status: 400 }
     );
   }
 
-  if (new Date(retryToken.expires_at) < new Date()) {
-    return NextResponse.json(
-      { error: "This payment link has expired" },
-      { status: 400 }
-    );
-  }
+  const retryToken = claimed[0];
 
   // Get member and tier info
   const { data: members } = await supabase
@@ -69,17 +63,20 @@ export async function POST(request: NextRequest) {
   const amountInCentimes = Math.round(tier.price_eur * 100);
 
   try {
-    // Create a new immediate-charge PaymentIntent (no manual capture — already approved)
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: amountInCentimes,
-      currency: "chf",
-      customer: member.stripe_customer_id || undefined,
-      metadata: {
-        member_id: member.id,
-        tier_slug: tier.slug,
-        retry_token_id: retryToken.id,
+    // Create a new immediate-charge PaymentIntent with idempotency key
+    const paymentIntent = await stripe.paymentIntents.create(
+      {
+        amount: amountInCentimes,
+        currency: "chf",
+        customer: member.stripe_customer_id || undefined,
+        metadata: {
+          member_id: member.id,
+          tier_slug: tier.slug,
+          retry_token_id: retryToken.id,
+        },
       },
-    });
+      { idempotencyKey: `pi_retry_${retryToken.id}` }
+    );
 
     // Update existing payment record with new PI
     await supabase
@@ -92,6 +89,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ clientSecret: paymentIntent.client_secret });
   } catch (err) {
+    // Revert token so user can retry
+    await supabase
+      .from("payment_retry_tokens")
+      .update({ used: false })
+      .eq("id", retryToken.id);
+
     console.error("[retry-payment] Stripe error:", err);
     return NextResponse.json(
       { error: "Failed to create payment" },
