@@ -55,7 +55,7 @@ export async function runCommitteeReminders(): Promise<CommitteeReminderResult> 
     // Get member info
     const { data: memberData } = await supabase
       .from("members")
-      .select("first_name, last_name, email")
+      .select("first_name, last_name, email, company_name, company_role")
       .eq("id", payment.member_id)
       .limit(1);
 
@@ -67,7 +67,8 @@ export async function runCommitteeReminders(): Promise<CommitteeReminderResult> 
     const hoursRemaining = Math.max(0, Math.round((captureBefore - now) / (1000 * 60 * 60)));
     const daysRemaining = Math.max(0, Math.round(hoursRemaining / 24));
 
-    type ReminderLevel = { flag: "reminder_day1_sent" | "reminder_day3_sent" | "reminder_day4_sent"; alias: string; subject: string };
+    type ReminderFlag = "reminder_day1_sent" | "reminder_day3_sent" | "reminder_day4_sent";
+    type ReminderLevel = { flag: ReminderFlag; isReminder: boolean; isUrgent: boolean; subject: string };
 
     // Collect all unsent reminders that are due — send each independently
     // so a missed cron run doesn't cause earlier reminders to be skipped
@@ -76,21 +77,24 @@ export async function runCommitteeReminders(): Promise<CommitteeReminderResult> 
     if (elapsed >= day1Threshold && !payment.reminder_day1_sent) {
       remindersToSend.push({
         flag: "reminder_day1_sent",
-        alias: "committee-reminder-day1",
-        subject: `New application from ${applicantName} — ${daysRemaining} days remaining`,
+        isReminder: true,
+        isUrgent: false,
+        subject: `Reminder: Application from ${applicantName} — ${daysRemaining} days remaining`,
       });
     }
     if (elapsed >= day3Threshold && !payment.reminder_day3_sent) {
       remindersToSend.push({
         flag: "reminder_day3_sent",
-        alias: "committee-reminder-day3",
+        isReminder: true,
+        isUrgent: false,
         subject: `Reminder: Application from ${applicantName} — ${daysRemaining} days remaining`,
       });
     }
     if (elapsed >= day4Threshold && !payment.reminder_day4_sent) {
       remindersToSend.push({
         flag: "reminder_day4_sent",
-        alias: "committee-reminder-urgent",
+        isReminder: true,
+        isUrgent: true,
         subject: `URGENT: Application from ${applicantName} expires tomorrow`,
       });
     }
@@ -108,20 +112,28 @@ export async function runCommitteeReminders(): Promise<CommitteeReminderResult> 
       flagsToSet[r.flag] = true;
     }
 
-    // Send to all committee members
+    // Reuse new-application-pending template with conditional variables:
+    // - is_reminder: truthy → shows "Reminder — X days remaining" line
+    // - is_urgent: truthy → shows "URGENT — expires in X hours" line
+    // - neither set (initial notification from webhook) → shows default "new application" text
     const results = await Promise.all(
       committee.map((admin) =>
         sendEmail({
           to: admin.email,
-          templateAlias: reminderToSend!.alias,
+          templateAlias: "new-application-pending",
           templateModel: {
             recipient_first_name: admin.first_name,
             applicant_name: applicantName,
             applicant_email: member.email,
+            applicant_company: "—",
+            applicant_role: "—",
+            originator_note: null,
+            is_reminder: reminderToSend.isReminder || null,
+            is_urgent: reminderToSend.isUrgent || null,
             days_remaining: daysRemaining,
             hours_remaining: hoursRemaining,
             admin_url: adminUrl,
-            preheader: reminderToSend!.subject,
+            preheader: reminderToSend.subject,
           },
         }).catch((err) => {
           console.error(`[committee-reminders] Email to ${admin.email} failed:`, err);
