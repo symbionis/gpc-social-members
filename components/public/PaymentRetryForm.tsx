@@ -27,6 +27,81 @@ function formatPrice(eur: number): string {
   }).format(eur);
 }
 
+// SCA completion form — resumes 3D Secure on existing PI, no new card entry needed
+function ScaCompletionForm({
+  clientSecret,
+  amount,
+}: {
+  clientSecret: string;
+  amount: number;
+}) {
+  const stripe = useStripe();
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string>("");
+  const [success, setSuccess] = useState(false);
+
+  async function handleComplete() {
+    if (!stripe) return;
+
+    setProcessing(true);
+    setError("");
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const { error: confirmError } = await stripe.confirmPayment({
+      clientSecret,
+      confirmParams: {
+        return_url: `${appUrl}/pay/retry/success`,
+      },
+      redirect: "if_required",
+    });
+
+    if (confirmError) {
+      setError(confirmError.message || "Authentication failed. Please try again.");
+      setProcessing(false);
+      return;
+    }
+
+    setSuccess(true);
+  }
+
+  if (success) {
+    return (
+      <div className="p-6 bg-green-50 border border-green-200 rounded-lg text-center">
+        <h2 className="font-heading text-2xl font-bold text-marine mb-2">
+          Authentication Complete
+        </h2>
+        <p className="text-muted-foreground font-body">
+          Your membership is being activated. You will receive a confirmation
+          email shortly.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {error && (
+        <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive font-body">
+          {error}
+        </div>
+      )}
+      <p className="text-sm text-marine/70 font-body">
+        Your bank requires additional authentication to complete this payment of{" "}
+        <strong>{formatPrice(amount)}</strong>. Click below to proceed.
+      </p>
+      <button
+        type="button"
+        onClick={handleComplete}
+        disabled={!stripe || processing}
+        className="w-full py-3.5 bg-marine text-white rounded-lg font-body font-medium text-sm hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {processing ? "Authenticating..." : "Complete Authentication"}
+      </button>
+    </div>
+  );
+}
+
+// New card entry form — creates a fresh PI for retry
 function RetryForm({
   token,
   amount,
@@ -55,7 +130,6 @@ function RetryForm({
       return;
     }
 
-    // Create a new PaymentIntent for the retry
     const res = await fetch("/api/stripe/retry-payment", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -82,9 +156,7 @@ function RetryForm({
     });
 
     if (confirmError) {
-      setError(
-        confirmError.message || "Payment failed. Please try again."
-      );
+      setError(confirmError.message || "Payment failed. Please try again.");
       setProcessing(false);
       return;
     }
@@ -132,6 +204,8 @@ export default function PaymentRetryForm({
   tierName,
   amount,
   memberId,
+  isScaCompletion,
+  existingClientSecret,
 }: PaymentRetryFormProps) {
   return (
     <div className="space-y-6">
@@ -145,23 +219,32 @@ export default function PaymentRetryForm({
         </span>
       </div>
 
-      <Elements
-        stripe={stripePromise}
-        options={{
-          mode: "payment",
-          amount: Math.round(amount * 100),
-          currency: "chf",
-          appearance: {
-            theme: "stripe",
-            variables: {
-              colorPrimary: "#052938",
-              fontFamily: "inherit",
+      {isScaCompletion && existingClientSecret ? (
+        // SCA completion — resume 3D Secure on existing PI (no Payment Element needed)
+        <ScaCompletionForm
+          clientSecret={existingClientSecret}
+          amount={amount}
+        />
+      ) : (
+        // New card entry — fresh PI via retry-payment API
+        <Elements
+          stripe={stripePromise}
+          options={{
+            mode: "payment",
+            amount: Math.round(amount * 100),
+            currency: "chf",
+            appearance: {
+              theme: "stripe",
+              variables: {
+                colorPrimary: "#052938",
+                fontFamily: "inherit",
+              },
             },
-          },
-        }}
-      >
-        <RetryForm token={token} amount={amount} memberId={memberId} />
-      </Elements>
+          }}
+        >
+          <RetryForm token={token} amount={amount} memberId={memberId} />
+        </Elements>
+      )}
 
       <p className="text-xs text-center text-muted-foreground font-body">
         Your membership will be activated immediately upon successful payment.

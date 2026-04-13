@@ -64,8 +64,13 @@ export async function POST(request: NextRequest) {
     try {
       await getStripe().paymentIntents.cancel(payment.stripe_payment_intent_id);
     } catch (err) {
-      // PI may already be cancelled/expired — log but don't fail
-      console.error("[decline] Failed to cancel PI:", err);
+      // PI may already be cancelled/expired — log with structured warning for ops
+      console.warn("[decline] HOLD_NOT_RELEASED — Failed to cancel PI. Card hold may persist until Stripe auto-expires it.", {
+        member_id,
+        payment_id: payment.id,
+        stripe_payment_intent_id: payment.stripe_payment_intent_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     await adminClient

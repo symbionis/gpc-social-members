@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
+import { headers } from "next/headers";
 
 export async function submitApplication(data: {
   email: string;
@@ -16,9 +17,14 @@ export async function submitApplication(data: {
   tierId: string;
   originatorId: string;
   consentGivenAt?: string;
-  consentIp?: string;
 }): Promise<{ error: string | null; member_id: string | null }> {
   const supabase = createAdminClient();
+
+  // Extract client IP server-side from request headers
+  const headersList = await headers();
+  const consentIp = headersList.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || headersList.get("x-real-ip")
+    || null;
 
   // Check for duplicate email
   const { data: existing } = await supabase
@@ -54,7 +60,7 @@ export async function submitApplication(data: {
       originator_id: data.originatorId,
       status: "pending",
       consent_given_at: data.consentGivenAt || null,
-      consent_ip: data.consentIp || null,
+      consent_ip: consentIp,
     })
     .select("id")
     .single();

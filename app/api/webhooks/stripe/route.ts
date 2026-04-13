@@ -217,20 +217,31 @@ export async function POST(request: NextRequest) {
       if (existingAuth?.[0]?.payment_capture_status === "authorized") break;
 
       // Extract capture_before from latest charge
+      // Stripe puts capture_before on charge.payment_method_details.card.capture_before
+      // as a Unix timestamp. The SDK types may not include it, so we access it dynamically.
       let captureBefore: string | null = null;
       try {
         const fullPI = await getStripe().paymentIntents.retrieve(pi.id, {
           expand: ["latest_charge"],
         });
         const charge = fullPI.latest_charge as Stripe.Charge | null;
-        const cardDetails = charge?.payment_method_details?.card as unknown as
-          | { capture_before?: number }
-          | undefined;
-        if (cardDetails?.capture_before) {
-          captureBefore = new Date(cardDetails.capture_before * 1000).toISOString();
+        // Access capture_before dynamically — it's present in the API response
+        // but may not be in the SDK's TypeScript types for all versions
+        const cardDetails = charge?.payment_method_details?.card;
+        const captureBeforeTs = cardDetails
+          ? (cardDetails as unknown as Record<string, unknown>)["capture_before"]
+          : undefined;
+        if (typeof captureBeforeTs === "number") {
+          captureBefore = new Date(captureBeforeTs * 1000).toISOString();
         }
       } catch (err) {
-        console.error("[webhook] Failed to retrieve capture_before:", err);
+        // If retrieve fails, return 500 so Stripe retries and we can populate capture_before
+        // Without it, committee reminders will not fire for this application
+        console.error("[webhook] Failed to retrieve capture_before — returning 500 for retry:", err);
+        return NextResponse.json(
+          { error: "Failed to retrieve charge details" },
+          { status: 500 }
+        );
       }
 
       // Store payment method ID for potential off-session fallback

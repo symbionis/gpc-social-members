@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getStripe } from "@/lib/stripe";
 import PaymentRetryForm from "@/components/public/PaymentRetryForm";
 
 interface RetryPageProps {
@@ -119,6 +120,19 @@ export default async function PaymentRetryPage({ params }: RetryPageProps) {
   const payment = paymentData?.[0];
   const isScaCompletion = payment?.payment_capture_status === "requires_action";
 
+  // For SCA completion, retrieve the existing PI's client_secret
+  let existingClientSecret: string | null = null;
+  if (isScaCompletion && payment?.stripe_payment_intent_id) {
+    try {
+      const pi = await getStripe().paymentIntents.retrieve(
+        payment.stripe_payment_intent_id
+      );
+      existingClientSecret = pi.client_secret;
+    } catch (err) {
+      console.error("[retry-page] Failed to retrieve PI for SCA completion:", err);
+    }
+  }
+
   return (
     <>
       <div className="h-20 bg-marine" />
@@ -147,7 +161,7 @@ export default async function PaymentRetryPage({ params }: RetryPageProps) {
             amount={tier?.price_eur || 0}
             memberId={retryToken.member_id}
             isScaCompletion={isScaCompletion}
-            existingClientSecret={null}
+            existingClientSecret={existingClientSecret}
           />
         </div>
       </div>
