@@ -1,0 +1,163 @@
+import { createAdminClient } from "@/lib/supabase/admin";
+import { sendEmail } from "@/lib/postmark";
+
+export interface CommitteeReminderResult {
+  sent: number;
+  skipped: number;
+  holdExpiredCaught: number;
+  reason?: string;
+}
+
+export async function runCommitteeReminders(): Promise<CommitteeReminderResult> {
+  const supabase = createAdminClient();
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+  // Get committee members
+  const { data: committee } = await supabase
+    .from("admin_users")
+    .select("email, first_name")
+    .or("is_approval_committee.eq.true,role.eq.super_admin");
+
+  if (!committee?.length) {
+    return { sent: 0, skipped: 0, holdExpiredCaught: 0, reason: "no committee members" };
+  }
+
+  // Get all authorized payments with their member info
+  const { data: payments } = await supabase
+    .from("payments")
+    .select("id, member_id, authorized_at, capture_before, reminder_day1_sent, reminder_day3_sent, reminder_day4_sent")
+    .eq("payment_capture_status", "authorized");
+
+  if (!payments?.length) {
+    return { sent: 0, skipped: 0, holdExpiredCaught: 0 };
+  }
+
+  const now = Date.now();
+  let sent = 0;
+  let skipped = 0;
+
+  for (const payment of payments) {
+    if (!payment.authorized_at || !payment.capture_before) {
+      skipped++;
+      continue;
+    }
+
+    const authorizedAt = new Date(payment.authorized_at).getTime();
+    const captureBefore = new Date(payment.capture_before).getTime();
+    const totalWindow = captureBefore - authorizedAt;
+    const elapsed = now - authorizedAt;
+
+    // Calculate thresholds relative to actual capture_before
+    const day1Threshold = totalWindow * 0.2;   // ~20% of window (~24h for 5-day)
+    const day3Threshold = totalWindow * 0.6;   // ~60% of window (~72h for 5-day)
+    const day4Threshold = totalWindow * 0.8;   // ~80% of window (~96h for 5-day)
+
+    // Get member info
+    const { data: memberData } = await supabase
+      .from("members")
+      .select("first_name, last_name, email")
+      .eq("id", payment.member_id)
+      .limit(1);
+
+    const member = memberData?.[0];
+    if (!member) { skipped++; continue; }
+
+    const applicantName = `${member.first_name} ${member.last_name}`;
+    const adminUrl = `${appUrl}/admin/applications`;
+    const hoursRemaining = Math.max(0, Math.round((captureBefore - now) / (1000 * 60 * 60)));
+    const daysRemaining = Math.max(0, Math.round(hoursRemaining / 24));
+
+    type ReminderLevel = { flag: "reminder_day1_sent" | "reminder_day3_sent" | "reminder_day4_sent"; alias: string; subject: string };
+
+    let reminderToSend: ReminderLevel | null = null;
+
+    if (elapsed >= day4Threshold && !payment.reminder_day4_sent) {
+      reminderToSend = {
+        flag: "reminder_day4_sent",
+        alias: "committee-reminder-urgent",
+        subject: `URGENT: Application from ${applicantName} expires tomorrow`,
+      };
+    } else if (elapsed >= day3Threshold && !payment.reminder_day3_sent) {
+      reminderToSend = {
+        flag: "reminder_day3_sent",
+        alias: "committee-reminder-day3",
+        subject: `Reminder: Application from ${applicantName} — ${daysRemaining} days remaining`,
+      };
+    } else if (elapsed >= day1Threshold && !payment.reminder_day1_sent) {
+      reminderToSend = {
+        flag: "reminder_day1_sent",
+        alias: "committee-reminder-day1",
+        subject: `New application from ${applicantName} — ${daysRemaining} days remaining`,
+      };
+    }
+
+    if (!reminderToSend) {
+      skipped++;
+      continue;
+    }
+
+    // Send to all committee members
+    const results = await Promise.all(
+      committee.map((admin) =>
+        sendEmail({
+          to: admin.email,
+          templateAlias: reminderToSend!.alias,
+          templateModel: {
+            recipient_first_name: admin.first_name,
+            applicant_name: applicantName,
+            applicant_email: member.email,
+            days_remaining: daysRemaining,
+            hours_remaining: hoursRemaining,
+            admin_url: adminUrl,
+            preheader: reminderToSend!.subject,
+          },
+        }).catch((err) => {
+          console.error(`[committee-reminders] Email to ${admin.email} failed:`, err);
+          return { success: false };
+        })
+      )
+    );
+
+    const succeeded = results.filter((r) => (r as { success: boolean }).success).length;
+    if (succeeded > 0) {
+      // Set the reminder flag
+      await supabase
+        .from("payments")
+        .update({ [reminderToSend.flag]: true })
+        .eq("id", payment.id);
+      sent++;
+    } else {
+      skipped++;
+    }
+  }
+
+  return { sent, skipped, holdExpiredCaught: 0 };
+}
+
+export async function runHoldExpirySafetyNet(): Promise<{ caught: number }> {
+  const supabase = createAdminClient();
+
+  // Find authorized payments past their capture_before
+  const { data: stalePayments } = await supabase
+    .from("payments")
+    .select("id, stripe_payment_intent_id, member_id, capture_before")
+    .eq("payment_capture_status", "authorized")
+    .lt("capture_before", new Date().toISOString());
+
+  if (!stalePayments?.length) {
+    return { caught: 0 };
+  }
+
+  for (const payment of stalePayments) {
+    console.warn(
+      `[hold-expiry-safety] Transitioning payment ${payment.id} (PI: ${payment.stripe_payment_intent_id}) to hold_expired — webhook was missed`
+    );
+
+    await supabase
+      .from("payments")
+      .update({ payment_capture_status: "hold_expired" })
+      .eq("id", payment.id);
+  }
+
+  return { caught: stalePayments.length };
+}
