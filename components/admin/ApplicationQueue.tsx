@@ -15,6 +15,7 @@ interface Application {
   originator_note: string | null;
   originator_id: string | null;
   created_at: string;
+  last_reminder_sent_at: string | null;
 }
 
 interface PaymentInfo {
@@ -89,6 +90,14 @@ export default function ApplicationQueue({
         : filter === "all"
           ? applications
           : applications.filter((a) => a.status === filter);
+
+  const counts: Record<string, number> = {
+    pending: applications.filter((a) => a.status === "pending" && !isIncomplete(a)).length,
+    incomplete: applications.filter(isIncomplete).length,
+    approved: applications.filter((a) => a.status === "approved").length,
+    declined: applications.filter((a) => a.status === "declined").length,
+    all: applications.length,
+  };
 
   async function handleApprove(memberId: string) {
     setProcessing(memberId);
@@ -200,6 +209,13 @@ export default function ApplicationQueue({
             }`}
           >
             {f}
+            {counts[f] > 0 && (
+              <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-xs ${
+                filter === f ? "bg-white/20" : "bg-marine/10"
+              }`}>
+                {counts[f]}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -315,7 +331,7 @@ export default function ApplicationQueue({
               )}
 
               {app.status === "pending" && incomplete && (
-                <div className="flex gap-3">
+                <div className="flex items-center gap-3">
                   <button
                     onClick={() => handleSendReminder(app.id)}
                     disabled={processing === app.id}
@@ -323,6 +339,17 @@ export default function ApplicationQueue({
                   >
                     {processing === app.id ? "Sending..." : "Send Reminder"}
                   </button>
+                  {app.last_reminder_sent_at && (
+                    <span className="text-xs text-muted-foreground font-body">
+                      Last sent{" "}
+                      {new Date(app.last_reminder_sent_at).toLocaleDateString("en-GB", {
+                        day: "numeric",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  )}
                 </div>
               )}
 

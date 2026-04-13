@@ -73,5 +73,10 @@ export async function POST(request: NextRequest) {
     },
   });
 
+  await adminClient
+    .from("members")
+    .update({ last_reminder_sent_at: new Date().toISOString() })
+    .eq("id", member_id);
+
   return NextResponse.json({ success: true });
 }
