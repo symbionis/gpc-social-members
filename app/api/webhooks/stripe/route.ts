@@ -270,7 +270,7 @@ export async function POST(request: NextRequest) {
         ? pi.payment_method
         : pi.payment_method?.id || null;
 
-      await supabase
+      const { error: authUpdateError } = await supabase
         .from("payments")
         .update({
           payment_capture_status: "authorized",
@@ -279,6 +279,10 @@ export async function POST(request: NextRequest) {
           stripe_payment_method_id: paymentMethodId,
         })
         .eq("stripe_payment_intent_id", pi.id);
+
+      if (authUpdateError) {
+        console.error("[webhook] Payment auth update failed:", authUpdateError);
+      }
 
       // Now notify committee — card is authorized, application is ready for review
       const { data: memberData } = await supabase

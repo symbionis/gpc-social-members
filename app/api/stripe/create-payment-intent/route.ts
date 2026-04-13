@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
     );
 
     // Insert payments row to track lifecycle from creation
-    await supabase.from("payments").insert({
+    const { error: insertError } = await supabase.from("payments").insert({
       member_id: member.id,
       tier_id: tier.id,
       amount_eur: tier.price_eur,
@@ -120,6 +120,10 @@ export async function POST(request: NextRequest) {
       stripe_payment_intent_id: paymentIntent.id,
       season: new Date().getFullYear().toString(),
     });
+
+    if (insertError) {
+      console.error("[create-payment-intent] Payment row insert failed:", insertError);
+    }
 
     return NextResponse.json({ clientSecret: paymentIntent.client_secret });
   } catch (err) {
