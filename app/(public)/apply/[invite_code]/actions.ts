@@ -35,10 +35,11 @@ export async function submitApplication(data: {
 
   if (existing && existing.length > 0) {
     const member = existing[0];
-    if (member.status === "active") {
+    if (member.status === "pending") {
+      // Allow retry — return existing member_id so payment step can proceed
+      return { error: null, member_id: member.id };
+    } else if (member.status === "active") {
       return { error: "This email is already associated with an active membership.", member_id: null };
-    } else if (member.status === "pending") {
-      return { error: "An application with this email is already under review.", member_id: null };
     } else {
       return { error: "This email is already in our system. Please contact the club for assistance.", member_id: null };
     }

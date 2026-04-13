@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Elements,
   PaymentElement,
@@ -25,6 +25,14 @@ function PaymentForm({
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
+  const [stripeReady, setStripeReady] = useState(false);
+
+  // Detect when Stripe has loaded and Payment Element is ready
+  useEffect(() => {
+    if (stripe && elements) {
+      setStripeReady(true);
+    }
+  }, [stripe, elements]);
 
   const formatPrice = (eur: number) =>
     new Intl.NumberFormat("fr-CH", {
@@ -97,7 +105,7 @@ function PaymentForm({
       <button
         type="button"
         onClick={handlePayment}
-        disabled={!stripe || processing}
+        disabled={!stripeReady || processing}
         className="w-full py-3.5 bg-marine text-white rounded-lg font-body font-medium text-sm hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {processing ? "Authorizing..." : "Submit Application"}
@@ -107,6 +115,40 @@ function PaymentForm({
 }
 
 export default function PaymentSection(props: PaymentSectionProps) {
+  const [stripeFailed, setStripeFailed] = useState(false);
+
+  // Detect if Stripe.js failed to load (key is undefined/invalid)
+  useEffect(() => {
+    stripePromise.then((stripe) => {
+      if (!stripe) {
+        setStripeFailed(true);
+      }
+    }).catch(() => {
+      setStripeFailed(true);
+    });
+  }, []);
+
+  if (stripeFailed) {
+    return (
+      <div className="space-y-4">
+        <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive font-body">
+          <p className="font-medium mb-1">Payment system unavailable</p>
+          <p>
+            We&apos;re unable to load the payment form. Your application has been
+            saved. Please try again by reloading the page.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="w-full py-3.5 bg-marine text-white rounded-lg font-body font-medium text-sm hover:bg-marine-light transition-colors"
+        >
+          Reload Page
+        </button>
+      </div>
+    );
+  }
+
   return (
     <Elements
       stripe={stripePromise}
