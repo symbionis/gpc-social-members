@@ -156,6 +156,7 @@ export default function PaymentSection(props: PaymentSectionProps) {
         mode: "payment",
         amount: Math.round(props.amount * 100),
         currency: "chf",
+        captureMethod: "manual",
         setupFutureUsage: "off_session",
         appearance: {
           theme: "stripe",
