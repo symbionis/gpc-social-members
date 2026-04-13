@@ -4,6 +4,7 @@ import { useState } from "react";
 import { submitApplication } from "@/app/(public)/apply/[invite_code]/actions";
 import { useRouter } from "next/navigation";
 import PaymentSection from "./PaymentSection";
+import { DIAL_CODES } from "@/lib/dial-codes";
 import type { Database } from "@/types/database";
 
 type TierRow = Database["public"]["Tables"]["membership_tiers"]["Row"];
@@ -93,6 +94,7 @@ export default function ApplicationForm({
   const [step, setStep] = useState<"form" | "payment">("form");
   const [memberId, setMemberId] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string>("");
+  const [dialCode, setDialCode] = useState("+41");
 
   const selectedTier = activeTab === "individual" ? selectedIndividualTier : selectedCorporateTier;
   const allTiers = [...individualTiers, ...corporateTiers];
@@ -108,7 +110,8 @@ export default function ApplicationForm({
     const firstName = form.get("first_name") as string;
     const lastName = form.get("last_name") as string;
     const title = form.get("title") as string;
-    const phone = form.get("phone") as string;
+    const localPhone = (form.get("phone") as string).replace(/^0/, "");
+    const phone = localPhone ? `${dialCode}${localPhone}` : "";
     const companyName = form.get("company_name") as string;
     const companyRole = form.get("company_role") as string;
     const originatorNote = form.get("originator_note") as string;
@@ -310,12 +313,24 @@ export default function ApplicationForm({
             >
               Phone
             </label>
-            <input
-              id="phone"
-              name="phone"
-              type="tel"
-              className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
-            />
+            <div className="flex gap-2">
+              <select
+                value={dialCode}
+                onChange={(e) => setDialCode(e.target.value)}
+                className="w-36 shrink-0 px-3 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
+              >
+                {DIAL_CODES.map(({ code, label }) => (
+                  <option key={code} value={code}>{label}</option>
+                ))}
+              </select>
+              <input
+                id="phone"
+                name="phone"
+                type="tel"
+                placeholder="79 123 45 67"
+                className="flex-1 px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
+              />
+            </div>
           </div>
         </div>
 
