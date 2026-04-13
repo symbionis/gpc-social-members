@@ -64,7 +64,7 @@ async function activateMembership(memberId: string, tierId: string | null) {
       templateModel: {
         first_name: members[0].first_name,
         card_number: cardNumber,
-        dashboard_url: `${appUrl}/login`,
+        portal_url: `${appUrl}/login`,
         preheader: "Your membership is now active. Welcome to the Geneva Polo Club!",
       },
     }).catch((err) =>
