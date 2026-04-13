@@ -14,13 +14,13 @@ Your membership is now active and your digital membership card is ready.
 
 YOUR MEMBERSHIP CARD
 --------------------
-Name:          {{first_name}} {{last_name}}
-Membership:    {{tier_name}}
-Card No.:      {{card_number}}
+Name:          {{../first_name}} {{../last_name}}
+Membership:    {{../tier_name}}
+Card No.:      {{../card_number}}
 
 Access your digital membership card and member portal anytime by signing in:
 
-{{portal_url}}
+{{../portal_url}}
 {{/has_card}}
 {{^has_card}}
 {{^checkout_url}}
