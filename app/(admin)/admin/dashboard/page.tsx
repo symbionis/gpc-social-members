@@ -7,6 +7,7 @@ export default async function AdminDashboardPage() {
   const [
     { count: pendingCount },
     { count: activeCount },
+    { count: expiredCount },
     { count: totalCount },
     { data: tierBreakdown },
     { data: recentMembers },
@@ -19,6 +20,10 @@ export default async function AdminDashboardPage() {
       .from("members")
       .select("*", { count: "exact", head: true })
       .eq("status", "active"),
+    supabase
+      .from("members")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "expired"),
     supabase
       .from("members")
       .select("*", { count: "exact", head: true }),
@@ -39,6 +44,7 @@ export default async function AdminDashboardPage() {
       accent: true,
     },
     { label: "Active Members", value: activeCount ?? 0 },
+    { label: "Expired Members", value: expiredCount ?? 0, warn: true },
     { label: "Total Members", value: totalCount ?? 0 },
   ];
 
@@ -49,14 +55,16 @@ export default async function AdminDashboardPage() {
       </h1>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         {stats.map((stat) => (
           <div
             key={stat.label}
             className={`p-6 rounded-xl border ${
               stat.accent
                 ? "bg-sky/10 border-sky/30"
-                : "bg-white border-border"
+                : stat.warn
+                  ? "bg-amber-50 border-amber-200"
+                  : "bg-white border-border"
             }`}
           >
             <p className="text-sm font-body text-muted-foreground">
