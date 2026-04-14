@@ -322,7 +322,6 @@ export default function ApplicationQueue({
                     {app.company_role || "—"}
                   </p>
                 </div>
-                )}
                 <div>
                   <p className="text-muted-foreground font-body">Applied</p>
                   <p className="font-body font-medium text-marine">
