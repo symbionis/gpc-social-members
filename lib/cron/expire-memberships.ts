@@ -48,8 +48,18 @@ export async function runExpireMemberships(): Promise<ExpireMembershipsResult> {
       })
       .in("id", memberIds);
 
+    // Check if expiry notification emails are enabled
+    const { data: expirySetting } = await supabase
+      .from("email_settings")
+      .select("enabled")
+      .eq("key", "auto_expiry_notification")
+      .limit(1);
+
+    const expiryEmailEnabled = expirySetting?.[0]?.enabled ?? true;
+
     // Send expiry email to each member
     for (const m of expiredMembers!) {
+      if (!expiryEmailEnabled) break;
       const expiryDate = new Date(m.end_date).toLocaleDateString("en-GB", {
         day: "2-digit",
         month: "long",

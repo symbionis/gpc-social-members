@@ -45,6 +45,10 @@ export default function EmailTemplateList({ templates, settings }: EmailTemplate
   const [reminder3Days, setReminder3Days] = useState(
     autoRenewalSetting?.value?.reminder_3_days ?? 7
   );
+  const expiryNotifSetting = settings.find((s) => s.key === "auto_expiry_notification");
+  const [expiryNotifEnabled, setExpiryNotifEnabled] = useState(
+    expiryNotifSetting?.enabled ?? true
+  );
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [runningNow, setRunningNow] = useState(false);
@@ -56,19 +60,29 @@ export default function EmailTemplateList({ templates, settings }: EmailTemplate
     setSavingSettings(true);
     setSettingsSaved(false);
 
-    await fetch("/api/admin/email-settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        key: "auto_renewal_reminder",
-        enabled: autoRenewalEnabled,
-        value: {
-          reminder_1_days: reminder1Days,
-          reminder_2_days: reminder2Days,
-          reminder_3_days: reminder3Days,
-        },
+    await Promise.all([
+      fetch("/api/admin/email-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: "auto_renewal_reminder",
+          enabled: autoRenewalEnabled,
+          value: {
+            reminder_1_days: reminder1Days,
+            reminder_2_days: reminder2Days,
+            reminder_3_days: reminder3Days,
+          },
+        }),
       }),
-    });
+      fetch("/api/admin/email-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: "auto_expiry_notification",
+          enabled: expiryNotifEnabled,
+        }),
+      }),
+    ]);
 
     setSavingSettings(false);
     setSettingsSaved(true);
@@ -151,6 +165,30 @@ export default function EmailTemplateList({ templates, settings }: EmailTemplate
               <span
                 className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform ${
                   autoRenewalEnabled ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+          {/* Expiry Notification */}
+          <div className="flex items-start justify-between gap-6 p-4 rounded-lg border border-border">
+            <div className="flex-1">
+              <p className="font-body font-medium text-marine text-sm">Membership Expired Notification</p>
+              <p className="text-xs text-muted-foreground font-body mt-0.5">
+                Sends <code className="bg-cream px-1 rounded text-xs">membership-expired</code> email
+                when a membership is automatically expired, with a link to renew.
+              </p>
+            </div>
+            <button
+              onClick={() => setExpiryNotifEnabled((v) => !v)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                expiryNotifEnabled ? "bg-marine" : "bg-gray-200"
+              }`}
+              role="switch"
+              aria-checked={expiryNotifEnabled}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform ${
+                  expiryNotifEnabled ? "translate-x-5" : "translate-x-0"
                 }`}
               />
             </button>
