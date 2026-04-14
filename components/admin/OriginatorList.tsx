@@ -34,6 +34,7 @@ interface OriginatorListProps {
   appUrl: string;
   isSuperAdmin: boolean;
   availableAdmins: AvailableAdmin[];
+  honoraryCode: string;
 }
 
 export default function OriginatorList({
@@ -42,6 +43,7 @@ export default function OriginatorList({
   appUrl,
   isSuperAdmin,
   availableAdmins,
+  honoraryCode: initialHonoraryCode,
 }: OriginatorListProps) {
   const router = useRouter();
   const [copied, setCopied] = useState<string | null>(null);
@@ -50,6 +52,9 @@ export default function OriginatorList({
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [selectedAdminId, setSelectedAdminId] = useState("");
+  const [honoraryCode, setHonoraryCode] = useState(initialHonoraryCode);
+  const [savingHonorary, setSavingHonorary] = useState(false);
+  const [honorarySaved, setHonorarySaved] = useState(false);
 
   function copyLink(inviteCode: string) {
     navigator.clipboard.writeText(`${appUrl}/apply/${inviteCode}`);
@@ -114,8 +119,58 @@ export default function OriginatorList({
     setTogglingId(null);
   }
 
+  async function handleSaveHonoraryCode() {
+    setSavingHonorary(true);
+    setHonorarySaved(false);
+    await fetch("/api/admin/email-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: "honorary_invite_code",
+        value: { code: honoraryCode },
+      }),
+    });
+    setSavingHonorary(false);
+    setHonorarySaved(true);
+    setTimeout(() => setHonorarySaved(false), 2000);
+  }
+
   return (
     <div className="space-y-6">
+      {/* Honorary Invite Code */}
+      {isSuperAdmin && (
+        <div className="bg-white rounded-xl border border-border p-6">
+          <h2 className="font-body font-semibold text-marine mb-1">Honorary Invite Code</h2>
+          <p className="text-xs text-muted-foreground font-body mb-4">
+            Append <code className="bg-cream px-1 rounded">?hono=CODE</code> to any originator link to enable honorary signup.
+          </p>
+          <div className="flex items-center gap-3 mb-3">
+            <input
+              type="text"
+              value={honoraryCode}
+              onChange={(e) => setHonoraryCode(e.target.value)}
+              placeholder="e.g. HONORARY-2026"
+              className="flex-1 px-3 py-2 border border-border rounded-lg font-body text-sm text-marine focus:outline-none focus:ring-2 focus:ring-sky/50"
+            />
+            <button
+              onClick={handleSaveHonoraryCode}
+              disabled={savingHonorary}
+              className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50"
+            >
+              {savingHonorary ? "Saving..." : "Save"}
+            </button>
+            {honorarySaved && (
+              <span className="text-sm text-green-700 font-body">Saved</span>
+            )}
+          </div>
+          {honoraryCode && (
+            <p className="text-xs text-muted-foreground font-body">
+              Example: <code className="bg-cream px-1 rounded text-xs">{appUrl}/apply/ORIGINATOR?hono={honoraryCode}</code>
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Create button — super_admin only */}
       {isSuperAdmin && !showForm && (
         <button
