@@ -16,6 +16,8 @@ interface ApplicationFormProps {
   corporateTiers: Tier[];
   resumeMemberId?: string | null;
   resumeTierId?: string | null;
+  isHonorary?: boolean;
+  honoParam?: string;
 }
 
 function formatPrice(eur: number): string {
@@ -85,6 +87,8 @@ export default function ApplicationForm({
   corporateTiers,
   resumeMemberId,
   resumeTierId,
+  isHonorary,
+  honoParam,
 }: ApplicationFormProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"individual" | "corporate">("individual");
