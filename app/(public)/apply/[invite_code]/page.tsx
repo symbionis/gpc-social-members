@@ -55,39 +55,27 @@ export default async function ApplyPage({ params, searchParams }: ApplyPageProps
   }
 
   // Fetch tiers based on honorary status
-  type TierRow = { id: string; name: string; price_eur: number; benefits: unknown; guest_invitations_per_season: number };
-  let individualTiers: TierRow[] | null = [];
-  let corporateTiers: TierRow[] | null = [];
+  const tierSelect = "id, name, price_eur, benefits, guest_invitations_per_season";
 
-  if (isHonorary) {
-    // Honorary: show only the free tier
-    const { data } = await supabase
-      .from("membership_tiers")
-      .select("id, name, price_eur, benefits, guest_invitations_per_season")
-      .eq("category", "individual")
-      .eq("is_active", true)
-      .eq("price_eur", 0);
-    individualTiers = data;
-  } else {
-    // Standard: show paid tiers only (no honorary)
-    const [{ data: indTiers }, { data: corpTiers }] = await Promise.all([
-      supabase
+  const { data: allIndividualTiers } = await supabase
+    .from("membership_tiers")
+    .select(tierSelect)
+    .eq("category", "individual")
+    .eq("is_active", true)
+    .order("price_eur", { ascending: true });
+
+  const filteredIndividualTiers = isHonorary
+    ? (allIndividualTiers || []).filter((t) => t.price_eur === 0)
+    : (allIndividualTiers || []).filter((t) => t.price_eur > 0);
+
+  const { data: corporateTiers } = isHonorary
+    ? { data: [] as typeof allIndividualTiers }
+    : await supabase
         .from("membership_tiers")
-        .select("id, name, price_eur, benefits, guest_invitations_per_season")
-        .eq("category", "individual")
-        .eq("is_active", true)
-        .gt("price_eur", 0)
-        .order("price_eur", { ascending: true }),
-      supabase
-        .from("membership_tiers")
-        .select("id, name, price_eur, benefits, guest_invitations_per_season")
+        .select(tierSelect)
         .eq("category", "corporate")
         .eq("is_active", true)
-        .order("price_eur", { ascending: true }),
-    ]);
-    individualTiers = indTiers;
-    corporateTiers = corpTiers;
-  }
+        .order("price_eur", { ascending: true });
 
   // Validate resume param — only allow pending members with no authorized payment
   let resumeMemberId: string | null = null;
@@ -130,7 +118,7 @@ export default async function ApplyPage({ params, searchParams }: ApplyPageProps
 
         <ApplicationForm
           originatorId={originator.id}
-          individualTiers={individualTiers || []}
+          individualTiers={filteredIndividualTiers || []}
           corporateTiers={corporateTiers || []}
           resumeMemberId={resumeMemberId}
           resumeTierId={resumeTierId}
