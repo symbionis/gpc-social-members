@@ -6,12 +6,16 @@ import type { MemberStatus, PaymentCaptureStatus } from "@/types/database";
 
 interface Application {
   id: string;
+  title: string | null;
   first_name: string;
   last_name: string;
   email: string;
   phone: string | null;
   tier_id: string;
   status: MemberStatus;
+  company_name: string | null;
+  company_role: string | null;
+  linkedin_url: string | null;
   originator_note: string | null;
   originator_id: string | null;
   created_at: string;
@@ -283,7 +287,7 @@ export default function ApplicationQueue({
                 </div>
               )}
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm mb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-4">
                 <div>
                   <p className="text-muted-foreground font-body">Tier</p>
                   <p className="font-body font-medium text-marine">
@@ -298,6 +302,15 @@ export default function ApplicationQueue({
                       : "—"}
                   </p>
                 </div>
+                {app.company_name && (
+                  <div>
+                    <p className="text-muted-foreground font-body">Company</p>
+                    <p className="font-body font-medium text-marine">
+                      {app.company_name}
+                      {app.company_role && <span className="text-muted-foreground font-normal"> · {app.company_role}</span>}
+                    </p>
+                  </div>
+                )}
                 <div>
                   <p className="text-muted-foreground font-body">Applied</p>
                   <p className="font-body font-medium text-marine">
@@ -305,6 +318,19 @@ export default function ApplicationQueue({
                   </p>
                 </div>
               </div>
+
+              {app.linkedin_url && (
+                <div className="mb-4 text-sm">
+                  <a
+                    href={app.linkedin_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sky-dark font-body hover:underline"
+                  >
+                    LinkedIn Profile &rarr;
+                  </a>
+                </div>
+              )}
 
               {/* Capture window info */}
               {payment?.payment_capture_status === "authorized" && payment.capture_before && (
@@ -321,8 +347,11 @@ export default function ApplicationQueue({
 
               {app.originator_note && (
                 <div className="bg-cream rounded-lg p-3 mb-4">
-                  <p className="text-xs text-muted-foreground font-body mb-1">
-                    Originator note
+                  <p className="text-xs text-muted-foreground font-body mb-0.5">
+                    Motivation note
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/70 font-body mb-1.5">
+                    Connection to other club members and why they wish to become a member
                   </p>
                   <p className="text-sm font-body text-marine">
                     {app.originator_note}

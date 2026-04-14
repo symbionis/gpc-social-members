@@ -393,7 +393,7 @@ export default function ApplicationForm({
             htmlFor="originator_note"
             className="block text-sm font-body font-medium text-marine mb-1.5"
           >
-            How do you know your host, and why do you wish to become a member? *
+            Your connection to other club members and why you wish to become a member *
           </label>
           <textarea
             id="originator_note"
@@ -401,7 +401,7 @@ export default function ApplicationForm({
             required
             rows={3}
             className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky resize-none"
-            placeholder="A brief note about your connection..."
+            placeholder="Tell us about your connection to the club and motivation to join..."
           />
         </div>
 
