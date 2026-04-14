@@ -310,14 +310,18 @@ export default function ApplicationQueue({
                       : "—"}
                   </p>
                 </div>
-                {app.company_name && (
-                  <div>
-                    <p className="text-muted-foreground font-body">Company</p>
-                    <p className="font-body font-medium text-marine">
-                      {app.company_name}
-                      {app.company_role && <span className="text-muted-foreground font-normal"> · {app.company_role}</span>}
-                    </p>
-                  </div>
+                <div>
+                  <p className="text-muted-foreground font-body">Company</p>
+                  <p className="font-body font-medium text-marine">
+                    {app.company_name || "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground font-body">Role</p>
+                  <p className="font-body font-medium text-marine">
+                    {app.company_role || "—"}
+                  </p>
+                </div>
                 )}
                 <div>
                   <p className="text-muted-foreground font-body">Applied</p>
@@ -327,18 +331,21 @@ export default function ApplicationQueue({
                 </div>
               </div>
 
-              {app.linkedin_url && (
-                <div className="mb-4 text-sm">
+              <div className="mb-4 text-sm">
+                <p className="text-muted-foreground font-body text-xs mb-0.5">LinkedIn</p>
+                {app.linkedin_url ? (
                   <a
                     href={app.linkedin_url}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sky-dark font-body hover:underline"
                   >
-                    LinkedIn Profile &rarr;
+                    {app.linkedin_url.replace(/^https?:\/\/(www\.)?/, "")} &rarr;
                   </a>
-                </div>
-              )}
+                ) : (
+                  <p className="font-body text-marine">—</p>
+                )}
+              </div>
 
               {/* Capture window info */}
               {payment?.payment_capture_status === "authorized" && payment.capture_before && (
