@@ -82,8 +82,12 @@ export default function ApplicationQueue({
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
+  function isFreeTier(app: Application) {
+    return tierMap[app.tier_id]?.price_eur === 0;
+  }
+
   function isIncomplete(app: Application) {
-    return app.status === "pending" && !paymentMap[app.id];
+    return app.status === "pending" && !paymentMap[app.id] && !isFreeTier(app);
   }
 
   const filtered =
@@ -258,6 +262,10 @@ export default function ApplicationQueue({
                   {incomplete ? (
                     <span className="px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
                       Incomplete
+                    </span>
+                  ) : isFreeTier(app) ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-body font-medium bg-purple-100 text-purple-800">
+                      Honorary
                     </span>
                   ) : payment ? (
                     <PaymentStatusBadge status={payment.payment_capture_status} />
