@@ -15,6 +15,9 @@ interface EmailSetting {
   key: string;
   value: {
     days_before_expiry?: number;
+    reminder_1_days?: number;
+    reminder_2_days?: number;
+    reminder_3_days?: number;
     last_run?: string;
     last_result?: { sent: number; skipped: number };
   } & Record<string, unknown>;
@@ -33,8 +36,14 @@ export default function EmailTemplateList({ templates, settings }: EmailTemplate
   const [autoRenewalEnabled, setAutoRenewalEnabled] = useState(
     autoRenewalSetting?.enabled ?? false
   );
-  const [daysBeforeExpiry, setDaysBeforeExpiry] = useState(
-    autoRenewalSetting?.value?.days_before_expiry ?? 30
+  const [reminder1Days, setReminder1Days] = useState(
+    autoRenewalSetting?.value?.reminder_1_days ?? autoRenewalSetting?.value?.days_before_expiry ?? 30
+  );
+  const [reminder2Days, setReminder2Days] = useState(
+    autoRenewalSetting?.value?.reminder_2_days ?? 14
+  );
+  const [reminder3Days, setReminder3Days] = useState(
+    autoRenewalSetting?.value?.reminder_3_days ?? 7
   );
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
@@ -53,7 +62,11 @@ export default function EmailTemplateList({ templates, settings }: EmailTemplate
       body: JSON.stringify({
         key: "auto_renewal_reminder",
         enabled: autoRenewalEnabled,
-        value: { days_before_expiry: daysBeforeExpiry },
+        value: {
+          reminder_1_days: reminder1Days,
+          reminder_2_days: reminder2Days,
+          reminder_3_days: reminder3Days,
+        },
       }),
     });
 
@@ -104,17 +117,26 @@ export default function EmailTemplateList({ templates, settings }: EmailTemplate
                 to active members whose card is expiring soon.
               </p>
               {autoRenewalEnabled && (
-                <div className="mt-3 flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground font-body">Send</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={90}
-                    value={daysBeforeExpiry}
-                    onChange={(e) => setDaysBeforeExpiry(Number(e.target.value))}
-                    className="w-16 px-2 py-1 border border-border rounded text-sm font-body text-marine text-center"
-                  />
-                  <span className="text-xs text-muted-foreground font-body">days before expiry</span>
+                <div className="mt-3 space-y-2">
+                  {[
+                    { label: "1st reminder", value: reminder1Days, setter: setReminder1Days },
+                    { label: "2nd reminder", value: reminder2Days, setter: setReminder2Days },
+                    { label: "3rd reminder", value: reminder3Days, setter: setReminder3Days },
+                  ].map(({ label, value, setter }) => (
+                    <div key={label} className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground font-body w-24">{label}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={90}
+                        value={value}
+                        onChange={(e) => setter(Number(e.target.value))}
+                        className="w-16 px-2 py-1 border border-border rounded text-sm font-body text-marine text-center"
+                      />
+                      <span className="text-xs text-muted-foreground font-body">days before expiry</span>
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground font-body mt-1">Set to 0 to disable a stage.</p>
                 </div>
               )}
             </div>

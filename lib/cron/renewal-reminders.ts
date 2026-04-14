@@ -7,6 +7,12 @@ export interface RenewalReminderResult {
   reason?: string;
 }
 
+interface ReminderStage {
+  days: number;
+  sentColumn: "renewal_reminder_1_sent_at" | "renewal_reminder_2_sent_at" | "renewal_reminder_3_sent_at";
+  label: string;
+}
+
 export async function runRenewalReminders(): Promise<RenewalReminderResult> {
   const supabase = createAdminClient();
 
@@ -23,97 +29,129 @@ export async function runRenewalReminders(): Promise<RenewalReminderResult> {
     return { sent: 0, skipped: 0, reason: "disabled" };
   }
 
-  const daysBeforeExpiry =
-    (setting.value as { days_before_expiry?: number })?.days_before_expiry ?? 30;
+  const value = setting.value as Record<string, unknown>;
 
-  // Find active members whose card expires within the window
-  const windowDate = new Date();
-  windowDate.setDate(windowDate.getDate() + daysBeforeExpiry);
-  const windowDateStr = windowDate.toISOString().slice(0, 10);
+  // Build reminder stages from settings (support legacy single-value format)
+  const stages: ReminderStage[] = [];
+
+  if ("reminder_1_days" in value) {
+    const r1 = Number(value.reminder_1_days) || 30;
+    const r2 = Number(value.reminder_2_days) || 0;
+    const r3 = Number(value.reminder_3_days) || 0;
+    if (r1 > 0) stages.push({ days: r1, sentColumn: "renewal_reminder_1_sent_at", label: "1st" });
+    if (r2 > 0) stages.push({ days: r2, sentColumn: "renewal_reminder_2_sent_at", label: "2nd" });
+    if (r3 > 0) stages.push({ days: r3, sentColumn: "renewal_reminder_3_sent_at", label: "3rd" });
+  } else {
+    // Legacy format: single days_before_expiry
+    const days = Number(value.days_before_expiry) || 30;
+    stages.push({ days, sentColumn: "renewal_reminder_1_sent_at", label: "1st" });
+  }
+
+  if (stages.length === 0) {
+    return { sent: 0, skipped: 0, reason: "no stages configured" };
+  }
+
+  // Sort stages descending by days (30, 14, 7) so we process earliest first
+  stages.sort((a, b) => b.days - a.days);
+
   const todayStr = new Date().toISOString().slice(0, 10);
-
-  const { data: expiringCards } = await supabase
-    .from("membership_cards")
-    .select("member_id, valid_until")
-    .eq("is_active", true)
-    .gte("valid_until", todayStr)
-    .lte("valid_until", windowDateStr);
-
-  if (!expiringCards || expiringCards.length === 0) {
-    await updateLastRun(supabase, setting.id, 0, 0);
-    return { sent: 0, skipped: 0 };
-  }
-
-  const memberIds = expiringCards.map((c) => c.member_id);
-
-  // Fetch those members (active status, must have originator_id)
-  const { data: members } = await supabase
-    .from("members")
-    .select("id, first_name, last_name, email, originator_id")
-    .in("id", memberIds)
-    .eq("status", "active");
-
-  if (!members || members.length === 0) {
-    await updateLastRun(supabase, setting.id, 0, 0);
-    return { sent: 0, skipped: 0 };
-  }
-
-  // Find members who already have an unused renewal token (skip them)
-  const { data: existingTokens } = await supabase
-    .from("renewal_tokens")
-    .select("member_id")
-    .in("member_id", memberIds)
-    .eq("used", false);
-
-  const membersWithToken = new Set(
-    (existingTokens || []).map((t) => t.member_id)
-  );
-
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
   let sent = 0;
   let skipped = 0;
 
-  for (const member of members) {
-    if (membersWithToken.has(member.id)) {
-      skipped++;
-      continue;
-    }
+  // Find active members with end_date within the widest window
+  const widestWindow = stages[0].days;
+  const windowDate = new Date();
+  windowDate.setDate(windowDate.getDate() + widestWindow);
+  const windowDateStr = windowDate.toISOString().slice(0, 10);
 
+  const { data: expiringMembers } = await supabase
+    .from("members")
+    .select("id, first_name, last_name, email, originator_id, end_date, renewal_reminder_1_sent_at, renewal_reminder_2_sent_at, renewal_reminder_3_sent_at")
+    .eq("status", "active")
+    .not("end_date", "is", null)
+    .gte("end_date", todayStr)
+    .lte("end_date", windowDateStr);
+
+  if (!expiringMembers || expiringMembers.length === 0) {
+    await updateLastRun(supabase, setting.id, 0, 0);
+    return { sent: 0, skipped: 0 };
+  }
+
+  for (const member of expiringMembers) {
     if (!member.originator_id) {
-      console.warn(`Member ${member.id} has no originator_id — skipping`);
+      console.warn(`[renewal] Member ${member.id} has no originator_id — skipping`);
       skipped++;
       continue;
     }
 
-    const card = expiringCards.find((c) => c.member_id === member.id);
-    const expiryDate = card
-      ? new Date(card.valid_until).toLocaleDateString("en-GB", {
-          day: "2-digit",
-          month: "long",
-          year: "numeric",
-        })
-      : "";
+    if (!member.end_date) continue;
 
-    const token = crypto.randomUUID();
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30);
+    const endDate = new Date(member.end_date);
+    const today = new Date(todayStr);
+    const daysUntilExpiry = Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
-    const { error: insertError } = await supabase
+    // Find which stage to send (latest applicable unsent stage)
+    let stageToSend: ReminderStage | null = null;
+    for (const stage of stages) {
+      if (daysUntilExpiry <= stage.days) {
+        const alreadySent = member[stage.sentColumn as keyof typeof member];
+        if (!alreadySent) {
+          stageToSend = stage;
+          break;
+        }
+      }
+    }
+
+    if (!stageToSend) {
+      skipped++;
+      continue;
+    }
+
+    // Find or create renewal token
+    const { data: existingTokens } = await supabase
       .from("renewal_tokens")
-      .insert({
-        member_id: member.id,
-        originator_id: member.originator_id,
-        token,
-        expires_at: expiresAt.toISOString(),
-      });
+      .select("token")
+      .eq("member_id", member.id)
+      .eq("used", false)
+      .gt("expires_at", new Date().toISOString())
+      .limit(1);
 
-    if (insertError) {
-      console.error(`Failed to create renewal token for ${member.id}:`, insertError);
-      skipped++;
-      continue;
+    let token: string;
+
+    if (existingTokens?.[0]) {
+      token = existingTokens[0].token;
+    } else {
+      token = crypto.randomUUID();
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 60);
+
+      const { error: insertError } = await supabase
+        .from("renewal_tokens")
+        .insert({
+          member_id: member.id,
+          originator_id: member.originator_id,
+          token,
+          expires_at: expiresAt.toISOString(),
+        });
+
+      if (insertError) {
+        console.error(`[renewal] Failed to create token for ${member.id}:`, insertError);
+        skipped++;
+        continue;
+      }
     }
+
+    const expiryDate = new Date(member.end_date).toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
 
     const renewalUrl = `${appUrl}/renew/${token}`;
+
+    const isUrgent = daysUntilExpiry <= 7;
 
     await sendEmail({
       to: member.email,
@@ -123,14 +161,26 @@ export async function runRenewalReminders(): Promise<RenewalReminderResult> {
         last_name: member.last_name,
         expiry_date: expiryDate,
         renewal_url: renewalUrl,
+        is_urgent: isUrgent ? true : null,
+        days_remaining: daysUntilExpiry,
+        preheader: isUrgent
+          ? `Your membership expires in ${daysUntilExpiry} days — renew now to keep your benefits.`
+          : `Your membership expires on ${expiryDate}. Renew to continue enjoying club benefits.`,
       },
     });
 
+    // Mark this stage as sent
+    await supabase
+      .from("members")
+      .update({ [stageToSend.sentColumn]: new Date().toISOString() })
+      .eq("id", member.id);
+
+    console.log(`[renewal] ${stageToSend.label} reminder sent to ${member.email} (${daysUntilExpiry} days until expiry)`);
     sent++;
   }
 
   await updateLastRun(supabase, setting.id, sent, skipped);
-  console.log(`Renewal reminders: sent=${sent}, skipped=${skipped}`);
+  console.log(`[renewal] Complete: sent=${sent}, skipped=${skipped}`);
   return { sent, skipped };
 }
 
