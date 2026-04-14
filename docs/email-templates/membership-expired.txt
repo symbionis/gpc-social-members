@@ -1,0 +1,17 @@
+Your Membership Has Expired
+
+Dear {{first_name}},
+
+We hope you've enjoyed being part of the Geneva Polo Club Social Member Club. Your membership expired on {{expiry_date}}.
+
+The good news is that you can renew at any time — simply sign in to the member portal to select your tier and complete your renewal:
+
+{{portal_url}}
+
+We'd love to welcome you back fieldside for another season.
+
+Warm regards,
+The Geneva Polo Club Team
+
+---
+Geneva Polo Social Members Club
