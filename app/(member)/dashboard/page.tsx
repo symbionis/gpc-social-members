@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import PayNowButton from "./PayNowButton";
+import RenewButton from "./RenewButton";
 
 export default async function MemberDashboardPage() {
   const supabase = await createClient();
@@ -146,6 +147,7 @@ export default async function MemberDashboardPage() {
             </p>
           )}
           {member.status === "approved" && <PayNowButton />}
+          {member.status === "expired" && <RenewButton />}
         </div>
 
         {/* Card Preview */}
