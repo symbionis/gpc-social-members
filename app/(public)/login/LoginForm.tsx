@@ -14,6 +14,7 @@ export default function LoginForm() {
   const router = useRouter();
   const errorParam = searchParams.get("error");
   const message = searchParams.get("message");
+  const paymentSuccess = searchParams.get("payment") === "success";
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   async function handleSendCode(e: React.FormEvent) {
@@ -152,6 +153,20 @@ export default function LoginForm() {
 
   return (
     <>
+      {paymentSuccess && (
+        <div className="mb-6 p-5 bg-green-50 border border-green-200 rounded-lg text-center">
+          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+          </div>
+          <p className="font-heading text-lg font-bold text-marine mb-1">Payment confirmed!</p>
+          <p className="text-sm text-muted-foreground font-body">
+            Your membership is now active. Sign in below to discover the clubhouse.
+          </p>
+        </div>
+      )}
+
       {errorParam && message && (
         <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive font-body">
           {decodeURIComponent(message)}
