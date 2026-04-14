@@ -12,7 +12,6 @@ interface AdminUser {
   is_originator: boolean;
   is_approval_committee: boolean;
   invite_code: string | null;
-  can_invite_honorary: boolean;
 }
 
 interface UserManagementProps {
@@ -246,11 +245,6 @@ export default function UserManagement({ users }: UserManagementProps) {
                     {u.is_originator && (
                       <span className="px-2 py-0.5 bg-sky/10 text-sky-dark rounded-full text-xs font-body">
                         Originator
-                      </span>
-                    )}
-                    {u.can_invite_honorary && (
-                      <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full text-xs font-body">
-                        Honorary
                       </span>
                     )}
                   </div>

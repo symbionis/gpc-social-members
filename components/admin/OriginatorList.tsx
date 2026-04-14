@@ -10,7 +10,6 @@ interface Originator {
   email: string;
   invite_code: string | null;
   invite_link_active: boolean;
-  can_invite_honorary: boolean;
 }
 
 interface Referral {
@@ -82,7 +81,6 @@ export default function OriginatorList({
         last_name: selectedAdmin.last_name,
         email: selectedAdmin.email,
         invite_code: form.get("invite_code"),
-        can_invite_honorary: form.get("can_invite_honorary") === "on",
       }),
     });
 
@@ -95,17 +93,6 @@ export default function OriginatorList({
       setError(data.error || "Failed to create originator");
     }
     setSaving(false);
-  }
-
-  async function toggleHonorary(id: string, current: boolean) {
-    setTogglingId(id);
-    await fetch("/api/admin/originators", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, can_invite_honorary: !current }),
-    });
-    router.refresh();
-    setTogglingId(null);
   }
 
   async function toggleActive(id: string, current: boolean) {
@@ -226,16 +213,6 @@ export default function OriginatorList({
                 className="w-full px-3 py-2 border border-border rounded-md font-body text-sm focus:ring-2 focus:ring-sky/50 focus:outline-none"
               />
             </div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                name="can_invite_honorary"
-                className="w-4 h-4 rounded border-border text-marine focus:ring-sky"
-              />
-              <span className="text-sm font-body text-marine">
-                Can invite Honorary Members
-              </span>
-            </label>
             <div className="flex gap-3 pt-2">
               <button
                 type="submit"
@@ -280,11 +257,6 @@ export default function OriginatorList({
                   {orig.email}
                 </p>
                 <div className="flex items-center gap-2 mt-1.5">
-                  {orig.can_invite_honorary && (
-                    <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full text-xs font-body">
-                      Honorary
-                    </span>
-                  )}
                   {!orig.invite_link_active && (
                     <span className="px-2 py-0.5 bg-red-100 text-red-800 rounded-full text-xs font-body">
                       Link Inactive
@@ -321,15 +293,6 @@ export default function OriginatorList({
             {/* Super admin toggles */}
             {isSuperAdmin && (
               <div className="flex flex-wrap gap-3 mb-4">
-                <button
-                  onClick={() => toggleHonorary(orig.id, orig.can_invite_honorary)}
-                  disabled={togglingId === orig.id}
-                  className="px-3 py-1.5 border border-border text-xs font-body rounded-md hover:bg-cream transition-colors disabled:opacity-50"
-                >
-                  {orig.can_invite_honorary
-                    ? "Revoke Honorary Access"
-                    : "Enable Honorary Invites"}
-                </button>
                 <button
                   onClick={() => toggleActive(orig.id, orig.invite_link_active)}
                   disabled={togglingId === orig.id}

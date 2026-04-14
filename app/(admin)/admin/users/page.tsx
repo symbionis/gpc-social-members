@@ -23,7 +23,7 @@ export default async function UsersPage() {
 
   const { data: users } = await supabase
     .from("admin_users")
-    .select("id, first_name, last_name, email, role, is_originator, is_approval_committee, invite_code, can_invite_honorary")
+    .select("id, first_name, last_name, email, role, is_originator, is_approval_committee, invite_code")
     .order("created_at", { ascending: true });
 
   return (

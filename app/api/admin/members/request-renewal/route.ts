@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
   // Validate originator exists and link is active
   const { data: originators } = await adminClient
     .from("admin_users")
-    .select("id, invite_link_active, can_invite_honorary")
+    .select("id, invite_link_active")
     .eq("id", originator_id)
     .eq("is_originator", true)
     .limit(1);

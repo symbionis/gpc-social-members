@@ -21,7 +21,7 @@ export default async function OriginatorsPage() {
   // Get originators — super_admin sees all, team_admin sees only self
   let originatorQuery = supabase
     .from("admin_users")
-    .select("id, first_name, last_name, email, invite_code, invite_link_active, can_invite_honorary")
+    .select("id, first_name, last_name, email, invite_code, invite_link_active")
     .eq("is_originator", true);
 
   if (!isSuperAdmin) {

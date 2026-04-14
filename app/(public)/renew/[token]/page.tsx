@@ -63,28 +63,14 @@ export default async function RenewalPage({ params }: RenewalPageProps) {
     );
   }
 
-  // Fetch originator to determine honorary visibility
-  const { data: originators } = await supabase
-    .from("admin_users")
-    .select("can_invite_honorary")
-    .eq("id", renewalToken.originator_id)
-    .limit(1);
-
-  const canInviteHonorary = originators?.[0]?.can_invite_honorary ?? false;
-
-  // Fetch available tiers
-  let tiersQuery = supabase
+  // Fetch available tiers — always exclude honorary on renewal
+  const { data: tiers } = await supabase
     .from("membership_tiers")
     .select("id, name, price_eur, benefits, guest_invitations_per_season")
     .eq("category", "individual")
     .eq("is_active", true)
+    .gt("price_eur", 0)
     .order("price_eur", { ascending: true });
-
-  if (!canInviteHonorary) {
-    tiersQuery = tiersQuery.neq("name", "Honorary Member");
-  }
-
-  const { data: tiers } = await tiersQuery;
 
   return (
     <>
