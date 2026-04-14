@@ -36,10 +36,17 @@ export async function POST(request: NextRequest) {
 
   const memberTierId = memberData?.[0]?.tier_id || null;
 
-  // Update member to active
+  // Set membership dates
+  const now = new Date();
+  const startDate = now.toISOString().slice(0, 10);
+  const endDate = new Date(now);
+  endDate.setFullYear(endDate.getFullYear() + 1);
+  const endDateStr = endDate.toISOString().slice(0, 10);
+
+  // Update member to active with dates
   await adminClient
     .from("members")
-    .update({ status: "active" })
+    .update({ status: "active", start_date: startDate, end_date: endDateStr })
     .eq("id", member_id);
 
   // Create free payment record
@@ -52,13 +59,8 @@ export async function POST(request: NextRequest) {
     season: currentYear,
   });
 
-  // Generate card
+  // Generate card — dates derived from member record
   const cardNumber = generateCardNumber();
-  const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const validUntilDate = new Date(now);
-  validUntilDate.setFullYear(validUntilDate.getFullYear() + 1);
-  const validUntil = validUntilDate.toISOString().slice(0, 10);
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const verifyUrl = `${appUrl}/verify/${cardNumber}`;
 
@@ -67,8 +69,8 @@ export async function POST(request: NextRequest) {
     card_number: cardNumber,
     qr_code_data: verifyUrl,
     tier_id: memberTierId,
-    valid_from: today,
-    valid_until: validUntil,
+    valid_from: startDate,
+    valid_until: endDateStr,
     is_active: true,
   });
 

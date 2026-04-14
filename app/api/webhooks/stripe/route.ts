@@ -9,19 +9,26 @@ async function activateMembership(memberId: string, tierId: string | null) {
   const supabase = createAdminClient();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-  // Activate member
+  // Set membership dates
+  const now = new Date();
+  const startDate = now.toISOString().slice(0, 10);
+  const endDate = new Date(now);
+  endDate.setFullYear(endDate.getFullYear() + 1);
+  const endDateStr = endDate.toISOString().slice(0, 10);
+
+  // Activate member with dates
   await supabase
     .from("members")
-    .update({ status: "active", tier_id: tierId })
+    .update({
+      status: "active",
+      tier_id: tierId,
+      start_date: startDate,
+      end_date: endDateStr,
+    })
     .eq("id", memberId);
 
-  // Generate digital card
+  // Generate digital card — dates derived from member record
   const cardNumber = generateCardNumber();
-  const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const validUntilDate = new Date(now);
-  validUntilDate.setFullYear(validUntilDate.getFullYear() + 1);
-  const validUntil = validUntilDate.toISOString().slice(0, 10);
   const verifyUrl = `${appUrl}/verify/${cardNumber}`;
 
   const { data: newCards } = await supabase
@@ -31,8 +38,8 @@ async function activateMembership(memberId: string, tierId: string | null) {
       card_number: cardNumber,
       qr_code_data: verifyUrl,
       tier_id: tierId,
-      valid_from: today,
-      valid_until: validUntil,
+      valid_from: startDate,
+      valid_until: endDateStr,
       is_active: true,
     })
     .select("id")
