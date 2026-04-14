@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { sendEmail } from "@/lib/postmark";
+import { generateCardNumber } from "@/lib/utils/card";
 import { NextResponse, type NextRequest } from "next/server";
 import { randomUUID } from "crypto";
 import Stripe from "stripe";
@@ -59,6 +60,127 @@ export async function POST(request: NextRequest) {
   }
 
   const { member_id } = await request.json();
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+  // Check if this is a free-tier (honorary) member — auto-activate without Stripe
+  const { data: memberForTier } = await adminClient
+    .from("members")
+    .select("tier_id")
+    .eq("id", member_id)
+    .eq("status", "pending")
+    .limit(1);
+
+  if (memberForTier?.[0]?.tier_id) {
+    const { data: tierCheck } = await adminClient
+      .from("membership_tiers")
+      .select("price_eur")
+      .eq("id", memberForTier[0].tier_id)
+      .limit(1);
+
+    if (tierCheck?.[0] && tierCheck[0].price_eur === 0) {
+      // --- FREE TIER: auto-activate directly ---
+      const { data: updated, error: updateError } = await adminClient
+        .from("members")
+        .update({ status: "approved", approved_by: admin.id, approved_at: new Date().toISOString() })
+        .eq("id", member_id)
+        .eq("status", "pending")
+        .select("id")
+        .limit(1);
+
+      if (updateError || !updated?.length) {
+        return NextResponse.json(
+          { error: "This application has already been actioned by another committee member." },
+          { status: 409 }
+        );
+      }
+
+      // Activate using the same pattern as activateMembership
+      const now = new Date();
+      const startDate = now.toISOString().slice(0, 10);
+      const endDate = new Date(now);
+      endDate.setFullYear(endDate.getFullYear() + 1);
+      const endDateStr = endDate.toISOString().slice(0, 10);
+
+      await adminClient
+        .from("members")
+        .update({ status: "active", start_date: startDate, end_date: endDateStr })
+        .eq("id", member_id);
+
+      // Create free payment record
+      await adminClient.from("payments").insert({
+        member_id,
+        tier_id: memberForTier[0].tier_id,
+        amount_eur: 0,
+        payment_status: "free",
+        season: now.getFullYear().toString(),
+      });
+
+      // Generate card
+      const cardNumber = generateCardNumber();
+      const verifyUrl = `${appUrl}/verify/${cardNumber}`;
+
+      const { data: newCards } = await adminClient
+        .from("membership_cards")
+        .insert({
+          member_id,
+          card_number: cardNumber,
+          qr_code_data: verifyUrl,
+          tier_id: memberForTier[0].tier_id,
+          valid_from: startDate,
+          valid_until: endDateStr,
+          is_active: true,
+        })
+        .select("id")
+        .limit(1);
+
+      // Deactivate old cards
+      if (newCards?.[0]?.id) {
+        await adminClient
+          .from("membership_cards")
+          .update({ is_active: false })
+          .eq("member_id", member_id)
+          .neq("id", newCards[0].id)
+          .eq("is_active", true);
+      }
+
+      // Get member + tier info for email
+      const { data: memberInfo } = await adminClient
+        .from("members")
+        .select("email, first_name, last_name")
+        .eq("id", member_id)
+        .limit(1);
+
+      const { data: tierInfo } = await adminClient
+        .from("membership_tiers")
+        .select("name")
+        .eq("id", memberForTier[0].tier_id)
+        .limit(1);
+
+      if (memberInfo?.[0]) {
+        await sendEmail({
+          to: memberInfo[0].email,
+          templateAlias: "member-approved",
+          templateModel: {
+            first_name: memberInfo[0].first_name,
+            last_name: memberInfo[0].last_name,
+            tier_name: tierInfo?.[0]?.name || "Member",
+            has_card: true,
+            card_number: cardNumber,
+            portal_url: `${appUrl}/login`,
+            checkout_url: null,
+            has_payment: null,
+            dashboard_url: null,
+            preheader: "Your membership is now active. Welcome to the Geneva Polo Club!",
+          },
+        }).catch((err) =>
+          console.error("[approve] member-approved email failed:", err)
+        );
+      }
+
+      await recordApprovalAudit(adminClient, member_id, admin.id);
+      return NextResponse.json({ success: true });
+    }
+  }
 
   // Look up the payment record for this member (new capture flow)
   const { data: payments } = await adminClient
@@ -71,7 +193,6 @@ export async function POST(request: NextRequest) {
 
   const payment = payments?.[0];
   const stripe = getStripe();
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
   if (payment && payment.stripe_payment_intent_id) {
     // --- NEW FLOW: PaymentIntent manual capture ---
