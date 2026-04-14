@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { runRenewalReminders } from "./renewal-reminders";
 import { runPaymentReminders } from "./payment-reminders";
 import { runCommitteeReminders, runHoldExpirySafetyNet } from "./committee-reminders";
+import { runExpireMemberships } from "./expire-memberships";
 
 let initialized = false;
 
@@ -53,7 +54,19 @@ export function startCronJobs() {
     }
   });
 
+  // Expire memberships — daily at 00:05 UTC (just after midnight, after renewal reminders)
+  cron.schedule("5 0 * * *", async () => {
+    console.log("[cron] Running expire memberships...");
+    try {
+      const result = await runExpireMemberships();
+      console.log("[cron] Expire memberships complete:", result);
+    } catch (error) {
+      console.error("[cron] Expire memberships failed:", error);
+    }
+  });
+
   console.log("[cron] Scheduled: renewal-reminders (0 0 * * *)");
+  console.log("[cron] Scheduled: expire-memberships (5 0 * * *)");
   console.log("[cron] Scheduled: payment-reminders (0 8 * * *)");
   console.log("[cron] Scheduled: committee-reminders (0 * * * *)");
   console.log("[cron] Scheduled: hold-expiry-safety (0 2 * * *)");
