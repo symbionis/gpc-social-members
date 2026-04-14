@@ -8,7 +8,7 @@ import {
   Smartphone,
 } from "lucide-react";
 
-const APPLY_URL = "/apply/FRANK-GPC-2026";
+const APPLY_URL = "/apply/GPC-2026";
 
 const benefits = [
   {
