@@ -51,6 +51,7 @@ export default async function MemberRenewPage() {
       .select("id, name, price_eur, benefits, guest_invitations_per_season")
       .eq("category", "corporate")
       .eq("is_active", true)
+      .gt("price_eur", 0)
       .order("price_eur", { ascending: true }),
   ]);
 

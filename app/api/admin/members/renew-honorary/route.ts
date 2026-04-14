@@ -18,11 +18,12 @@ export async function POST(request: NextRequest) {
 
   const { data: admins } = await adminClient
     .from("admin_users")
-    .select("id, role")
+    .select("id, role, is_approval_committee")
     .eq("email", user.email)
     .limit(1);
 
-  if (!admins?.[0]) {
+  const admin = admins?.[0];
+  if (!admin || (admin.role !== "super_admin" && !admin.is_approval_committee)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -43,11 +44,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Get honorary tier
+  // Get honorary tier (explicit name match for deterministic selection)
   const { data: honoraryTiers } = await adminClient
     .from("membership_tiers")
     .select("id, name")
-    .eq("price_eur", 0)
+    .eq("name", "Honorary Member")
     .eq("is_active", true)
     .limit(1);
 

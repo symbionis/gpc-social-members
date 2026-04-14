@@ -78,10 +78,22 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (tierCheck?.[0] && tierCheck[0].price_eur === 0) {
-      // --- FREE TIER: auto-activate directly ---
+      // --- FREE TIER: auto-activate directly (single atomic UPDATE) ---
+      const now = new Date();
+      const startDate = now.toISOString().slice(0, 10);
+      const endDate = new Date(now);
+      endDate.setFullYear(endDate.getFullYear() + 1);
+      const endDateStr = endDate.toISOString().slice(0, 10);
+
       const { data: updated, error: updateError } = await adminClient
         .from("members")
-        .update({ status: "approved", approved_by: admin.id, approved_at: new Date().toISOString() })
+        .update({
+          status: "active",
+          approved_by: admin.id,
+          approved_at: now.toISOString(),
+          start_date: startDate,
+          end_date: endDateStr,
+        })
         .eq("id", member_id)
         .eq("status", "pending")
         .select("id")
@@ -93,18 +105,6 @@ export async function POST(request: NextRequest) {
           { status: 409 }
         );
       }
-
-      // Activate using the same pattern as activateMembership
-      const now = new Date();
-      const startDate = now.toISOString().slice(0, 10);
-      const endDate = new Date(now);
-      endDate.setFullYear(endDate.getFullYear() + 1);
-      const endDateStr = endDate.toISOString().slice(0, 10);
-
-      await adminClient
-        .from("members")
-        .update({ status: "active", start_date: startDate, end_date: endDateStr })
-        .eq("id", member_id);
 
       // Create free payment record
       await adminClient.from("payments").insert({

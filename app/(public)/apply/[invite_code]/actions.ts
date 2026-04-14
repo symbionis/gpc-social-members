@@ -55,6 +55,11 @@ export async function submitApplication(data: {
     }
   }
 
+  // Cross-check: reject paid tier submitted with honorary code (prevents bypass)
+  if (!isFree && data.honoParam) {
+    return { error: "Invalid application. Please select the correct membership tier.", member_id: null };
+  }
+
   // Check for duplicate email
   const { data: existing } = await supabase
     .from("members")
