@@ -216,35 +216,37 @@ export default function ApplicationForm({
 
   return (
     <div>
-      {/* Tab switcher */}
-      <div className="flex rounded-lg border border-border overflow-hidden mb-8">
-        <button
-          type="button"
-          onClick={() => { setActiveTab("individual"); setError(null); }}
-          className={`flex-1 py-3 text-sm font-body font-medium transition-colors ${
-            activeTab === "individual"
-              ? "bg-marine text-white"
-              : "bg-white text-marine hover:bg-marine/5"
-          }`}
-        >
-          Individual
-        </button>
-        <button
-          type="button"
-          onClick={() => { setActiveTab("corporate"); setError(null); }}
-          className={`flex-1 py-3 text-sm font-body font-medium transition-colors border-l border-border ${
-            activeTab === "corporate"
-              ? "bg-marine text-white"
-              : "bg-white text-marine hover:bg-marine/5"
-          }`}
-        >
-          Corporate
-        </button>
-      </div>
+      {/* Tab switcher — hide for honorary (single tier, no choice needed) */}
+      {!isHonorary && (
+        <div className="flex rounded-lg border border-border overflow-hidden mb-8">
+          <button
+            type="button"
+            onClick={() => { setActiveTab("individual"); setError(null); }}
+            className={`flex-1 py-3 text-sm font-body font-medium transition-colors ${
+              activeTab === "individual"
+                ? "bg-marine text-white"
+                : "bg-white text-marine hover:bg-marine/5"
+            }`}
+          >
+            Individual
+          </button>
+          <button
+            type="button"
+            onClick={() => { setActiveTab("corporate"); setError(null); }}
+            className={`flex-1 py-3 text-sm font-body font-medium transition-colors border-l border-border ${
+              activeTab === "corporate"
+                ? "bg-marine text-white"
+                : "bg-white text-marine hover:bg-marine/5"
+            }`}
+          >
+            Corporate
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Tier Selection */}
-        {activeTab === "individual" ? (
+        {/* Tier Selection — hide for honorary (auto-selected) */}
+        {isHonorary ? null : activeTab === "individual" ? (
           <TierSelector
             tiers={individualTiers}
             selectedTier={selectedIndividualTier}
