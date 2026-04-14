@@ -149,12 +149,19 @@ export default function ApplicationForm({
       tierId: selectedTier,
       originatorId,
       consentGivenAt: new Date().toISOString(),
+      honoParam: honoParam || undefined,
     });
 
     setLoading(false);
 
     if (result.error) {
       setError(result.error);
+      return;
+    }
+
+    // Free tier (honorary): skip payment, go straight to success
+    if (currentTier && currentTier.price_eur === 0) {
+      router.push("/apply/success");
       return;
     }
 
@@ -436,24 +443,26 @@ export default function ApplicationForm({
           </span>
         </label>
 
-        {/* Payment consent checkbox */}
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            name="payment_consent"
-            required
-            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-sky-dark focus:ring-sky/50"
-          />
-          <span className="font-body text-sm text-marine/70 leading-relaxed">
-            I authorize a hold of{" "}
-            <strong className="text-marine">
-              {currentTier ? formatPrice(currentTier.price_eur) : "—"}
-            </strong>{" "}
-            on my card. This amount will only be charged if my application is
-            approved by the membership committee. If declined, the hold will be
-            released.
-          </span>
-        </label>
+        {/* Payment consent checkbox — hide for free/honorary tiers */}
+        {currentTier && currentTier.price_eur > 0 && (
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              name="payment_consent"
+              required
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-sky-dark focus:ring-sky/50"
+            />
+            <span className="font-body text-sm text-marine/70 leading-relaxed">
+              I authorize a hold of{" "}
+              <strong className="text-marine">
+                {formatPrice(currentTier.price_eur)}
+              </strong>{" "}
+              on my card. This amount will only be charged if my application is
+              approved by the membership committee. If declined, the hold will be
+              released.
+            </span>
+          </label>
+        )}
 
         {error && (
           <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive font-body">
@@ -466,7 +475,7 @@ export default function ApplicationForm({
           disabled={loading}
           className="w-full py-3.5 bg-marine text-white rounded-lg font-body font-medium text-sm hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? "Submitting..." : "Authorize Hold"}
+          {loading ? "Submitting..." : isHonorary ? "Submit Application" : "Authorize Hold"}
         </button>
 
         <p className="text-xs text-center text-muted-foreground font-body">
