@@ -8,7 +8,7 @@ export default async function ApplicationsPage() {
   const { data: applications } = await supabase
     .from("members")
     .select(
-      "id, first_name, last_name, email, phone, tier_id, status, originator_note, originator_id, created_at, last_reminder_sent_at"
+      "id, title, first_name, last_name, email, phone, tier_id, status, company_name, company_role, linkedin_url, originator_note, originator_id, created_at, last_reminder_sent_at"
     )
     .in("status", ["pending", "approved", "declined"])
     .order("created_at", { ascending: false });

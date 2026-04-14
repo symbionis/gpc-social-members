@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden — super_admin only" }, { status: 403 });
   }
 
-  const { first_name, last_name, email, invite_code, can_invite_honorary } =
+  const { first_name, last_name, email, invite_code } =
     await request.json();
 
   if (!first_name || !last_name || !email || !invite_code) {
@@ -55,7 +55,6 @@ export async function POST(request: NextRequest) {
         is_originator: true,
         invite_code,
         invite_link_active: true,
-        can_invite_honorary: can_invite_honorary || false,
       })
       .eq("id", existing[0].id);
 
@@ -75,7 +74,6 @@ export async function POST(request: NextRequest) {
     is_approval_committee: false,
     invite_code,
     invite_link_active: true,
-    can_invite_honorary: can_invite_honorary || false,
   });
 
   if (error) {
@@ -92,7 +90,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden — super_admin only" }, { status: 403 });
   }
 
-  const { id, invite_code, invite_link_active, can_invite_honorary } =
+  const { id, invite_code, invite_link_active } =
     await request.json();
 
   if (!id) {
@@ -104,7 +102,6 @@ export async function PATCH(request: NextRequest) {
   const updates: Record<string, unknown> = {};
   if (invite_code !== undefined) updates.invite_code = invite_code;
   if (invite_link_active !== undefined) updates.invite_link_active = invite_link_active;
-  if (can_invite_honorary !== undefined) updates.can_invite_honorary = can_invite_honorary;
 
   const { error } = await adminClient
     .from("admin_users")

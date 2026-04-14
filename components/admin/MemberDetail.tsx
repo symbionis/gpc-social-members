@@ -141,15 +141,25 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
     setResendingPaymentLink(false);
   }
 
-  async function handleActivateFree() {
+  const [showHonoraryConfirm, setShowHonoraryConfirm] = useState(false);
+  const [honoraryResult, setHonoraryResult] = useState<string | null>(null);
+
+  async function handleRenewHonorary() {
     setSaving(true);
-    await fetch("/api/admin/members/activate-free", {
+    setHonoraryResult(null);
+    const res = await fetch("/api/admin/members/renew-honorary", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ member_id: member.id }),
     });
+    if (res.ok) {
+      setShowHonoraryConfirm(false);
+      router.refresh();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setHonoraryResult(data.error || "Failed to renew as honorary.");
+    }
     setSaving(false);
-    router.refresh();
   }
 
   const address = member.address as Address | null;
@@ -270,26 +280,29 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
                     Edit
                   </button>
                   {member.status === "approved" && (
-                    <>
-                      <button onClick={handleActivateFree} disabled={saving} className="px-4 py-2 bg-sky text-marine rounded-lg text-sm font-body font-medium hover:bg-sky-light transition-colors disabled:opacity-50">
-                        Activate as Free Member
-                      </button>
-                      <button
-                        onClick={handleResendPaymentLink}
-                        disabled={resendingPaymentLink}
-                        className="px-4 py-2 bg-sky-dark text-white rounded-lg text-sm font-body font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
-                      >
-                        {resendingPaymentLink ? "Sending..." : "Resend Payment Link"}
-                      </button>
-                    </>
+                    <button
+                      onClick={handleResendPaymentLink}
+                      disabled={resendingPaymentLink}
+                      className="px-4 py-2 bg-sky-dark text-white rounded-lg text-sm font-body font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                    >
+                      {resendingPaymentLink ? "Sending..." : "Resend Payment Link"}
+                    </button>
                   )}
                   {member.status === "expired" && (
-                    <button
-                      onClick={() => { setShowRenewalModal(true); setRenewalResult(null); }}
-                      className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors"
-                    >
-                      Request Renewal
-                    </button>
+                    <>
+                      <button
+                        onClick={() => { setShowRenewalModal(true); setRenewalResult(null); }}
+                        className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors"
+                      >
+                        Request Renewal
+                      </button>
+                      <button
+                        onClick={() => { setShowHonoraryConfirm(true); setHonoraryResult(null); }}
+                        className="px-4 py-2 bg-gray-200 text-marine rounded-lg text-sm font-body font-medium hover:bg-gray-300 transition-colors"
+                      >
+                        Renew as Honorary
+                      </button>
+                    </>
                   )}
                 </>
               )}
@@ -390,6 +403,37 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
                 className="flex-1 py-2 bg-white border border-border text-marine rounded-lg text-sm font-body font-medium hover:bg-cream transition-colors"
               >
                 {renewalResult?.success ? "Close" : "Cancel"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Honorary renewal confirmation */}
+      {showHonoraryConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full space-y-4">
+            <h2 className="font-heading text-lg font-bold text-marine">Renew as Honorary Member</h2>
+            <p className="text-sm text-muted-foreground font-body">
+              This will activate <strong>{member.first_name} {member.last_name}</strong> as an Honorary Member
+              for one year with no payment. They will receive a welcome email with their membership card.
+            </p>
+            {honoraryResult && (
+              <p className="text-sm text-destructive font-body">{honoraryResult}</p>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={handleRenewHonorary}
+                disabled={saving}
+                className="flex-1 py-2 bg-amber-600 text-white rounded-lg text-sm font-body font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
+              >
+                {saving ? "Activating..." : "Confirm"}
+              </button>
+              <button
+                onClick={() => setShowHonoraryConfirm(false)}
+                className="flex-1 py-2 bg-white border border-border text-marine rounded-lg text-sm font-body font-medium hover:bg-cream transition-colors"
+              >
+                Cancel
               </button>
             </div>
           </div>

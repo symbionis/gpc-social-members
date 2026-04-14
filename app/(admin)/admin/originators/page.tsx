@@ -21,7 +21,7 @@ export default async function OriginatorsPage() {
   // Get originators — super_admin sees all, team_admin sees only self
   let originatorQuery = supabase
     .from("admin_users")
-    .select("id, first_name, last_name, email, invite_code, invite_link_active, can_invite_honorary")
+    .select("id, first_name, last_name, email, invite_code, invite_link_active")
     .eq("is_originator", true);
 
   if (!isSuperAdmin) {
@@ -50,6 +50,15 @@ export default async function OriginatorsPage() {
     availableAdmins = data || [];
   }
 
+  // Fetch honorary invite code setting
+  const { data: honorarySettings } = await supabase
+    .from("email_settings")
+    .select("value")
+    .eq("key", "honorary_invite_code")
+    .limit(1);
+
+  const honoraryCode = (honorarySettings?.[0]?.value as { code?: string })?.code || "";
+
   const appUrl =
     process.env.APP_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
@@ -66,6 +75,7 @@ export default async function OriginatorsPage() {
         appUrl={appUrl}
         isSuperAdmin={isSuperAdmin}
         availableAdmins={availableAdmins}
+        honoraryCode={honoraryCode}
       />
     </div>
   );

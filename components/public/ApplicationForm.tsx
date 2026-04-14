@@ -16,6 +16,8 @@ interface ApplicationFormProps {
   corporateTiers: Tier[];
   resumeMemberId?: string | null;
   resumeTierId?: string | null;
+  isHonorary?: boolean;
+  honoParam?: string;
 }
 
 function formatPrice(eur: number): string {
@@ -85,6 +87,8 @@ export default function ApplicationForm({
   corporateTiers,
   resumeMemberId,
   resumeTierId,
+  isHonorary,
+  honoParam,
 }: ApplicationFormProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"individual" | "corporate">("individual");
@@ -145,12 +149,19 @@ export default function ApplicationForm({
       tierId: selectedTier,
       originatorId,
       consentGivenAt: new Date().toISOString(),
+      honoParam: honoParam || undefined,
     });
 
     setLoading(false);
 
     if (result.error) {
       setError(result.error);
+      return;
+    }
+
+    // Free tier (honorary): skip payment, go straight to success
+    if (currentTier && currentTier.price_eur === 0) {
+      router.push("/apply/success");
       return;
     }
 
@@ -205,31 +216,33 @@ export default function ApplicationForm({
 
   return (
     <div>
-      {/* Tab switcher */}
-      <div className="flex rounded-lg border border-border overflow-hidden mb-8">
-        <button
-          type="button"
-          onClick={() => { setActiveTab("individual"); setError(null); }}
-          className={`flex-1 py-3 text-sm font-body font-medium transition-colors ${
-            activeTab === "individual"
-              ? "bg-marine text-white"
-              : "bg-white text-marine hover:bg-marine/5"
-          }`}
-        >
-          Individual
-        </button>
-        <button
-          type="button"
-          onClick={() => { setActiveTab("corporate"); setError(null); }}
-          className={`flex-1 py-3 text-sm font-body font-medium transition-colors border-l border-border ${
-            activeTab === "corporate"
-              ? "bg-marine text-white"
-              : "bg-white text-marine hover:bg-marine/5"
-          }`}
-        >
-          Corporate
-        </button>
-      </div>
+      {/* Tab switcher — hide for honorary (single tier, no choice needed) */}
+      {!isHonorary && (
+        <div className="flex rounded-lg border border-border overflow-hidden mb-8">
+          <button
+            type="button"
+            onClick={() => { setActiveTab("individual"); setError(null); }}
+            className={`flex-1 py-3 text-sm font-body font-medium transition-colors ${
+              activeTab === "individual"
+                ? "bg-marine text-white"
+                : "bg-white text-marine hover:bg-marine/5"
+            }`}
+          >
+            Individual
+          </button>
+          <button
+            type="button"
+            onClick={() => { setActiveTab("corporate"); setError(null); }}
+            className={`flex-1 py-3 text-sm font-body font-medium transition-colors border-l border-border ${
+              activeTab === "corporate"
+                ? "bg-marine text-white"
+                : "bg-white text-marine hover:bg-marine/5"
+            }`}
+          >
+            Corporate
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Tier Selection */}
@@ -380,7 +393,7 @@ export default function ApplicationForm({
             htmlFor="originator_note"
             className="block text-sm font-body font-medium text-marine mb-1.5"
           >
-            How do you know your host, and why do you wish to become a member? *
+            Your connection to other club members and why you wish to become a member *
           </label>
           <textarea
             id="originator_note"
@@ -388,7 +401,7 @@ export default function ApplicationForm({
             required
             rows={3}
             className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky resize-none"
-            placeholder="A brief note about your connection..."
+            placeholder="Tell us about your connection to the club and motivation to join..."
           />
         </div>
 
@@ -432,24 +445,26 @@ export default function ApplicationForm({
           </span>
         </label>
 
-        {/* Payment consent checkbox */}
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            name="payment_consent"
-            required
-            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-sky-dark focus:ring-sky/50"
-          />
-          <span className="font-body text-sm text-marine/70 leading-relaxed">
-            I authorize a hold of{" "}
-            <strong className="text-marine">
-              {currentTier ? formatPrice(currentTier.price_eur) : "—"}
-            </strong>{" "}
-            on my card. This amount will only be charged if my application is
-            approved by the membership committee. If declined, the hold will be
-            released.
-          </span>
-        </label>
+        {/* Payment consent checkbox — hide for free/honorary tiers */}
+        {currentTier && currentTier.price_eur > 0 && (
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              name="payment_consent"
+              required
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-sky-dark focus:ring-sky/50"
+            />
+            <span className="font-body text-sm text-marine/70 leading-relaxed">
+              I authorize a hold of{" "}
+              <strong className="text-marine">
+                {formatPrice(currentTier.price_eur)}
+              </strong>{" "}
+              on my card. This amount will only be charged if my application is
+              approved by the membership committee. If declined, the hold will be
+              released.
+            </span>
+          </label>
+        )}
 
         {error && (
           <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive font-body">
@@ -462,7 +477,7 @@ export default function ApplicationForm({
           disabled={loading}
           className="w-full py-3.5 bg-marine text-white rounded-lg font-body font-medium text-sm hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? "Submitting..." : "Authorize Hold"}
+          {loading ? "Submitting..." : isHonorary ? "Submit Application" : "Authorize Hold"}
         </button>
 
         <p className="text-xs text-center text-muted-foreground font-body">

@@ -6,12 +6,16 @@ import type { MemberStatus, PaymentCaptureStatus } from "@/types/database";
 
 interface Application {
   id: string;
+  title: string | null;
   first_name: string;
   last_name: string;
   email: string;
   phone: string | null;
   tier_id: string;
   status: MemberStatus;
+  company_name: string | null;
+  company_role: string | null;
+  linkedin_url: string | null;
   originator_note: string | null;
   originator_id: string | null;
   created_at: string;
@@ -78,8 +82,12 @@ export default function ApplicationQueue({
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
+  function isFreeTier(app: Application) {
+    return tierMap[app.tier_id]?.price_eur === 0;
+  }
+
   function isIncomplete(app: Application) {
-    return app.status === "pending" && !paymentMap[app.id];
+    return app.status === "pending" && !paymentMap[app.id] && !isFreeTier(app);
   }
 
   const filtered =
@@ -255,6 +263,10 @@ export default function ApplicationQueue({
                     <span className="px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
                       Incomplete
                     </span>
+                  ) : isFreeTier(app) ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-body font-medium bg-purple-100 text-purple-800">
+                      Honorary
+                    </span>
                   ) : payment ? (
                     <PaymentStatusBadge status={payment.payment_capture_status} />
                   ) : null}
@@ -283,7 +295,7 @@ export default function ApplicationQueue({
                 </div>
               )}
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm mb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-4">
                 <div>
                   <p className="text-muted-foreground font-body">Tier</p>
                   <p className="font-body font-medium text-marine">
@@ -299,11 +311,39 @@ export default function ApplicationQueue({
                   </p>
                 </div>
                 <div>
+                  <p className="text-muted-foreground font-body">Company</p>
+                  <p className="font-body font-medium text-marine">
+                    {app.company_name || "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground font-body">Role</p>
+                  <p className="font-body font-medium text-marine">
+                    {app.company_role || "—"}
+                  </p>
+                </div>
+                <div>
                   <p className="text-muted-foreground font-body">Applied</p>
                   <p className="font-body font-medium text-marine">
                     {new Date(app.created_at).toLocaleDateString("en-GB")}
                   </p>
                 </div>
+              </div>
+
+              <div className="mb-4 text-sm">
+                <p className="text-muted-foreground font-body text-xs mb-0.5">LinkedIn</p>
+                {app.linkedin_url ? (
+                  <a
+                    href={app.linkedin_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sky-dark font-body hover:underline"
+                  >
+                    {app.linkedin_url.replace(/^https?:\/\/(www\.)?/, "")} &rarr;
+                  </a>
+                ) : (
+                  <p className="font-body text-marine">—</p>
+                )}
               </div>
 
               {/* Capture window info */}
@@ -321,8 +361,11 @@ export default function ApplicationQueue({
 
               {app.originator_note && (
                 <div className="bg-cream rounded-lg p-3 mb-4">
-                  <p className="text-xs text-muted-foreground font-body mb-1">
-                    Originator note
+                  <p className="text-xs text-muted-foreground font-body mb-0.5">
+                    Motivation note
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/70 font-body mb-1.5">
+                    Connection to other club members and why they wish to become a member
                   </p>
                   <p className="text-sm font-body text-marine">
                     {app.originator_note}

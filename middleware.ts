@@ -37,7 +37,7 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // Protected member routes
-  const memberRoutes = ["/dashboard", "/card", "/profile"];
+  const memberRoutes = ["/dashboard", "/card", "/profile", "/renew"];
   if (memberRoutes.some((route) => pathname.startsWith(route))) {
     if (!user) {
       const url = request.nextUrl.clone();

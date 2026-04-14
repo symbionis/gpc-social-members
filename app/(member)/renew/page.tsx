@@ -24,14 +24,36 @@ export default async function MemberRenewPage() {
 
   if (member.status === "active") redirect("/dashboard");
 
-  // Fetch available tiers (no honorary unless originator allows it — for self-service, exclude honorary)
-  const { data: tiers } = await adminClient
-    .from("membership_tiers")
-    .select("id, name, price_eur, benefits, guest_invitations_per_season")
-    .eq("category", "individual")
-    .eq("is_active", true)
-    .neq("name", "Honorary Member")
-    .order("price_eur", { ascending: true });
+  // Determine member's current tier category
+  let currentCategory: "individual" | "corporate" = "individual";
+  if (member.tier_id) {
+    const { data: currentTier } = await adminClient
+      .from("membership_tiers")
+      .select("category")
+      .eq("id", member.tier_id)
+      .limit(1);
+    if (currentTier?.[0]?.category === "corporate") {
+      currentCategory = "corporate";
+    }
+  }
+
+  // Fetch paid tiers (always exclude honorary)
+  const [{ data: individualTiers }, { data: corporateTiers }] = await Promise.all([
+    adminClient
+      .from("membership_tiers")
+      .select("id, name, price_eur, benefits, guest_invitations_per_season")
+      .eq("category", "individual")
+      .eq("is_active", true)
+      .gt("price_eur", 0)
+      .order("price_eur", { ascending: true }),
+    adminClient
+      .from("membership_tiers")
+      .select("id, name, price_eur, benefits, guest_invitations_per_season")
+      .eq("category", "corporate")
+      .eq("is_active", true)
+      .gt("price_eur", 0)
+      .order("price_eur", { ascending: true }),
+  ]);
 
   return (
     <div>
@@ -48,7 +70,9 @@ export default async function MemberRenewPage() {
       <MemberRenewalForm
         memberId={member.id}
         currentTierId={member.tier_id}
-        tiers={tiers || []}
+        currentCategory={currentCategory}
+        individualTiers={individualTiers || []}
+        corporateTiers={corporateTiers || []}
       />
     </div>
   );
