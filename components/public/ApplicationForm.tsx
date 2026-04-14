@@ -245,8 +245,8 @@ export default function ApplicationForm({
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Tier Selection — hide for honorary (auto-selected) */}
-        {isHonorary ? null : activeTab === "individual" ? (
+        {/* Tier Selection */}
+        {activeTab === "individual" ? (
           <TierSelector
             tiers={individualTiers}
             selectedTier={selectedIndividualTier}
