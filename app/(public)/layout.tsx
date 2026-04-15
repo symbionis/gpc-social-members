@@ -19,14 +19,14 @@ export default async function PublicLayout({
           </Link>
           {user ? (
             <Link href="/dashboard" className="text-sm font-body text-white/70 hover:text-white transition-colors">
-              My Club House
+              My Clubhouse
             </Link>
           ) : (
             <Link
               href="/login"
               className="text-sm font-body text-white/70 hover:text-white transition-colors"
             >
-              Member Login
+              Clubhouse Login
             </Link>
           )}
         </div>

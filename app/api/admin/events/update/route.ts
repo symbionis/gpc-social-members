@@ -40,6 +40,8 @@ export async function POST(request: NextRequest) {
     is_published,
     notes,
     season_id,
+    image_url,
+    image_url_2,
   } = await request.json();
 
   const { error } = await adminClient
@@ -56,6 +58,8 @@ export async function POST(request: NextRequest) {
       is_published: is_published ?? false,
       notes: notes || null,
       season_id: season_id || null,
+      image_url: image_url || null,
+      image_url_2: image_url_2 || null,
     })
     .eq("id", event_id);
 

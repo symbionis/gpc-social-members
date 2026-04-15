@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import ContinueButton from "./ContinueButton";
 
 export default async function WelcomePage() {
@@ -63,11 +62,7 @@ export default async function WelcomePage() {
           </p>
 
           <p className="font-semibold text-marine">
-            Please find your digital membership card in the{" "}
-            <Link href="/card" className="underline underline-offset-4 text-sky-dark hover:text-marine transition-colors">
-              Members Area
-            </Link>
-            {" "}and join the Geneva Polo Club WhatsApp Community to receive practical infos &amp; offers:
+            Please find your digital membership card in your Digital Clubhouse and join the Geneva Polo Club WhatsApp Community to receive practical infos &amp; offers:
           </p>
 
           <p>

@@ -206,6 +206,8 @@ export type Database = {
           end_date: string | null
           event_type_id: string
           id: string
+          image_url: string | null
+          image_url_2: string | null
           is_confirmed: boolean
           is_published: boolean
           location: string | null
@@ -222,6 +224,8 @@ export type Database = {
           end_date?: string | null
           event_type_id: string
           id?: string
+          image_url?: string | null
+          image_url_2?: string | null
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null
@@ -238,6 +242,8 @@ export type Database = {
           end_date?: string | null
           event_type_id?: string
           id?: string
+          image_url?: string | null
+          image_url_2?: string | null
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null

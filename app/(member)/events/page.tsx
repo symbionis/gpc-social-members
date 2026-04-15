@@ -182,6 +182,24 @@ export default async function EventsPage() {
                           {String(event.location)}
                         </p>
                       ) : null}
+                      {(event.image_url || event.image_url_2) ? (
+                        <div className="flex gap-3 mt-3">
+                          {event.image_url ? (
+                            <img
+                              src={String(event.image_url)}
+                              alt=""
+                              className="w-full max-w-[280px] h-auto rounded-lg border border-border object-cover"
+                            />
+                          ) : null}
+                          {event.image_url_2 ? (
+                            <img
+                              src={String(event.image_url_2)}
+                              alt=""
+                              className="w-full max-w-[280px] h-auto rounded-lg border border-border object-cover"
+                            />
+                          ) : null}
+                        </div>
+                      ) : null}
                       {event.is_confirmed === false && (
                         <span className="inline-block mt-2 px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
                           Dates TBC
