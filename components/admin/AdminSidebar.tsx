@@ -50,6 +50,7 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
           ? [
               { href: "/admin/tiers", label: "Tiers", icon: "layers" },
               { href: "/admin/users", label: "Users", icon: "shield" },
+              { href: "/admin/scheduled-jobs", label: "Scheduled Jobs", icon: "clock" },
               { href: "/admin/email-templates", label: "Email Templates", icon: "mail" },
             ]
           : []),
