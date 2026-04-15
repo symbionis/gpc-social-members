@@ -148,69 +148,72 @@ export default async function EventsPage() {
                     string,
                     string
                   > | null;
+                  const description = event.description
+                    ? String(event.description)
+                    : null;
                   return (
-                    <div
+                    <Link
                       key={event.id as string}
-                      className={`bg-white rounded-xl border border-border p-5 ${
+                      href={`/events/${event.id}`}
+                      className={`block bg-white rounded-xl border border-border p-5 hover:border-sky/50 hover:shadow-sm transition-all ${
                         event.isPast ? "opacity-50" : ""
                       }`}
                     >
-                      {eventType && (
-                        <div className="flex items-center gap-2 mb-2">
-                          <span
-                            className="inline-block w-2.5 h-2.5 rounded-full"
-                            style={{
-                              backgroundColor: eventType.color || "#6b7280",
-                            }}
-                          />
-                          <span className="text-xs font-body text-muted-foreground uppercase tracking-wide">
-                            {eventType.name}
-                          </span>
-                        </div>
-                      )}
-                      <p className="font-body font-semibold text-marine">
-                        {event.title as string}
-                      </p>
-                      <p className="text-sm font-body text-muted-foreground mt-1">
-                        {formatDateRange(
-                          event.start_date as string,
-                          event.end_date as string | null
-                        )}
-                      </p>
-                      {event.location ? (
-                        <p className="text-xs font-body text-muted-foreground mt-1">
-                          {String(event.location)}
-                        </p>
-                      ) : null}
-                      {(event.image_url || event.image_url_2) ? (
-                        <div className="flex gap-3 mt-3">
-                          {event.image_url ? (
-                            <img
-                              src={String(event.image_url)}
-                              alt=""
-                              className="w-full max-w-[280px] h-auto rounded-lg border border-border object-cover"
-                            />
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          {eventType && (
+                            <div className="flex items-center gap-2 mb-2">
+                              <span
+                                className="inline-block w-2.5 h-2.5 rounded-full"
+                                style={{
+                                  backgroundColor: eventType.color || "#6b7280",
+                                }}
+                              />
+                              <span className="text-xs font-body text-muted-foreground uppercase tracking-wide">
+                                {eventType.name}
+                              </span>
+                            </div>
+                          )}
+                          <p className="font-body font-semibold text-marine">
+                            {event.title as string}
+                          </p>
+                          <p className="text-sm font-body text-muted-foreground mt-1">
+                            {formatDateRange(
+                              event.start_date as string,
+                              event.end_date as string | null
+                            )}
+                            {event.start_time ? ` at ${String(event.start_time).slice(0, 5)}` : ""}
+                          </p>
+                          {event.location ? (
+                            <p className="text-xs font-body text-muted-foreground mt-1">
+                              {String(event.location)}
+                            </p>
                           ) : null}
-                          {event.image_url_2 ? (
-                            <img
-                              src={String(event.image_url_2)}
-                              alt=""
-                              className="w-full max-w-[280px] h-auto rounded-lg border border-border object-cover"
-                            />
+                          {description ? (
+                            <p className="text-sm font-body text-muted-foreground mt-2 line-clamp-2">
+                              {description}
+                            </p>
                           ) : null}
+                          <div className="flex items-center gap-2 mt-2 flex-wrap">
+                            {event.is_confirmed === false && (
+                              <span className="inline-block px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
+                                Dates TBC
+                              </span>
+                            )}
+                            {event.isPast && (
+                              <span className="inline-block px-2 py-0.5 rounded-full text-xs font-body font-medium bg-gray-100 text-gray-500">
+                                Past
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      ) : null}
-                      {event.is_confirmed === false && (
-                        <span className="inline-block mt-2 px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
-                          Dates TBC
+                        <span className="text-muted-foreground shrink-0 mt-1">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                          </svg>
                         </span>
-                      )}
-                      {event.isPast && (
-                        <span className="inline-block mt-2 ml-2 px-2 py-0.5 rounded-full text-xs font-body font-medium bg-gray-100 text-gray-500">
-                          Past
-                        </span>
-                      )}
-                    </div>
+                      </div>
+                    </Link>
                   );
                 })}
               </div>

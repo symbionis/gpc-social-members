@@ -237,7 +237,11 @@ export default async function MemberDashboardPage() {
                         ? `${startMonth} ${startDay}\u2013${end.getDate()}`
                         : `${startMonth} ${startDay}`;
                     return (
-                      <div key={event.id as string} className="flex items-start gap-2">
+                      <Link
+                        key={event.id as string}
+                        href={`/events/${event.id}`}
+                        className="flex items-start gap-2 hover:bg-cream/50 -mx-2 px-2 py-1 rounded-lg transition-colors"
+                      >
                         <span
                           className="inline-block w-2 h-2 rounded-full mt-1.5 shrink-0"
                           style={{
@@ -255,7 +259,7 @@ export default async function MemberDashboardPage() {
                             )}
                           </p>
                         </div>
-                      </div>
+                      </Link>
                     );
                   })}
                 </div>
