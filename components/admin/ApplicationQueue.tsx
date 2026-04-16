@@ -20,6 +20,7 @@ interface Application {
   originator_id: string | null;
   created_at: string;
   last_reminder_sent_at: string | null;
+  approved_at: string | null;
 }
 
 interface PaymentInfo {
@@ -90,19 +91,25 @@ export default function ApplicationQueue({
     return app.status === "pending" && !paymentMap[app.id] && !isFreeTier(app);
   }
 
+  function wasApproved(app: Application) {
+    return app.approved_at !== null;
+  }
+
   const filtered =
     filter === "incomplete"
       ? applications.filter(isIncomplete)
       : filter === "pending"
         ? applications.filter((a) => a.status === "pending" && !isIncomplete(a))
-        : filter === "all"
-          ? applications
-          : applications.filter((a) => a.status === filter);
+        : filter === "approved"
+          ? applications.filter(wasApproved)
+          : filter === "all"
+            ? applications
+            : applications.filter((a) => a.status === filter);
 
   const counts: Record<string, number> = {
     pending: applications.filter((a) => a.status === "pending" && !isIncomplete(a)).length,
     incomplete: applications.filter(isIncomplete).length,
-    approved: applications.filter((a) => a.status === "approved").length,
+    approved: applications.filter(wasApproved).length,
     declined: applications.filter((a) => a.status === "declined").length,
     all: applications.length,
   };
@@ -274,12 +281,12 @@ export default function ApplicationQueue({
                     className={`px-2.5 py-1 rounded-full text-xs font-body font-medium ${
                       app.status === "pending"
                         ? "bg-amber-100 text-amber-800"
-                        : app.status === "approved"
+                        : app.status === "approved" || app.status === "active"
                           ? "bg-sky/20 text-sky-dark"
                           : "bg-red-100 text-red-800"
                     }`}
                   >
-                    {app.status}
+                    {wasApproved(app) && app.status === "active" ? "approved" : app.status}
                   </span>
                 </div>
               </div>
