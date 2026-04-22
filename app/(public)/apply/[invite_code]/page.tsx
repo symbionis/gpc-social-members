@@ -64,18 +64,18 @@ export default async function ApplyPage({ params, searchParams }: ApplyPageProps
     .eq("is_active", true)
     .order("price_eur", { ascending: true });
 
+  // Honorary invitees see all tiers (free honorary + paid) so they can choose.
+  // Non-honorary visitors never see the free honorary tier.
   const filteredIndividualTiers = isHonorary
-    ? (allIndividualTiers || []).filter((t) => t.price_eur === 0)
+    ? (allIndividualTiers || [])
     : (allIndividualTiers || []).filter((t) => t.price_eur > 0);
 
-  const { data: corporateTiers } = isHonorary
-    ? { data: [] as typeof allIndividualTiers }
-    : await supabase
-        .from("membership_tiers")
-        .select(tierSelect)
-        .eq("category", "corporate")
-        .eq("is_active", true)
-        .order("price_eur", { ascending: true });
+  const { data: corporateTiers } = await supabase
+    .from("membership_tiers")
+    .select(tierSelect)
+    .eq("category", "corporate")
+    .eq("is_active", true)
+    .order("price_eur", { ascending: true });
 
   // Validate resume param — only allow pending members with no authorized payment
   let resumeMemberId: string | null = null;

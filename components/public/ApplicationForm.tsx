@@ -216,9 +216,8 @@ export default function ApplicationForm({
 
   return (
     <div>
-      {/* Tab switcher — hide for honorary (single tier, no choice needed) */}
-      {!isHonorary && (
-        <div className="flex rounded-lg border border-border overflow-hidden mb-8">
+      {/* Tab switcher between individual and corporate tiers */}
+      <div className="flex rounded-lg border border-border overflow-hidden mb-8">
           <button
             type="button"
             onClick={() => { setActiveTab("individual"); setError(null); }}
@@ -242,7 +241,6 @@ export default function ApplicationForm({
             Corporate
           </button>
         </div>
-      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Tier Selection */}
@@ -477,7 +475,11 @@ export default function ApplicationForm({
           disabled={loading}
           className="w-full py-3.5 bg-marine text-white rounded-lg font-body font-medium text-sm hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? "Submitting..." : isHonorary ? "Submit Application" : "Authorize Hold"}
+          {loading
+            ? "Submitting..."
+            : currentTier && currentTier.price_eur === 0
+              ? "Submit Application"
+              : "Authorize Hold"}
         </button>
 
         <p className="text-xs text-center text-muted-foreground font-body">
