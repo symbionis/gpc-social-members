@@ -36,8 +36,10 @@ export default async function PublicEventsPage() {
     .order("start_date", { ascending: true });
 
   return (
-    <div className="bg-cream min-h-screen pt-24 pb-16">
-      <div className="mx-auto max-w-4xl px-6">
+    <>
+      <div className="h-20 bg-marine" />
+      <div className="bg-cream min-h-[calc(100vh-5rem)] py-12">
+        <div className="mx-auto max-w-4xl px-6">
         <p className="font-accent text-base tracking-[0.3em] uppercase text-sky-dark mb-1">
           Public Events
         </p>
@@ -102,7 +104,8 @@ export default async function PublicEventsPage() {
             ))}
           </div>
         )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

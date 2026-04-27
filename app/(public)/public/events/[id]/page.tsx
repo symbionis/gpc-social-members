@@ -67,8 +67,10 @@ export default async function PublicEventDetailPage({
   if (!event) notFound();
 
   return (
-    <div className="bg-cream min-h-screen pt-24 pb-16">
-      <div className="mx-auto max-w-4xl px-6">
+    <>
+      <div className="h-20 bg-marine" />
+      <div className="bg-cream min-h-[calc(100vh-5rem)] py-12">
+        <div className="mx-auto max-w-4xl px-6">
         <Link
           href="/public/events"
           className="inline-flex items-center gap-1 text-sm font-body text-muted-foreground hover:text-marine transition-colors mb-6"
@@ -148,7 +150,8 @@ export default async function PublicEventDetailPage({
             )}
           </aside>
         </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
