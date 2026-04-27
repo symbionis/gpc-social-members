@@ -137,100 +137,80 @@ export default async function EventDetailPage({
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-border overflow-hidden">
-        {/* Header */}
-        <div className="p-6 sm:p-8">
-          {eventType && (
-            <div className="flex items-center gap-2 mb-3">
-              <span
-                className="inline-block w-2.5 h-2.5 rounded-full"
-                style={{
-                  backgroundColor: eventType.color || "#6b7280",
-                }}
-              />
-              <span className="text-xs font-body text-muted-foreground uppercase tracking-wide">
-                {eventType.name}
-              </span>
-            </div>
-          )}
-
-          <p className="font-body text-lg sm:text-xl font-semibold text-sky-dark mb-2">
-            {formatDateRange(event.start_date, event.end_date)}
-            {event.start_time ? ` · ${event.start_time.slice(0, 5)}` : ""}
-            {!event.is_confirmed && (
-              <span className="ml-2 align-middle px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
-                Dates TBC
-              </span>
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
+        <div className="bg-white rounded-xl border border-border overflow-hidden">
+          <div className="p-6 sm:p-8">
+            {eventType && (
+              <div className="flex items-center gap-2 mb-3">
+                <span
+                  className="inline-block w-2.5 h-2.5 rounded-full"
+                  style={{
+                    backgroundColor: eventType.color || "#6b7280",
+                  }}
+                />
+                <span className="text-xs font-body text-muted-foreground uppercase tracking-wide">
+                  {eventType.name}
+                </span>
+              </div>
             )}
-          </p>
-          <h1 className="font-heading text-2xl sm:text-3xl font-bold text-marine mb-4">
-            {event.title}
-          </h1>
 
-          {/* Location */}
-          <div className="flex flex-col gap-2">
+            <p className="font-body text-lg sm:text-xl font-semibold text-sky-dark mb-2">
+              {formatDateRange(event.start_date, event.end_date)}
+              {event.start_time ? ` · ${event.start_time.slice(0, 5)}` : ""}
+              {!event.is_confirmed && (
+                <span className="ml-2 align-middle px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
+                  Dates TBC
+                </span>
+              )}
+            </p>
+            <h1 className="font-heading text-2xl sm:text-3xl font-bold text-marine mb-2">
+              {event.title}
+            </h1>
             {event.location && (
-              <div className="flex items-center gap-2 text-sm font-body text-muted-foreground">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4 shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                  />
-                </svg>
-                <span>{event.location}</span>
+              <p className="text-base font-body text-muted-foreground mb-4">
+                {event.location}
+              </p>
+            )}
+
+            {(() => {
+              const imgs = coerceImages(event.images, [event.image_url, event.image_url_2]);
+              return imgs.length > 0 ? (
+                <div className="mb-6">
+                  <EventGallery images={imgs} alt={event.title} />
+                </div>
+              ) : null;
+            })()}
+
+            {event.description && (
+              <div className="font-body text-muted-foreground leading-relaxed whitespace-pre-line">
+                {renderDescription(event.description)}
               </div>
             )}
           </div>
         </div>
 
-        {/* Images */}
-        {(() => {
-          const imgs = coerceImages(event.images, [event.image_url, event.image_url_2]);
-          return imgs.length > 0 ? (
-            <div className="px-6 sm:px-8 pb-6">
-              <EventGallery images={imgs} alt={event.title} />
-            </div>
-          ) : null;
-        })()}
-
-        {/* Description */}
-        {event.description && (
-          <div className="px-6 sm:px-8 pb-8">
-            <hr className="border-border mb-6" />
-            <div className="prose prose-sm max-w-none font-body text-muted-foreground leading-relaxed whitespace-pre-line">
-              {renderDescription(event.description)}
-            </div>
-          </div>
-        )}
+        <aside className="bg-white rounded-xl border border-border p-6 self-start">
+          {event.registration_enabled ? (
+            <>
+              <h2 className="font-heading text-xl font-bold text-marine mb-4">
+                Register
+              </h2>
+              <EventRegistrationForm
+                eventId={event.id}
+                priceMember={Number(event.price_member ?? 0)}
+                priceNonMember={Number(event.price_non_member ?? 0)}
+                defaultName={`${member.first_name ?? ""} ${member.last_name ?? ""}`.trim()}
+                defaultEmail={member.email ?? ""}
+                memberOnly
+              />
+            </>
+          ) : (
+            <p className="font-body text-sm text-muted-foreground">
+              Information only — registration is not open for this event.
+            </p>
+          )}
+        </aside>
       </div>
-
-      {event.registration_enabled && (
-        <div className="mt-6 bg-white rounded-xl border border-border p-6 sm:p-8">
-          <h2 className="font-heading text-xl font-bold text-marine mb-4">
-            Register
-          </h2>
-          <EventRegistrationForm
-            eventId={event.id}
-            priceMember={Number(event.price_member ?? 0)}
-            priceNonMember={Number(event.price_non_member ?? 0)}
-            defaultName={`${member.first_name ?? ""} ${member.last_name ?? ""}`.trim()}
-            defaultEmail={member.email ?? ""}
-          />
-        </div>
-      )}
 
       <div className="mt-6">
         <Link

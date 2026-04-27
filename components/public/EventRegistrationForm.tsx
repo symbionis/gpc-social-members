@@ -9,9 +9,11 @@ interface Props {
   defaultName?: string;
   defaultEmail?: string;
   showMemberRate?: boolean;
+  /** When true, show only the member rate (used on the member-facing page). */
+  memberOnly?: boolean;
 }
 
-const MAX_QUANTITY = 20;
+const MAX_QUANTITY = 6;
 
 export default function EventRegistrationForm({
   eventId,
@@ -20,6 +22,7 @@ export default function EventRegistrationForm({
   defaultName = "",
   defaultEmail = "",
   showMemberRate = true,
+  memberOnly = false,
 }: Props) {
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
@@ -111,7 +114,16 @@ export default function EventRegistrationForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="rounded-lg bg-cream/60 border border-border p-4 text-sm font-body text-marine">
-        {showMemberRate ? (
+        {memberOnly ? (
+          memberFree ? (
+            <p>This event is free for members.</p>
+          ) : (
+            <p>
+              <span className="font-semibold">Member price:</span>{" "}
+              {priceLabel(priceMember)}
+            </p>
+          )
+        ) : showMemberRate ? (
           allFree ? (
             <p>This event is free.</p>
           ) : (
@@ -168,15 +180,18 @@ export default function EventRegistrationForm({
         <label className="block text-xs font-body text-muted-foreground mb-1">
           Number of tickets
         </label>
-        <input
-          type="number"
-          min={1}
-          max={MAX_QUANTITY}
+        <select
           required
           value={quantity}
           onChange={(e) => setQuantity(Number(e.target.value))}
           className={inputClass}
-        />
+        >
+          {Array.from({ length: MAX_QUANTITY }, (_, i) => i + 1).map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
       </div>
 
       {error && (
