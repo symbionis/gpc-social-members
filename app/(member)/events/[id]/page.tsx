@@ -2,13 +2,17 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
+import EventRegistrationForm from "@/components/public/EventRegistrationForm";
 
 export default async function EventDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ registered?: string; cancelled?: string }>;
 }) {
   const { id } = await params;
+  const { registered, cancelled } = await searchParams;
 
   const supabase = await createClient();
   const {
@@ -21,7 +25,7 @@ export default async function EventDetailPage({
 
   const { data: members } = await adminClient
     .from("members")
-    .select("id, status")
+    .select("id, status, first_name, last_name, email")
     .eq("email", user.email)
     .limit(1);
 
@@ -107,6 +111,22 @@ export default async function EventDetailPage({
         </svg>
         Back to Events
       </Link>
+
+      {registered === "1" && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 mb-4">
+          <p className="font-body text-sm text-emerald-900">
+            Payment received. A confirmation email is on its way — check your
+            inbox.
+          </p>
+        </div>
+      )}
+      {cancelled === "1" && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-4">
+          <p className="font-body text-sm text-amber-900">
+            Checkout cancelled. Your registration has not been confirmed.
+          </p>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-border overflow-hidden">
         {/* Header */}
@@ -235,6 +255,21 @@ export default async function EventDetailPage({
           </div>
         )}
       </div>
+
+      {event.registration_enabled && (
+        <div className="mt-6 bg-white rounded-xl border border-border p-6 sm:p-8">
+          <h2 className="font-heading text-xl font-bold text-marine mb-4">
+            Register
+          </h2>
+          <EventRegistrationForm
+            eventId={event.id}
+            priceMember={Number(event.price_member ?? 0)}
+            priceNonMember={Number(event.price_non_member ?? 0)}
+            defaultName={`${member.first_name ?? ""} ${member.last_name ?? ""}`.trim()}
+            defaultEmail={member.email ?? ""}
+          />
+        </div>
+      )}
 
       <div className="mt-6">
         <Link
