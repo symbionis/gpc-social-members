@@ -19,9 +19,10 @@ Start time:   {{.}}
 {{#event_location}}
 Location:     {{.}}
 {{/event_location}}
+Reference:    {{reference_code}}
+
 Tickets:      {{quantity}}
 Amount:       {{amount_label}}
-Reference:    {{reference_code}}
 
 {{#event_url}}
 View event details:
