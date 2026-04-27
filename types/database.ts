@@ -1049,6 +1049,9 @@ export type CompositeTypes<
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
 
+export type MemberStatus = Database["public"]["Enums"]["member_status"]
+export type PaymentCaptureStatus = Database["public"]["Enums"]["payment_capture_status"]
+
 export const Constants = {
   public: {
     Enums: {
