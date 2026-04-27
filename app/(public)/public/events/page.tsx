@@ -30,7 +30,7 @@ export default async function PublicEventsPage() {
   const { data: events } = await supabase
     .from("events")
     .select(
-      "id, title, start_date, end_date, start_time, location, image_url, image_url_2, images, registration_enabled"
+      "id, title, start_date, end_date, start_time, location, description, image_url, image_url_2, images, registration_enabled"
     )
     .eq("is_published", true)
     .eq("visibility", "public")
@@ -45,6 +45,11 @@ export default async function PublicEventsPage() {
       if (first) return first;
     }
     return event.image_url || event.image_url_2 || null;
+  }
+
+  function descriptionExcerpt(text: unknown): string | null {
+    if (typeof text !== "string" || text.trim().length === 0) return null;
+    return text;
   }
 
   return (
@@ -78,10 +83,10 @@ export default async function PublicEventsPage() {
                     <img
                       src={heroImage(event)!}
                       alt={event.title}
-                      className="w-28 h-20 sm:w-36 sm:h-24 object-cover rounded-lg border border-border shrink-0"
+                      className="w-28 h-28 sm:w-36 sm:h-36 object-cover rounded-lg border border-border shrink-0"
                     />
                   ) : (
-                    <div className="w-28 h-20 sm:w-36 sm:h-24 rounded-lg bg-cream/60 border border-border shrink-0" />
+                    <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-lg bg-cream/60 border border-border shrink-0" />
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="font-body text-base font-semibold text-sky-dark">
@@ -96,6 +101,11 @@ export default async function PublicEventsPage() {
                     {event.location && (
                       <p className="text-sm font-body text-muted-foreground mt-1">
                         {event.location}
+                      </p>
+                    )}
+                    {descriptionExcerpt(event.description) && (
+                      <p className="text-sm font-body text-muted-foreground mt-2 line-clamp-2">
+                        {descriptionExcerpt(event.description)}
                       </p>
                     )}
                     {event.registration_enabled && (

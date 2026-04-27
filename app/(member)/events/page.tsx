@@ -159,8 +159,12 @@ export default async function EventsPage() {
                     : null;
                   const hero =
                     heroFromArray ||
-                    (typeof event.image_url === "string" ? event.image_url : null) ||
-                    (typeof event.image_url_2 === "string" ? event.image_url_2 : null);
+                    (typeof event.image_url === "string" && event.image_url.length > 0
+                      ? event.image_url
+                      : null) ||
+                    (typeof event.image_url_2 === "string" && event.image_url_2.length > 0
+                      ? event.image_url_2
+                      : null);
                   return (
                     <Link
                       key={event.id as string}
@@ -174,10 +178,10 @@ export default async function EventsPage() {
                           <img
                             src={hero}
                             alt={String(event.title)}
-                            className="w-28 h-20 sm:w-36 sm:h-24 object-cover rounded-lg border border-border shrink-0"
+                            className="w-28 h-28 sm:w-36 sm:h-36 object-cover rounded-lg border border-border shrink-0"
                           />
                         ) : (
-                          <div className="w-28 h-20 sm:w-36 sm:h-24 rounded-lg bg-cream/60 border border-border shrink-0" />
+                          <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-lg bg-cream/60 border border-border shrink-0" />
                         )}
                         <div className="min-w-0 flex-1">
                           {eventType && (

@@ -6,7 +6,8 @@ import EventGallery from "@/components/EventGallery";
 
 function coerceImages(value: unknown, fallbacks: (string | null | undefined)[]): string[] {
   if (Array.isArray(value)) {
-    return value.filter((u): u is string => typeof u === "string" && u.length > 0);
+    const cleaned = value.filter((u): u is string => typeof u === "string" && u.length > 0);
+    if (cleaned.length > 0) return cleaned;
   }
   return fallbacks.filter((u): u is string => typeof u === "string" && u.length > 0);
 }
