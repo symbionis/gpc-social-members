@@ -2,6 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import EventRegistrationForm from "@/components/public/EventRegistrationForm";
+import EventGallery from "@/components/EventGallery";
+
+function coerceImages(value: unknown, fallbacks: (string | null | undefined)[]): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((u): u is string => typeof u === "string" && u.length > 0);
+  }
+  return fallbacks.filter((u): u is string => typeof u === "string" && u.length > 0);
+}
 
 function renderDescription(text: string) {
   const urlRegex = /(https?:\/\/[^\s<]+)/g;
@@ -97,7 +105,7 @@ export default async function PublicEventDetailPage({
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
           <div className="bg-white rounded-xl border border-border overflow-hidden">
             <div className="p-6 sm:p-8">
-              <p className="font-accent text-sm tracking-[0.25em] uppercase text-sky-dark font-semibold mb-2">
+              <p className="font-body text-lg sm:text-xl font-semibold text-sky-dark mb-2">
                 {formatDateRange(event.start_date, event.end_date)}
                 {event.start_time
                   ? ` · ${event.start_time.slice(0, 5)}`
@@ -112,13 +120,14 @@ export default async function PublicEventDetailPage({
                 </p>
               )}
 
-              {event.image_url && (
-                <img
-                  src={event.image_url}
-                  alt={event.title}
-                  className="w-full rounded-lg border border-border object-cover max-h-[400px] mb-6"
-                />
-              )}
+              {(() => {
+                const imgs = coerceImages(event.images, [event.image_url, event.image_url_2]);
+                return imgs.length > 0 ? (
+                  <div className="mb-6">
+                    <EventGallery images={imgs} alt={event.title} />
+                  </div>
+                ) : null;
+              })()}
 
               {event.description && (
                 <div className="font-body text-muted-foreground leading-relaxed whitespace-pre-line">

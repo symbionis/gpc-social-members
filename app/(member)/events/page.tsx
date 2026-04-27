@@ -151,18 +151,37 @@ export default async function EventsPage() {
                   const description = event.description
                     ? String(event.description)
                     : null;
+                  const imagesField = event.images;
+                  const heroFromArray = Array.isArray(imagesField)
+                    ? (imagesField.find(
+                        (u): u is string => typeof u === "string" && u.length > 0
+                      ) ?? null)
+                    : null;
+                  const hero =
+                    heroFromArray ||
+                    (typeof event.image_url === "string" ? event.image_url : null) ||
+                    (typeof event.image_url_2 === "string" ? event.image_url_2 : null);
                   return (
                     <Link
                       key={event.id as string}
                       href={`/events/${event.id}`}
-                      className={`block bg-white rounded-xl border border-border p-5 hover:border-sky/50 hover:shadow-sm transition-all ${
+                      className={`block bg-white rounded-xl border border-border p-4 hover:border-sky/50 hover:shadow-sm transition-all ${
                         event.isPast ? "opacity-50" : ""
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-4">
+                        {hero ? (
+                          <img
+                            src={hero}
+                            alt={String(event.title)}
+                            className="w-28 h-20 sm:w-36 sm:h-24 object-cover rounded-lg border border-border shrink-0"
+                          />
+                        ) : (
+                          <div className="w-28 h-20 sm:w-36 sm:h-24 rounded-lg bg-cream/60 border border-border shrink-0" />
+                        )}
                         <div className="min-w-0 flex-1">
                           {eventType && (
-                            <div className="flex items-center gap-2 mb-2">
+                            <div className="flex items-center gap-2 mb-1">
                               <span
                                 className="inline-block w-2.5 h-2.5 rounded-full"
                                 style={{
@@ -174,18 +193,18 @@ export default async function EventsPage() {
                               </span>
                             </div>
                           )}
-                          <p className="font-body font-semibold text-marine">
-                            {event.title as string}
-                          </p>
-                          <p className="text-sm font-body text-muted-foreground mt-1">
+                          <p className="font-body text-base font-semibold text-sky-dark">
                             {formatDateRange(
                               event.start_date as string,
                               event.end_date as string | null
                             )}
-                            {event.start_time ? ` at ${String(event.start_time).slice(0, 5)}` : ""}
+                            {event.start_time ? ` · ${String(event.start_time).slice(0, 5)}` : ""}
+                          </p>
+                          <p className="font-heading text-lg font-bold text-marine mt-0.5">
+                            {event.title as string}
                           </p>
                           {event.location ? (
-                            <p className="text-xs font-body text-muted-foreground mt-1">
+                            <p className="text-sm font-body text-muted-foreground mt-1">
                               {String(event.location)}
                             </p>
                           ) : null}

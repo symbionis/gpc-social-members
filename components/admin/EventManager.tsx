@@ -31,10 +31,18 @@ interface Event {
   season_id: string | null;
   image_url: string | null;
   image_url_2: string | null;
+  images?: unknown;
   visibility?: string | null;
   registration_enabled?: boolean | null;
   price_member?: number | null;
   price_non_member?: number | null;
+}
+
+function coerceImages(value: unknown, fallbacks: (string | null | undefined)[]): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((u): u is string => typeof u === "string" && u.length > 0);
+  }
+  return fallbacks.filter((u): u is string => typeof u === "string" && u.length > 0);
 }
 
 interface EventManagerProps {
@@ -55,8 +63,7 @@ const emptyForm = {
   is_published: false,
   notes: "",
   season_id: "",
-  image_url: "",
-  image_url_2: "",
+  images: [] as string[],
   visibility: "members_only" as "members_only" | "public",
   registration_enabled: false,
   price_member: "",
@@ -80,9 +87,8 @@ export default function EventManager({
   const [filterStatus, setFilterStatus] = useState<
     "all" | "confirmed" | "unconfirmed"
   >("all");
-  const [uploading, setUploading] = useState<1 | 2 | null>(null);
-  const fileInput1Ref = useRef<HTMLInputElement>(null);
-  const fileInput2Ref = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function getEventType(id: string | null): EventType | undefined {
     return eventTypes.find((t) => t.id === id);
@@ -100,7 +106,7 @@ export default function EventManager({
     });
   }
 
-  async function handleImageUpload(file: File, slot: 1 | 2) {
+  async function handleImageUpload(file: File) {
     if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
       alert("Please upload a JPG, PNG, or WebP image.");
       return;
@@ -110,7 +116,7 @@ export default function EventManager({
       return;
     }
 
-    setUploading(slot);
+    setUploading(true);
     const supabase = createClient();
     const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
     const path = `${crypto.randomUUID()}.${ext}`;
@@ -121,7 +127,7 @@ export default function EventManager({
 
     if (uploadError) {
       alert("Image upload failed. Please try again.");
-      setUploading(null);
+      setUploading(false);
       return;
     }
 
@@ -129,14 +135,35 @@ export default function EventManager({
       .from("event-images")
       .getPublicUrl(path);
 
-    const field = slot === 1 ? "image_url" : "image_url_2";
-    setFormData((prev) => ({ ...prev, [field]: data.publicUrl }));
-    setUploading(null);
+    setFormData((prev) => ({ ...prev, images: [...prev.images, data.publicUrl] }));
+    setUploading(false);
   }
 
-  function removeImage(slot: 1 | 2) {
-    const field = slot === 1 ? "image_url" : "image_url_2";
-    setFormData((prev) => ({ ...prev, [field]: "" }));
+  function removeImage(index: number) {
+    setFormData((prev) => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== index),
+    }));
+  }
+
+  function moveImage(index: number, dir: -1 | 1) {
+    setFormData((prev) => {
+      const next = [...prev.images];
+      const target = index + dir;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
+      return { ...prev, images: next };
+    });
+  }
+
+  function makeHero(index: number) {
+    setFormData((prev) => {
+      if (index === 0 || index >= prev.images.length) return prev;
+      const next = [...prev.images];
+      const [picked] = next.splice(index, 1);
+      next.unshift(picked);
+      return { ...prev, images: next };
+    });
   }
 
   function startCreate() {
@@ -158,8 +185,7 @@ export default function EventManager({
       is_published: event.is_published,
       notes: event.notes || "",
       season_id: event.season_id || "",
-      image_url: event.image_url || "",
-      image_url_2: event.image_url_2 || "",
+      images: coerceImages(event.images, [event.image_url, event.image_url_2]),
       visibility: event.visibility === "public" ? "public" : "members_only",
       registration_enabled: Boolean(event.registration_enabled),
       price_member:
@@ -425,102 +451,96 @@ export default function EventManager({
               <label className="block text-xs font-body text-muted-foreground mb-2">
                 Event Images
               </label>
-              <div className="flex gap-4 flex-wrap">
-                {/* Image 1 */}
-                <div className="w-48">
-                  {formData.image_url ? (
+              <p className="text-xs text-muted-foreground mb-3">
+                The first image is the hero (used as the page banner and list
+                thumbnail). All images are shown in the carousel on the event
+                page.
+              </p>
+              <div className="flex gap-3 flex-wrap">
+                {formData.images.map((url, i) => (
+                  <div key={`${url}-${i}`} className="w-44">
                     <div className="relative group">
                       <img
-                        src={formData.image_url}
-                        alt="Event image 1"
-                        className="w-48 h-32 object-cover rounded-lg border border-border"
+                        src={url}
+                        alt={`Event image ${i + 1}`}
+                        className="w-44 h-28 object-cover rounded-lg border border-border"
                       />
+                      {i === 0 && (
+                        <span className="absolute top-1 left-1 px-2 py-0.5 rounded-full text-[10px] font-body font-medium bg-marine text-white">
+                          Hero
+                        </span>
+                      )}
                       <button
                         type="button"
-                        onClick={() => removeImage(1)}
+                        onClick={() => removeImage(i)}
                         className="absolute top-1 right-1 w-6 h-6 bg-red-600 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        aria-label="Remove image"
                       >
                         &times;
                       </button>
                     </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => fileInput1Ref.current?.click()}
-                      disabled={uploading !== null}
-                      className="w-48 h-32 rounded-lg border-2 border-dashed border-border hover:border-sky transition-colors flex flex-col items-center justify-center text-muted-foreground text-sm font-body"
-                    >
-                      {uploading === 1 ? (
-                        "Uploading..."
-                      ) : (
-                        <>
-                          <span className="text-2xl mb-1">+</span>
-                          <span>Image 1</span>
-                        </>
+                    <div className="flex items-center justify-between gap-1 mt-1.5">
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => moveImage(i, -1)}
+                          disabled={i === 0}
+                          className="px-2 py-1 text-xs font-body text-marine border border-border rounded hover:bg-cream disabled:opacity-40"
+                          aria-label="Move left"
+                        >
+                          ←
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveImage(i, 1)}
+                          disabled={i === formData.images.length - 1}
+                          className="px-2 py-1 text-xs font-body text-marine border border-border rounded hover:bg-cream disabled:opacity-40"
+                          aria-label="Move right"
+                        >
+                          →
+                        </button>
+                      </div>
+                      {i !== 0 && (
+                        <button
+                          type="button"
+                          onClick={() => makeHero(i)}
+                          className="px-2 py-1 text-xs font-body text-sky-dark hover:underline"
+                        >
+                          Set as hero
+                        </button>
                       )}
-                    </button>
-                  )}
-                  <input
-                    ref={fileInput1Ref}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleImageUpload(file, 1);
-                      e.target.value = "";
-                    }}
-                  />
-                </div>
+                    </div>
+                  </div>
+                ))}
 
-                {/* Image 2 */}
-                <div className="w-48">
-                  {formData.image_url_2 ? (
-                    <div className="relative group">
-                      <img
-                        src={formData.image_url_2}
-                        alt="Event image 2"
-                        className="w-48 h-32 object-cover rounded-lg border border-border"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeImage(2)}
-                        className="absolute top-1 right-1 w-6 h-6 bg-red-600 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        &times;
-                      </button>
-                    </div>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="w-44 h-28 rounded-lg border-2 border-dashed border-border hover:border-sky transition-colors flex flex-col items-center justify-center text-muted-foreground text-sm font-body"
+                >
+                  {uploading ? (
+                    "Uploading..."
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => fileInput2Ref.current?.click()}
-                      disabled={uploading !== null}
-                      className="w-48 h-32 rounded-lg border-2 border-dashed border-border hover:border-sky transition-colors flex flex-col items-center justify-center text-muted-foreground text-sm font-body"
-                    >
-                      {uploading === 2 ? (
-                        "Uploading..."
-                      ) : (
-                        <>
-                          <span className="text-2xl mb-1">+</span>
-                          <span>Image 2</span>
-                        </>
-                      )}
-                    </button>
+                    <>
+                      <span className="text-2xl mb-1">+</span>
+                      <span>Add image</span>
+                    </>
                   )}
-                  <input
-                    ref={fileInput2Ref}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleImageUpload(file, 2);
-                      e.target.value = "";
-                    }}
-                  />
-                </div>
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleImageUpload(file);
+                    e.target.value = "";
+                  }}
+                />
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground mt-2">
                 JPG, PNG, or WebP. Max 5 MB each.
               </p>
             </div>
@@ -726,24 +746,26 @@ export default function EventManager({
                       {event.description}
                     </p>
                   )}
-                  {(event.image_url || event.image_url_2) && (
-                    <div className="flex gap-2 mt-3">
-                      {event.image_url && (
-                        <img
-                          src={event.image_url}
-                          alt=""
-                          className="w-20 h-14 object-cover rounded border border-border"
-                        />
-                      )}
-                      {event.image_url_2 && (
-                        <img
-                          src={event.image_url_2}
-                          alt=""
-                          className="w-20 h-14 object-cover rounded border border-border"
-                        />
-                      )}
-                    </div>
-                  )}
+                  {(() => {
+                    const imgs = coerceImages(event.images, [event.image_url, event.image_url_2]);
+                    return imgs.length > 0 ? (
+                      <div className="flex gap-2 mt-3">
+                        {imgs.slice(0, 4).map((url, i) => (
+                          <img
+                            key={`${url}-${i}`}
+                            src={url}
+                            alt=""
+                            className="w-20 h-14 object-cover rounded border border-border"
+                          />
+                        ))}
+                        {imgs.length > 4 && (
+                          <div className="w-20 h-14 rounded border border-border bg-cream/60 flex items-center justify-center text-xs font-body text-muted-foreground">
+                            +{imgs.length - 4}
+                          </div>
+                        )}
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {event.registration_enabled && (

@@ -29,11 +29,23 @@ export default async function PublicEventsPage() {
 
   const { data: events } = await supabase
     .from("events")
-    .select("id, title, start_date, end_date, start_time, location, image_url, registration_enabled")
+    .select(
+      "id, title, start_date, end_date, start_time, location, image_url, image_url_2, images, registration_enabled"
+    )
     .eq("is_published", true)
     .eq("visibility", "public")
     .gte("start_date", today)
     .order("start_date", { ascending: true });
+
+  function heroImage(event: { images?: unknown; image_url: string | null; image_url_2?: string | null }) {
+    if (Array.isArray(event.images)) {
+      const first = event.images.find(
+        (u): u is string => typeof u === "string" && u.length > 0
+      );
+      if (first) return first;
+    }
+    return event.image_url || event.image_url_2 || null;
+  }
 
   return (
     <>
@@ -59,17 +71,26 @@ export default async function PublicEventsPage() {
               <Link
                 key={event.id}
                 href={`/public/events/${event.id}`}
-                className="block bg-white rounded-xl border border-border p-5 hover:border-sky/50 hover:shadow-sm transition-all"
+                className="block bg-white rounded-xl border border-border p-4 hover:border-sky/50 hover:shadow-sm transition-all"
               >
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-4">
+                  {heroImage(event) ? (
+                    <img
+                      src={heroImage(event)!}
+                      alt={event.title}
+                      className="w-28 h-20 sm:w-36 sm:h-24 object-cover rounded-lg border border-border shrink-0"
+                    />
+                  ) : (
+                    <div className="w-28 h-20 sm:w-36 sm:h-24 rounded-lg bg-cream/60 border border-border shrink-0" />
+                  )}
                   <div className="min-w-0 flex-1">
-                    <p className="font-accent text-xs tracking-[0.2em] uppercase text-sky-dark font-semibold">
+                    <p className="font-body text-base font-semibold text-sky-dark">
                       {formatDateRange(event.start_date, event.end_date)}
                       {event.start_time
                         ? ` · ${event.start_time.slice(0, 5)}`
                         : ""}
                     </p>
-                    <p className="font-heading text-lg font-bold text-marine mt-1">
+                    <p className="font-heading text-lg font-bold text-marine mt-0.5">
                       {event.title}
                     </p>
                     {event.location && (

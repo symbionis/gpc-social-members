@@ -280,6 +280,7 @@ export type Database = {
           id: string
           image_url: string | null
           image_url_2: string | null
+          images: Json
           is_confirmed: boolean
           is_published: boolean
           location: string | null
@@ -302,6 +303,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           image_url_2?: string | null
+          images?: Json
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null
@@ -324,6 +326,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           image_url_2?: string | null
+          images?: Json
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null

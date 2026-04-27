@@ -3,6 +3,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import EventRegistrationForm from "@/components/public/EventRegistrationForm";
+import EventGallery from "@/components/EventGallery";
+
+function coerceImages(value: unknown, fallbacks: (string | null | undefined)[]): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((u): u is string => typeof u === "string" && u.length > 0);
+  }
+  return fallbacks.filter((u): u is string => typeof u === "string" && u.length > 0);
+}
 
 export default async function EventDetailPage({
   params,
@@ -145,57 +153,21 @@ export default async function EventDetailPage({
             </div>
           )}
 
+          <p className="font-body text-lg sm:text-xl font-semibold text-sky-dark mb-2">
+            {formatDateRange(event.start_date, event.end_date)}
+            {event.start_time ? ` · ${event.start_time.slice(0, 5)}` : ""}
+            {!event.is_confirmed && (
+              <span className="ml-2 align-middle px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
+                Dates TBC
+              </span>
+            )}
+          </p>
           <h1 className="font-heading text-2xl sm:text-3xl font-bold text-marine mb-4">
             {event.title}
           </h1>
 
-          {/* Date, time, location */}
+          {/* Location */}
           <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2 text-sm font-body text-muted-foreground">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-4 w-4 shrink-0"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                />
-              </svg>
-              <span>
-                {formatDateRange(event.start_date, event.end_date)}
-              </span>
-              {!event.is_confirmed && (
-                <span className="px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
-                  Dates TBC
-                </span>
-              )}
-            </div>
-
-            {event.start_time && (
-              <div className="flex items-center gap-2 text-sm font-body text-muted-foreground">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4 shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                <span>{event.start_time.slice(0, 5)}</span>
-              </div>
-            )}
-
             {event.location && (
               <div className="flex items-center gap-2 text-sm font-body text-muted-foreground">
                 <svg
@@ -224,26 +196,14 @@ export default async function EventDetailPage({
         </div>
 
         {/* Images */}
-        {(event.image_url || event.image_url_2) && (
-          <div className="px-6 sm:px-8 pb-6">
-            <div className={`grid gap-3 ${event.image_url && event.image_url_2 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
-              {event.image_url && (
-                <img
-                  src={event.image_url}
-                  alt={event.title}
-                  className="w-full rounded-lg border border-border object-cover max-h-[400px]"
-                />
-              )}
-              {event.image_url_2 && (
-                <img
-                  src={event.image_url_2}
-                  alt={event.title}
-                  className="w-full rounded-lg border border-border object-cover max-h-[400px]"
-                />
-              )}
+        {(() => {
+          const imgs = coerceImages(event.images, [event.image_url, event.image_url_2]);
+          return imgs.length > 0 ? (
+            <div className="px-6 sm:px-8 pb-6">
+              <EventGallery images={imgs} alt={event.title} />
             </div>
-          </div>
-        )}
+          ) : null;
+        })()}
 
         {/* Description */}
         {event.description && (
