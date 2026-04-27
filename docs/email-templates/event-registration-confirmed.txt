@@ -14,7 +14,7 @@ Event:        {{event_title}}
 Date:         {{.}}
 {{/event_date_label}}
 {{#event_time}}
-Time:         {{.}}
+Start time:   {{.}}
 {{/event_time}}
 {{#event_location}}
 Location:     {{.}}
@@ -22,6 +22,11 @@ Location:     {{.}}
 Tickets:      {{quantity}}
 Amount:       {{amount_label}}
 Reference:    {{reference_code}}
+
+{{#event_url}}
+View event details:
+{{.}}
+{{/event_url}}
 
 Please bring this email (or your reference code) with you on the day. We'll check you in at the door.
 

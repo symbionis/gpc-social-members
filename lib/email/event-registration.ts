@@ -59,7 +59,7 @@ export async function sendEventRegistrationConfirmation(
 
   const { data: event, error: evErr } = await supabase
     .from("events")
-    .select("id, title, start_date, start_time, location")
+    .select("id, title, start_date, start_time, location, visibility")
     .eq("id", registration.event_id)
     .limit(1)
     .single();
@@ -79,6 +79,12 @@ export async function sendEventRegistrationConfirmation(
   const eventTime = formatTime(event.start_time);
   const firstName = firstNameFrom(registration.name) || registration.name;
 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const eventUrl =
+    event.visibility === "public"
+      ? `${appUrl}/public/events/${event.id}`
+      : `${appUrl}/events/${event.id}`;
+
   const result = await sendEmail({
     to: registration.email,
     templateAlias: TEMPLATE_ALIAS,
@@ -92,6 +98,7 @@ export async function sendEventRegistrationConfirmation(
       amount_label: amountLabel,
       reference_code: registration.reference_code,
       is_free: isFree,
+      event_url: eventUrl,
       preheader: `You're registered for ${event.title}. Reference ${registration.reference_code}.`,
     },
   });
