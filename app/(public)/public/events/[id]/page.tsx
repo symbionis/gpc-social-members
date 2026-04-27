@@ -97,23 +97,20 @@ export default async function PublicEventDetailPage({
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
           <div className="bg-white rounded-xl border border-border overflow-hidden">
             <div className="p-6 sm:p-8">
-              <h1 className="font-heading text-2xl sm:text-3xl font-bold text-marine mb-4">
+              <p className="font-accent text-sm tracking-[0.25em] uppercase text-sky-dark font-semibold mb-2">
+                {formatDateRange(event.start_date, event.end_date)}
+                {event.start_time
+                  ? ` · ${event.start_time.slice(0, 5)}`
+                  : ""}
+              </p>
+              <h1 className="font-heading text-2xl sm:text-3xl font-bold text-marine mb-2">
                 {event.title}
               </h1>
-
-              <div className="flex flex-col gap-2 mb-4">
-                <p className="text-sm font-body text-muted-foreground">
-                  {formatDateRange(event.start_date, event.end_date)}
-                  {event.start_time
-                    ? ` · ${event.start_time.slice(0, 5)}`
-                    : ""}
+              {event.location && (
+                <p className="text-base font-body text-muted-foreground mb-4">
+                  {event.location}
                 </p>
-                {event.location && (
-                  <p className="text-sm font-body text-muted-foreground">
-                    {event.location}
-                  </p>
-                )}
-              </div>
+              )}
 
               {event.image_url && (
                 <img
@@ -141,6 +138,7 @@ export default async function PublicEventDetailPage({
                   eventId={event.id}
                   priceMember={Number(event.price_member ?? 0)}
                   priceNonMember={Number(event.price_non_member ?? 0)}
+                  showMemberRate={false}
                 />
               </>
             ) : (

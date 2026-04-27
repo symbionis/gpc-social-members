@@ -8,6 +8,7 @@ interface Props {
   priceNonMember: number;
   defaultName?: string;
   defaultEmail?: string;
+  showMemberRate?: boolean;
 }
 
 const MAX_QUANTITY = 20;
@@ -18,6 +19,7 @@ export default function EventRegistrationForm({
   priceNonMember,
   defaultName = "",
   defaultEmail = "",
+  showMemberRate = true,
 }: Props) {
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
@@ -109,13 +111,23 @@ export default function EventRegistrationForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="rounded-lg bg-cream/60 border border-border p-4 text-sm font-body text-marine">
-        {allFree ? (
+        {showMemberRate ? (
+          allFree ? (
+            <p>This event is free.</p>
+          ) : (
+            <p>
+              <span className="font-semibold">Members:</span>{" "}
+              {priceLabel(priceMember)}
+              {" · "}
+              <span className="font-semibold">Non-members:</span>{" "}
+              {priceLabel(priceNonMember)}
+            </p>
+          )
+        ) : nonMemberFree ? (
           <p>This event is free.</p>
         ) : (
           <p>
-            <span className="font-semibold">Members:</span> {priceLabel(priceMember)}
-            {" · "}
-            <span className="font-semibold">Non-members:</span>{" "}
+            <span className="font-semibold">Price:</span>{" "}
             {priceLabel(priceNonMember)}
           </p>
         )}

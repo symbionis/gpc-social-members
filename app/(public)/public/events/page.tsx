@@ -63,17 +63,17 @@ export default async function PublicEventsPage() {
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
-                    <p className="font-body font-semibold text-marine">
-                      {event.title}
-                    </p>
-                    <p className="text-sm font-body text-muted-foreground mt-1">
+                    <p className="font-accent text-xs tracking-[0.2em] uppercase text-sky-dark font-semibold">
                       {formatDateRange(event.start_date, event.end_date)}
                       {event.start_time
-                        ? ` at ${event.start_time.slice(0, 5)}`
+                        ? ` · ${event.start_time.slice(0, 5)}`
                         : ""}
                     </p>
+                    <p className="font-heading text-lg font-bold text-marine mt-1">
+                      {event.title}
+                    </p>
                     {event.location && (
-                      <p className="text-xs font-body text-muted-foreground mt-1">
+                      <p className="text-sm font-body text-muted-foreground mt-1">
                         {event.location}
                       </p>
                     )}
