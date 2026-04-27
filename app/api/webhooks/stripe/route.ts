@@ -1,6 +1,7 @@
 import { getStripe } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
+import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
 import { generateCardNumber } from "@/lib/utils/card";
 import { NextResponse, type NextRequest } from "next/server";
 import Stripe from "stripe";
@@ -167,6 +168,60 @@ export async function POST(request: NextRequest) {
     // ===== EXISTING: Checkout Session (renewals + legacy payments) =====
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
+
+      // Events branch: route by event_registration_id metadata.
+      const eventRegistrationId = session.metadata?.event_registration_id;
+      if (eventRegistrationId) {
+        const { data: existing } = await supabase
+          .from("event_registrations")
+          .select("id, status")
+          .eq("stripe_checkout_session_id", session.id)
+          .limit(1);
+
+        if (existing?.[0]?.status === "paid") {
+          return NextResponse.json({
+            received: true,
+            already_processed: true,
+          });
+        }
+
+        if (!existing?.[0]) {
+          console.error(
+            "[webhook] event_registration_id present but no row matched session id",
+            { eventRegistrationId, sessionId: session.id }
+          );
+          return NextResponse.json({ received: true });
+        }
+
+        const { error: updateErr } = await supabase
+          .from("event_registrations")
+          .update({
+            status: "paid",
+            paid_at: new Date().toISOString(),
+            stripe_payment_intent_id:
+              typeof session.payment_intent === "string"
+                ? session.payment_intent
+                : null,
+          })
+          .eq("id", existing[0].id);
+
+        if (updateErr) {
+          console.error(
+            "[webhook] event registration update failed",
+            updateErr
+          );
+        }
+
+        await sendEventRegistrationConfirmation(existing[0].id).catch((err) =>
+          console.error(
+            "[webhook] event-registration-confirmed email failed",
+            err
+          )
+        );
+
+        break;
+      }
+
       const memberId = session.metadata?.member_id;
 
       if (!memberId) {
