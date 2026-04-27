@@ -42,7 +42,31 @@ export async function POST(request: NextRequest) {
     season_id,
     image_url,
     image_url_2,
+    visibility,
+    registration_enabled,
+    price_member,
+    price_non_member,
   } = await request.json();
+
+  const regEnabled = Boolean(registration_enabled);
+  const priceMember = price_member === "" || price_member === null || price_member === undefined
+    ? null
+    : Number(price_member);
+  const priceNonMember = price_non_member === "" || price_non_member === null || price_non_member === undefined
+    ? null
+    : Number(price_non_member);
+
+  if (regEnabled) {
+    if (priceMember === null || priceNonMember === null || Number.isNaN(priceMember) || Number.isNaN(priceNonMember)) {
+      return NextResponse.json(
+        { error: "Member and non-member prices are required when registration is enabled" },
+        { status: 400 }
+      );
+    }
+    if (priceMember < 0 || priceNonMember < 0) {
+      return NextResponse.json({ error: "Prices cannot be negative" }, { status: 400 });
+    }
+  }
 
   const { error } = await adminClient
     .from("events")
@@ -60,6 +84,10 @@ export async function POST(request: NextRequest) {
       season_id: season_id || null,
       image_url: image_url || null,
       image_url_2: image_url_2 || null,
+      visibility: visibility === "public" ? "public" : "members_only",
+      registration_enabled: regEnabled,
+      price_member: priceMember,
+      price_non_member: priceNonMember,
     })
     .eq("id", event_id);
 

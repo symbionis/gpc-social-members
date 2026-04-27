@@ -31,6 +31,10 @@ interface Event {
   season_id: string | null;
   image_url: string | null;
   image_url_2: string | null;
+  visibility?: string | null;
+  registration_enabled?: boolean | null;
+  price_member?: number | null;
+  price_non_member?: number | null;
 }
 
 interface EventManagerProps {
@@ -53,6 +57,10 @@ const emptyForm = {
   season_id: "",
   image_url: "",
   image_url_2: "",
+  visibility: "members_only" as "members_only" | "public",
+  registration_enabled: false,
+  price_member: "",
+  price_non_member: "",
 };
 
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -152,6 +160,16 @@ export default function EventManager({
       season_id: event.season_id || "",
       image_url: event.image_url || "",
       image_url_2: event.image_url_2 || "",
+      visibility: event.visibility === "public" ? "public" : "members_only",
+      registration_enabled: Boolean(event.registration_enabled),
+      price_member:
+        event.price_member === null || event.price_member === undefined
+          ? ""
+          : String(event.price_member),
+      price_non_member:
+        event.price_non_member === null || event.price_non_member === undefined
+          ? ""
+          : String(event.price_non_member),
     });
     setEditing(event.id);
     setShowForm(true);
@@ -165,6 +183,19 @@ export default function EventManager({
 
   async function handleSubmit() {
     if (!formData.title || !formData.start_date) return;
+
+    if (formData.registration_enabled) {
+      if (formData.price_member === "" || formData.price_non_member === "") {
+        alert("Member and non-member prices are required when registration is enabled.");
+        return;
+      }
+      const pm = Number(formData.price_member);
+      const pn = Number(formData.price_non_member);
+      if (!Number.isFinite(pm) || !Number.isFinite(pn) || pm < 0 || pn < 0) {
+        alert("Prices must be valid non-negative numbers.");
+        return;
+      }
+    }
 
     setSaving(true);
     const endpoint = editing
@@ -515,6 +546,95 @@ export default function EventManager({
                 />
                 Published
               </label>
+            </div>
+
+            {/* Visibility */}
+            <div className="md:col-span-2">
+              <label className="block text-xs font-body text-muted-foreground mb-1">
+                Visibility
+              </label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 text-sm font-body text-marine">
+                  <input
+                    type="radio"
+                    name="visibility"
+                    value="members_only"
+                    checked={formData.visibility === "members_only"}
+                    onChange={() =>
+                      setFormData({ ...formData, visibility: "members_only" })
+                    }
+                  />
+                  Members only
+                </label>
+                <label className="flex items-center gap-2 text-sm font-body text-marine">
+                  <input
+                    type="radio"
+                    name="visibility"
+                    value="public"
+                    checked={formData.visibility === "public"}
+                    onChange={() =>
+                      setFormData({ ...formData, visibility: "public" })
+                    }
+                  />
+                  Public
+                </label>
+              </div>
+            </div>
+
+            {/* Registration */}
+            <div className="md:col-span-2">
+              <label className="flex items-center gap-2 text-sm font-body text-marine">
+                <input
+                  type="checkbox"
+                  checked={formData.registration_enabled}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      registration_enabled: e.target.checked,
+                    })
+                  }
+                />
+                Registration enabled
+              </label>
+              <p className="text-xs text-muted-foreground mt-1">
+                When enabled, attendees can register and pay through the event
+                page. Both prices are required (use 0 for free).
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-body text-muted-foreground mb-1">
+                Member price (CHF)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.price_member}
+                onChange={(e) =>
+                  setFormData({ ...formData, price_member: e.target.value })
+                }
+                disabled={!formData.registration_enabled}
+                className={inputClass}
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-body text-muted-foreground mb-1">
+                Non-member price (CHF)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.price_non_member}
+                onChange={(e) =>
+                  setFormData({ ...formData, price_non_member: e.target.value })
+                }
+                disabled={!formData.registration_enabled}
+                className={inputClass}
+                placeholder="0.00"
+              />
             </div>
           </div>
           <div className="flex gap-2 mt-6">
