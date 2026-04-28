@@ -212,15 +212,26 @@ export default function EventManager({
     if (!formData.title || !formData.start_date) return;
 
     if (formData.registration_enabled) {
-      if (formData.price_member === "" || formData.price_non_member === "") {
-        alert("Member and non-member prices are required when registration is enabled.");
+      const isMembersOnly = formData.visibility === "members_only";
+      if (formData.price_member === "") {
+        alert("Member price is required when registration is enabled.");
+        return;
+      }
+      if (!isMembersOnly && formData.price_non_member === "") {
+        alert("Non-member price is required for public events when registration is enabled.");
         return;
       }
       const pm = Number(formData.price_member);
-      const pn = Number(formData.price_non_member);
-      if (!Number.isFinite(pm) || !Number.isFinite(pn) || pm < 0 || pn < 0) {
-        alert("Prices must be valid non-negative numbers.");
+      if (!Number.isFinite(pm) || pm < 0) {
+        alert("Member price must be a valid non-negative number.");
         return;
+      }
+      if (!isMembersOnly && formData.price_non_member !== "") {
+        const pn = Number(formData.price_non_member);
+        if (!Number.isFinite(pn) || pn < 0) {
+          alert("Non-member price must be a valid non-negative number.");
+          return;
+        }
       }
     }
 
@@ -582,7 +593,7 @@ export default function EventManager({
                     value="members_only"
                     checked={formData.visibility === "members_only"}
                     onChange={() =>
-                      setFormData({ ...formData, visibility: "members_only" })
+                      setFormData({ ...formData, visibility: "members_only", price_non_member: "" })
                     }
                   />
                   Members only
@@ -619,7 +630,7 @@ export default function EventManager({
               </label>
               <p className="text-xs text-muted-foreground mt-1">
                 When enabled, attendees can register and pay through the event
-                page. Both prices are required (use 0 for free).
+                page. Member price is required; non-member price is required only for public events (use 0 for free).
               </p>
             </div>
 
@@ -640,23 +651,25 @@ export default function EventManager({
                 placeholder="0.00"
               />
             </div>
-            <div>
-              <label className="block text-xs font-body text-muted-foreground mb-1">
-                Non-member price (CHF)
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.price_non_member}
-                onChange={(e) =>
-                  setFormData({ ...formData, price_non_member: e.target.value })
-                }
-                disabled={!formData.registration_enabled}
-                className={inputClass}
-                placeholder="0.00"
-              />
-            </div>
+            {formData.visibility !== "members_only" && (
+              <div>
+                <label className="block text-xs font-body text-muted-foreground mb-1">
+                  Non-member price (CHF)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.price_non_member}
+                  onChange={(e) =>
+                    setFormData({ ...formData, price_non_member: e.target.value })
+                  }
+                  disabled={!formData.registration_enabled}
+                  className={inputClass}
+                  placeholder="0.00"
+                />
+              </div>
+            )}
           </div>
           <div className="flex gap-2 mt-6">
             <button
