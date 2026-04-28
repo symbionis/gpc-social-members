@@ -2,6 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
+  request.headers.set("x-pathname", request.nextUrl.pathname);
   let supabaseResponse = NextResponse.next({
     request,
   });

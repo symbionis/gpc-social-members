@@ -1,7 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import AdminSidebar from "@/components/admin/AdminSidebar";
+
+const EVENTS_ADMIN_ALLOWED_PREFIXES = ["/admin/events", "/admin/lounge"];
 
 export default async function AdminLayout({
   children,
@@ -28,6 +31,16 @@ export default async function AdminLayout({
     // Not an admin — sign out and redirect
     await supabase.auth.signOut();
     redirect("/admin/login?error=unauthorized");
+  }
+
+  if (adminUser.role === "events_admin") {
+    const pathname = (await headers()).get("x-pathname") ?? "";
+    const allowed = EVENTS_ADMIN_ALLOWED_PREFIXES.some((p) =>
+      pathname === p || pathname.startsWith(`${p}/`)
+    );
+    if (!allowed) {
+      redirect("/admin/events");
+    }
   }
 
   return (

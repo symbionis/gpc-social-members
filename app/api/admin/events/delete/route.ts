@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 
   if (
     !admins?.[0] ||
-    !["super_admin", "team_admin"].includes(admins[0].role)
+    !["super_admin", "team_admin", "events_admin"].includes(admins[0].role)
   ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

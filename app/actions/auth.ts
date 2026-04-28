@@ -64,7 +64,12 @@ export async function verifyOtpCode(
 
   // Admin portal
   if (adminUser) {
-    const dest = adminUser.role === "originator" ? "/admin/originators" : "/admin/dashboard";
+    const dest =
+      adminUser.role === "originator"
+        ? "/admin/originators"
+        : adminUser.role === "events_admin"
+          ? "/admin/events"
+          : "/admin/dashboard";
     return { error: null, redirect: dest };
   }
   if (member) return { error: null, redirect: "/dashboard" };

@@ -16,7 +16,7 @@ async function assertAdmin() {
     .eq("email", user.email)
     .limit(1);
 
-  if (!admins?.[0] || !["super_admin", "team_admin"].includes(admins[0].role)) {
+  if (!admins?.[0] || !["super_admin", "team_admin", "events_admin"].includes(admins[0].role)) {
     return { error: "Forbidden", status: 403 as const };
   }
   return { adminClient };

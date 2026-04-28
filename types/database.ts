@@ -909,7 +909,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      admin_role: "super_admin" | "team_admin" | "originator"
+      admin_role: "super_admin" | "team_admin" | "originator" | "events_admin"
       member_status:
         | "pending"
         | "approved"
@@ -1058,7 +1058,7 @@ export type PaymentCaptureStatus = Database["public"]["Enums"]["payment_capture_
 export const Constants = {
   public: {
     Enums: {
-      admin_role: ["super_admin", "team_admin", "originator"],
+      admin_role: ["super_admin", "team_admin", "originator", "events_admin"],
       member_status: [
         "pending",
         "approved",

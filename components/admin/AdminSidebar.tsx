@@ -18,10 +18,16 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
 
   const isSuper = admin.role === "super_admin";
   const isOriginator = admin.role === "originator";
+  const isEventsAdmin = admin.role === "events_admin";
 
   const navLinks = isOriginator
     ? [
         { href: "/admin/originators", label: "My Referrals", icon: "share" },
+      ]
+    : isEventsAdmin
+    ? [
+        { href: "/admin/events", label: "Events", icon: "calendar" },
+        { href: "/admin/lounge", label: "Lounge", icon: "coffee" },
       ]
     : [
         { href: "/admin/dashboard", label: "Dashboard", icon: "grid" },
