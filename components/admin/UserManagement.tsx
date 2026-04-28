@@ -21,6 +21,7 @@ interface UserManagementProps {
 const ROLES = [
   { value: "super_admin", label: "Super Admin" },
   { value: "team_admin", label: "Team Admin" },
+  { value: "events_admin", label: "Events Admin" },
   { value: "originator", label: "Originator" },
 ];
 
@@ -87,6 +88,8 @@ export default function UserManagement({ users }: UserManagementProps) {
         return "bg-marine text-white";
       case "team_admin":
         return "bg-sky/20 text-sky-dark";
+      case "events_admin":
+        return "bg-emerald-100 text-emerald-800";
       case "originator":
         return "bg-amber-100 text-amber-800";
       default:

@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 
   if (
     !admins?.[0] ||
-    !["super_admin", "team_admin"].includes(admins[0].role)
+    !["super_admin", "team_admin", "events_admin"].includes(admins[0].role)
   ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -41,7 +41,38 @@ export async function POST(request: NextRequest) {
     season_id,
     image_url,
     image_url_2,
+    images,
+    visibility,
+    registration_enabled,
+    price_member,
+    price_non_member,
   } = await request.json();
+
+  const regEnabled = Boolean(registration_enabled);
+  const priceMember = price_member === "" || price_member === null || price_member === undefined
+    ? null
+    : Number(price_member);
+  const priceNonMember = price_non_member === "" || price_non_member === null || price_non_member === undefined
+    ? null
+    : Number(price_non_member);
+
+  if (regEnabled) {
+    if (priceMember === null || priceNonMember === null || Number.isNaN(priceMember) || Number.isNaN(priceNonMember)) {
+      return NextResponse.json(
+        { error: "Member and non-member prices are required when registration is enabled" },
+        { status: 400 }
+      );
+    }
+    if (priceMember < 0 || priceNonMember < 0) {
+      return NextResponse.json({ error: "Prices cannot be negative" }, { status: 400 });
+    }
+  }
+
+  const imageList = Array.isArray(images)
+    ? images.filter((u): u is string => typeof u === "string" && u.length > 0)
+    : [];
+  const heroImage = imageList[0] ?? image_url ?? null;
+  const secondImage = imageList[1] ?? image_url_2 ?? null;
 
   const { error } = await adminClient.from("events").insert({
     title,
@@ -55,8 +86,13 @@ export async function POST(request: NextRequest) {
     is_published: is_published ?? false,
     notes: notes || null,
     season_id: season_id || null,
-    image_url: image_url || null,
-    image_url_2: image_url_2 || null,
+    image_url: heroImage,
+    image_url_2: secondImage,
+    images: imageList,
+    visibility: visibility === "public" ? "public" : "members_only",
+    registration_enabled: regEnabled,
+    price_member: priceMember,
+    price_non_member: priceNonMember,
   });
 
   if (error) {

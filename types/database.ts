@@ -172,6 +172,78 @@ export type Database = {
           },
         ]
       }
+      event_registrations: {
+        Row: {
+          checked_in_at: string | null
+          created_at: string
+          email: string
+          event_id: string
+          id: string
+          is_member: boolean
+          member_id: string | null
+          name: string
+          paid_at: string | null
+          quantity: number
+          reference_code: string
+          status: string
+          stripe_checkout_session_id: string | null
+          stripe_payment_intent_id: string | null
+          total_amount_chf: number
+          unit_amount_chf: number
+        }
+        Insert: {
+          checked_in_at?: string | null
+          created_at?: string
+          email: string
+          event_id: string
+          id?: string
+          is_member: boolean
+          member_id?: string | null
+          name: string
+          paid_at?: string | null
+          quantity: number
+          reference_code: string
+          status?: string
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          total_amount_chf: number
+          unit_amount_chf: number
+        }
+        Update: {
+          checked_in_at?: string | null
+          created_at?: string
+          email?: string
+          event_id?: string
+          id?: string
+          is_member?: boolean
+          member_id?: string | null
+          name?: string
+          paid_at?: string | null
+          quantity?: number
+          reference_code?: string
+          status?: string
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          total_amount_chf?: number
+          unit_amount_chf?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_registrations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registrations_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_types: {
         Row: {
           color: string
@@ -208,15 +280,20 @@ export type Database = {
           id: string
           image_url: string | null
           image_url_2: string | null
+          images: Json
           is_confirmed: boolean
           is_published: boolean
           location: string | null
           notes: string | null
+          price_member: number | null
+          price_non_member: number | null
+          registration_enabled: boolean
           season_id: string | null
           start_date: string
           start_time: string | null
           title: string
           updated_at: string
+          visibility: string
         }
         Insert: {
           created_at?: string
@@ -226,15 +303,20 @@ export type Database = {
           id?: string
           image_url?: string | null
           image_url_2?: string | null
+          images?: Json
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null
           notes?: string | null
+          price_member?: number | null
+          price_non_member?: number | null
+          registration_enabled?: boolean
           season_id?: string | null
           start_date: string
           start_time?: string | null
           title: string
           updated_at?: string
+          visibility?: string
         }
         Update: {
           created_at?: string
@@ -244,15 +326,20 @@ export type Database = {
           id?: string
           image_url?: string | null
           image_url_2?: string | null
+          images?: Json
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null
           notes?: string | null
+          price_member?: number | null
+          price_non_member?: number | null
+          registration_enabled?: boolean
           season_id?: string | null
           start_date?: string
           start_time?: string | null
           title?: string
           updated_at?: string
+          visibility?: string
         }
         Relationships: [
           {
@@ -822,7 +909,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      admin_role: "super_admin" | "team_admin" | "originator"
+      admin_role: "super_admin" | "team_admin" | "originator" | "events_admin"
       member_status:
         | "pending"
         | "approved"
@@ -965,13 +1052,13 @@ export type CompositeTypes<
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
 
-export type MemberStatus = Database["public"]["Enums"]["member_status"];
-export type PaymentCaptureStatus = Database["public"]["Enums"]["payment_capture_status"];
+export type MemberStatus = Database["public"]["Enums"]["member_status"]
+export type PaymentCaptureStatus = Database["public"]["Enums"]["payment_capture_status"]
 
 export const Constants = {
   public: {
     Enums: {
-      admin_role: ["super_admin", "team_admin", "originator"],
+      admin_role: ["super_admin", "team_admin", "originator", "events_admin"],
       member_status: [
         "pending",
         "approved",

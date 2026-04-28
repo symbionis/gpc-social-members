@@ -1,0 +1,40 @@
+Dear {{first_name}},
+
+{{#is_free}}
+Your spot at {{event_title}} is confirmed. This email is your ticket — keep it handy.
+{{/is_free}}
+{{^is_free}}
+Thank you — your payment for {{event_title}} has been received and your registration is confirmed. This email is your ticket.
+{{/is_free}}
+
+YOUR TICKET
+-----------
+Event:        {{event_title}}
+{{#event_date_label}}
+Date:         {{.}}
+{{/event_date_label}}
+{{#event_time}}
+Start time:   {{.}}
+{{/event_time}}
+{{#event_location}}
+Location:     {{.}}
+{{/event_location}}
+Reference:    {{reference_code}}
+
+Tickets:      {{quantity}}
+Amount:       {{amount_label}}
+
+{{#event_url}}
+View event details:
+{{.}}
+{{/event_url}}
+
+Please bring this email (or your reference code) with you on the day. We'll check you in at the door.
+
+We look forward to seeing you there.
+
+Warm regards,
+The Geneva Polo Social Members Club Team
+
+---
+Geneva Polo Social Members Club

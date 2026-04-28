@@ -1,6 +1,7 @@
 import { getStripe } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
+import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
 import { generateCardNumber } from "@/lib/utils/card";
 import { NextResponse, type NextRequest } from "next/server";
 import Stripe from "stripe";
@@ -167,6 +168,81 @@ export async function POST(request: NextRequest) {
     // ===== EXISTING: Checkout Session (renewals + legacy payments) =====
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
+
+      // Events branch: route by event_registration_id metadata. Look up by
+      // primary key (set in Stripe metadata at session creation) — we cannot
+      // depend on stripe_checkout_session_id being persisted yet, since the
+      // webhook may race the post-create update.
+      const eventRegistrationId = session.metadata?.event_registration_id;
+      if (eventRegistrationId) {
+        const { data: existing, error: lookupErr } = await supabase
+          .from("event_registrations")
+          .select("id, status")
+          .eq("id", eventRegistrationId)
+          .limit(1)
+          .maybeSingle();
+
+        if (lookupErr) {
+          console.error(
+            "[webhook] event registration lookup failed — returning 500 for retry",
+            lookupErr
+          );
+          return NextResponse.json(
+            { error: "Registration lookup failed" },
+            { status: 500 }
+          );
+        }
+
+        if (!existing) {
+          // Metadata claims a registration that does not exist; not retryable.
+          console.error(
+            "[webhook] event_registration_id in metadata not found",
+            { eventRegistrationId, sessionId: session.id }
+          );
+          return NextResponse.json({ received: true });
+        }
+
+        if (existing.status === "paid") {
+          return NextResponse.json({
+            received: true,
+            already_processed: true,
+          });
+        }
+
+        const { error: updateErr } = await supabase
+          .from("event_registrations")
+          .update({
+            status: "paid",
+            paid_at: new Date().toISOString(),
+            stripe_checkout_session_id: session.id,
+            stripe_payment_intent_id:
+              typeof session.payment_intent === "string"
+                ? session.payment_intent
+                : null,
+          })
+          .eq("id", existing.id);
+
+        if (updateErr) {
+          console.error(
+            "[webhook] event registration update failed — returning 500 for retry",
+            updateErr
+          );
+          return NextResponse.json(
+            { error: "Registration update failed" },
+            { status: 500 }
+          );
+        }
+
+        await sendEventRegistrationConfirmation(existing.id).catch((err) =>
+          console.error(
+            "[webhook] event-registration-confirmed email failed",
+            err
+          )
+        );
+
+        return NextResponse.json({ received: true });
+      }
+
       const memberId = session.metadata?.member_id;
 
       if (!memberId) {
