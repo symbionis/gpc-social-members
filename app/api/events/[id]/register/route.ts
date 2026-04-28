@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
 
@@ -62,17 +63,37 @@ export async function POST(
     return bad("Registration is not open for this event");
   }
 
-  // Member detection by email
-  const { data: memberRow } = await supabase
-    .from("members")
-    .select("id, status")
-    .eq("email", email)
-    .eq("status", "active")
-    .limit(1)
-    .maybeSingle();
+  // Member detection: only trust an authenticated session, never the form email.
+  // The cookie-bound session establishes identity; we then look up the linked
+  // active member. The form email is used only for the registration record /
+  // Stripe customer email and never affects pricing.
+  const sessionClient = await createClient();
+  const {
+    data: { user: authUser },
+  } = await sessionClient.auth.getUser();
 
-  const isMember = Boolean(memberRow);
-  const memberId: string | null = memberRow?.id ?? null;
+  let isMember = false;
+  let memberId: string | null = null;
+
+  if (authUser?.id) {
+    const { data: memberRow } = await supabase
+      .from("members")
+      .select("id, status")
+      .eq("auth_user_id", authUser.id)
+      .eq("status", "active")
+      .limit(1)
+      .maybeSingle();
+
+    if (memberRow) {
+      isMember = true;
+      memberId = memberRow.id;
+    }
+  }
+
+  // Members-only events require an authenticated active member.
+  if (event.visibility === "members_only" && !isMember) {
+    return bad("This event is for members only", 403);
+  }
 
   const unitAmount = isMember
     ? Number(event.price_member)
@@ -85,6 +106,21 @@ export async function POST(
   const totalAmount = Number((unitAmount * quantity).toFixed(2));
   const isFree = totalAmount === 0;
   const referenceCode = generateReferenceCode();
+
+  // Duplicate guard: prevent the same email registering for the same event
+  // more than once in a paid/free/confirmed state. Open `pending` rows are
+  // allowed since the user may have abandoned a checkout.
+  const { data: existingReg } = await supabase
+    .from("event_registrations")
+    .select("id, status")
+    .eq("event_id", eventId)
+    .eq("email", email)
+    .in("status", ["paid", "free"])
+    .limit(1);
+
+  if (existingReg && existingReg.length > 0) {
+    return bad("This email is already registered for this event", 409);
+  }
 
   const { data: inserted, error: insertErr } = await supabase
     .from("event_registrations")
@@ -151,10 +187,21 @@ export async function POST(
     return bad("Could not start checkout", 500);
   }
 
-  await supabase
+  // Persist session id; webhook idempotency uses it for confirmation, but
+  // primary lookup is by metadata.event_registration_id so we still recover
+  // if this update fails. We surface the error rather than silently dropping.
+  const { error: sessionUpdateErr } = await supabase
     .from("event_registrations")
     .update({ stripe_checkout_session_id: session.id })
     .eq("id", inserted.id);
+
+  if (sessionUpdateErr) {
+    console.error(
+      "[event-register] failed to persist stripe_checkout_session_id",
+      sessionUpdateErr
+    );
+    // Continue: webhook will still find the row by event_registration_id.
+  }
 
   return NextResponse.json({ checkout_url: session.url });
 }
