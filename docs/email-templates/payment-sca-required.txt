@@ -2,7 +2,7 @@ Complete Payment Authentication
 
 Dear {{first_name}},
 
-Great news — your application to the Geneva Polo Club Social Member Club has been approved by our membership committee.
+Great news — your application to the Geneva Polo Club Social Club has been approved by our membership committee.
 
 Your bank requires additional authentication to complete the payment. Please click the link below to verify your identity and activate your membership:
 

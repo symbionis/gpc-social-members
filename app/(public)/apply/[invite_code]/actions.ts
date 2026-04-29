@@ -154,7 +154,7 @@ async function sendHonoraryEmails(
     templateModel: {
       first_name: data.firstName,
       last_name: data.lastName,
-      preheader: "We've received your application to the Geneva Polo Club Social Member Club.",
+      preheader: "We've received your application to the Geneva Polo Club Social Club.",
     },
   }).catch((err) =>
     console.error("[submit] application-received email failed:", err)

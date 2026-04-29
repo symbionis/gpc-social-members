@@ -143,7 +143,7 @@ function renderPreviewHtml({
 <div class="wrap">
   <div class="subject-meta">Subject: <strong>${escapeHtml(subjectLabel)}</strong></div>
   <div class="header">
-    <h2>Geneva Polo<br />Social Members Club</h2>
+    <h2>Geneva Polo<br />Social Club</h2>
     <small>Elegance &middot; Passion &middot; Fun</small>
   </div>
   <div class="accent"></div>

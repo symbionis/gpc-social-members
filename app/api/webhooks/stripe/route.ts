@@ -384,7 +384,7 @@ export async function POST(request: NextRequest) {
           templateModel: {
             first_name: m.first_name,
             last_name: m.last_name,
-            preheader: "We've received your application to the Geneva Polo Club Social Member Club.",
+            preheader: "We've received your application to the Geneva Polo Club Social Club.",
           },
         }).catch((err) =>
           console.error("[webhook] application-received email failed:", err)

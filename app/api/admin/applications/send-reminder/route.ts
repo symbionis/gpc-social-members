@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     templateModel: {
       first_name: member.first_name,
       resume_url: resumeUrl,
-      preheader: "Complete your application to the Geneva Polo Club Social Member Club.",
+      preheader: "Complete your application to the Geneva Polo Club Social Club.",
     },
   });
 

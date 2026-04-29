@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Geneva Polo Club",
     short_name: "Geneva Polo Club",
-    description: "Geneva Polo Club — Social Member Club",
+    description: "Geneva Polo Club — Social Club",
     start_url: "/card",
     display: "standalone",
     background_color: "#052938",

@@ -10,7 +10,7 @@ export default function AdminLoginPage() {
             Administration
           </h1>
           <p className="mt-2 text-white/60 font-body">
-            Geneva Polo Club — Social Member Club
+            Geneva Polo Club — Social Club
           </p>
         </div>
         <Suspense>

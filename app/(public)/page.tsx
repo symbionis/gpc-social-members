@@ -131,7 +131,7 @@ export default function HomePage() {
             More than a membership
           </h2>
           <p className="font-body text-base sm:text-lg leading-relaxed text-marine/70 mb-12">
-            The Social Member Club is not a spectator tier or a hospitality
+            The Social Club is not a spectator tier or a hospitality
             package. It is the club&rsquo;s primary social layer — a private,
             vetted community where international professionals, creatives, and
             families gather around the sport and lifestyle of polo on a

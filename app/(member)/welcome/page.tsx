@@ -54,7 +54,7 @@ export default async function WelcomePage() {
           </p>
 
           <p>
-            Moreover, as a member, you have the chance to extend this exclusive experience to your family and friends. If you are aware of someone who may be interested in becoming a part of the Social Members Club, please do not hesitate to inform us. Your recommendations are welcome as we wish to grow our community by adding other unique and inspirational individuals like yourself.
+            Moreover, as a member, you have the chance to extend this exclusive experience to your family and friends. If you are aware of someone who may be interested in becoming a part of the Social Club, please do not hesitate to inform us. Your recommendations are welcome as we wish to grow our community by adding other unique and inspirational individuals like yourself.
           </p>
 
           <p>
