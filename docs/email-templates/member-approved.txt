@@ -1,6 +1,6 @@
 Welcome, {{first_name}},
 
-We are delighted to inform you that your application to the Geneva Polo Social Members Club has been approved.
+We are delighted to inform you that your application to the Geneva Polo Social Club has been approved.
 
 You have been accepted as a {{tier_name}} member.
 
@@ -35,7 +35,7 @@ If the payment link above has expired, you can always complete your payment by l
 We look forward to welcoming you fieldside this season.
 
 Warm regards,
-The Geneva Polo Social Members Club Team
+The Geneva Polo Social Club Team
 
 ---
-Geneva Polo Social Members Club
+Geneva Polo Social Club

@@ -15,4 +15,4 @@ Role:    {{applicant_role}}
 Review the application here: {{admin_url}}
 
 Warm regards,
-Geneva Polo Social Members Club
+Geneva Polo Social Club

@@ -113,7 +113,7 @@ export default async function MemberDashboardPage() {
         Welcome, {member.first_name}
       </h1>
       <p className="text-muted-foreground font-body mb-8">
-        Geneva Polo Social Members Club
+        Geneva Polo Social Club
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

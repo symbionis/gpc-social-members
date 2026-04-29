@@ -1,6 +1,6 @@
 Dear {{first_name}},
 
-Thank you for your interest in the Geneva Polo Social Members Club. After careful consideration, our membership committee has decided not to proceed with your application at this time.
+Thank you for your interest in the Geneva Polo Social Club. After careful consideration, our membership committee has decided not to proceed with your application at this time.
 
 {{#notes}}
 Note from the committee:
@@ -10,7 +10,7 @@ Note from the committee:
 We appreciate your understanding and wish you all the best.
 
 Warm regards,
-The Geneva Polo Social Members Club Team
+The Geneva Polo Social Club Team
 
 ---
-Geneva Polo Social Members Club
+Geneva Polo Social Club

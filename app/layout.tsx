@@ -24,9 +24,9 @@ const teko = Teko({
 });
 
 export const metadata: Metadata = {
-  title: "Geneva Polo Social Members Club",
+  title: "Geneva Polo Social Club",
   description:
-    "Exclusive membership community of the Geneva Polo Social Members Club.",
+    "Exclusive membership community of the Geneva Polo Social Club.",
 };
 
 export const viewport: Viewport = {
