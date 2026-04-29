@@ -6,4 +6,5 @@ Warm regards,
 The Geneva Polo Social Club Team
 
 ---
-You are receiving this email because you are a member of the Geneva Polo Social Club. Use the unsubscribe link in the footer to opt out of member communications.
+You are receiving this email as a member of the Geneva Polo Social Club.
+Unsubscribe from member communications: {{{pm:unsubscribe}}}
