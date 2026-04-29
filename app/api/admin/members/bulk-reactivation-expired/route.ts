@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendReactivationEmail } from "@/app/api/admin/members/request-reactivation/route";
+import { sendReactivationEmail } from "@/lib/members/reactivation";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function POST(request: NextRequest) {
