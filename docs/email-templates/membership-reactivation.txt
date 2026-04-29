@@ -1,0 +1,26 @@
+We miss you, {{first_name}},
+
+It has been a while since we last saw you fieldside, and we'd love to have you back at the Geneva Polo Social Members Club for the new season.
+
+Here is what is waiting for you:
+
+- A rich events calendar — fieldside afternoons, themed dinners, exclusive tournaments, and more throughout the season.
+- New member benefits — refreshed perks across our partner network and dedicated experiences for the social club.
+- A curated network — meet a community of thoughtful, well-travelled members who share your appreciation for the sport, the place, and the people.
+- A friendly, welcoming atmosphere — the same warm spirit you remember, with even more reasons to drop by.
+
+Pick up where you left off — your renewal is just one click away.
+
+{{#renewal_url}}
+{{.}}
+{{/renewal_url}}
+
+This link is valid for 30 days.
+
+We hope to see you soon.
+
+Warm regards,
+The Geneva Polo Social Club Team
+
+---
+Geneva Polo Social Club

@@ -90,6 +90,32 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
   const [renewalResult, setRenewalResult] = useState<{ success: boolean; message: string } | null>(null);
   const [resendingPaymentLink, setResendingPaymentLink] = useState(false);
   const [resendPaymentResult, setResendPaymentResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [sendingReactivation, setSendingReactivation] = useState(false);
+  const [reactivationResult, setReactivationResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  async function handleSendReactivation(force = false) {
+    setSendingReactivation(true);
+    setReactivationResult(null);
+    const res = await fetch("/api/admin/members/request-reactivation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ member_id: member.id, force }),
+    });
+    setSendingReactivation(false);
+    if (res.ok) {
+      setReactivationResult({ success: true, message: `Reactivation email sent to ${member.email}` });
+      router.refresh();
+    } else {
+      const data = await res.json();
+      if (data.code === "cooldown" && !force) {
+        if (window.confirm(`${data.error}. Send anyway?`)) {
+          handleSendReactivation(true);
+          return;
+        }
+      }
+      setReactivationResult({ success: false, message: data.error || "Failed to send reactivation email." });
+    }
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -299,8 +325,15 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
                   {member.status === "expired" && (
                     <>
                       <button
+                        onClick={() => handleSendReactivation(false)}
+                        disabled={sendingReactivation}
+                        className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50"
+                      >
+                        {sendingReactivation ? "Sending..." : "Send Reactivation Email"}
+                      </button>
+                      <button
                         onClick={() => { setShowRenewalModal(true); setRenewalResult(null); }}
-                        className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors"
+                        className="px-4 py-2 bg-white border border-border text-marine rounded-lg text-sm font-body font-medium hover:bg-cream transition-colors"
                       >
                         Request Renewal
                       </button>
@@ -318,6 +351,11 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
             {resendPaymentResult && (
               <p className={`text-sm font-body mt-3 ${resendPaymentResult.success ? "text-green-700" : "text-red-600"}`}>
                 {resendPaymentResult.message}
+              </p>
+            )}
+            {reactivationResult && (
+              <p className={`text-sm font-body mt-3 ${reactivationResult.success ? "text-green-700" : "text-red-600"}`}>
+                {reactivationResult.message}
               </p>
             )}
           </div>

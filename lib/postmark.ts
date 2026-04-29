@@ -1,6 +1,6 @@
 import { ServerClient } from "postmark";
 
-const FROM_EMAIL = '"Geneva Polo Club" <juliette@genevapolo.com>';
+const FROM_EMAIL = '"Geneva Polo Social Club" <social@genevapolo.com>';
 
 let _client: ServerClient | null = null;
 

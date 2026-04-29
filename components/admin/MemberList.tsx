@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isAwaitingPayment } from "@/lib/members/status";
 
@@ -43,9 +44,40 @@ function formatDate(d: string | null) {
 }
 
 export default function MemberList({ members, tierMap, originatorMap }: MemberListProps) {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [tierFilter, setTierFilter] = useState("all");
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
+
+  const expiredCount = members.filter((m) => m.status === "expired").length;
+
+  async function handleBulkReactivation() {
+    if (
+      !window.confirm(
+        `Send a reactivation email to all ${expiredCount} expired members? Members emailed in the last 14 days will be skipped.`
+      )
+    ) {
+      return;
+    }
+    setBulkSending(true);
+    setBulkResult(null);
+    const res = await fetch("/api/admin/members/bulk-reactivation-expired", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    setBulkSending(false);
+    const data = await res.json();
+    if (!res.ok) {
+      setBulkResult(`Error: ${data.error || "Failed to send"}`);
+      return;
+    }
+    const errSuffix = data.errors?.length ? `, ${data.errors.length} failed` : "";
+    setBulkResult(`Sent ${data.sent}, skipped ${data.skipped}${errSuffix}.`);
+    router.refresh();
+  }
 
   const filtered = members.filter((m) => {
     const matchesSearch =
@@ -125,7 +157,20 @@ export default function MemberList({ members, tierMap, originatorMap }: MemberLi
         >
           Export CSV
         </button>
+        {statusFilter === "expired" && expiredCount > 0 && (
+          <button
+            onClick={handleBulkReactivation}
+            disabled={bulkSending}
+            className="px-4 py-2.5 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50"
+          >
+            {bulkSending ? "Sending..." : `Send Reactivation to ${expiredCount} Expired`}
+          </button>
+        )}
       </div>
+
+      {bulkResult && (
+        <p className="text-sm font-body text-marine mb-4">{bulkResult}</p>
+      )}
 
       <p className="text-sm text-muted-foreground font-body mb-4">
         {filtered.length} member{filtered.length !== 1 ? "s" : ""}
