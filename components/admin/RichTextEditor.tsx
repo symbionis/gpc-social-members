@@ -3,6 +3,7 @@
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
+import Image from "@tiptap/extension-image";
 import { useEffect } from "react";
 
 interface Props {
@@ -13,11 +14,14 @@ interface Props {
 
 /**
  * TipTap-backed rich-text editor with a deliberately minimal toolbar:
- * paragraph, H2, H3, bold, italic, bullet/ordered list, link.
+ * paragraph, H1, H2, H3, bold, italic, bullet/ordered list, link, image.
+ *
+ * Images are inserted by URL (the asset must already be hosted somewhere
+ * email clients can reach — the GPC site, a CDN, etc.). Code blocks,
+ * blockquotes, and horizontal rules are disabled because they do not
+ * render reliably across email clients.
  *
  * Output is plain HTML compatible with the members-comms email template.
- * Code blocks, blockquotes, and images are intentionally not exposed —
- * those don't render reliably across email clients.
  */
 export default function RichTextEditor({
   value,
@@ -27,7 +31,7 @@ export default function RichTextEditor({
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        heading: { levels: [2, 3] },
+        heading: { levels: [1, 2, 3] },
         // Keep email-safe — these surfaces are hidden from the toolbar but
         // we also disable them at the schema level so paste cannot smuggle
         // them in.
@@ -38,6 +42,13 @@ export default function RichTextEditor({
       Link.configure({
         openOnClick: false,
         HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" },
+      }),
+      Image.configure({
+        // Constrain rendered width so images don't blow out the 600px email.
+        HTMLAttributes: {
+          style: "max-width: 100%; height: auto; display: block; margin: 16px 0;",
+        },
+        allowBase64: false,
       }),
     ],
     content: value,
@@ -98,6 +109,16 @@ function Toolbar({ editor }: { editor: Editor }) {
     editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
   }
 
+  function insertImage() {
+    const url = window.prompt(
+      "Image URL (must be publicly hosted — e.g. on the GPC site or a CDN)",
+      "https://"
+    );
+    if (!url) return;
+    const alt = window.prompt("Alt text (for accessibility / image-blocked clients)", "") ?? "";
+    editor.chain().focus().setImage({ src: url, alt }).run();
+  }
+
   const btn =
     "px-2 py-1 rounded text-xs font-body border border-transparent hover:bg-cream transition-colors";
   const active = "bg-marine text-white border-marine hover:bg-marine-light";
@@ -110,6 +131,13 @@ function Toolbar({ editor }: { editor: Editor }) {
         className={`${btn} ${editor.isActive("paragraph") ? active : ""}`}
       >
         ¶
+      </button>
+      <button
+        type="button"
+        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+        className={`${btn} ${editor.isActive("heading", { level: 1 }) ? active : ""}`}
+      >
+        H1
       </button>
       <button
         type="button"
@@ -162,6 +190,13 @@ function Toolbar({ editor }: { editor: Editor }) {
         className={`${btn} ${editor.isActive("link") ? active : ""}`}
       >
         Link
+      </button>
+      <button
+        type="button"
+        onClick={insertImage}
+        className={btn}
+      >
+        Image
       </button>
     </div>
   );
