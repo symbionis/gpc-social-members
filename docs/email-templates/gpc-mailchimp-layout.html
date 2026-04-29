@@ -19,7 +19,7 @@
       width: 100% !important;
       -webkit-text-size-adjust: 100%;
       -ms-text-size-adjust: 100%;
-      background-color: #F2F4F6;
+      background-color: #f4f2ef;
       color: #052938;
     }
 
@@ -44,7 +44,7 @@
       width: 100%;
       margin: 0;
       padding: 0;
-      background-color: #F2F4F6;
+      background-color: #f4f2ef;
     }
 
     .email-content {
@@ -110,7 +110,8 @@
       padding: 0;
     }
     .email-body_inner {
-      width: 600px;
+      width: 100%;
+      max-width: 600px;
       margin: 0 auto;
       padding: 0;
       background-color: #FFFFFF;
@@ -219,7 +220,8 @@
 
     /* Footer */
     .email-footer {
-      width: 600px;
+      width: 100%;
+      max-width: 600px;
       margin: 0 auto;
       padding: 32px 48px;
       text-align: center;
@@ -258,15 +260,20 @@
 
     /* Responsive */
     @media only screen and (max-width: 640px) {
+      .email-header_inner,
       .email-body_inner,
       .email-footer {
         width: 100% !important;
+        max-width: 100% !important;
       }
       .body-content {
         padding: 28px 24px !important;
       }
       .email-footer {
         padding: 24px 24px !important;
+      }
+      .email-header {
+        padding: 24px 16px 20px !important;
       }
       h1 {
         font-size: 22px !important;
@@ -308,13 +315,13 @@
           <!-- HEADER -->
           <tr>
             <td class="email-header" align="center">
-              <table width="600" cellpadding="0" cellspacing="0" role="presentation" align="center">
+              <table class="email-header_inner" width="600" cellpadding="0" cellspacing="0" role="presentation" align="center" style="width: 100%; max-width: 600px;">
                 <tr>
-                  <td align="center" style="padding: 32px 0 24px;">
+                  <td align="center" style="padding: 32px 16px 24px;">
                     <a href="https://gpc-social-members-production.up.railway.app/" target="_blank" style="text-decoration: none;">
                       <img src="https://gpc-social-members-production.up.railway.app/images/polo_club_logo.png" alt="Geneva Polo Club" width="80" style="max-width: 80px; height: auto; border: 0;" />
                     </a>
-                    <p class="email-header-title">Geneva Polo<br />Social Members Club</p>
+                    <p class="email-header-title">Geneva Polo Club</p>
                     <p class="email-header-tagline">Elegance &middot; Passion &middot; Fun</p>
                   </td>
                 </tr>
@@ -332,7 +339,7 @@
           <!-- BODY -->
           <tr>
             <td class="email-body" width="100%">
-              <table class="email-body_inner" align="center" width="600" cellpadding="0" cellspacing="0" role="presentation">
+              <table class="email-body_inner" align="center" width="600" cellpadding="0" cellspacing="0" role="presentation" style="width: 100%; max-width: 600px;">
                 <tr>
                   <td class="body-content" mc:edit="body_content">
 
@@ -348,7 +355,7 @@
           <!-- FOOTER -->
           <tr>
             <td>
-              <table class="email-footer" align="center" width="600" cellpadding="0" cellspacing="0" role="presentation">
+              <table class="email-footer" align="center" width="600" cellpadding="0" cellspacing="0" role="presentation" style="width: 100%; max-width: 600px;">
                 <tr>
                   <td align="center">
 
