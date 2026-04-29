@@ -3,7 +3,6 @@
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
-import Image from "@tiptap/extension-image";
 import { useEffect } from "react";
 
 interface Props {
@@ -14,12 +13,15 @@ interface Props {
 
 /**
  * TipTap-backed rich-text editor with a deliberately minimal toolbar:
- * paragraph, H1, H2, H3, bold, italic, bullet/ordered list, link, image.
+ * paragraph, H1, H2, H3, bold, italic, bullet/ordered list, link.
  *
- * Images are inserted by URL (the asset must already be hosted somewhere
- * email clients can reach — the GPC site, a CDN, etc.). Code blocks,
- * blockquotes, and horizontal rules are disabled because they do not
- * render reliably across email clients.
+ * Images are intentionally not supported. Many email clients block
+ * external images by default, image-heavy mail hurts deliverability,
+ * and uploading via the composer is its own scoped piece of work
+ * (see docs/plans/ for the broadcast image upload plan).
+ *
+ * Code blocks, blockquotes, and horizontal rules are also disabled —
+ * they do not render reliably across email clients.
  *
  * Output is plain HTML compatible with the members-comms email template.
  */
@@ -47,13 +49,6 @@ export default function RichTextEditor({
         // body_html is rendered back into a sandboxed iframe on the detail
         // page; defence in depth.
         validate: isSafeUrl,
-      }),
-      Image.configure({
-        // Constrain rendered width so images don't blow out the 600px email.
-        HTMLAttributes: {
-          style: "max-width: 100%; height: auto; display: block; margin: 16px 0;",
-        },
-        allowBase64: false,
       }),
     ],
     content: value,
@@ -109,11 +104,6 @@ function isSafeUrl(url: string): boolean {
   return false;
 }
 
-function isSafeImageUrl(url: string): boolean {
-  const trimmed = url.trim();
-  return /^https?:\/\//i.test(trimmed);
-}
-
 function Toolbar({ editor }: { editor: Editor }) {
   function setLink() {
     const previous = editor.getAttributes("link").href as string | undefined;
@@ -130,19 +120,6 @@ function Toolbar({ editor }: { editor: Editor }) {
     editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
   }
 
-  function insertImage() {
-    const url = window.prompt(
-      "Image URL (must be publicly hosted — e.g. on the GPC site or a CDN)",
-      "https://"
-    );
-    if (!url) return;
-    if (!isSafeImageUrl(url)) {
-      window.alert("Image URL must use http(s):");
-      return;
-    }
-    const alt = window.prompt("Alt text (for accessibility / image-blocked clients)", "") ?? "";
-    editor.chain().focus().setImage({ src: url, alt }).run();
-  }
 
   const btn =
     "px-2 py-1 rounded text-xs font-body border border-transparent hover:bg-cream transition-colors";
@@ -215,13 +192,6 @@ function Toolbar({ editor }: { editor: Editor }) {
         className={`${btn} ${editor.isActive("link") ? active : ""}`}
       >
         Link
-      </button>
-      <button
-        type="button"
-        onClick={insertImage}
-        className={btn}
-      >
-        Image
       </button>
     </div>
   );
