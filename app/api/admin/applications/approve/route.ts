@@ -424,7 +424,48 @@ export async function POST(request: NextRequest) {
       }
     }
   } else {
-    // --- LEGACY FLOW: No payment record (in-flight member approved before this feature) ---
+    // --- FALLBACK FLOW: no authorized/hold_expired PI to capture ---
+    // Reached either when the member predates the manual-capture feature, or
+    // when their card auth never succeeded (failed / requires_action / cancelled).
+    // We send a Stripe Checkout link so the applicant can pay directly.
+
+    // Look up any stale payments row for this member so we can clean it up.
+    const { data: stalePayments } = await adminClient
+      .from("payments")
+      .select("id, stripe_payment_intent_id, payment_capture_status")
+      .eq("member_id", member_id)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const stale = stalePayments?.[0];
+
+    // Verify tier has a Stripe price BEFORE marking the member approved.
+    // Without it we cannot send a usable payment link.
+    const { data: memberRow } = await adminClient
+      .from("members")
+      .select("tier_id")
+      .eq("id", member_id)
+      .limit(1)
+      .single();
+
+    const { data: tiers } = await adminClient
+      .from("membership_tiers")
+      .select("name, stripe_price_id, price_eur")
+      .eq("id", memberRow?.tier_id ?? "")
+      .limit(1);
+
+    const tier = tiers?.[0];
+
+    if (!tier?.stripe_price_id || tier.price_eur <= 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Cannot approve: tier has no Stripe price configured. Set stripe_price_id on the tier before approving.",
+        },
+        { status: 500 }
+      );
+    }
+
     const { data: updated, error: updateError } = await adminClient
       .from("members")
       .update({ status: "approved", approved_by: admin.id, approved_at: new Date().toISOString() })
@@ -442,30 +483,39 @@ export async function POST(request: NextRequest) {
 
     const member = updated[0];
 
-    // Send welcome email with Checkout Session link (legacy flow)
-    const { data: tiers } = await adminClient
-      .from("membership_tiers")
-      .select("name, stripe_price_id, price_eur")
-      .eq("id", member.tier_id)
-      .limit(1);
-
-    const tier = tiers?.[0];
-    let checkoutUrl = "";
-
-    if (tier?.stripe_price_id && tier.price_eur > 0) {
+    // Cancel the orphaned PaymentIntent in Stripe (best effort) and mark the
+    // stale row so it stops surfacing as "Payment Failed" in the admin queue.
+    if (stale && stale.stripe_payment_intent_id &&
+        ["failed", "requires_action", "pending"].includes(stale.payment_capture_status ?? "")) {
       try {
-        const session = await stripe.checkout.sessions.create({
-          mode: "payment",
-          customer_email: member.email,
-          line_items: [{ price: tier.stripe_price_id, quantity: 1 }],
-          metadata: { member_id: member.id },
-          success_url: `${appUrl}/login?payment=success`,
-          cancel_url: `${appUrl}/login?payment=cancelled`,
-        });
-        checkoutUrl = session.url || "";
+        await stripe.paymentIntents.cancel(stale.stripe_payment_intent_id);
       } catch (err) {
-        console.error("[approve] Legacy Checkout Session creation failed:", err);
+        // Already canceled, succeeded, or otherwise non-cancellable — fine.
+        console.warn(
+          "[approve] Could not cancel orphaned PaymentIntent (likely already in a terminal state):",
+          err
+        );
       }
+      await adminClient
+        .from("payments")
+        .update({ payment_capture_status: "cancelled" })
+        .eq("id", stale.id);
+    }
+
+    // Create Checkout Session for the applicant to pay directly.
+    let checkoutUrl = "";
+    try {
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        customer_email: member.email,
+        line_items: [{ price: tier.stripe_price_id, quantity: 1 }],
+        metadata: { member_id: member.id },
+        success_url: `${appUrl}/login?payment=success`,
+        cancel_url: `${appUrl}/login?payment=cancelled`,
+      });
+      checkoutUrl = session.url || "";
+    } catch (err) {
+      console.error("[approve] Checkout Session creation failed:", err);
     }
 
     await sendEmail({
@@ -474,7 +524,7 @@ export async function POST(request: NextRequest) {
       templateModel: {
         first_name: member.first_name,
         last_name: member.last_name,
-        tier_name: tier?.name || "Member",
+        tier_name: tier.name,
         checkout_url: checkoutUrl,
         has_payment: !!checkoutUrl,
         dashboard_url: `${appUrl}/login`,
