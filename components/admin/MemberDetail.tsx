@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { isAwaitingPayment } from "@/lib/members/status";
 
 interface Address {
   street?: string;
@@ -198,9 +199,16 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
                   )}
                 </div>
               </div>
-              <span className={`px-3 py-1 rounded-full text-xs font-body font-medium ${statusColors[member.status] || "bg-gray-100 text-gray-600"}`}>
-                {member.status}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`px-3 py-1 rounded-full text-xs font-body font-medium ${statusColors[member.status] || "bg-gray-100 text-gray-600"}`}>
+                  {member.status}
+                </span>
+                {isAwaitingPayment(member.status) && (
+                  <span className="px-3 py-1 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
+                    Awaiting Payment
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Contact & membership */}

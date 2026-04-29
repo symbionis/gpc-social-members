@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { MemberStatus, PaymentCaptureStatus } from "@/types/database";
+import { isAwaitingPayment } from "@/lib/members/status";
 
 interface Application {
   id: string;
@@ -273,6 +274,10 @@ export default function ApplicationQueue({
                   ) : isFreeTier(app) ? (
                     <span className="px-2 py-0.5 rounded-full text-xs font-body font-medium bg-purple-100 text-purple-800">
                       Honorary
+                    </span>
+                  ) : isAwaitingPayment(app.status) ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
+                      Awaiting Payment
                     </span>
                   ) : payment ? (
                     <PaymentStatusBadge status={payment.payment_capture_status} />

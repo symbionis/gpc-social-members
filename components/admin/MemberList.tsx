@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { isAwaitingPayment } from "@/lib/members/status";
 
 interface Member {
   id: string;
@@ -164,9 +165,16 @@ export default function MemberList({ members, tierMap, originatorMap }: MemberLi
                   <td className="px-4 py-3 font-body text-muted-foreground">{m.email}</td>
                   <td className="px-4 py-3 font-body text-marine">{tierMap[m.tier_id] || "—"}</td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-body font-medium ${statusColors[m.status] || "bg-gray-100 text-gray-600"}`}>
-                      {m.status}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-body font-medium ${statusColors[m.status] || "bg-gray-100 text-gray-600"}`}>
+                        {m.status}
+                      </span>
+                      {isAwaitingPayment(m.status) && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
+                          Awaiting Payment
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 font-body text-muted-foreground">
                     {m.start_date || m.end_date ? (
