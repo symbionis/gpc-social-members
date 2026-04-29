@@ -54,6 +54,7 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
           : []),
         ...(isSuper
           ? [
+              { href: "/admin/messages", label: "Messages", icon: "send" },
               { href: "/admin/tiers", label: "Tiers", icon: "layers" },
               { href: "/admin/users", label: "Users", icon: "shield" },
               { href: "/admin/scheduled-jobs", label: "Scheduled Jobs", icon: "clock" },

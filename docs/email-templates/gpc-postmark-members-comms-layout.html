@@ -1,0 +1,416 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <title>Geneva Polo Social Club — Member Communication</title>
+  <style type="text/css" rel="stylesheet" media="all">
+    /* ------------------------------------------------
+       Geneva Polo Social Club — Members Comms Layout
+       Brand: Marine Blue #052938, Sky Blue #95CEE1
+       Fonts: Playfair Display (titles), Poppins (body)
+       Differs from gpc-postmark-layout.html only by the
+       "Member Only Communication" banner below the header.
+    ------------------------------------------------ */
+
+    /* Google Fonts import */
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Poppins:wght@200;300;400;500;600&display=swap');
+
+    /* Base */
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100% !important;
+      -webkit-text-size-adjust: 100%;
+      -ms-text-size-adjust: 100%;
+      background-color: #F2F4F6;
+      color: #052938;
+    }
+
+    body, td, th {
+      font-family: 'Poppins', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.65;
+      color: #052938;
+    }
+
+    /* Links */
+    a {
+      color: #052938;
+      text-decoration: underline;
+    }
+    a:hover {
+      color: #95CEE1;
+    }
+
+    /* Layout wrapper */
+    .email-wrapper {
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #F2F4F6;
+    }
+
+    .email-content {
+      width: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Preheader — hidden preview text */
+    .preheader {
+      display: none !important;
+      visibility: hidden;
+      mso-hide: all;
+      font-size: 1px;
+      line-height: 1px;
+      max-height: 0;
+      max-width: 0;
+      opacity: 0;
+      overflow: hidden;
+    }
+
+    /* Header */
+    .email-header {
+      padding: 32px 0 24px;
+      text-align: center;
+      background-color: #052938;
+    }
+    .email-header img {
+      max-width: 80px;
+      height: auto;
+    }
+    .email-header-title {
+      font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #FFFFFF;
+      margin: 12px 0 0;
+      padding: 0;
+    }
+    .email-header-tagline {
+      font-family: 'Poppins', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 11px;
+      font-weight: 200;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: #95CEE1;
+      margin: 4px 0 0;
+      padding: 0;
+    }
+
+    /* Accent line beneath header */
+    .header-accent {
+      height: 3px;
+      background: linear-gradient(90deg, #052938 0%, #95CEE1 50%, #052938 100%);
+    }
+
+    /* Member-only banner — sits below the accent line, above the body */
+    .members-banner {
+      background-color: #052938;
+      color: #FFFFFF;
+      text-align: center;
+      padding: 10px 16px;
+      font-family: 'Poppins', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+    .members-banner-inner {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    /* Body */
+    .email-body {
+      width: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    .email-body_inner {
+      width: 600px;
+      margin: 0 auto;
+      padding: 0;
+      background-color: #FFFFFF;
+    }
+    .email-body_inner--full-width {
+      width: 100%;
+    }
+
+    .body-content {
+      padding: 40px 48px;
+    }
+
+    /* Typography in content */
+    h1 {
+      font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+      font-size: 26px;
+      font-weight: 700;
+      color: #052938;
+      margin-top: 0;
+      margin-bottom: 8px;
+      line-height: 1.3;
+    }
+    h2 {
+      font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: #052938;
+      margin-top: 24px;
+      margin-bottom: 8px;
+      line-height: 1.3;
+    }
+    h3 {
+      font-family: 'Poppins', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 13px;
+      font-weight: 200;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #95CEE1;
+      margin-top: 24px;
+      margin-bottom: 4px;
+    }
+    p {
+      margin-top: 0;
+      margin-bottom: 16px;
+      font-size: 16px;
+      line-height: 1.65;
+      color: #333F48;
+    }
+    p.sub {
+      font-size: 13px;
+      color: #6B7C93;
+    }
+
+    /* Buttons */
+    .button {
+      display: inline-block;
+      width: auto;
+      background-color: #052938;
+      border-radius: 3px;
+      color: #FFFFFF !important;
+      font-family: 'Poppins', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 1px;
+      text-align: center;
+      text-decoration: none;
+      padding: 12px 32px;
+      -webkit-text-size-adjust: none;
+    }
+    .button:hover {
+      background-color: #0A3D54;
+    }
+    .button--secondary {
+      background-color: #FFFFFF;
+      border: 1px solid #052938;
+      color: #052938 !important;
+    }
+    .button--accent {
+      background-color: #D42A1F;
+    }
+
+    /* Dividers */
+    .divider {
+      border: none;
+      border-top: 1px solid #E8ECF0;
+      margin: 24px 0;
+    }
+    .divider--brand {
+      border-top: 2px solid #95CEE1;
+      margin: 32px 0;
+    }
+
+    /* Attributes (key-value pairs, e.g. for receipts) */
+    .attributes {
+      margin: 0;
+      padding: 0;
+    }
+    .attributes_content {
+      background-color: #F9FAFB;
+      padding: 20px 24px;
+      border-left: 3px solid #95CEE1;
+    }
+    .attributes_item {
+      padding: 0;
+    }
+
+    /* Footer */
+    .email-footer {
+      width: 600px;
+      margin: 0 auto;
+      padding: 32px 48px;
+      text-align: center;
+    }
+    .email-footer p {
+      font-size: 12px;
+      line-height: 1.6;
+      color: #8B99A8;
+      margin: 0;
+    }
+    .email-footer a {
+      color: #8B99A8;
+      text-decoration: underline;
+    }
+    .email-footer a:hover {
+      color: #052938;
+    }
+    .footer-links {
+      margin-top: 12px;
+    }
+    .footer-links a {
+      font-size: 12px;
+      color: #8B99A8;
+      margin: 0 8px;
+    }
+    .footer-social-icon {
+      display: inline-block;
+      margin: 0 6px;
+    }
+    .footer-crest {
+      max-width: 40px;
+      height: auto;
+      opacity: 0.35;
+      margin-bottom: 16px;
+    }
+
+    /* Responsive */
+    @media only screen and (max-width: 640px) {
+      .email-body_inner,
+      .email-footer {
+        width: 100% !important;
+      }
+      .body-content {
+        padding: 28px 24px !important;
+      }
+      .email-footer {
+        padding: 24px 24px !important;
+      }
+      h1 {
+        font-size: 22px !important;
+      }
+      h2 {
+        font-size: 18px !important;
+      }
+    }
+
+    /* Utilities */
+    .align-center { text-align: center; }
+    .align-left { text-align: left; }
+    .align-right { text-align: right; }
+    .text-muted { color: #8B99A8; }
+    .text-brand { color: #052938; }
+    .text-accent { color: #95CEE1; }
+    .text-red { color: #D42A1F; }
+    .mt-0 { margin-top: 0; }
+    .mb-0 { margin-bottom: 0; }
+  </style>
+  <!--[if mso]>
+  <style type="text/css">
+    body, td, th { font-family: Georgia, 'Times New Roman', serif; }
+    h1, h2 { font-family: Georgia, 'Times New Roman', serif; }
+    h3 { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    .button { padding: 12px 32px; }
+  </style>
+  <![endif]-->
+</head>
+<body>
+
+  <span class="preheader">Geneva Polo Club Update</span>
+
+  <table class="email-wrapper" width="100%" cellpadding="0" cellspacing="0" role="presentation">
+    <tr>
+      <td align="center">
+        <table class="email-content" width="100%" cellpadding="0" cellspacing="0" role="presentation">
+
+          <!-- HEADER -->
+          <tr>
+            <td class="email-header" align="center">
+              <table width="600" cellpadding="0" cellspacing="0" role="presentation" align="center">
+                <tr>
+                  <td align="center" style="padding: 32px 0 24px;">
+                    <a href="https://gpc-social-members-production.up.railway.app/" target="_blank" style="text-decoration: none;">
+                      <img src="https://gpc-social-members-production.up.railway.app/images/polo_club_logo.png" alt="Geneva Polo Club" width="80" style="max-width: 80px; height: auto; border: 0;" />
+                    </a>
+                    <p class="email-header-title">Geneva Polo</BR>Social Members Club</p>
+                    <p class="email-header-tagline">Elegance &middot; Passion &middot; Fun</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Accent Line -->
+          <tr>
+            <td>
+              <div class="header-accent">&nbsp;</div>
+            </td>
+          </tr>
+
+          <!-- Members-only Banner -->
+          <tr>
+            <td class="members-banner" align="center">
+              <div class="members-banner-inner">Member Only Communication</div>
+            </td>
+          </tr>
+
+          <!-- BODY -->
+          <tr>
+            <td class="email-body" width="100%">
+              <table class="email-body_inner" align="center" width="600" cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td class="body-content">
+
+                    {{{@content}}}
+
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td>
+              <table class="email-footer" align="center" width="600" cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td align="center">
+
+                    <!-- Footer crest -->
+                    <img src="https://gpc-social-members-production.up.railway.app/images/polo_club_logo.png" alt="" class="footer-crest" width="40" style="max-width: 40px; height: auto;  margin-bottom: 16px; border: 0;" />
+
+                    <p>
+                      Geneva Polo Club<br />
+                      Chemin du pont de Crévy - Veigy Foncenex
+                    </p>
+
+                    <div class="footer-links">
+                      <a href="https://genevapolo.com/">Website</a>
+                      <a href="https://www.instagram.com/genevapoloclub/">Instagram</a>
+                    </div>
+
+                    <p style="margin-top: 16px;">
+                      &copy; 2026 Geneva Polo Club. All rights reserved.
+                    </p>
+
+                    <p style="margin-top: 16px; font-size: 12px; color: #8B99A8;">
+                      You are receiving this email as a member of the Geneva Polo Social Club.<br />
+                      <a href="{{{pm:unsubscribe}}}" style="color: #8B99A8; text-decoration: underline;">Unsubscribe from member communications</a>
+                    </p>
+
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

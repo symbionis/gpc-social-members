@@ -1,0 +1,8 @@
+{{body_text}}
+
+Warm regards,
+The Geneva Polo Social Club Team
+
+---
+You are receiving this email as a member of the Geneva Polo Social Club.
+Unsubscribe from member communications: {{{pm:unsubscribe}}}

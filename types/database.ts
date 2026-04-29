@@ -107,6 +107,107 @@ export type Database = {
           },
         ]
       }
+      broadcast_recipients: {
+        Row: {
+          broadcast_id: string
+          created_at: string
+          email: string
+          error: string | null
+          id: string
+          member_id: string | null
+          provider_message_id: string | null
+          status: string
+        }
+        Insert: {
+          broadcast_id: string
+          created_at?: string
+          email: string
+          error?: string | null
+          id?: string
+          member_id?: string | null
+          provider_message_id?: string | null
+          status: string
+        }
+        Update: {
+          broadcast_id?: string
+          created_at?: string
+          email?: string
+          error?: string | null
+          id?: string
+          member_id?: string | null
+          provider_message_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broadcast_recipients_broadcast_id_fkey"
+            columns: ["broadcast_id"]
+            isOneToOne: false
+            referencedRelation: "broadcasts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broadcast_recipients_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broadcasts: {
+        Row: {
+          audience_filter: Json
+          body_html: string
+          channel: string
+          created_at: string
+          created_by: string | null
+          error_count: number
+          id: string
+          recipient_count: number
+          sent_at: string | null
+          skipped_count: number
+          status: string
+          subject: string
+        }
+        Insert: {
+          audience_filter: Json
+          body_html: string
+          channel?: string
+          created_at?: string
+          created_by?: string | null
+          error_count?: number
+          id?: string
+          recipient_count?: number
+          sent_at?: string | null
+          skipped_count?: number
+          status?: string
+          subject: string
+        }
+        Update: {
+          audience_filter?: Json
+          body_html?: string
+          channel?: string
+          created_at?: string
+          created_by?: string | null
+          error_count?: number
+          id?: string
+          recipient_count?: number
+          sent_at?: string | null
+          skipped_count?: number
+          status?: string
+          subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broadcasts_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "admin_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cron_job_runs: {
         Row: {
           finished_at: string | null
@@ -415,8 +516,10 @@ export type Database = {
           id: string
           is_migrated: boolean
           last_name: string
+          last_reactivation_sent_at: string | null
           last_reminder_sent_at: string | null
           linkedin_url: string | null
+          marketing_consent: boolean
           member_number: string | null
           metadata: Json
           originator_id: string | null
@@ -451,8 +554,10 @@ export type Database = {
           id?: string
           is_migrated?: boolean
           last_name: string
+          last_reactivation_sent_at?: string | null
           last_reminder_sent_at?: string | null
           linkedin_url?: string | null
+          marketing_consent?: boolean
           member_number?: string | null
           metadata?: Json
           originator_id?: string | null
@@ -487,8 +592,10 @@ export type Database = {
           id?: string
           is_migrated?: boolean
           last_name?: string
+          last_reactivation_sent_at?: string | null
           last_reminder_sent_at?: string | null
           linkedin_url?: string | null
+          marketing_consent?: boolean
           member_number?: string | null
           metadata?: Json
           originator_id?: string | null
@@ -1052,9 +1159,6 @@ export type CompositeTypes<
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
 
-export type MemberStatus = Database["public"]["Enums"]["member_status"]
-export type PaymentCaptureStatus = Database["public"]["Enums"]["payment_capture_status"]
-
 export const Constants = {
   public: {
     Enums: {
@@ -1082,3 +1186,7 @@ export const Constants = {
     },
   },
 } as const
+
+// --- Manual aliases (re-append after every Supabase regen) ---
+export type MemberStatus = Database["public"]["Enums"]["member_status"]
+export type PaymentCaptureStatus = Database["public"]["Enums"]["payment_capture_status"]
