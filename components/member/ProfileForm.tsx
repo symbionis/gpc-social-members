@@ -24,6 +24,7 @@ interface ProfileFormProps {
     company_role: string | null;
     address: Address | null;
     profile_photo_url: string | null;
+    marketing_consent: boolean;
   };
 }
 
@@ -71,6 +72,7 @@ export default function ProfileForm({ member }: ProfileFormProps) {
   const parsedPhone = parsePhone(member.phone);
   const [dialCode, setDialCode] = useState(parsedPhone.dialCode);
   const [localPhone, setLocalPhone] = useState(parsedPhone.local);
+  const [marketingConsent, setMarketingConsent] = useState(member.marketing_consent);
 
   async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -130,6 +132,7 @@ export default function ProfileForm({ member }: ProfileFormProps) {
           postal_code: form.get("postal_code") || null,
           country: form.get("country") || null,
         },
+        marketing_consent: marketingConsent,
       }),
     });
 
@@ -277,6 +280,25 @@ export default function ProfileForm({ member }: ProfileFormProps) {
                 className="w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50" />
             </div>
           </div>
+        </div>
+
+        {/* Communications */}
+        <div className="pt-4 border-t border-border">
+          <h2 className="font-body font-semibold text-marine mb-4">Communications</h2>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={marketingConsent}
+              onChange={(e) => setMarketingConsent(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-border text-marine focus:ring-2 focus:ring-sky/50"
+            />
+            <span className="text-sm font-body text-marine">
+              <span className="block font-medium">Member communications</span>
+              <span className="block text-muted-foreground mt-0.5">
+                Receive occasional emails from the club — events, partner offers, and member news. Renewal and account emails are sent regardless of this setting.
+              </span>
+            </span>
+          </label>
         </div>
 
         {error && <p className="text-sm text-destructive font-body">{error}</p>}

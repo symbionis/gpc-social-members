@@ -16,7 +16,7 @@ export default async function ProfilePage() {
   const { data: members } = await adminClient
     .from("members")
     .select(
-      "id, auth_user_id, first_name, last_name, email, phone, company_name, company_role, address, profile_photo_url"
+      "id, auth_user_id, first_name, last_name, email, phone, company_name, company_role, address, profile_photo_url, marketing_consent"
     )
     .eq("email", user.email)
     .limit(1);
