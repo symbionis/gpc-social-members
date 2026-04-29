@@ -42,6 +42,11 @@ export default function RichTextEditor({
       Link.configure({
         openOnClick: false,
         HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" },
+        // Reject javascript:/data:/vbscript: schemes so a typo or paste cannot
+        // smuggle a script-execution URL into the stored body_html. The same
+        // body_html is rendered back into a sandboxed iframe on the detail
+        // page; defence in depth.
+        validate: isSafeUrl,
       }),
       Image.configure({
         // Constrain rendered width so images don't blow out the 600px email.
@@ -97,6 +102,18 @@ export default function RichTextEditor({
   );
 }
 
+function isSafeUrl(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  if (/^(https?:|mailto:|tel:|\/|#)/i.test(trimmed)) return true;
+  return false;
+}
+
+function isSafeImageUrl(url: string): boolean {
+  const trimmed = url.trim();
+  return /^https?:\/\//i.test(trimmed);
+}
+
 function Toolbar({ editor }: { editor: Editor }) {
   function setLink() {
     const previous = editor.getAttributes("link").href as string | undefined;
@@ -104,6 +121,10 @@ function Toolbar({ editor }: { editor: Editor }) {
     if (url === null) return;
     if (url === "") {
       editor.chain().focus().unsetLink().run();
+      return;
+    }
+    if (!isSafeUrl(url)) {
+      window.alert("Only http(s):, mailto:, tel:, and relative URLs are allowed.");
       return;
     }
     editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
@@ -115,6 +136,10 @@ function Toolbar({ editor }: { editor: Editor }) {
       "https://"
     );
     if (!url) return;
+    if (!isSafeImageUrl(url)) {
+      window.alert("Image URL must use http(s):");
+      return;
+    }
     const alt = window.prompt("Alt text (for accessibility / image-blocked clients)", "") ?? "";
     editor.chain().focus().setImage({ src: url, alt }).run();
   }

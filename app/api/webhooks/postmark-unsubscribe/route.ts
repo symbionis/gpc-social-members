@@ -1,19 +1,25 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse, type NextRequest } from "next/server";
+import { timingSafeEqual } from "crypto";
 
 /**
  * Postmark SubscriptionChange webhook handler.
  *
  * Postmark fires this when a recipient unsubscribes (footer link, list-
  * unsubscribe header, or manual suppression in the Postmark dashboard) and
- * when a previously suppressed recipient is reactivated.
+ * when a previously suppressed recipient is reactivated in Postmark.
  *
- * Postmark does NOT sign these webhooks. The standard mitigation per their
- * docs is to gate the URL with a shared secret — we expect ?token=<secret>
- * matching POSTMARK_WEBHOOK_TOKEN.
+ * We honour suppression (SuppressSending=true) by setting marketing_consent
+ * to false. We DO NOT auto-re-enable consent on Postmark reactivation —
+ * that would require explicit member action via a future preferences page,
+ * not an admin un-suppressing in the Postmark dashboard.
  *
- * We always return 200 on validated requests so Postmark does not retry on
- * application-level no-ops (e.g. unknown email).
+ * Postmark does not sign these webhooks. The standard mitigation is a
+ * shared-secret token in the URL, compared in constant time.
+ *
+ * On internal failure (DB lookup or update) we return 500 so Postmark
+ * retries. On unrecoverable application-level cases (unknown email,
+ * malformed payload) we return 200 to avoid retry churn.
  */
 export async function POST(request: NextRequest) {
   const expectedToken = process.env.POSTMARK_WEBHOOK_TOKEN;
@@ -21,9 +27,12 @@ export async function POST(request: NextRequest) {
 
   if (!expectedToken) {
     console.error("[postmark-unsubscribe] POSTMARK_WEBHOOK_TOKEN not set");
-    return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Webhook not configured" },
+      { status: 500 }
+    );
   }
-  if (providedToken !== expectedToken) {
+  if (!providedToken || !constantTimeEquals(providedToken, expectedToken)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -32,66 +41,73 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  // Postmark SubscriptionChange shape:
-  //   { Recipient, Origin, SuppressSending, SuppressionReason, ChangedAt, MessageStream, ... }
-  // SuppressSending is a boolean: true = suppressed (unsubscribed), false = reactivated.
-  const recipient = typeof payload.Recipient === "string"
-    ? payload.Recipient.toLowerCase()
-    : null;
+  const recipient =
+    typeof payload.Recipient === "string"
+      ? payload.Recipient.toLowerCase()
+      : null;
 
   if (!recipient) {
-    console.warn("[postmark-unsubscribe] missing Recipient in payload", payload);
+    console.warn("[postmark-unsubscribe] missing Recipient in payload");
     return NextResponse.json({ received: true });
   }
 
   const suppressSending = Boolean(payload.SuppressSending);
 
+  // Only act on suppression events. Reactivation from Postmark's side does
+  // not flip our flag — that requires explicit member action.
+  if (!suppressSending) {
+    return NextResponse.json({ received: true, ignored: "reactivation" });
+  }
+
   const adminClient = createAdminClient();
 
   const { data: members, error: lookupErr } = await adminClient
     .from("members")
-    .select("id, email")
-    .eq("email", recipient)
+    .select("id")
+    .ilike("email", recipient)
     .limit(1);
 
   if (lookupErr) {
     console.error(
-      "[postmark-unsubscribe] member lookup failed",
-      lookupErr,
-      recipient
+      "[postmark-unsubscribe] member lookup failed — returning 500 for retry",
+      lookupErr
     );
-    return NextResponse.json({ received: true });
+    return NextResponse.json(
+      { error: "Member lookup failed" },
+      { status: 500 }
+    );
   }
 
   if (!members || members.length === 0) {
-    console.log(
-      "[postmark-unsubscribe] no member matches recipient — no-op",
-      recipient
-    );
-    return NextResponse.json({ received: true });
+    // Unknown email — not retryable. Postmark may have suppressed an address
+    // that never had an account on our side.
+    return NextResponse.json({ received: true, ignored: "no_match" });
   }
 
   const memberId = members[0].id;
-  const newConsent = !suppressSending;
 
   const { error: updateErr } = await adminClient
     .from("members")
-    .update({ marketing_consent: newConsent })
+    .update({ marketing_consent: false })
     .eq("id", memberId);
 
   if (updateErr) {
     console.error(
-      "[postmark-unsubscribe] failed to update marketing_consent",
-      updateErr,
-      memberId
+      "[postmark-unsubscribe] failed to update marketing_consent — returning 500 for retry",
+      updateErr
     );
-    return NextResponse.json({ received: true });
+    return NextResponse.json(
+      { error: "Update failed" },
+      { status: 500 }
+    );
   }
 
-  console.log(
-    "[postmark-unsubscribe] updated marketing_consent",
-    { memberId, recipient, newConsent }
-  );
+  return NextResponse.json({ received: true, suppressed: true });
+}
 
-  return NextResponse.json({ received: true });
+function constantTimeEquals(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  return timingSafeEqual(aBuf, bBuf);
 }

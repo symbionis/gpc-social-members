@@ -25,6 +25,7 @@ export interface SendBroadcastResult {
   recipient_count: number;
   sent: number;
   failed: number;
+  skipped: number;
   errors: Array<{ email: string; error: string }>;
 }
 
@@ -49,7 +50,7 @@ export async function sendBroadcast(
     throw new Error(`Unknown broadcast channel: ${channelKey}`);
   }
 
-  const recipients = await resolveAudience(input.audience_filter);
+  const { recipients, skipped } = await resolveAudience(input.audience_filter);
 
   const { data: inserted, error: insertErr } = await supabase
     .from("broadcasts")
@@ -60,6 +61,7 @@ export async function sendBroadcast(
       channel: channelKey,
       status: "sending",
       recipient_count: recipients.length,
+      skipped_count: skipped,
       created_by: input.created_by,
     })
     .select("id")
@@ -76,7 +78,7 @@ export async function sendBroadcast(
 
   // Empty audience: finalise immediately, no adapter call.
   if (recipients.length === 0) {
-    await supabase
+    const { error: emptyUpdateErr } = await supabase
       .from("broadcasts")
       .update({
         status: "sent",
@@ -84,12 +86,18 @@ export async function sendBroadcast(
         error_count: 0,
       })
       .eq("id", broadcastId);
-
+    if (emptyUpdateErr) {
+      console.error(
+        "[broadcast] failed to finalise empty broadcast row",
+        emptyUpdateErr
+      );
+    }
     return {
       broadcast_id: broadcastId,
       recipient_count: 0,
       sent: 0,
       failed: 0,
+      skipped,
       errors: [],
     };
   }
@@ -104,9 +112,30 @@ export async function sendBroadcast(
   try {
     results = await channel.send(recipients, content);
   } catch (err) {
-    // Adapter-wide failure (e.g. missing env, network down). Mark broadcast
-    // failed and rethrow so the route layer surfaces the error to the admin.
-    await supabase
+    // Adapter-wide failure (e.g. missing env, network down). Persist a
+    // failed row for every recipient so the audit log matches the broadcast
+    // counts, then mark the broadcast failed and rethrow.
+    const errMessage = err instanceof Error ? err.message : "Channel send failed";
+    const failedRows = recipients.map((r) => ({
+      broadcast_id: broadcastId,
+      member_id: r.member_id,
+      email: r.email,
+      status: "failed",
+      error: errMessage,
+      provider_message_id: null,
+    }));
+    if (failedRows.length > 0) {
+      const { error: insErr } = await supabase
+        .from("broadcast_recipients")
+        .insert(failedRows);
+      if (insErr) {
+        console.error(
+          "[broadcast] failed to persist adapter-error recipient rows",
+          insErr
+        );
+      }
+    }
+    const { error: failUpdateErr } = await supabase
       .from("broadcasts")
       .update({
         status: "failed",
@@ -114,6 +143,12 @@ export async function sendBroadcast(
         error_count: recipients.length,
       })
       .eq("id", broadcastId);
+    if (failUpdateErr) {
+      console.error(
+        "[broadcast] failed to mark broadcast as failed",
+        failUpdateErr
+      );
+    }
     throw err;
   }
 
@@ -131,7 +166,6 @@ export async function sendBroadcast(
     const { error: recipientErr } = await supabase
       .from("broadcast_recipients")
       .insert(recipientRows);
-
     if (recipientErr) {
       console.error(
         "[broadcast] Failed to persist per-recipient rows",
@@ -143,7 +177,7 @@ export async function sendBroadcast(
   const failed = results.filter((r) => r.status === "failed");
   const sent = results.length - failed.length;
 
-  await supabase
+  const { error: finalUpdateErr } = await supabase
     .from("broadcasts")
     .update({
       status: "sent",
@@ -151,12 +185,19 @@ export async function sendBroadcast(
       error_count: failed.length,
     })
     .eq("id", broadcastId);
+  if (finalUpdateErr) {
+    console.error(
+      "[broadcast] failed to finalise broadcast row",
+      finalUpdateErr
+    );
+  }
 
   return {
     broadcast_id: broadcastId,
     recipient_count: recipients.length,
     sent,
     failed: failed.length,
+    skipped,
     errors: failed.map((f) => ({
       email: f.email,
       error: f.error ?? "Unknown error",

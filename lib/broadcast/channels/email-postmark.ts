@@ -62,11 +62,40 @@ export const PostmarkEmailChannel: BroadcastChannel = {
         MessageStream: streamId,
       }));
 
-      const responses = await client.sendEmailBatchWithTemplates(batch);
+      // Wrap each chunk so an error sending batch N does not lose the
+      // results from batch N-1 — those recipients already got the email.
+      let responses: Awaited<
+        ReturnType<typeof client.sendEmailBatchWithTemplates>
+      > = [];
+      try {
+        responses = await client.sendEmailBatchWithTemplates(batch);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Postmark batch failed";
+        for (const recipient of chunk) {
+          results.push({
+            member_id: recipient.member_id,
+            email: recipient.email,
+            status: "failed",
+            error: message,
+          });
+        }
+        continue;
+      }
 
-      // Postmark returns one response per input row in order. Map back by index.
-      responses.forEach((res, idx) => {
-        const recipient = chunk[idx];
+      // Postmark returns one response per input row in order. Map back by
+      // index; any unmatched recipients are recorded as failed with a clear
+      // marker so the audit log never drops a row silently.
+      chunk.forEach((recipient, idx) => {
+        const res = responses[idx];
+        if (!res) {
+          results.push({
+            member_id: recipient.member_id,
+            email: recipient.email,
+            status: "failed",
+            error: "No response from Postmark for this recipient",
+          });
+          return;
+        }
         const ok = res.ErrorCode === 0;
         results.push({
           member_id: recipient.member_id,

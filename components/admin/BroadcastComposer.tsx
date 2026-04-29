@@ -25,6 +25,7 @@ export default function BroadcastComposer({ tiers }: Props) {
 
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [recipientCount, setRecipientCount] = useState<number | null>(null);
+  const [skippedCount, setSkippedCount] = useState<number>(0);
   const [previewing, setPreviewing] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +55,7 @@ export default function BroadcastComposer({ tiers }: Props) {
       } else {
         setPreviewHtml(data.html);
         setRecipientCount(data.recipient_count);
+        setSkippedCount(data.skipped_count ?? 0);
       }
     } catch (e) {
       setError("Network error generating preview.");
@@ -196,6 +198,8 @@ export default function BroadcastComposer({ tiers }: Props) {
         {recipientCount !== null && (
           <span className="text-xs font-body text-muted-foreground">
             {audienceSummary(status, tierId, tiers)}
+            {skippedCount > 0 &&
+              ` · ${skippedCount} skipped (no marketing consent)`}
           </span>
         )}
       </div>

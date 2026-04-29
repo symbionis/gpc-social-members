@@ -56,13 +56,19 @@ export async function POST(request: NextRequest) {
       : null;
 
   let recipientCount = 0;
+  let skippedCount = 0;
   if (ALLOWED_STATUSES.includes(status)) {
     const filter: AudienceFilter = { status, tier_id: tierId };
     try {
-      const recipients = await resolveAudience(filter);
+      const { recipients, skipped } = await resolveAudience(filter);
       recipientCount = recipients.length;
+      skippedCount = skipped;
     } catch (err) {
       console.error("[broadcasts/preview] audience resolution failed", err);
+      return NextResponse.json(
+        { error: "Failed to resolve audience" },
+        { status: 500 }
+      );
     }
   }
 
@@ -85,7 +91,11 @@ export async function POST(request: NextRequest) {
     lastName,
   });
 
-  return NextResponse.json({ html, recipient_count: recipientCount });
+  return NextResponse.json({
+    html,
+    recipient_count: recipientCount,
+    skipped_count: skippedCount,
+  });
 }
 
 /**
