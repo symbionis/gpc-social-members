@@ -104,18 +104,21 @@ function renderPreviewHtml({
   firstName: string;
   lastName: string;
 }): string {
-  const safeSubject = subject || "(no subject)";
   // Allow {{first_name}} / {{last_name}} substitution in the preview so admins
   // can validate the merge tags they typed.
   const renderedBody = bodyHtml
     .replace(/\{\{first_name\}\}/g, escapeHtml(firstName))
     .replace(/\{\{last_name\}\}/g, escapeHtml(lastName));
 
+  const subjectLabel = subject || "(no subject)";
+
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8" />
 <style>
   body { margin: 0; padding: 0; background: #F2F4F6; font-family: 'Poppins', 'Helvetica Neue', Arial, sans-serif; color: #052938; }
   .wrap { max-width: 600px; margin: 0 auto; background: #FFFFFF; }
+  .subject-meta { padding: 12px 16px; background: #FFFFFF; border-bottom: 1px solid #E5E9EE; font-size: 12px; color: #8B99A8; }
+  .subject-meta strong { color: #052938; font-weight: 500; }
   .header { background: #052938; color: #FFFFFF; text-align: center; padding: 24px 16px; }
   .header h2 { margin: 0; font-family: 'Playfair Display', Georgia, serif; font-weight: 700; font-size: 22px; letter-spacing: 0.5px; }
   .header small { display: block; margin-top: 6px; font-size: 11px; letter-spacing: 4px; text-transform: uppercase; color: #95CEE1; }
@@ -128,6 +131,7 @@ function renderPreviewHtml({
 </style>
 </head><body>
 <div class="wrap">
+  <div class="subject-meta">Subject: <strong>${escapeHtml(subjectLabel)}</strong></div>
   <div class="header">
     <h2>Geneva Polo<br />Social Members Club</h2>
     <small>Elegance &middot; Passion &middot; Fun</small>
@@ -135,8 +139,8 @@ function renderPreviewHtml({
   <div class="accent"></div>
   <div class="banner">Member Only Communication</div>
   <div class="body">
-    <h1>${escapeHtml(safeSubject)}</h1>
     ${renderedBody}
+    <p style="margin-top: 32px;">Warm regards,<br><strong>The Geneva Polo Social Club Team</strong></p>
   </div>
   <div class="footer">Preview only. Final email rendered by Postmark.</div>
 </div>
