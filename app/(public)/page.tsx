@@ -6,7 +6,9 @@ import {
   Handshake,
   Trophy,
   Smartphone,
+  Flame,
 } from "lucide-react";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const APPLY_URL = "/apply/GPC-2026";
 
@@ -21,25 +23,31 @@ const benefits = [
     icon: CalendarHeart,
     title: "Social Calendar",
     description:
-      "Beyond polo — long-table dinners, wine and cigar tastings, fireside chats with guest speakers, lounge music evenings, and seasonal celebrations. Events designed for authentic connection — not superficial \"networking\".",
+      "Beyond polo: long-table dinners, wine and cigar tastings, fireside chats with guest speakers, lounge music evenings, and seasonal celebrations. Events designed for authentic connection, not superficial \"networking\".",
   },
   {
     icon: Handshake,
     title: "Partner Benefits",
     description:
-      "Preferential rates and exclusive offers from the club's curated partners — spanning hospitality, luxury, wellness, lifestyle, travel and more. Tangible value that extends beyond the field!",
+      "Preferential rates and exclusive offers from the club's curated partners, spanning hospitality, luxury, wellness, lifestyle, travel and more. Tangible value that extends beyond the field!",
   },
   {
     icon: Trophy,
     title: "The Sport",
     description:
-      "Whether you ride or simply come for the atmosphere — the sport provides a rhythm and a reason to gather. Polo school available for those drawn in by the experience. Two major tournaments per season.",
+      "Whether you ride or simply come for the atmosphere, the sport provides a rhythm and a reason to gather. Polo school available for those drawn in by the experience. Two major tournaments per season.",
   },
   {
     icon: Smartphone,
     title: "Digital Membership Card",
     description:
-      "Your personal membership card with QR verification — access to events, partner benefits, and the member portal from your phone.",
+      "Your personal membership card with QR verification: access to events, partner benefits, and the member portal from your phone.",
+  },
+  {
+    icon: Flame,
+    title: "Regular Asados",
+    description:
+      "An Argentine tradition brought to the field, slow-cooked over open embers, served at long tables under the open sky. Every two weeks, the smoke rises and the club gathers around. A great opportunity to meet other members in a convivial atmosphere.",
   },
 ];
 
@@ -89,7 +97,106 @@ function Rule({ className = "" }: { className?: string }) {
   );
 }
 
-export default function HomePage() {
+interface UpcomingHighlight {
+  id: string;
+  title: string;
+  start_date: string;
+  end_date: string | null;
+  location: string | null;
+  visibility: string | null;
+  image_url: string | null;
+  image_url_2: string | null;
+  images: unknown;
+  type_name: string;
+  type_color: string;
+  type_sort_order: number;
+}
+
+function highlightHero(e: UpcomingHighlight): string | null {
+  if (Array.isArray(e.images)) {
+    const first = e.images.find(
+      (u): u is string => typeof u === "string" && u.length > 0
+    );
+    if (first) return first;
+  }
+  return e.image_url || e.image_url_2 || null;
+}
+
+function formatHighlightDate(
+  startDate: string,
+  endDate: string | null,
+  monthOnly: boolean
+): string {
+  const start = new Date(startDate);
+  const startMonth = start.toLocaleDateString("en-GB", { month: "long" });
+  const startYear = start.getFullYear();
+  if (monthOnly) {
+    return `${startMonth} ${startYear}`;
+  }
+  const startDay = start.getDate();
+  if (!endDate || endDate === startDate) {
+    return `${startDay} ${startMonth} ${startYear}`;
+  }
+  const end = new Date(endDate);
+  const endDay = end.getDate();
+  const endMonth = end.toLocaleDateString("en-GB", { month: "long" });
+  if (startMonth === endMonth) {
+    return `${startDay}–${endDay} ${startMonth} ${startYear}`;
+  }
+  return `${startDay} ${startMonth} – ${endDay} ${endMonth} ${startYear}`;
+}
+
+async function fetchUpcomingHighlights(): Promise<UpcomingHighlight[]> {
+  const supabase = createAdminClient();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const { data: events } = await supabase
+    .from("events")
+    .select(
+      "id, title, start_date, end_date, location, visibility, image_url, image_url_2, images, event_type_id"
+    )
+    .eq("is_published", true)
+    .gte("start_date", today)
+    .order("start_date", { ascending: true });
+
+  if (!events || events.length === 0) return [];
+
+  const { data: types } = await supabase
+    .from("event_types")
+    .select("id, name, color, sort_order");
+
+  const typeMap = new Map(
+    (types ?? []).map((t) => [t.id, t] as const)
+  );
+
+  const seen = new Set<string>();
+  const highlights: UpcomingHighlight[] = [];
+  for (const e of events) {
+    if (!e.event_type_id || seen.has(e.event_type_id)) continue;
+    const t = typeMap.get(e.event_type_id);
+    if (!t) continue;
+    seen.add(e.event_type_id);
+    highlights.push({
+      id: e.id,
+      title: e.title,
+      start_date: e.start_date,
+      end_date: e.end_date,
+      location: e.location,
+      visibility: e.visibility,
+      image_url: e.image_url,
+      image_url_2: e.image_url_2,
+      images: e.images,
+      type_name: t.name,
+      type_color: t.color,
+      type_sort_order: t.sort_order,
+    });
+  }
+  highlights.sort((a, b) => a.type_sort_order - b.type_sort_order);
+  return highlights;
+}
+
+export default async function HomePage() {
+  const upcomingHighlights = await fetchUpcomingHighlights();
   return (
     <>
       {/* ── Hero ── */}
@@ -132,7 +239,7 @@ export default function HomePage() {
           </h2>
           <p className="font-body text-base sm:text-lg leading-relaxed text-marine/70 mb-12">
             The Social Club is not a spectator tier or a hospitality
-            package. It is the club&rsquo;s primary social layer — a private,
+            package. It is the club&rsquo;s primary social layer, a private,
             vetted community where international professionals, creatives, and
             families gather around the sport and lifestyle of polo on a
             30-hectare regenerative estate outside Geneva.
@@ -140,13 +247,13 @@ export default function HomePage() {
           <blockquote className="border-l-2 border-sky pl-6 text-left max-w-xl mx-auto">
             <p className="font-heading text-lg sm:text-xl italic text-marine/80 leading-relaxed mb-4">
               &ldquo;We didn&rsquo;t set out to build an ultra-luxury club. We
-              are clearly exclusive but more over authentic and natural &mdash; a
+              are clearly exclusive but more over authentic and natural, a
               place where people can relax find positive vibes and real
-              connections &mdash; fieldside, with good food &amp; drink, horses
+              connections, fieldside, with good food &amp; drink, horses
               and the open sky.&rdquo;
             </p>
             <cite className="font-body text-sm text-marine/50 not-italic">
-              — The Founders
+              The Founders
             </cite>
           </blockquote>
         </div>
@@ -186,11 +293,108 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ── Upcoming highlights — one per event type ── */}
+      {upcomingHighlights.length > 0 && (
+        <section className="bg-cream">
+          <div className="mx-auto max-w-6xl px-6 py-20 sm:py-28">
+            <div className="text-center mb-12">
+              <p className="font-accent text-base tracking-[0.3em] uppercase text-sky-dark mb-4">
+                On the Calendar
+              </p>
+              <h2 className="font-heading text-3xl sm:text-4xl font-bold text-marine mb-4">
+                What&rsquo;s coming up
+              </h2>
+              <Rule className="text-marine" />
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {upcomingHighlights.slice(0, 4).map((event) => {
+                const isMembersOnly = event.visibility !== "public";
+                const dateLabel = formatHighlightDate(
+                  event.start_date,
+                  event.end_date,
+                  isMembersOnly
+                );
+                const hero = highlightHero(event);
+                const cta = isMembersOnly ? (
+                  <Link
+                    href={APPLY_URL}
+                    className="inline-block mt-3 text-xs font-body font-medium text-marine underline underline-offset-4 hover:text-sky-dark transition-colors"
+                  >
+                    Apply for membership →
+                  </Link>
+                ) : (
+                  <Link
+                    href={`/public/events/${event.id}`}
+                    className="inline-block mt-3 text-xs font-body font-medium text-marine underline underline-offset-4 hover:text-sky-dark transition-colors"
+                  >
+                    View event →
+                  </Link>
+                );
+                return (
+                  <article
+                    key={event.id}
+                    className="bg-white rounded-sm border border-border/60 overflow-hidden flex flex-col"
+                  >
+                    {hero ? (
+                      <div className="aspect-square bg-cream/50">
+                        <img
+                          src={hero}
+                          alt={event.title}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <div className="aspect-square bg-cream/60" />
+                    )}
+                    <div className="p-4 flex-1 flex flex-col">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-body bg-marine/5 text-marine">
+                          <span
+                            className="w-1.5 h-1.5 rounded-full"
+                            style={{ backgroundColor: event.type_color }}
+                          />
+                          {event.type_name}
+                        </span>
+                        {isMembersOnly && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-body font-medium bg-sky/10 text-sky-dark">
+                            Members only
+                          </span>
+                        )}
+                      </div>
+                      <p className="font-body text-xs font-semibold text-sky-dark">
+                        {dateLabel}
+                      </p>
+                      <h3 className="font-heading text-base font-bold text-marine mt-1 leading-snug">
+                        {event.title}
+                      </h3>
+                      {!isMembersOnly && event.location && (
+                        <p className="text-xs font-body text-muted-foreground mt-1">
+                          {event.location}
+                        </p>
+                      )}
+                      <div className="mt-auto">{cta}</div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="text-center mt-10">
+              <Link
+                href="/public/events"
+                className="inline-block px-5 py-2.5 rounded-full bg-marine text-white font-body font-medium text-sm hover:bg-marine-light transition-colors"
+              >
+                See all upcoming events →
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ── Nature & Community — split panel ── */}
       <section>
         <div className="grid grid-cols-1 lg:grid-cols-2">
           {/* Left — Nature & Wellbeing */}
-          <div className="bg-cream px-6 sm:px-12 lg:px-16 py-20 sm:py-28">
+          <div className="bg-white px-6 sm:px-12 lg:px-16 py-20 sm:py-28">
             <p className="font-accent text-base tracking-[0.3em] uppercase text-sky-dark mb-4">
               Nature & Wellbeing
             </p>
@@ -200,12 +404,12 @@ export default function HomePage() {
             <Rule className="text-marine justify-start mb-6" />
             <p className="font-body text-base leading-relaxed text-marine/60 mb-6">
               Thirty hectares of regenerative farmland, open fields, and over
-              a hundred horses. The land is managed with care — organic,
+              a hundred horses. The land is managed with care: organic,
               regenerative, respectful of the natural balance.
             </p>
             <p className="font-body text-base leading-relaxed text-marine/60 mb-4">
               Within the grounds, The Holistic Space offers a destination for
-              tranquility and self-discovery — including the traditional
+              tranquility and self-discovery, including the traditional
               Russian banya beside a tranquil pond. Wellness here isn&rsquo;t
               a programme. It&rsquo;s what happens when you spend your
               weekends outdoors, among horses, in good company.
@@ -232,12 +436,12 @@ export default function HomePage() {
             <p className="font-body text-base leading-relaxed text-marine/60 mb-6">
               What makes the community hard to describe is what makes it
               worth joining. The conversations cross languages and borders.
-              The friendships form quickly and run deep — because when people
+              The friendships form quickly and run deep, because when people
               feel at ease, they skip the small talk.
             </p>
             <p className="font-body text-base leading-relaxed text-marine/60">
               We vet for trust, not for titles. The result is a circle of
-              people who make you put your phone away — because what&rsquo;s
+              people who make you put your phone away, because what&rsquo;s
               happening around you is simply more interesting.
             </p>
           </div>
@@ -306,7 +510,7 @@ export default function HomePage() {
             April through September
           </h2>
           <p className="font-body text-base sm:text-lg leading-relaxed text-marine/70">
-            The season opens in April. By June, the fields are full — thirty
+            The season opens in April. By June, the fields are full: thirty
             players, a hundred horses, and Wednesday evenings that go longer
             than planned. Saturday mornings begin with coffee, croissants, and
             a training match worth watching. The calendar moves with the

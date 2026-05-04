@@ -1,27 +1,8 @@
-import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-function formatDateRange(startDate: string, endDate: string | null) {
-  const start = new Date(startDate);
-  const startDay = start.getDate();
-  const startMonth = start.toLocaleDateString("en-GB", { month: "long" });
-  const startYear = start.getFullYear();
-
-  if (!endDate || endDate === startDate) {
-    return `${startDay} ${startMonth} ${startYear}`;
-  }
-  const end = new Date(endDate);
-  const endDay = end.getDate();
-  const endMonth = end.toLocaleDateString("en-GB", { month: "long" });
-  const endYear = end.getFullYear();
-  if (startMonth === endMonth && startYear === endYear) {
-    return `${startDay}–${endDay} ${startMonth} ${startYear}`;
-  }
-  if (startYear === endYear) {
-    return `${startDay} ${startMonth} – ${endDay} ${endMonth} ${startYear}`;
-  }
-  return `${startDay} ${startMonth} ${startYear} – ${endDay} ${endMonth} ${endYear}`;
-}
+import PublicEventsList, {
+  type PublicEvent,
+  type PublicEventType,
+} from "@/components/public/PublicEventsList";
 
 export default async function PublicEventsPage() {
   const supabase = createAdminClient();
@@ -30,111 +11,45 @@ export default async function PublicEventsPage() {
   const { data: events } = await supabase
     .from("events")
     .select(
-      "id, title, start_date, end_date, start_time, location, description, image_url, image_url_2, images, registration_enabled"
+      "id, title, start_date, end_date, start_time, location, description, image_url, image_url_2, images, registration_enabled, visibility, event_type_id"
     )
     .eq("is_published", true)
-    .eq("visibility", "public")
     .gte("start_date", today)
     .order("start_date", { ascending: true });
 
-  function heroImage(event: { images?: unknown; image_url: string | null; image_url_2?: string | null }) {
-    if (Array.isArray(event.images)) {
-      const first = event.images.find(
-        (u): u is string => typeof u === "string" && u.length > 0
-      );
-      if (first) return first;
-    }
-    return event.image_url || event.image_url_2 || null;
-  }
+  // Only show event types that have at least one upcoming published event,
+  // so the filter row never offers empty buckets.
+  const usedTypeIds = new Set(
+    (events ?? [])
+      .map((e) => e.event_type_id)
+      .filter((id): id is string => !!id)
+  );
 
-  function descriptionExcerpt(text: unknown): string | null {
-    if (typeof text !== "string" || text.trim().length === 0) return null;
-    return text;
-  }
+  const { data: allTypes } = await supabase
+    .from("event_types")
+    .select("id, name, slug, color")
+    .order("sort_order", { ascending: true });
+
+  const eventTypes: PublicEventType[] = (allTypes ?? []).filter((t) =>
+    usedTypeIds.has(t.id)
+  );
 
   return (
     <>
       <div className="h-20 bg-marine" />
       <div className="bg-cream min-h-[calc(100vh-5rem)] py-12">
-        <div className="mx-auto max-w-4xl px-6">
-        <p className="font-accent text-base tracking-[0.3em] uppercase text-sky-dark mb-1">
-          Public Events
-        </p>
-        <h1 className="font-heading text-3xl sm:text-4xl font-bold text-marine mb-8">
-          Upcoming Events
-        </h1>
+        <div className="mx-auto max-w-6xl px-6">
+          <p className="font-accent text-base tracking-[0.3em] uppercase text-sky-dark mb-1">
+            Public Events
+          </p>
+          <h1 className="font-heading text-3xl sm:text-4xl font-bold text-marine mb-8">
+            Upcoming Events
+          </h1>
 
-        {!events || events.length === 0 ? (
-          <div className="bg-white rounded-xl border border-border p-8 text-center">
-            <p className="text-muted-foreground font-body">
-              No public events scheduled at the moment. Check back soon.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {events.map((event) => (
-              <Link
-                key={event.id}
-                href={`/public/events/${event.id}`}
-                className="block bg-white rounded-xl border border-border p-4 hover:border-sky/50 hover:shadow-sm transition-all"
-              >
-                <div className="flex items-start gap-4">
-                  {heroImage(event) ? (
-                    <img
-                      src={heroImage(event)!}
-                      alt={event.title}
-                      className="w-28 h-28 sm:w-36 sm:h-36 object-cover rounded-lg border border-border shrink-0"
-                    />
-                  ) : (
-                    <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-lg bg-cream/60 border border-border shrink-0" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="font-body text-base font-semibold text-sky-dark">
-                      {formatDateRange(event.start_date, event.end_date)}
-                      {event.start_time
-                        ? ` · ${event.start_time.slice(0, 5)}`
-                        : ""}
-                    </p>
-                    <p className="font-heading text-lg font-bold text-marine mt-0.5">
-                      {event.title}
-                    </p>
-                    {event.location && (
-                      <p className="text-sm font-body text-muted-foreground mt-1">
-                        {event.location}
-                      </p>
-                    )}
-                    {descriptionExcerpt(event.description) && (
-                      <p className="text-sm font-body text-muted-foreground mt-2 line-clamp-2">
-                        {descriptionExcerpt(event.description)}
-                      </p>
-                    )}
-                    {event.registration_enabled && (
-                      <span className="inline-block mt-2 px-2 py-0.5 rounded-full text-xs font-body font-medium bg-sky/10 text-sky-dark">
-                        Registration open
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-muted-foreground shrink-0 mt-1">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="h-5 w-5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={1.5}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M9 5l7 7-7 7"
-                      />
-                    </svg>
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
+          <PublicEventsList
+            events={(events ?? []) as PublicEvent[]}
+            eventTypes={eventTypes}
+          />
         </div>
       </div>
     </>

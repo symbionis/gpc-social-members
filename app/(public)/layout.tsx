@@ -17,18 +17,20 @@ export default async function PublicLayout({
             <span className="text-lg font-bold text-white block">Geneva Polo Club</span>
             <span className="text-[10px] font-light tracking-[0.25em] uppercase text-sky block">Social Members</span>
           </Link>
-          {user ? (
-            <Link href="/dashboard" className="text-sm font-body text-white/70 hover:text-white transition-colors">
-              My Clubhouse
-            </Link>
-          ) : (
+          <nav className="flex items-center gap-6">
             <Link
-              href="/login"
+              href="/public/events"
               className="text-sm font-body text-white/70 hover:text-white transition-colors"
             >
-              Clubhouse Login
+              Events
             </Link>
-          )}
+            <Link
+              href={user ? "/dashboard" : "/login"}
+              className="text-sm font-body text-white/70 hover:text-white transition-colors"
+            >
+              Members Login
+            </Link>
+          </nav>
         </div>
       </header>
       <main className="flex-1">{children}</main>

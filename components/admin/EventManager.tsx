@@ -318,12 +318,33 @@ export default function EventManager({
         </button>
       </div>
 
-      {/* Form */}
+      {/* Form — right-hand slide-over */}
       {showForm && (
-        <div className="bg-white rounded-xl border border-border p-6">
-          <h2 className="font-heading text-xl font-bold text-marine mb-6">
-            {editing ? "Edit Event" : "New Event"}
-          </h2>
+        <>
+          <div
+            className="fixed inset-0 bg-marine/40 z-40"
+            onClick={cancelForm}
+            aria-hidden="true"
+          />
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label={editing ? "Edit event" : "New event"}
+            className="fixed top-0 right-0 h-full w-full sm:w-[640px] max-w-full bg-white shadow-xl z-50 flex flex-col"
+          >
+            <header className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+              <h2 className="font-heading text-xl font-bold text-marine">
+                {editing ? "Edit Event" : "New Event"}
+              </h2>
+              <button
+                onClick={cancelForm}
+                aria-label="Close"
+                className="text-muted-foreground hover:text-marine text-2xl leading-none px-2"
+              >
+                ×
+              </button>
+            </header>
+            <div className="flex-1 overflow-y-auto px-6 py-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className="block text-xs font-body text-muted-foreground mb-1">
@@ -671,22 +692,24 @@ export default function EventManager({
               </div>
             )}
           </div>
-          <div className="flex gap-2 mt-6">
-            <button
-              onClick={handleSubmit}
-              disabled={saving || !formData.title || !formData.start_date}
-              className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50"
-            >
-              {saving ? "Saving..." : editing ? "Save Changes" : "Create Event"}
-            </button>
-            <button
-              onClick={cancelForm}
-              className="px-4 py-2 text-sm font-body text-muted-foreground hover:text-marine"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+            </div>
+            <footer className="flex gap-2 px-6 py-4 border-t border-border shrink-0 bg-white">
+              <button
+                onClick={handleSubmit}
+                disabled={saving || !formData.title || !formData.start_date}
+                className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50"
+              >
+                {saving ? "Saving..." : editing ? "Save Changes" : "Create Event"}
+              </button>
+              <button
+                onClick={cancelForm}
+                className="px-4 py-2 text-sm font-body text-muted-foreground hover:text-marine"
+              >
+                Cancel
+              </button>
+            </footer>
+          </aside>
+        </>
       )}
 
       {/* Events List */}
@@ -743,6 +766,15 @@ export default function EventManager({
                         Draft
                       </span>
                     )}
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body ${
+                        event.visibility === "public"
+                          ? "bg-sky/10 text-sky-dark"
+                          : "bg-marine/5 text-marine"
+                      }`}
+                    >
+                      {event.visibility === "public" ? "Public" : "Members only"}
+                    </span>
                   </div>
                   <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground font-body flex-wrap">
                     <span>
