@@ -195,8 +195,58 @@ async function fetchUpcomingHighlights(): Promise<UpcomingHighlight[]> {
   return highlights;
 }
 
+interface OpenDoorsPromo {
+  id: string;
+  title: string;
+  start_date: string;
+  end_date: string | null;
+  start_time: string | null;
+  location: string | null;
+  description: string | null;
+  hero: string | null;
+}
+
+async function fetchOpenDoorsPromo(): Promise<OpenDoorsPromo | null> {
+  const supabase = createAdminClient();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const { data: events } = await supabase
+    .from("events")
+    .select(
+      "id, title, start_date, end_date, start_time, location, description, image_url, image_url_2, images"
+    )
+    .eq("is_published", true)
+    .eq("visibility", "public")
+    .gte("start_date", today)
+    .ilike("title", "%open doors%")
+    .order("start_date", { ascending: true })
+    .limit(1);
+
+  const e = events?.[0];
+  if (!e) return null;
+
+  const heroFromArray = Array.isArray(e.images)
+    ? (e.images.find((u): u is string => typeof u === "string" && u.length > 0) ?? null)
+    : null;
+  const hero = heroFromArray || e.image_url || e.image_url_2 || null;
+
+  return {
+    id: e.id,
+    title: e.title,
+    start_date: e.start_date,
+    end_date: e.end_date,
+    start_time: e.start_time,
+    location: e.location,
+    description: e.description,
+    hero,
+  };
+}
+
 export default async function HomePage() {
-  const upcomingHighlights = await fetchUpcomingHighlights();
+  const [upcomingHighlights, openDoors] = await Promise.all([
+    fetchUpcomingHighlights(),
+    fetchOpenDoorsPromo(),
+  ]);
   return (
     <>
       {/* ── Hero ── */}
@@ -258,6 +308,58 @@ export default async function HomePage() {
           </blockquote>
         </div>
       </section>
+
+      {/* ── Open Doors promo ── */}
+      {openDoors && (
+        <section className="bg-cream">
+          <div className="mx-auto max-w-6xl px-6 py-16 sm:py-20">
+            <article className="grid grid-cols-1 lg:grid-cols-2 bg-white rounded-sm border border-border/60 overflow-hidden">
+              <div className="aspect-[4/3] lg:aspect-auto bg-marine">
+                {openDoors.hero ? (
+                  <img
+                    src={openDoors.hero}
+                    alt={openDoors.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : null}
+              </div>
+              <div className="p-8 sm:p-10 flex flex-col justify-center">
+                <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky-dark mb-3">
+                  An Invitation
+                </p>
+                <h2 className="font-heading text-3xl sm:text-4xl font-bold text-marine mb-3 leading-tight">
+                  {openDoors.title}
+                </h2>
+                <p className="font-body text-base font-semibold text-sky-dark mb-2">
+                  {formatHighlightDate(openDoors.start_date, openDoors.end_date, false)}
+                  {openDoors.start_time
+                    ? ` · ${openDoors.start_time.slice(0, 5)}`
+                    : ""}
+                </p>
+                {openDoors.location && (
+                  <p className="font-body text-sm text-muted-foreground mb-4">
+                    {openDoors.location}
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center gap-4 mt-6">
+                  <Link
+                    href={`/public/events/${openDoors.id}`}
+                    className="inline-block px-6 py-3 rounded-full bg-marine text-white font-body font-medium text-sm hover:bg-marine-light transition-colors cursor-pointer"
+                  >
+                    Register →
+                  </Link>
+                  <Link
+                    href={`/public/events/${openDoors.id}`}
+                    className="font-body text-sm text-sky-dark underline underline-offset-4 hover:text-marine transition-colors"
+                  >
+                    See full details
+                  </Link>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      )}
 
       {/* ── Benefits — card grid ── */}
       <section className="bg-marine text-white relative overflow-hidden">
