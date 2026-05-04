@@ -50,15 +50,18 @@ export async function POST(request: NextRequest) {
   const bodyHtml: string = typeof body.body_html === "string" ? body.body_html : "";
   const filterRaw = body.audience_filter ?? {};
   const status = filterRaw.status as MemberStatus | "all";
-  const tierId: string | null =
-    typeof filterRaw.tier_id === "string" && filterRaw.tier_id.length > 0
-      ? filterRaw.tier_id
-      : null;
+  const tierIds: string[] = Array.isArray(filterRaw.tier_ids)
+    ? filterRaw.tier_ids.filter(
+        (id: unknown): id is string => typeof id === "string" && id.length > 0
+      )
+    : typeof filterRaw.tier_id === "string" && filterRaw.tier_id.length > 0
+      ? [filterRaw.tier_id]
+      : [];
 
   let recipientCount = 0;
   let skippedCount = 0;
   if (ALLOWED_STATUSES.includes(status)) {
-    const filter: AudienceFilter = { status, tier_id: tierId };
+    const filter: AudienceFilter = { status, tier_ids: tierIds };
     try {
       const { recipients, skipped } = await resolveAudience(filter);
       recipientCount = recipients.length;

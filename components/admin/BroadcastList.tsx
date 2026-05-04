@@ -5,7 +5,11 @@ import Link from "next/link";
 export interface BroadcastRow {
   id: string;
   subject: string;
-  audience_filter: { status?: string; tier_id?: string | null } | null;
+  audience_filter: {
+    status?: string;
+    tier_id?: string | null;
+    tier_ids?: string[] | null;
+  } | null;
   recipient_count: number;
   error_count: number;
   status: string;
@@ -113,8 +117,14 @@ function audienceLabel(
         : status === "expired"
           ? "Expired members"
           : status;
-  if (!filter.tier_id) return statusLabel;
-  return `${statusLabel} · ${tierMap[filter.tier_id] ?? "tier"}`;
+  const tierIds = filter.tier_ids && filter.tier_ids.length > 0
+    ? filter.tier_ids
+    : filter.tier_id
+      ? [filter.tier_id]
+      : [];
+  if (tierIds.length === 0) return statusLabel;
+  const names = tierIds.map((id) => tierMap[id] ?? "tier");
+  return `${statusLabel} · ${names.join(", ")}`;
 }
 
 function formatDate(d: string): string {

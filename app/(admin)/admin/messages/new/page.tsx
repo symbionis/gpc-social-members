@@ -35,7 +35,7 @@ export default async function NewBroadcastPage() {
           </h1>
           <p className="text-sm font-body text-muted-foreground mt-1">
             Compose a message to a member segment. Sender:{" "}
-            <strong>juliette@genevapolo.com</strong>.
+            <strong>contact@genevapolo.com</strong>.
           </p>
         </div>
         <Link

@@ -21,7 +21,7 @@ export default function BroadcastComposer({ tiers }: Props) {
   const [subject, setSubject] = useState("");
   const [bodyHtml, setBodyHtml] = useState("");
   const [status, setStatus] = useState<Status>("active");
-  const [tierId, setTierId] = useState<string>("");
+  const [tierIds, setTierIds] = useState<string[]>([]);
 
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [recipientCount, setRecipientCount] = useState<number | null>(null);
@@ -46,7 +46,7 @@ export default function BroadcastComposer({ tiers }: Props) {
         body: JSON.stringify({
           subject,
           body_html: bodyHtml,
-          audience_filter: { status, tier_id: tierId || null },
+          audience_filter: { status, tier_ids: tierIds },
         }),
       });
       const data = await res.json();
@@ -70,7 +70,7 @@ export default function BroadcastComposer({ tiers }: Props) {
       setError("No recipients match this audience.");
       return;
     }
-    const audienceLabel = audienceSummary(status, tierId, tiers);
+    const audienceLabel = audienceSummary(status, tierIds, tiers);
     if (
       !window.confirm(
         `Send "${subject}" to ${recipientCount} member${recipientCount === 1 ? "" : "s"} (${audienceLabel})?`
@@ -87,7 +87,7 @@ export default function BroadcastComposer({ tiers }: Props) {
         body: JSON.stringify({
           subject,
           body_html: bodyHtml,
-          audience_filter: { status, tier_id: tierId || null },
+          audience_filter: { status, tier_ids: tierIds },
         }),
       });
       const data = await res.json();
@@ -156,23 +156,44 @@ export default function BroadcastComposer({ tiers }: Props) {
         </div>
         <div>
           <label className="block text-xs font-body text-muted-foreground mb-1">
-            Audience — tier (optional)
+            Audience — tier (optional, multi-select)
           </label>
-          <select
-            value={tierId}
-            onChange={(e) => {
-              setTierId(e.target.value);
-              setPreviewHtml(null);
-            }}
-            className="w-full px-3 py-2.5 rounded-lg border border-border bg-white text-marine font-body text-sm"
-          >
-            <option value="">Any tier</option>
-            {tiers.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+          <div className="rounded-lg border border-border bg-white px-3 py-2 max-h-40 overflow-y-auto">
+            {tiers.length === 0 ? (
+              <p className="text-xs font-body text-muted-foreground py-1">
+                No tiers available.
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {tiers.map((t) => {
+                  const checked = tierIds.includes(t.id);
+                  return (
+                    <li key={t.id}>
+                      <label className="flex items-center gap-2 text-sm font-body text-marine cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            setTierIds((prev) =>
+                              e.target.checked
+                                ? [...prev, t.id]
+                                : prev.filter((id) => id !== t.id)
+                            );
+                            setPreviewHtml(null);
+                          }}
+                          className="h-4 w-4 rounded border-border text-sky-dark focus:ring-sky/50"
+                        />
+                        <span>{t.name}</span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          <p className="mt-1 text-[11px] font-body text-muted-foreground">
+            Leave all unchecked to include any tier.
+          </p>
         </div>
       </div>
 
@@ -197,7 +218,7 @@ export default function BroadcastComposer({ tiers }: Props) {
         </button>
         {recipientCount !== null && (
           <span className="text-xs font-body text-muted-foreground">
-            {audienceSummary(status, tierId, tiers)}
+            {audienceSummary(status, tierIds, tiers)}
             {skippedCount > 0 &&
               ` · ${skippedCount} skipped (no marketing consent)`}
           </span>
@@ -228,7 +249,7 @@ export default function BroadcastComposer({ tiers }: Props) {
 
 function audienceSummary(
   status: Status,
-  tierId: string,
+  tierIds: string[],
   tiers: Tier[]
 ): string {
   const statusLabel =
@@ -237,7 +258,10 @@ function audienceSummary(
       : status === "active"
         ? "active members"
         : "expired members";
-  if (!tierId) return statusLabel;
-  const tier = tiers.find((t) => t.id === tierId);
-  return `${statusLabel} on ${tier?.name ?? "tier"}`;
+  if (tierIds.length === 0) return statusLabel;
+  const names = tierIds
+    .map((id) => tiers.find((t) => t.id === id)?.name)
+    .filter((n): n is string => !!n);
+  if (names.length === 0) return statusLabel;
+  return `${statusLabel} on ${names.join(", ")}`;
 }

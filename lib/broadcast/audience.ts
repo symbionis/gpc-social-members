@@ -27,14 +27,15 @@ export async function resolveAudience(
 
   // Count total members in scope (status + tier) BEFORE consent filter so we
   // can report skipped consent-rejections to the admin.
+  const tierIds = (filter.tier_ids ?? []).filter((t) => t && t.length > 0);
   let totalQuery = supabase
     .from("members")
     .select("id", { count: "exact", head: true });
   if (filter.status !== "all") {
     totalQuery = totalQuery.eq("status", filter.status);
   }
-  if (filter.tier_id) {
-    totalQuery = totalQuery.eq("tier_id", filter.tier_id);
+  if (tierIds.length > 0) {
+    totalQuery = totalQuery.in("tier_id", tierIds);
   }
   const { count: totalInScope, error: countErr } = await totalQuery;
   if (countErr) {
@@ -55,8 +56,8 @@ export async function resolveAudience(
     if (filter.status !== "all") {
       pageQuery = pageQuery.eq("status", filter.status);
     }
-    if (filter.tier_id) {
-      pageQuery = pageQuery.eq("tier_id", filter.tier_id);
+    if (tierIds.length > 0) {
+      pageQuery = pageQuery.in("tier_id", tierIds);
     }
 
     const { data, error } = await pageQuery;

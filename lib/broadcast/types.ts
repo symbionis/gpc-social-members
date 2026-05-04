@@ -5,8 +5,8 @@ export interface AudienceFilter {
   /** Member status — currently `active` | `expired` | `all`. Other values are
    *  rejected at the route layer. */
   status: MemberStatus | "all";
-  /** Optional tier id to narrow within a status. */
-  tier_id?: string | null;
+  /** Optional tier ids to narrow within a status. Empty/omitted = any tier. */
+  tier_ids?: string[] | null;
 }
 
 /** A single recipient passed to a channel adapter. */

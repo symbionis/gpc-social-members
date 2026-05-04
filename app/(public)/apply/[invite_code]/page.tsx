@@ -66,9 +66,11 @@ export default async function ApplyPage({ params, searchParams }: ApplyPageProps
 
   // Honorary invitees see all tiers (free honorary + paid) so they can choose.
   // Non-honorary visitors never see the free honorary tier.
-  const filteredIndividualTiers = isHonorary
+  // The Player tier is reserved for active polo players and never shown in the public sign-up flow.
+  const filteredIndividualTiers = (isHonorary
     ? (allIndividualTiers || [])
-    : (allIndividualTiers || []).filter((t) => t.price_eur > 0);
+    : (allIndividualTiers || []).filter((t) => t.price_eur > 0)
+  ).filter((t) => t.name.trim().toLowerCase() !== "player");
 
   const { data: corporateTiers } = await supabase
     .from("membership_tiers")
