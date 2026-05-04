@@ -24,7 +24,7 @@ export default function AdminLoginForm() {
     setLoading(false);
 
     if (result.error) {
-      setError("Something went wrong. Please try again.");
+      setError(result.error);
       return;
     }
 

@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import EventRegistrationForm from "@/components/public/EventRegistrationForm";
+import EventRegistrationDrawer from "@/components/public/EventRegistrationDrawer";
 import EventGallery from "@/components/EventGallery";
+
+const APPLY_URL = "/apply/GPC-2026";
 
 function coerceImages(value: unknown, fallbacks: (string | null | undefined)[]): string[] {
   if (Array.isArray(value)) {
@@ -53,6 +55,27 @@ function formatDateRange(startDate: string, endDate: string | null) {
   return `${startDay} ${startMonth} ${startYear} – ${endDay} ${endMonth} ${endYear}`;
 }
 
+function formatMonthOnly(startDate: string, endDate: string | null) {
+  const start = new Date(startDate);
+  const startMonth = start.toLocaleDateString("en-GB", { month: "long" });
+  const startYear = start.getFullYear();
+  if (!endDate || endDate === startDate) return `${startMonth} ${startYear}`;
+  const end = new Date(endDate);
+  const endMonth = end.toLocaleDateString("en-GB", { month: "long" });
+  const endYear = end.getFullYear();
+  if (startMonth === endMonth && startYear === endYear) {
+    return `${startMonth} ${startYear}`;
+  }
+  if (startYear === endYear) {
+    return `${startMonth} – ${endMonth} ${startYear}`;
+  }
+  return `${startMonth} ${startYear} – ${endMonth} ${endYear}`;
+}
+
+function priceLabel(value: number): string {
+  return value === 0 ? "Free" : `CHF ${value.toFixed(2)}`;
+}
+
 export default async function PublicEventDetailPage({
   params,
   searchParams,
@@ -67,97 +90,144 @@ export default async function PublicEventDetailPage({
 
   const { data: event } = await supabase
     .from("events")
-    .select("*")
+    .select("*, event_types(name, slug, color)")
     .eq("id", id)
     .eq("is_published", true)
-    .eq("visibility", "public")
     .single();
 
   if (!event) notFound();
+
+  const isMembersOnly = event.visibility !== "public";
+  const eventType = event.event_types as
+    | { name: string; color: string }
+    | null;
+  const images = coerceImages(event.images, [event.image_url, event.image_url_2]);
+  const priceMember = Number(event.price_member ?? 0);
+  const priceNonMember = Number(event.price_non_member ?? 0);
 
   return (
     <>
       <div className="h-20 bg-marine" />
       <div className="bg-cream min-h-[calc(100vh-5rem)] py-12">
-        <div className="mx-auto max-w-4xl px-6">
-        <Link
-          href="/public/events"
-          className="inline-flex items-center gap-1 text-sm font-body text-muted-foreground hover:text-marine transition-colors mb-6"
-        >
-          ← Back to Events
-        </Link>
+        <div className="mx-auto max-w-5xl px-6">
+          <Link
+            href="/public/events"
+            className="inline-flex items-center gap-1 text-sm font-body text-muted-foreground hover:text-marine transition-colors mb-6"
+          >
+            ← Back to Events
+          </Link>
 
-        {registered === "1" && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 mb-4">
-            <p className="font-body text-sm text-emerald-900">
-              Payment received. A confirmation email is on its way — check your
-              inbox.
-            </p>
-          </div>
-        )}
-        {cancelled === "1" && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-4">
-            <p className="font-body text-sm text-amber-900">
-              Checkout cancelled. Your registration has not been confirmed.
-            </p>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
-          <div className="bg-white rounded-xl border border-border overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <p className="font-body text-lg sm:text-xl font-semibold text-sky-dark mb-2">
-                {formatDateRange(event.start_date, event.end_date)}
-                {event.start_time
-                  ? ` · ${event.start_time.slice(0, 5)}`
-                  : ""}
+          {registered === "1" && (
+            <div className="rounded-sm border border-emerald-200 bg-emerald-50 p-4 mb-4">
+              <p className="font-body text-sm text-emerald-900">
+                Payment received. A confirmation email is on its way — check
+                your inbox.
               </p>
-              <h1 className="font-heading text-2xl sm:text-3xl font-bold text-marine mb-2">
-                {event.title}
-              </h1>
-              {event.location && (
-                <p className="text-base font-body text-muted-foreground mb-4">
-                  {event.location}
-                </p>
-              )}
-
-              {(() => {
-                const imgs = coerceImages(event.images, [event.image_url, event.image_url_2]);
-                return imgs.length > 0 ? (
-                  <div className="mb-6">
-                    <EventGallery images={imgs} alt={event.title} />
-                  </div>
-                ) : null;
-              })()}
-
-              {event.description && (
-                <div className="font-body text-muted-foreground leading-relaxed whitespace-pre-line">
-                  {renderDescription(event.description)}
-                </div>
-              )}
             </div>
-          </div>
-
-          <aside className="bg-white rounded-xl border border-border p-6 self-start">
-            {event.registration_enabled ? (
-              <>
-                <h2 className="font-heading text-xl font-bold text-marine mb-4">
-                  Register
-                </h2>
-                <EventRegistrationForm
-                  eventId={event.id}
-                  priceMember={Number(event.price_member ?? 0)}
-                  priceNonMember={Number(event.price_non_member ?? 0)}
-                  showMemberRate={false}
-                />
-              </>
-            ) : (
-              <p className="font-body text-sm text-muted-foreground">
-                Information only — registration is not open for this event.
+          )}
+          {cancelled === "1" && (
+            <div className="rounded-sm border border-amber-200 bg-amber-50 p-4 mb-4">
+              <p className="font-body text-sm text-amber-900">
+                Checkout cancelled. Your registration has not been confirmed.
               </p>
-            )}
-          </aside>
-        </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+            <article className="bg-white rounded-sm border border-border/60 overflow-hidden">
+              {images.length > 0 && (
+                <EventGallery
+                  images={images}
+                  alt={event.title}
+                  bare
+                  fit="contain"
+                  aspectClass="aspect-[4/3]"
+                />
+              )}
+              <div className="p-6 sm:p-8">
+                <div className="flex items-center gap-2 flex-wrap mb-3">
+                  {eventType && (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-body bg-marine/5 text-marine">
+                      <span
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ backgroundColor: eventType.color }}
+                      />
+                      {eventType.name}
+                    </span>
+                  )}
+                  {isMembersOnly && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-sky/10 text-sky-dark">
+                      Members only
+                    </span>
+                  )}
+                </div>
+
+                <p className="font-body text-base font-semibold text-sky-dark">
+                  {isMembersOnly
+                    ? formatMonthOnly(event.start_date, event.end_date)
+                    : formatDateRange(event.start_date, event.end_date)}
+                  {!isMembersOnly && event.start_time
+                    ? ` · ${event.start_time.slice(0, 5)}`
+                    : ""}
+                </p>
+                <h1 className="font-heading text-2xl sm:text-3xl font-bold text-marine mt-1 mb-2">
+                  {event.title}
+                </h1>
+                {!isMembersOnly && event.location && (
+                  <p className="text-base font-body text-muted-foreground mb-4">
+                    {event.location}
+                  </p>
+                )}
+
+                {event.description && (
+                  <div className="font-body text-muted-foreground leading-relaxed whitespace-pre-line mt-4">
+                    {renderDescription(event.description)}
+                  </div>
+                )}
+              </div>
+            </article>
+
+            <aside>
+              <div className="bg-white rounded-sm border border-border/60 p-5 lg:sticky lg:top-6">
+                {isMembersOnly ? (
+                  <>
+                    <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-1">
+                      Members only
+                    </p>
+                    <p className="font-body text-sm text-marine mb-4">
+                      Apply for membership to join us at events like this one.
+                    </p>
+                    <Link
+                      href={APPLY_URL}
+                      className="inline-block w-full text-center px-4 py-3 rounded-lg bg-marine text-white font-body font-medium text-sm hover:bg-marine-light transition-colors cursor-pointer"
+                    >
+                      Apply for membership →
+                    </Link>
+                  </>
+                ) : event.registration_enabled ? (
+                  <>
+                    <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-1">
+                      Price
+                    </p>
+                    <p className="font-heading text-2xl font-bold text-marine mb-4">
+                      {priceLabel(priceNonMember)}
+                    </p>
+                    <EventRegistrationDrawer
+                      eventId={event.id}
+                      eventTitle={event.title}
+                      priceMember={priceMember}
+                      priceNonMember={priceNonMember}
+                      buttonLabel="Register"
+                    />
+                  </>
+                ) : (
+                  <p className="font-body text-sm text-muted-foreground">
+                    Information only — registration is not open for this event.
+                  </p>
+                )}
+              </div>
+            </aside>
+          </div>
         </div>
       </div>
     </>

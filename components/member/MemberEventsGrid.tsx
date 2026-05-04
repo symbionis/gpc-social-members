@@ -3,9 +3,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 
-const APPLY_URL = "/apply/GPC-2026";
-
-export interface PublicEvent {
+export interface MemberEvent {
   id: string;
   title: string;
   start_date: string;
@@ -16,12 +14,12 @@ export interface PublicEvent {
   image_url: string | null;
   image_url_2: string | null;
   images: unknown;
-  registration_enabled: boolean | null;
   visibility: string | null;
+  is_confirmed: boolean | null;
   event_type_id: string | null;
 }
 
-export interface PublicEventType {
+export interface MemberEventType {
   id: string;
   name: string;
   slug: string;
@@ -29,16 +27,16 @@ export interface PublicEventType {
 }
 
 interface Props {
-  events: PublicEvent[];
-  eventTypes: PublicEventType[];
+  events: MemberEvent[];
+  eventTypes: MemberEventType[];
+  showFilters?: boolean;
 }
 
-function formatExactDate(startDate: string, endDate: string | null): string {
+function formatDateRange(startDate: string, endDate: string | null): string {
   const start = new Date(startDate);
   const startDay = start.getDate();
   const startMonth = start.toLocaleDateString("en-GB", { month: "long" });
   const startYear = start.getFullYear();
-
   if (!endDate || endDate === startDate) {
     return `${startDay} ${startMonth} ${startYear}`;
   }
@@ -55,26 +53,7 @@ function formatExactDate(startDate: string, endDate: string | null): string {
   return `${startDay} ${startMonth} ${startYear} – ${endDay} ${endMonth} ${endYear}`;
 }
 
-function formatMonthOnly(startDate: string, endDate: string | null): string {
-  const start = new Date(startDate);
-  const startMonth = start.toLocaleDateString("en-GB", { month: "long" });
-  const startYear = start.getFullYear();
-  if (!endDate || endDate === startDate) {
-    return `${startMonth} ${startYear}`;
-  }
-  const end = new Date(endDate);
-  const endMonth = end.toLocaleDateString("en-GB", { month: "long" });
-  const endYear = end.getFullYear();
-  if (startMonth === endMonth && startYear === endYear) {
-    return `${startMonth} ${startYear}`;
-  }
-  if (startYear === endYear) {
-    return `${startMonth} – ${endMonth} ${startYear}`;
-  }
-  return `${startMonth} ${startYear} – ${endMonth} ${endYear}`;
-}
-
-function heroImage(event: PublicEvent): string | null {
+function heroImage(event: MemberEvent): string | null {
   if (Array.isArray(event.images)) {
     const first = event.images.find(
       (u): u is string => typeof u === "string" && u.length > 0
@@ -84,7 +63,11 @@ function heroImage(event: PublicEvent): string | null {
   return event.image_url || event.image_url_2 || null;
 }
 
-export default function PublicEventsList({ events, eventTypes }: Props) {
+export default function MemberEventsGrid({
+  events,
+  eventTypes,
+  showFilters = true,
+}: Props) {
   const [activeType, setActiveType] = useState<string>("all");
 
   const filtered = useMemo(() => {
@@ -93,15 +76,14 @@ export default function PublicEventsList({ events, eventTypes }: Props) {
   }, [events, activeType]);
 
   const typeMap = useMemo(() => {
-    const m = new Map<string, PublicEventType>();
+    const m = new Map<string, MemberEventType>();
     for (const t of eventTypes) m.set(t.id, t);
     return m;
   }, [eventTypes]);
 
   return (
     <div>
-      {/* Type filter buttons */}
-      {eventTypes.length > 0 && (
+      {showFilters && eventTypes.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-6">
           <FilterButton
             active={activeType === "all"}
@@ -129,14 +111,14 @@ export default function PublicEventsList({ events, eventTypes }: Props) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {filtered.map((event) => {
-            const isMembersOnly = event.visibility !== "public";
-            const eventType = event.event_type_id ? typeMap.get(event.event_type_id) : undefined;
+            const eventType = event.event_type_id
+              ? typeMap.get(event.event_type_id)
+              : undefined;
             return (
               <EventCard
                 key={event.id}
                 event={event}
                 eventType={eventType}
-                isMembersOnly={isMembersOnly}
               />
             );
           })}
@@ -181,50 +163,29 @@ function FilterButton({
 function EventCard({
   event,
   eventType,
-  isMembersOnly,
 }: {
-  event: PublicEvent;
-  eventType?: PublicEventType;
-  isMembersOnly: boolean;
+  event: MemberEvent;
+  eventType?: MemberEventType;
 }) {
-  const dateLabel = isMembersOnly
-    ? formatMonthOnly(event.start_date, event.end_date)
-    : formatExactDate(event.start_date, event.end_date);
+  const dateLabel = formatDateRange(event.start_date, event.end_date);
   const hero = heroImage(event);
 
-  const cta = isMembersOnly ? (
-    <Link
-      href={APPLY_URL}
-      className="inline-block mt-4 text-xs font-body font-medium text-marine underline underline-offset-4 hover:text-sky-dark transition-colors"
-    >
-      Apply for membership →
-    </Link>
-  ) : (
-    <Link
-      href={`/public/events/${event.id}`}
-      className="inline-block mt-4 text-xs font-body font-medium text-marine underline underline-offset-4 hover:text-sky-dark transition-colors"
-    >
-      View event →
-    </Link>
-  );
-
-  const detailHref = `/public/events/${event.id}`;
-
   return (
-    <article className="bg-white rounded-sm border border-border/60 overflow-hidden flex flex-col group">
-      <Link href={detailHref} aria-label={event.title}>
-        {hero ? (
-          <div className="aspect-square bg-cream/50 overflow-hidden">
-            <img
-              src={hero}
-              alt={event.title}
-              className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
-            />
-          </div>
-        ) : (
-          <div className="aspect-square bg-cream/60" />
-        )}
-      </Link>
+    <Link
+      href={`/events/${event.id}`}
+      className="bg-white rounded-sm border border-border/60 overflow-hidden flex flex-col hover:border-sky/50 hover:shadow-sm transition-all"
+    >
+      {hero ? (
+        <div className="aspect-square bg-cream/50">
+          <img
+            src={hero}
+            alt={event.title}
+            className="w-full h-full object-cover"
+          />
+        </div>
+      ) : (
+        <div className="aspect-square bg-cream/60" />
+      )}
       <div className="p-5 flex-1 flex flex-col">
         <div className="flex items-center gap-2 flex-wrap mb-2">
           {eventType && (
@@ -236,24 +197,20 @@ function EventCard({
               {eventType.name}
             </span>
           )}
-          {isMembersOnly && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-sky/10 text-sky-dark">
-              Members only
+          {event.is_confirmed === false && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
+              Dates TBC
             </span>
           )}
         </div>
         <p className="font-body text-sm font-semibold text-sky-dark">
           {dateLabel}
-          {!isMembersOnly && event.start_time
-            ? ` · ${event.start_time.slice(0, 5)}`
-            : ""}
+          {event.start_time ? ` · ${event.start_time.slice(0, 5)}` : ""}
         </p>
-        <Link href={detailHref} className="mt-1 hover:text-sky-dark transition-colors">
-          <h3 className="font-heading text-lg font-bold text-marine leading-snug">
-            {event.title}
-          </h3>
-        </Link>
-        {!isMembersOnly && event.location && (
+        <h3 className="font-heading text-lg font-bold text-marine mt-1">
+          {event.title}
+        </h3>
+        {event.location && (
           <p className="text-sm font-body text-muted-foreground mt-1">
             {event.location}
           </p>
@@ -263,8 +220,12 @@ function EventCard({
             {event.description}
           </p>
         )}
-        <div className="mt-auto">{cta}</div>
+        <div className="mt-auto pt-3">
+          <span className="inline-block text-xs font-body font-medium text-marine underline underline-offset-4">
+            View event →
+          </span>
+        </div>
       </div>
-    </article>
+    </Link>
   );
 }

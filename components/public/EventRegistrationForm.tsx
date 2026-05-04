@@ -171,9 +171,11 @@ export default function EventRegistrationForm({
           className={inputClass}
           autoComplete="email"
         />
-        <p className="text-xs text-muted-foreground mt-1">
-          Members get the member rate automatically.
-        </p>
+        {showMemberRate && !memberOnly && (
+          <p className="text-xs text-muted-foreground mt-1">
+            Members get the member rate automatically.
+          </p>
+        )}
       </div>
 
       <div>
@@ -203,7 +205,7 @@ export default function EventRegistrationForm({
       <button
         type="submit"
         disabled={submitting}
-        className="w-full px-4 py-3 bg-marine text-white rounded-lg text-sm font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50"
+        className="w-full px-4 py-3 bg-marine text-white rounded-lg text-sm font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
       >
         {submitting ? "Processing…" : allFree ? "Confirm registration" : "Register"}
       </button>

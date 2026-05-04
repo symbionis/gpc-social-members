@@ -9,8 +9,26 @@ export async function signOut() {
 }
 
 export async function sendOtpCode(email: string) {
+  const trimmed = email.trim().toLowerCase();
+  if (!trimmed) return { error: "Please enter your email address." };
+
+  const adminClient = createAdminClient();
+  const [{ data: members }, { data: adminUsers }] = await Promise.all([
+    adminClient.from("members").select("id").ilike("email", trimmed).limit(1),
+    adminClient.from("admin_users").select("id").ilike("email", trimmed).limit(1),
+  ]);
+
+  if (!members?.length && !adminUsers?.length) {
+    return {
+      error: "No account found for this email. Please check the address or apply for membership.",
+    };
+  }
+
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithOtp({ email });
+  const { error } = await supabase.auth.signInWithOtp({
+    email: trimmed,
+    options: { shouldCreateUser: false },
+  });
   if (error) return { error: error.message };
   return { error: null };
 }

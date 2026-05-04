@@ -1,40 +1,61 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface Props {
   images: string[];
   alt: string;
   /** aspect ratio for the displayed image, default 16/9 */
   aspectClass?: string;
+  /** When true, drop the rounded border + dot margin so the gallery fits inside an already-styled card. */
+  bare?: boolean;
+  /** Auto-advance interval in ms; 0 disables. Default 3000. */
+  autoAdvanceMs?: number;
+  /** "cover" crops to fill, "contain" letterboxes so the whole image is visible. Default "cover". */
+  fit?: "cover" | "contain";
 }
 
 export default function EventGallery({
   images,
   alt,
   aspectClass = "aspect-[16/9]",
+  bare = false,
+  autoAdvanceMs = 3000,
+  fit = "cover",
 }: Props) {
   const [index, setIndex] = useState(0);
 
+  const total = images?.length ?? 0;
+
+  useEffect(() => {
+    if (total <= 1 || autoAdvanceMs <= 0) return;
+    const timer = window.setInterval(
+      () => setIndex((i) => (i + 1) % total),
+      autoAdvanceMs
+    );
+    return () => window.clearInterval(timer);
+  }, [total, autoAdvanceMs]);
+
   if (!images || images.length === 0) return null;
 
-  const total = images.length;
   const safe = ((index % total) + total) % total;
   const goPrev = () => setIndex((i) => (i - 1 + total) % total);
   const goNext = () => setIndex((i) => (i + 1) % total);
 
+  const frameClass = bare
+    ? `relative w-full ${aspectClass} overflow-hidden bg-marine`
+    : `relative w-full ${aspectClass} rounded-lg overflow-hidden border border-border bg-cream`;
+
   return (
     <div className="relative">
-      <div
-        className={`relative w-full ${aspectClass} rounded-lg overflow-hidden border border-border bg-cream`}
-      >
+      <div className={frameClass}>
         {images.map((url, i) => (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             key={`${url}-${i}`}
             src={url}
             alt={alt}
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+            className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"} transition-opacity duration-500 ${
               i === safe ? "opacity-100" : "opacity-0"
             }`}
           />
@@ -84,25 +105,26 @@ export default function EventGallery({
                 />
               </svg>
             </button>
+
+            {/* Dots overlaid on the image bottom so they don't push layout below */}
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2">
+              {images.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setIndex(i)}
+                  aria-label={`Go to image ${i + 1}`}
+                  className={`w-2 h-2 rounded-full transition-colors ${
+                    i === safe
+                      ? "bg-white"
+                      : "bg-white/50 hover:bg-white/80"
+                  }`}
+                />
+              ))}
+            </div>
           </>
         )}
       </div>
-
-      {total > 1 && (
-        <div className="flex justify-center gap-2 mt-3">
-          {images.map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => setIndex(i)}
-              aria-label={`Go to image ${i + 1}`}
-              className={`w-2 h-2 rounded-full transition-colors ${
-                i === safe ? "bg-marine" : "bg-marine/25 hover:bg-marine/50"
-              }`}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
