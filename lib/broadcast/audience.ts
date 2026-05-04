@@ -48,7 +48,7 @@ export async function resolveAudience(
   while (true) {
     let pageQuery = supabase
       .from("members")
-      .select("id, email, first_name, last_name")
+      .select("id, email, first_name, last_name, membership_tiers(name)")
       .eq("marketing_consent", true)
       .order("created_at", { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
@@ -67,11 +67,16 @@ export async function resolveAudience(
     if (!data || data.length === 0) break;
 
     for (const m of data) {
+      const raw = (m as {
+        membership_tiers?: { name: string } | { name: string }[] | null;
+      }).membership_tiers;
+      const tier = Array.isArray(raw) ? raw[0] : raw;
       recipients.push({
         member_id: m.id,
         email: m.email,
         first_name: m.first_name,
         last_name: m.last_name,
+        tier_name: tier?.name ?? null,
       });
     }
 

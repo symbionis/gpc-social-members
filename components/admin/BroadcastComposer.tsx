@@ -134,6 +134,29 @@ export default function BroadcastComposer({ tiers }: Props) {
           }}
           placeholder="Write to members…"
         />
+        <div className="mt-2 text-xs font-body text-muted-foreground">
+          <p className="mb-1">Available variables (paste into subject or message):</p>
+          <ul className="space-y-0.5">
+            <li>
+              <code className="px-1.5 py-0.5 rounded bg-cream text-marine">
+                {"{{first_name}}"}
+              </code>{" "}
+              — recipient&rsquo;s first name
+            </li>
+            <li>
+              <code className="px-1.5 py-0.5 rounded bg-cream text-marine">
+                {"{{last_name}}"}
+              </code>{" "}
+              — recipient&rsquo;s last name
+            </li>
+            <li>
+              <code className="px-1.5 py-0.5 rounded bg-cream text-marine">
+                {"{{tier_name}}"}
+              </code>{" "}
+              — recipient&rsquo;s membership tier
+            </li>
+          </ul>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

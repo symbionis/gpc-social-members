@@ -58,6 +58,7 @@ export const PostmarkEmailChannel: BroadcastChannel = {
           body_text: content.body_text ?? stripHtml(content.body_html),
           first_name: r.first_name,
           last_name: r.last_name,
+          tier_name: r.tier_name ?? "",
         },
         MessageStream: streamId,
       }));

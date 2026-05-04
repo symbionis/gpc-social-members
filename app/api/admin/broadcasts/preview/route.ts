@@ -79,19 +79,25 @@ export async function POST(request: NextRequest) {
   // otherwise the calling admin so the admin sees the substitution behaviour.
   const { data: sample } = await adminClient
     .from("members")
-    .select("first_name, last_name")
+    .select("first_name, last_name, membership_tiers(name)")
     .eq("status", "active")
     .limit(1)
     .maybeSingle();
 
+  const sampleTierRaw = (sample as {
+    membership_tiers?: { name: string } | { name: string }[] | null;
+  } | null)?.membership_tiers;
+  const sampleTier = Array.isArray(sampleTierRaw) ? sampleTierRaw[0] : sampleTierRaw;
   const firstName = sample?.first_name ?? "Friend";
   const lastName = sample?.last_name ?? "";
+  const tierName = sampleTier?.name ?? "Member";
 
   const html = renderPreviewHtml({
     subject,
     bodyHtml,
     firstName,
     lastName,
+    tierName,
   });
 
   return NextResponse.json({
@@ -111,17 +117,20 @@ function renderPreviewHtml({
   bodyHtml,
   firstName,
   lastName,
+  tierName,
 }: {
   subject: string;
   bodyHtml: string;
   firstName: string;
   lastName: string;
+  tierName: string;
 }): string {
-  // Allow {{first_name}} / {{last_name}} substitution in the preview so admins
-  // can validate the merge tags they typed.
+  // Allow {{first_name}} / {{last_name}} / {{tier_name}} substitution in the
+  // preview so admins can validate the merge tags they typed.
   const renderedBody = bodyHtml
     .replace(/\{\{first_name\}\}/g, escapeHtml(firstName))
-    .replace(/\{\{last_name\}\}/g, escapeHtml(lastName));
+    .replace(/\{\{last_name\}\}/g, escapeHtml(lastName))
+    .replace(/\{\{tier_name\}\}/g, escapeHtml(tierName));
 
   const subjectLabel = subject || "(no subject)";
 

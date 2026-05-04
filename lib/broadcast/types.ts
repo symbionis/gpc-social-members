@@ -15,6 +15,8 @@ export interface BroadcastRecipient {
   email: string;
   first_name: string;
   last_name: string;
+  /** Membership tier name at send time (null if the member has no tier set). */
+  tier_name: string | null;
 }
 
 /** The content snapshot that the adapter renders for each recipient. */
