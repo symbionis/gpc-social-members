@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Playfair_Display, Poppins, Teko } from "next/font/google";
 import "./globals.css";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
+import PostHogProvider from "@/components/PostHogProvider";
 
 const playfairDisplay = Playfair_Display({
   subsets: ["latin"],
@@ -52,8 +53,10 @@ export default function RootLayout({
       <body
         data-supabase-url={process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""}
         data-supabase-anon-key={process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ""}
+        data-posthog-key={process.env.NEXT_PUBLIC_POSTHOG_KEY ?? ""}
+        data-posthog-host={process.env.NEXT_PUBLIC_POSTHOG_HOST ?? ""}
       >
-        {children}
+        <PostHogProvider>{children}</PostHogProvider>
         <ServiceWorkerRegistration />
       </body>
     </html>

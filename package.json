@@ -26,6 +26,7 @@
     "lucide-react": "^0.468",
     "next": "^15",
     "node-cron": "^4.2.1",
+    "posthog-js": "^1.372.8",
     "postmark": "^4",
     "qrcode.react": "^4",
     "react": "^19",
