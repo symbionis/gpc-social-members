@@ -2,11 +2,17 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAgentToken, unauthorizedResponse } from "@/lib/agent/auth";
 import { trackAgentAction } from "@/lib/agent/track";
+import type {
+  AgentApiError,
+  EventsListResponse,
+} from "@/lib/agent/responses";
 
 const ENDPOINT = "/api/agent/events";
-
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
+
+const ALLOWED_EVENT_STATUSES = ["published", "draft", "all"] as const;
+type EventStatusFilter = (typeof ALLOWED_EVENT_STATUSES)[number];
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -22,37 +28,44 @@ function parseOffset(raw: string | null): number {
   return Math.floor(n);
 }
 
+function isEventStatus(v: string): v is EventStatusFilter {
+  return (ALLOWED_EVENT_STATUSES as readonly string[]).includes(v);
+}
+
 export async function GET(request: NextRequest) {
   const started_at = Date.now();
   const auth = requireAgentToken(request);
   if (!auth.ok) return unauthorizedResponse(auth.status);
 
   const { searchParams } = new URL(request.url);
-  const status = searchParams.get("status") ?? "published";
+  const statusRaw = searchParams.get("status") ?? "published";
   const eventTypeId = searchParams.get("event_type_id");
   const from = searchParams.get("from") ?? new Date().toISOString().slice(0, 10);
   const to = searchParams.get("to");
   const limit = clampLimit(searchParams.get("limit"));
   const offset = parseOffset(searchParams.get("offset"));
 
+  if (!isEventStatus(statusRaw)) {
+    trackAgentAction({ endpoint: ENDPOINT, method: "GET", status_code: 400, started_at });
+    return NextResponse.json<AgentApiError>(
+      {
+        error: `Invalid 'status' — allowed: ${ALLOWED_EVENT_STATUSES.join(" | ")}`,
+      },
+      { status: 400 }
+    );
+  }
+  const status: EventStatusFilter = statusRaw;
   if (!ISO_DATE.test(from)) {
     trackAgentAction({ endpoint: ENDPOINT, method: "GET", status_code: 400, started_at });
-    return NextResponse.json(
+    return NextResponse.json<AgentApiError>(
       { error: "Invalid 'from' — expected YYYY-MM-DD" },
       { status: 400 }
     );
   }
   if (to && !ISO_DATE.test(to)) {
     trackAgentAction({ endpoint: ENDPOINT, method: "GET", status_code: 400, started_at });
-    return NextResponse.json(
+    return NextResponse.json<AgentApiError>(
       { error: "Invalid 'to' — expected YYYY-MM-DD" },
-      { status: 400 }
-    );
-  }
-  if (status !== "published" && status !== "draft" && status !== "all") {
-    trackAgentAction({ endpoint: ENDPOINT, method: "GET", status_code: 400, started_at });
-    return NextResponse.json(
-      { error: "Invalid 'status' — allowed: published | draft | all" },
       { status: 400 }
     );
   }
@@ -75,8 +88,12 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await query;
   if (error) {
+    console.error("[agent/events] query failed", error);
     trackAgentAction({ endpoint: ENDPOINT, method: "GET", status_code: 500, started_at });
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json<AgentApiError>(
+      { error: error.message },
+      { status: 500 }
+    );
   }
 
   trackAgentAction({
@@ -86,5 +103,9 @@ export async function GET(request: NextRequest) {
     started_at,
     extra: { count: data?.length ?? 0 },
   });
-  return NextResponse.json({ events: data ?? [], limit, offset });
+  return NextResponse.json<EventsListResponse>({
+    events: data ?? [],
+    limit,
+    offset,
+  });
 }

@@ -2,6 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAgentToken, unauthorizedResponse } from "@/lib/agent/auth";
 import { trackAgentAction } from "@/lib/agent/track";
+import type {
+  AgentApiError,
+  EventDraftCreatedResponse,
+} from "@/lib/agent/responses";
 
 const ENDPOINT = "/api/agent/events/draft";
 
@@ -9,9 +13,18 @@ function track400(started_at: number) {
   trackAgentAction({ endpoint: ENDPOINT, method: "POST", status_code: 400, started_at });
 }
 
+function track500(started_at: number) {
+  trackAgentAction({ endpoint: ENDPOINT, method: "POST", status_code: 500, started_at });
+}
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^\d{2}:\d{2}(:\d{2})?$/;
-const ALLOWED_VISIBILITY = new Set(["public", "members_only"]);
+const ALLOWED_VISIBILITIES = ["public", "members_only"] as const;
+type Visibility = (typeof ALLOWED_VISIBILITIES)[number];
+
+function isVisibility(v: string): v is Visibility {
+  return (ALLOWED_VISIBILITIES as readonly string[]).includes(v);
+}
 
 function asString(v: unknown): string | null {
   return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
@@ -19,9 +32,9 @@ function asString(v: unknown): string | null {
 
 function asStringArray(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
-  return v.filter(
-    (s): s is string => typeof s === "string" && s.trim().length > 0
-  );
+  return v
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter((s): s is string => s.length > 0);
 }
 
 /**
@@ -44,18 +57,21 @@ export async function POST(request: NextRequest) {
 
   if (!title) {
     track400(started_at);
-    return NextResponse.json({ error: "title is required" }, { status: 400 });
+    return NextResponse.json<AgentApiError>(
+      { error: "title is required" },
+      { status: 400 }
+    );
   }
   if (!startDate || !ISO_DATE.test(startDate)) {
     track400(started_at);
-    return NextResponse.json(
+    return NextResponse.json<AgentApiError>(
       { error: "start_date is required and must be YYYY-MM-DD" },
       { status: 400 }
     );
   }
   if (!eventTypeId) {
     track400(started_at);
-    return NextResponse.json(
+    return NextResponse.json<AgentApiError>(
       { error: "event_type_id is required" },
       { status: 400 }
     );
@@ -64,14 +80,14 @@ export async function POST(request: NextRequest) {
   const endDate = asString(body.end_date);
   if (endDate && !ISO_DATE.test(endDate)) {
     track400(started_at);
-    return NextResponse.json(
+    return NextResponse.json<AgentApiError>(
       { error: "end_date must be YYYY-MM-DD" },
       { status: 400 }
     );
   }
   if (endDate && endDate < startDate) {
     track400(started_at);
-    return NextResponse.json(
+    return NextResponse.json<AgentApiError>(
       { error: "end_date must be on or after start_date" },
       { status: 400 }
     );
@@ -80,20 +96,23 @@ export async function POST(request: NextRequest) {
   const startTime = asString(body.start_time);
   if (startTime && !TIME.test(startTime)) {
     track400(started_at);
-    return NextResponse.json(
+    return NextResponse.json<AgentApiError>(
       { error: "start_time must be HH:MM or HH:MM:SS" },
       { status: 400 }
     );
   }
 
-  const visibility = asString(body.visibility) ?? "public";
-  if (!ALLOWED_VISIBILITY.has(visibility)) {
+  const visibilityRaw = asString(body.visibility) ?? "public";
+  if (!isVisibility(visibilityRaw)) {
     track400(started_at);
-    return NextResponse.json(
-      { error: `visibility must be one of: ${[...ALLOWED_VISIBILITY].join(", ")}` },
+    return NextResponse.json<AgentApiError>(
+      {
+        error: `visibility must be one of: ${ALLOWED_VISIBILITIES.join(", ")}`,
+      },
       { status: 400 }
     );
   }
+  const visibility: Visibility = visibilityRaw;
 
   const seasonId = asString(body.season_id);
   const location = asString(body.location);
@@ -103,30 +122,48 @@ export async function POST(request: NextRequest) {
   const supabase = createAdminClient();
 
   // Validate referenced FKs early so the agent gets a friendly error
-  // instead of a Postgres FK violation 500.
-  const { data: typeRow } = await supabase
+  // instead of a Postgres FK violation 500. Distinguish a real Supabase
+  // error (network, RLS, table missing) from "row not found" — the former
+  // should surface as 500, not as a misleading "Unknown ..." 400.
+  const typeRes = await supabase
     .from("event_types")
     .select("id")
     .eq("id", eventTypeId)
     .limit(1)
     .maybeSingle();
-  if (!typeRow) {
+  if (typeRes.error) {
+    console.error("[agent/events/draft] event_type lookup failed", typeRes.error);
+    track500(started_at);
+    return NextResponse.json<AgentApiError>(
+      { error: "Failed to validate event_type_id" },
+      { status: 500 }
+    );
+  }
+  if (!typeRes.data) {
     track400(started_at);
-    return NextResponse.json(
+    return NextResponse.json<AgentApiError>(
       { error: "Unknown event_type_id" },
       { status: 400 }
     );
   }
   if (seasonId) {
-    const { data: seasonRow } = await supabase
+    const seasonRes = await supabase
       .from("seasons")
       .select("id")
       .eq("id", seasonId)
       .limit(1)
       .maybeSingle();
-    if (!seasonRow) {
+    if (seasonRes.error) {
+      console.error("[agent/events/draft] season lookup failed", seasonRes.error);
+      track500(started_at);
+      return NextResponse.json<AgentApiError>(
+        { error: "Failed to validate season_id" },
+        { status: 500 }
+      );
+    }
+    if (!seasonRes.data) {
       track400(started_at);
-      return NextResponse.json(
+      return NextResponse.json<AgentApiError>(
         { error: "Unknown season_id" },
         { status: 400 }
       );
@@ -156,9 +193,10 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error || !data) {
-    trackAgentAction({ endpoint: ENDPOINT, method: "POST", status_code: 500, started_at });
-    return NextResponse.json(
-      { error: error?.message ?? "Failed to save draft event" },
+    if (error) console.error("[agent/events/draft] insert failed", error);
+    track500(started_at);
+    return NextResponse.json<AgentApiError>(
+      { error: "Failed to save draft event" },
       { status: 500 }
     );
   }
@@ -170,7 +208,7 @@ export async function POST(request: NextRequest) {
     started_at,
     extra: { event_id: data.id },
   });
-  return NextResponse.json(
+  return NextResponse.json<EventDraftCreatedResponse>(
     {
       event_id: data.id,
       edit_url: "/admin/events",

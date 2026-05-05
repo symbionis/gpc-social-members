@@ -87,3 +87,125 @@ export async function resolveAudience(
   const skipped = Math.max((totalInScope ?? recipients.length) - recipients.length, 0);
   return { recipients, skipped };
 }
+
+export interface AudienceCounts {
+  recipient_count: number;
+  skipped_count: number;
+  per_tier: Array<{ tier_name: string | null; count: number }>;
+}
+
+/**
+ * Count-only audience preview for the agent surface.
+ *
+ * Uses head-only Supabase queries (`count: "exact", head: true`) so no
+ * recipient rows — and crucially no email or name columns — are ever
+ * loaded into the server process. Strictly fewer side channels than
+ * resolveAudience() for use cases that only need numbers.
+ *
+ * Issues 2 + N + 1 head-only queries where N = number of active tiers
+ * (typically ~5). Latency is comparable to a single resolveAudience() call
+ * because every query is row-less and runs against the same indexes.
+ */
+export async function previewAudienceCounts(
+  filter: AudienceFilter
+): Promise<AudienceCounts> {
+  const supabase = createAdminClient();
+  const tierIds = (filter.tier_ids ?? []).filter((t) => t && t.length > 0);
+
+  // 1. Total in scope (status + tier), regardless of consent.
+  let totalQuery = supabase
+    .from("members")
+    .select("id", { count: "exact", head: true });
+  if (filter.status !== "all") totalQuery = totalQuery.eq("status", filter.status);
+  if (tierIds.length > 0) totalQuery = totalQuery.in("tier_id", tierIds);
+  const { count: totalInScope, error: totalErr } = await totalQuery;
+  if (totalErr) {
+    throw new Error(`Failed to count audience: ${totalErr.message}`);
+  }
+
+  // 2. Consenting in scope (= recipient count).
+  let consentingQuery = supabase
+    .from("members")
+    .select("id", { count: "exact", head: true })
+    .eq("marketing_consent", true);
+  if (filter.status !== "all")
+    consentingQuery = consentingQuery.eq("status", filter.status);
+  if (tierIds.length > 0)
+    consentingQuery = consentingQuery.in("tier_id", tierIds);
+  const { count: recipientCount, error: consentingErr } = await consentingQuery;
+  if (consentingErr) {
+    throw new Error(`Failed to count audience: ${consentingErr.message}`);
+  }
+
+  // 3. Per-tier counts. We need to enumerate the relevant tiers — either
+  //    the explicit filter list, or all active tiers when the filter is
+  //    open. For each, run a head-only count of consenting members.
+  let tierRows: Array<{ id: string; name: string }> = [];
+  if (tierIds.length > 0) {
+    const { data, error } = await supabase
+      .from("membership_tiers")
+      .select("id, name")
+      .in("id", tierIds);
+    if (error) throw new Error(`Failed to load tier names: ${error.message}`);
+    tierRows = data ?? [];
+  } else {
+    const { data, error } = await supabase
+      .from("membership_tiers")
+      .select("id, name")
+      .eq("is_active", true);
+    if (error) throw new Error(`Failed to load tier names: ${error.message}`);
+    tierRows = data ?? [];
+  }
+
+  const perTier = await Promise.all(
+    tierRows.map(async (t) => {
+      let q = supabase
+        .from("members")
+        .select("id", { count: "exact", head: true })
+        .eq("marketing_consent", true)
+        .eq("tier_id", t.id);
+      if (filter.status !== "all") q = q.eq("status", filter.status);
+      const { count, error } = await q;
+      if (error) {
+        throw new Error(
+          `Failed to count tier ${t.name}: ${error.message}`
+        );
+      }
+      return { tier_name: t.name, count: count ?? 0 };
+    })
+  );
+
+  // Members with tier_id IS NULL — only meaningful when the filter is open.
+  let nullTierCount = 0;
+  if (tierIds.length === 0) {
+    let q = supabase
+      .from("members")
+      .select("id", { count: "exact", head: true })
+      .eq("marketing_consent", true)
+      .is("tier_id", null);
+    if (filter.status !== "all") q = q.eq("status", filter.status);
+    const { count, error } = await q;
+    if (error) {
+      throw new Error(`Failed to count untiered members: ${error.message}`);
+    }
+    nullTierCount = count ?? 0;
+  }
+
+  const perTierFiltered = perTier.filter((t) => t.count > 0);
+  const tail =
+    nullTierCount > 0
+      ? [{ tier_name: null as string | null, count: nullTierCount }]
+      : [];
+  const perTierSorted = [...perTierFiltered, ...tail].sort(
+    (a, b) => b.count - a.count
+  );
+
+  return {
+    recipient_count: recipientCount ?? 0,
+    skipped_count: Math.max(
+      (totalInScope ?? 0) - (recipientCount ?? 0),
+      0
+    ),
+    per_tier: perTierSorted,
+  };
+}

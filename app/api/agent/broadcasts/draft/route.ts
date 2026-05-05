@@ -3,6 +3,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { parseBroadcastPayload } from "@/lib/broadcast/validate";
 import { requireAgentToken, unauthorizedResponse } from "@/lib/agent/auth";
 import { trackAgentAction } from "@/lib/agent/track";
+import type {
+  AgentApiError,
+  BroadcastDraftCreatedResponse,
+} from "@/lib/agent/responses";
 
 const ENDPOINT = "/api/agent/broadcasts/draft";
 
@@ -23,7 +27,10 @@ export async function POST(request: NextRequest) {
   const parsed = parseBroadcastPayload(body, { forDraft: true });
   if (!parsed.ok) {
     trackAgentAction({ endpoint: ENDPOINT, method: "POST", status_code: 400, started_at });
-    return NextResponse.json({ error: parsed.error }, { status: 400 });
+    return NextResponse.json<AgentApiError>(
+      { error: parsed.error },
+      { status: 400 }
+    );
   }
 
   const supabase = createAdminClient();
@@ -46,9 +53,10 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error || !data) {
+    if (error) console.error("[agent/broadcasts/draft] insert failed", error);
     trackAgentAction({ endpoint: ENDPOINT, method: "POST", status_code: 500, started_at });
-    return NextResponse.json(
-      { error: error?.message ?? "Failed to save draft" },
+    return NextResponse.json<AgentApiError>(
+      { error: "Failed to save draft" },
       { status: 500 }
     );
   }
@@ -60,7 +68,7 @@ export async function POST(request: NextRequest) {
     started_at,
     extra: { broadcast_id: data.id },
   });
-  return NextResponse.json(
+  return NextResponse.json<BroadcastDraftCreatedResponse>(
     {
       broadcast_id: data.id,
       edit_url: "/admin/messages?tab=drafts",

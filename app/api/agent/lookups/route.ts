@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAgentToken, unauthorizedResponse } from "@/lib/agent/auth";
 import { trackAgentAction } from "@/lib/agent/track";
+import type { AgentApiError, LookupsResponse } from "@/lib/agent/responses";
 
 const ENDPOINT = "/api/agent/lookups";
 
@@ -16,7 +17,6 @@ export async function GET(request: NextRequest) {
   if (!auth.ok) return unauthorizedResponse(auth.status);
 
   const supabase = createAdminClient();
-  const today = new Date().toISOString().slice(0, 10);
 
   const [tiersRes, typesRes, seasonsRes] = await Promise.all([
     supabase
@@ -30,22 +30,26 @@ export async function GET(request: NextRequest) {
     supabase
       .from("seasons")
       .select("id, name, slug, start_date, end_date, is_current")
-      .lte("start_date", today)
-      .gte("end_date", today)
+      .eq("is_current", true)
       .limit(1),
   ]);
 
-  const firstError = [tiersRes, typesRes, seasonsRes].find((r) => r.error);
-  if (firstError?.error) {
+  // Log every error before responding so a multi-table outage isn't a
+  // guessing game from the surfaced one.
+  const errors = [tiersRes, typesRes, seasonsRes]
+    .map((r) => r.error)
+    .filter((e): e is NonNullable<typeof e> => Boolean(e));
+  if (errors.length > 0) {
+    for (const e of errors) console.error("[agent/lookups]", e);
     trackAgentAction({ endpoint: ENDPOINT, method: "GET", status_code: 500, started_at });
-    return NextResponse.json(
-      { error: firstError.error.message },
+    return NextResponse.json<AgentApiError>(
+      { error: errors[0].message },
       { status: 500 }
     );
   }
 
   trackAgentAction({ endpoint: ENDPOINT, method: "GET", status_code: 200, started_at });
-  return NextResponse.json({
+  return NextResponse.json<LookupsResponse>({
     tiers: tiersRes.data ?? [],
     event_types: typesRes.data ?? [],
     current_season: seasonsRes.data?.[0] ?? null,

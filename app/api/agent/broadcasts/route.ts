@@ -2,6 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAgentToken, unauthorizedResponse } from "@/lib/agent/auth";
 import { trackAgentAction } from "@/lib/agent/track";
+import type {
+  AgentApiError,
+  BroadcastsListResponse,
+} from "@/lib/agent/responses";
 
 const ENDPOINT = "/api/agent/broadcasts";
 
@@ -34,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   if (!ALLOWED_STATUSES.includes(status)) {
     trackAgentAction({ endpoint: ENDPOINT, method: "GET", status_code: 400, started_at });
-    return NextResponse.json(
+    return NextResponse.json<AgentApiError>(
       {
         error: `Invalid 'status' — allowed: ${ALLOWED_STATUSES.join(", ")}`,
       },
@@ -57,8 +61,12 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await query;
   if (error) {
+    console.error("[agent/broadcasts] query failed", error);
     trackAgentAction({ endpoint: ENDPOINT, method: "GET", status_code: 500, started_at });
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json<AgentApiError>(
+      { error: error.message },
+      { status: 500 }
+    );
   }
 
   trackAgentAction({
@@ -68,5 +76,9 @@ export async function GET(request: NextRequest) {
     started_at,
     extra: { count: data?.length ?? 0 },
   });
-  return NextResponse.json({ broadcasts: data ?? [], limit, offset });
+  return NextResponse.json<BroadcastsListResponse>({
+    broadcasts: data ?? [],
+    limit,
+    offset,
+  });
 }
