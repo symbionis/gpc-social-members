@@ -1,5 +1,11 @@
 import type { MemberStatus } from "@/types/database";
 
+/** Lifecycle states stored in `broadcasts.status`.
+ *  - `draft`: composer state, not yet handed to the channel adapter.
+ *  - `sending`: in-flight; adapter dispatch in progress.
+ *  - `sent` / `failed`: terminal states recorded after dispatch. */
+export type BroadcastStatus = "draft" | "sending" | "sent" | "failed";
+
 /** Filter that the audience resolver translates into a recipient list. */
 export interface AudienceFilter {
   /** Member status — currently `active` | `expired` | `all`. Other values are
