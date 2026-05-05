@@ -18,6 +18,10 @@ export interface SendBroadcastInput {
   audience_filter: AudienceFilter;
   channel?: keyof typeof CHANNELS;
   created_by: string;
+  /** If provided, the existing broadcasts row (typically status='draft') is
+   *  transitioned through `sending → sent`/`failed` instead of inserting a
+   *  new row. Prevents orphaned drafts after send. */
+  broadcast_id?: string;
 }
 
 export interface SendBroadcastResult {
@@ -52,29 +56,56 @@ export async function sendBroadcast(
 
   const { recipients, skipped } = await resolveAudience(input.audience_filter);
 
-  const { data: inserted, error: insertErr } = await supabase
-    .from("broadcasts")
-    .insert({
-      subject: input.subject,
-      body_html: input.body_html,
-      audience_filter: input.audience_filter as unknown as Record<string, unknown>,
-      channel: channelKey,
-      status: "sending",
-      recipient_count: recipients.length,
-      skipped_count: skipped,
-      created_by: input.created_by,
-    })
-    .select("id")
-    .limit(1)
-    .single();
+  let broadcastId: string;
+  if (input.broadcast_id) {
+    // Transition an existing draft row through 'sending' rather than
+    // inserting a new row. Snapshot the latest content/audience too in case
+    // the caller is sending without a final PATCH.
+    const { data: updated, error: updateErr } = await supabase
+      .from("broadcasts")
+      .update({
+        subject: input.subject,
+        body_html: input.body_html,
+        audience_filter: input.audience_filter as unknown as Record<string, unknown>,
+        channel: channelKey,
+        status: "sending",
+        recipient_count: recipients.length,
+        skipped_count: skipped,
+      })
+      .eq("id", input.broadcast_id)
+      .select("id")
+      .limit(1)
+      .single();
+    if (updateErr || !updated) {
+      throw new Error(
+        `Failed to claim draft for send: ${updateErr?.message ?? "no row returned"}`
+      );
+    }
+    broadcastId = updated.id;
+  } else {
+    const { data: inserted, error: insertErr } = await supabase
+      .from("broadcasts")
+      .insert({
+        subject: input.subject,
+        body_html: input.body_html,
+        audience_filter: input.audience_filter as unknown as Record<string, unknown>,
+        channel: channelKey,
+        status: "sending",
+        recipient_count: recipients.length,
+        skipped_count: skipped,
+        created_by: input.created_by,
+      })
+      .select("id")
+      .limit(1)
+      .single();
 
-  if (insertErr || !inserted) {
-    throw new Error(
-      `Failed to create broadcast row: ${insertErr?.message ?? "no row returned"}`
-    );
+    if (insertErr || !inserted) {
+      throw new Error(
+        `Failed to create broadcast row: ${insertErr?.message ?? "no row returned"}`
+      );
+    }
+    broadcastId = inserted.id;
   }
-
-  const broadcastId = inserted.id;
 
   // Empty audience: finalise immediately, no adapter call.
   if (recipients.length === 0) {
