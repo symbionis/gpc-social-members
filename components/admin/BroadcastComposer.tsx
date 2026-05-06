@@ -269,6 +269,12 @@ export default function BroadcastComposer({ tiers, initialDraft }: Props) {
               </code>{" "}
               — recipient&rsquo;s membership tier
             </li>
+            <li>
+              <code className="px-1.5 py-0.5 rounded bg-cream text-marine">
+                {"{{email}}"}
+              </code>{" "}
+              — recipient&rsquo;s email address
+            </li>
           </ul>
         </div>
       </div>
