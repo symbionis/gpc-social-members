@@ -27,7 +27,7 @@ export async function sendOtpCode(email: string) {
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithOtp({
     email: trimmed,
-    options: { shouldCreateUser: false },
+    options: { shouldCreateUser: true },
   });
   if (error) return { error: error.message };
   return { error: null };
