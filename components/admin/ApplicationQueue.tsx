@@ -22,6 +22,7 @@ interface Application {
   created_at: string;
   last_reminder_sent_at: string | null;
   approved_at: string | null;
+  approved_by: string | null;
 }
 
 interface PaymentInfo {
@@ -34,6 +35,7 @@ interface ApplicationQueueProps {
   applications: Application[];
   tierMap: Record<string, { name: string; price_eur: number }>;
   originatorMap: Record<string, string>;
+  approverMap: Record<string, string>;
   paymentMap: Record<string, PaymentInfo>;
 }
 
@@ -73,6 +75,7 @@ export default function ApplicationQueue({
   applications,
   tierMap,
   originatorMap,
+  approverMap,
   paymentMap,
 }: ApplicationQueueProps) {
   const router = useRouter();
@@ -340,6 +343,24 @@ export default function ApplicationQueue({
                     {new Date(app.created_at).toLocaleDateString("en-GB")}
                   </p>
                 </div>
+                {app.approved_at && (
+                  <div>
+                    <p className="text-muted-foreground font-body">Approved</p>
+                    <p className="font-body font-medium text-marine">
+                      {new Date(app.approved_at).toLocaleDateString("en-GB")}
+                    </p>
+                  </div>
+                )}
+                {app.approved_at && (
+                  <div>
+                    <p className="text-muted-foreground font-body">Approved by</p>
+                    <p className="font-body font-medium text-marine">
+                      {app.approved_by
+                        ? approverMap[app.approved_by] ?? "—"
+                        : "—"}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="mb-4 text-sm">

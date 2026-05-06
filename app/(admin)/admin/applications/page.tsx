@@ -8,7 +8,7 @@ export default async function ApplicationsPage() {
   const { data: applications } = await supabase
     .from("members")
     .select(
-      "id, title, first_name, last_name, email, phone, tier_id, status, company_name, company_role, linkedin_url, originator_note, originator_id, created_at, last_reminder_sent_at, approved_at"
+      "id, title, first_name, last_name, email, phone, tier_id, status, company_name, company_role, linkedin_url, originator_note, originator_id, created_at, last_reminder_sent_at, approved_at, approved_by"
     )
     .or("status.in.(pending,approved,declined),approved_at.not.is.null")
     .order("created_at", { ascending: false });
@@ -41,11 +41,12 @@ export default async function ApplicationsPage() {
     .from("membership_tiers")
     .select("id, name, price_eur");
 
-  // Fetch originator names
-  const { data: originators } = await supabase
+  // Fetch admin names for both originator and approver lookups. Approvers
+  // may be any admin, not just originators, so we load the full table once
+  // and split into two maps.
+  const { data: admins } = await supabase
     .from("admin_users")
-    .select("id, first_name, last_name")
-    .eq("is_originator", true);
+    .select("id, first_name, last_name, is_originator");
 
   const tierMap = Object.fromEntries(
     (tiers || []).map((t: Record<string, unknown>) => [
@@ -54,10 +55,12 @@ export default async function ApplicationsPage() {
     ])
   );
   const originatorMap = Object.fromEntries(
-    (originators || []).map((o: Record<string, unknown>) => [
-      o.id,
-      `${o.first_name} ${o.last_name}`,
-    ])
+    (admins || [])
+      .filter((a) => a.is_originator)
+      .map((a) => [a.id, `${a.first_name} ${a.last_name}`])
+  );
+  const approverMap = Object.fromEntries(
+    (admins || []).map((a) => [a.id, `${a.first_name} ${a.last_name}`])
   );
 
   return (
@@ -69,6 +72,7 @@ export default async function ApplicationsPage() {
         applications={applications || []}
         tierMap={tierMap}
         originatorMap={originatorMap}
+        approverMap={approverMap}
         paymentMap={paymentMap}
       />
     </div>
