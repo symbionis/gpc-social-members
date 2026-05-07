@@ -57,14 +57,23 @@ export async function POST(request: NextRequest) {
     ? null
     : Number(price_non_member);
 
+  const isMembersOnly = visibility !== "public";
+  const effectivePriceNonMember = isMembersOnly ? null : priceNonMember;
+
   if (regEnabled) {
-    if (priceMember === null || priceNonMember === null || Number.isNaN(priceMember) || Number.isNaN(priceNonMember)) {
+    if (priceMember === null || Number.isNaN(priceMember)) {
       return NextResponse.json(
-        { error: "Member and non-member prices are required when registration is enabled" },
+        { error: "Member price is required when registration is enabled" },
         { status: 400 }
       );
     }
-    if (priceMember < 0 || priceNonMember < 0) {
+    if (!isMembersOnly && (effectivePriceNonMember === null || Number.isNaN(effectivePriceNonMember))) {
+      return NextResponse.json(
+        { error: "Non-member price is required for public events when registration is enabled" },
+        { status: 400 }
+      );
+    }
+    if (priceMember < 0 || (effectivePriceNonMember !== null && effectivePriceNonMember < 0)) {
       return NextResponse.json({ error: "Prices cannot be negative" }, { status: 400 });
     }
   }
@@ -95,7 +104,7 @@ export async function POST(request: NextRequest) {
       visibility: visibility === "public" ? "public" : "members_only",
       registration_enabled: regEnabled,
       price_member: priceMember,
-      price_non_member: priceNonMember,
+      price_non_member: effectivePriceNonMember,
     })
     .eq("id", event_id);
 
