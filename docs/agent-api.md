@@ -233,6 +233,41 @@ Response:
 }
 ```
 
+### `PATCH /api/agent/events/{id}`
+
+Partial update of an existing event. Send only the fields you want to change.
+
+Editable fields: `title`, `event_type_id`, `season_id`, `start_date`, `end_date`, `start_time`, `location`, `description`, `notes`, `images`, `visibility`, `registration_enabled`, `price_member`, `price_non_member`.
+
+Not editable by the agent: `is_published`, `is_confirmed`. Those gates stay with admins, mirroring the draft-create endpoint.
+
+Validation:
+
+- When `registration_enabled` is (or becomes) `true`, `price_member` is required.
+- For public events with registration enabled, `price_non_member` is also required.
+- For `members_only` events, `price_non_member` is forced to `null` regardless of input.
+- `end_date` (if provided) must be on or after `start_date` after the merge.
+
+Example — flip an event to members-only:
+
+```bash
+curl -sX PATCH "$BASE/api/agent/events/<event_id>" \
+  -H "Authorization: Bearer $AGENT_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "visibility": "members_only" }' | jq
+```
+
+Response:
+
+```json
+{
+  "event_id": "uuid",
+  "updated_fields": ["visibility", "price_non_member"]
+}
+```
+
+Returns `404` if the event does not exist, `400` for validation failures.
+
 ### `POST /api/agent/broadcasts/draft`
 
 Create a draft broadcast. Always inserted with `status='draft'`, `channel='email'`. Admin reviews and sends from the Drafts pane in `/admin/messages`.

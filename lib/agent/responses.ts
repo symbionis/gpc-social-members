@@ -119,3 +119,8 @@ export interface EventDraftCreatedResponse {
   event_id: string;
   edit_url: string;
 }
+
+export interface EventUpdatedResponse {
+  event_id: string;
+  updated_fields: string[];
+}
