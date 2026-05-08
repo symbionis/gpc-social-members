@@ -42,6 +42,7 @@ export default function PostHogProvider({
       disable_session_recording: true,
       disable_surveys: true,
       autocapture: true,
+      capture_exceptions: true, // Error Tracking: catch unhandled exceptions and unhandledrejection
     });
 
     (window as { __ph_initialized?: boolean }).__ph_initialized = true;
