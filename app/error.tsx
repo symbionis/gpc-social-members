@@ -1,11 +1,23 @@
 "use client";
 
+import { useEffect } from "react";
+import posthog from "posthog-js";
+
 export default function Error({
+  error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    try {
+      posthog.captureException(error, { digest: error.digest });
+    } catch {
+      /* posthog not initialized — ignore */
+    }
+  }, [error]);
+
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-white">
       <div className="text-center max-w-md">
