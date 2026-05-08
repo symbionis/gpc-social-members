@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import posthog from "posthog-js";
 
 interface EventType {
   id: string;
@@ -236,6 +237,7 @@ export default function EventManager({
     }
 
     setSaving(true);
+    const action = editing ? "update" : "create";
     const endpoint = editing
       ? "/api/admin/events/update"
       : "/api/admin/events/create";
@@ -244,11 +246,62 @@ export default function EventManager({
       ? { event_id: editing, ...formData }
       : { ...formData };
 
-    await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({} as { error?: string }));
+        const message =
+          (errJson as { error?: string }).error ||
+          `Save failed (HTTP ${res.status})`;
+        try {
+          posthog.capture("event_save_failed", {
+            action,
+            event_id: editing || null,
+            status: res.status,
+            error: message,
+            visibility: formData.visibility,
+            registration_enabled: formData.registration_enabled,
+          });
+        } catch {
+          /* posthog not initialized — ignore */
+        }
+        alert(`Could not save event: ${message}`);
+        setSaving(false);
+        return;
+      }
+
+      try {
+        posthog.capture("event_save_succeeded", {
+          action,
+          event_id: editing || null,
+          visibility: formData.visibility,
+          registration_enabled: formData.registration_enabled,
+        });
+      } catch {
+        /* posthog not initialized — ignore */
+      }
+    } catch (e) {
+      try {
+        posthog.capture("event_save_failed", {
+          action,
+          event_id: editing || null,
+          status: 0,
+          error: e instanceof Error ? e.message : "network_error",
+          visibility: formData.visibility,
+          registration_enabled: formData.registration_enabled,
+        });
+      } catch {
+        /* posthog not initialized — ignore */
+      }
+      alert("Network error saving event. Please try again.");
+      setSaving(false);
+      return;
+    }
 
     setSaving(false);
     setShowForm(false);
