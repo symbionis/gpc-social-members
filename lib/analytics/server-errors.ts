@@ -13,23 +13,22 @@ import "server-only";
 import { PostHog } from "posthog-node";
 
 let client: PostHog | null = null;
-let initialized = false;
 
 function getServerPosthog(): PostHog | null {
-  if (initialized) return client;
-  initialized = true;
+  if (client) return client;
 
   const apiKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
   const apiHost =
     process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://eu.i.posthog.com";
   if (!apiKey) {
-    client = null;
+    // Don't latch null — env may hydrate later (test reuse, hot reload, edge
+    // cold-start ordering). Returning null each time lets a future call retry.
     return null;
   }
 
   client = new PostHog(apiKey, {
     host: apiHost,
-    flushAt: 1, // exceptions are rare; ship immediately
+    flushAt: 1,
     flushInterval: 0,
   });
   return client;
@@ -84,7 +83,10 @@ export function captureServerException(
     "server:anonymous";
 
   try {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err =
+      error instanceof Error
+        ? error
+        : new Error(String(error), { cause: error });
     ph.captureException(err, distinctId, safeContext);
   } catch {
     /* swallow — error tracking must never affect the request response */
