@@ -11,17 +11,25 @@ export async function register() {
 // PostHog Error Tracking: forward unhandled exceptions thrown from API routes,
 // server components, and server actions. Handled responses (4xx returned by
 // route logic) do NOT reach this hook — only true exceptions do.
+//
+// The whole body is wrapped: this hook fires *because a request already
+// errored*, so a second exception here would pollute logs and risk masking
+// the original. Telemetry must never amplify failure.
 export const onRequestError: Instrumentation.onRequestError = async (
   error,
   request,
   context
 ) => {
-  const { captureServerException } = await import(
-    "@/lib/analytics/server-errors"
-  );
-  captureServerException(error, {
-    path: request.path,
-    method: request.method,
-    route_kind: context.routerKind,
-  });
+  try {
+    const { captureServerException } = await import(
+      "@/lib/analytics/server-errors"
+    );
+    captureServerException(error, {
+      path: request.path,
+      method: request.method,
+      route_kind: context.routerKind,
+    });
+  } catch {
+    /* telemetry must never throw */
+  }
 };
