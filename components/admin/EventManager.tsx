@@ -101,11 +101,9 @@ export default function EventManager({
   }
 
   function formatDate(dateStr: string): string {
-    return new Date(dateStr + "T00:00:00").toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return `${d} ${months[m - 1]} ${y}`;
   }
 
   async function handleImageUpload(file: File) {
