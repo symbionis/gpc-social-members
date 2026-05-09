@@ -43,6 +43,19 @@ export default function PostHogProvider({
       disable_surveys: true,
       autocapture: true,
       capture_exceptions: true,
+      before_send: (event) => {
+        if (event && event.event === "$exception") {
+          const list = event.properties?.$exception_list as
+            | Array<{ value?: string; type?: string }>
+            | undefined;
+          const first = list?.[0];
+          const value = first?.value || "";
+          // Browser-extension noise: a content script (commonly Microsoft Editor
+          // and similar) throws this verbatim into the page. Not our code.
+          if (value.includes("Object Not Found Matching Id")) return null;
+        }
+        return event;
+      },
     });
 
     (window as { __ph_initialized?: boolean }).__ph_initialized = true;
