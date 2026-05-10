@@ -56,6 +56,9 @@ export default function PostHogProvider({
           // Android WebView in-app browser: native bridge is GC'd while a JS
           // postMessage is in flight (user backgrounded the host app).
           if (value.includes("Java object is gone")) return null;
+          // iOS WKWebView in-app browser: third-party SDK/bridge code probes for
+          // a native message handler the host app didn't register.
+          if (value.includes("window.webkit.messageHandlers")) return null;
         }
         return event;
       },
