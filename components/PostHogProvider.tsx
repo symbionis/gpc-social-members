@@ -53,6 +53,9 @@ export default function PostHogProvider({
           // Browser-extension noise: a content script (commonly Microsoft Editor
           // and similar) throws this verbatim into the page. Not our code.
           if (value.includes("Object Not Found Matching Id")) return null;
+          // Android WebView in-app browser: native bridge is GC'd while a JS
+          // postMessage is in flight (user backgrounded the host app).
+          if (value.includes("Java object is gone")) return null;
         }
         return event;
       },
