@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatDateTime } from "@/lib/format";
 
 interface LoungeSession {
   id: string;
@@ -58,19 +59,7 @@ export default function LoungeManager({ sessions, adminMap }: LoungeManagerProps
     }
   }
 
-  function formatDate(dateStr: string | null) {
-    if (!dateStr) return "";
-    const d = new Date(dateStr);
-    return d.toLocaleDateString("en-CH", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  return (
+return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
       {sessions.map((session) => {
         const isLoading = loadingId === session.id;
@@ -129,7 +118,7 @@ export default function LoungeManager({ sessions, adminMap }: LoungeManagerProps
             {/* Last updated */}
             {updatedByName && session.updated_at && (
               <p className="font-body text-xs text-muted-foreground">
-                Last updated by {updatedByName} at {formatDate(session.updated_at)}
+                Last updated by {updatedByName} at {formatDateTime(session.updated_at)}
               </p>
             )}
           </div>

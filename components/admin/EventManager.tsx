@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { formatDate } from "@/lib/format";
 import posthog from "posthog-js";
 
 interface EventType {
@@ -100,13 +101,7 @@ export default function EventManager({
     return seasons.find((s) => s.id === id);
   }
 
-  function formatDate(dateStr: string): string {
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const [y, m, d] = dateStr.split("-").map(Number);
-    return `${d} ${months[m - 1]} ${y}`;
-  }
-
-  async function handleImageUpload(file: File) {
+async function handleImageUpload(file: File) {
     if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
       alert("Please upload a JPG, PNG, or WebP image.");
       return;

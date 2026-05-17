@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatCurrency } from "@/lib/format";
 
 interface Tier {
   id: string;
@@ -16,14 +17,6 @@ interface Tier {
 
 interface TierManagerProps {
   tiers: Tier[];
-}
-
-function formatPrice(amount: number): string {
-  return new Intl.NumberFormat("fr-CH", {
-    style: "currency",
-    currency: "CHF",
-    minimumFractionDigits: 0,
-  }).format(amount);
 }
 
 export default function TierManager({ tiers }: TierManagerProps) {
@@ -175,7 +168,7 @@ export default function TierManager({ tiers }: TierManagerProps) {
                   )}
                 </div>
                 <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground font-body">
-                  <span>{formatPrice(tier.price_eur)}</span>
+                  <span>{formatCurrency(tier.price_eur)}</span>
                   <span>
                     {tier.guest_invitations_per_season} guest
                     {tier.guest_invitations_per_season !== 1 ? "s" : ""}

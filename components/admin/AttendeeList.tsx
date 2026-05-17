@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { formatDateTime, formatCurrency } from "@/lib/format";
 
 interface Attendee {
   id: string;
@@ -20,20 +21,9 @@ interface Props {
   attendees: Attendee[];
 }
 
-function formatDateTime(iso: string) {
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const d = new Date(iso);
-  const day = d.getUTCDate();
-  const month = months[d.getUTCMonth()];
-  const year = d.getUTCFullYear();
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${day} ${month} ${year}, ${hh}:${mm}`;
-}
-
 function amountLabel(status: string, total: number) {
   if (status === "free" || total === 0) return "Free";
-  return `CHF ${total.toFixed(2)}`;
+  return formatCurrency(total, { decimals: 2 });
 }
 
 export default function AttendeeList({ eventId, attendees }: Props) {

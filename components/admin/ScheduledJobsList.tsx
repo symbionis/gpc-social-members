@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { JOB_DEFINITIONS } from "@/lib/cron/job-definitions";
+import { formatDateTime } from "@/lib/format";
 
 interface RunRecord {
   id: string;
@@ -95,15 +96,7 @@ export default function ScheduledJobsList({
   }
 
   function formatTimestamp(iso: string | null) {
-    if (!iso) return "—";
-    return new Date(iso).toLocaleString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
+    return formatDateTime(iso, { seconds: true });
   }
 
   function formatResult(result: Record<string, unknown> | null) {

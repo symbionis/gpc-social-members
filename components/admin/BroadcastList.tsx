@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { formatDateTime } from "@/lib/format";
 
 export interface BroadcastRow {
   id: string;
@@ -92,7 +93,7 @@ export default function BroadcastList({ broadcasts, tierMap }: Props) {
                   )}
                 </td>
                 <td className="px-4 py-3 font-body text-muted-foreground">
-                  {formatDate(b.sent_at ?? b.created_at)}
+                  {formatDateTime(b.sent_at ?? b.created_at)}
                 </td>
               </tr>
             ))}
@@ -127,12 +128,3 @@ function audienceLabel(
   return `${statusLabel} · ${names.join(", ")}`;
 }
 
-function formatDate(d: string): string {
-  return new Date(d).toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { MemberStatus, PaymentCaptureStatus } from "@/types/database";
 import { isAwaitingPayment } from "@/lib/members/status";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 interface Application {
   id: string;
@@ -340,14 +341,14 @@ export default function ApplicationQueue({
                 <div>
                   <p className="text-muted-foreground font-body">Applied</p>
                   <p className="font-body font-medium text-marine">
-                    {new Date(app.created_at).toLocaleDateString("en-GB")}
+                    {formatDate(app.created_at)}
                   </p>
                 </div>
                 {app.approved_at && (
                   <div>
                     <p className="text-muted-foreground font-body">Approved</p>
                     <p className="font-body font-medium text-marine">
-                      {new Date(app.approved_at).toLocaleDateString("en-GB")}
+                      {formatDate(app.approved_at)}
                     </p>
                   </div>
                 )}
@@ -383,12 +384,7 @@ export default function ApplicationQueue({
               {payment?.payment_capture_status === "authorized" && payment.capture_before && (
                 <div className="mb-4 text-xs text-muted-foreground font-body">
                   Hold expires:{" "}
-                  {new Date(payment.capture_before).toLocaleDateString("en-GB", {
-                    day: "numeric",
-                    month: "short",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+                  {formatDateTime(payment.capture_before)}
                 </div>
               )}
 
@@ -418,12 +414,7 @@ export default function ApplicationQueue({
                   {app.last_reminder_sent_at && (
                     <span className="text-xs text-muted-foreground font-body">
                       Last sent{" "}
-                      {new Date(app.last_reminder_sent_at).toLocaleDateString("en-GB", {
-                        day: "numeric",
-                        month: "short",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {formatDateTime(app.last_reminder_sent_at)}
                     </span>
                   )}
                 </div>

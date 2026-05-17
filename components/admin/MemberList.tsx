@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isAwaitingPayment } from "@/lib/members/status";
+import { formatDate } from "@/lib/format";
 
 interface Member {
   id: string;
@@ -33,15 +34,6 @@ const statusColors: Record<string, string> = {
   suspended: "bg-red-100 text-red-800",
   declined: "bg-red-50 text-red-600",
 };
-
-function formatDate(d: string | null) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 export default function MemberList({ members, tierMap, originatorMap }: MemberListProps) {
   const router = useRouter();
@@ -101,7 +93,7 @@ export default function MemberList({ members, tierMap, originatorMap }: MemberLi
       m.start_date || "",
       m.end_date || "",
       m.originator_id ? originatorMap[m.originator_id] || "" : "",
-      new Date(m.created_at).toLocaleDateString("en-GB"),
+      formatDate(m.created_at),
     ]);
     const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -234,7 +226,7 @@ export default function MemberList({ members, tierMap, originatorMap }: MemberLi
                     {m.originator_id ? originatorMap[m.originator_id] || "—" : "—"}
                   </td>
                   <td className="px-4 py-3 font-body text-muted-foreground">
-                    {new Date(m.created_at).toLocaleDateString("en-GB")}
+                    {formatDate(m.created_at)}
                   </td>
                 </tr>
               ))}

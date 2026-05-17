@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isAwaitingPayment } from "@/lib/members/status";
+import { formatDate, formatCurrency } from "@/lib/format";
 
 interface Address {
   street?: string;
@@ -59,15 +60,6 @@ const statusColors: Record<string, string> = {
   suspended: "bg-red-100 text-red-800",
   declined: "bg-red-50 text-red-600",
 };
-
-function formatPrice(amount: number): string {
-  return new Intl.NumberFormat("fr-CH", { style: "currency", currency: "CHF", minimumFractionDigits: 0 }).format(amount);
-}
-
-function formatDate(d: string | null) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-}
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -392,8 +384,8 @@ export default function MemberDetail({ member, tierMap, originatorMap, payments,
                 {payments.map((p) => (
                   <div key={p.id as string} className="flex items-center justify-between text-sm">
                     <div>
-                      <p className="font-body text-marine">{formatPrice(p.amount_eur as number)}</p>
-                      <p className="text-xs text-muted-foreground font-body">{new Date(p.created_at as string).toLocaleDateString("en-GB")}</p>
+                      <p className="font-body text-marine">{formatCurrency(p.amount_eur as number)}</p>
+                      <p className="text-xs text-muted-foreground font-body">{formatDate(p.created_at as string)}</p>
                     </div>
                     <span className="text-xs font-body capitalize text-muted-foreground">{p.payment_status as string}</span>
                   </div>
