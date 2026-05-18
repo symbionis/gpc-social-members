@@ -7,6 +7,13 @@
 // bytes.
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+const MONTHS_LONG = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const;
+const WEEKDAYS_LONG = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+] as const;
 
 const GENEVA_FMT = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Zurich",
@@ -16,10 +23,19 @@ const GENEVA_FMT = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",
   minute: "2-digit",
   second: "2-digit",
+  weekday: "long",
   hour12: false,
 });
 
-type Parts = { year: string; month: string; day: string; hour: string; minute: string; second: string };
+type Parts = {
+  year: string;
+  month: string;
+  day: string;
+  hour: string;
+  minute: string;
+  second: string;
+  weekday: string;
+};
 
 function genevaParts(d: Date): Parts {
   const out = {} as Record<string, string>;
@@ -60,4 +76,74 @@ export function formatDateTime(
 export function formatCurrency(amount: number, opts: { decimals?: number } = {}): string {
   const dec = opts.decimals ?? 0;
   return `CHF ${amount.toFixed(dec)}`;
+}
+
+// "Sunday, 19 May 2026" — for email bodies and other long-form display.
+export function formatDateWithWeekday(input: string | Date | null | undefined): string | null {
+  const d = toDate(input);
+  if (!d) return null;
+  const p = genevaParts(d);
+  const day = parseInt(p.day, 10);
+  const month = MONTHS_LONG[parseInt(p.month, 10) - 1];
+  return `${p.weekday}, ${day} ${month} ${p.year}`;
+}
+
+// "Sunday" — for slot-aware reminder copy ("Friday morning").
+export function formatWeekday(input: string | Date | null | undefined): string | null {
+  const d = toDate(input);
+  if (!d) return null;
+  return genevaParts(d).weekday;
+}
+
+// "11:00" from a "HH:MM" or "HH:MM:SS" Postgres time string. Returns null
+// for absent input. No timezone conversion — TIME values are already wall-clock.
+export function formatStartTime(time: string | null | undefined): string | null {
+  if (!time) return null;
+  return time.slice(0, 5);
+}
+
+// ------------------------------------------------------------------
+// Geneva-time math helpers (server-only consumers — cron, email)
+//
+// These exist for the same reason as the display formatters above:
+// hand-rolled via formatToParts so output is byte-identical and
+// timezone-correct regardless of runtime ICU. Don't reinvent.
+// ------------------------------------------------------------------
+
+const HOUR_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Zurich",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  hour12: false,
+});
+
+// Return the (date, hour) of "now" in Europe/Zurich. Used by the cron
+// scheduler to match the current hour against configured slot times.
+export function nowInZurich(): { date: string; hour: number } {
+  const parts = HOUR_FMT.formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  const hourStr = get("hour");
+  const hour = hourStr === "24" ? 0 : Number(hourStr);
+  return { date: `${year}-${month}-${day}`, hour };
+}
+
+// Convert a Europe/Zurich-local (date, hour) to a UTC ISO instant. Used
+// to compute firing instants for the registration created_at cutoff.
+// Achieved by guessing UTC ± a window and reading back the zoned hour to
+// lock onto the correct UTC value — DST-correct by construction.
+export function zurichInstantToUtc(localDate: string, localHour: number): string {
+  const naiveUtc = new Date(
+    `${localDate}T${String(localHour).padStart(2, "0")}:00:00Z`
+  );
+  const parts = HOUR_FMT.formatToParts(naiveUtc);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  const seenAsZurichHour = get("hour") === "24" ? 0 : Number(get("hour"));
+  const deltaHours = seenAsZurichHour - localHour;
+  const adjusted = new Date(naiveUtc.getTime() - deltaHours * 3600 * 1000);
+  return adjusted.toISOString();
 }

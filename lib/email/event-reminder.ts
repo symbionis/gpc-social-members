@@ -1,30 +1,14 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
+import {
+  formatDateWithWeekday,
+  formatStartTime,
+  formatWeekday,
+} from "@/lib/format";
 
 const TEMPLATE_ALIAS = "event-reminder";
 
 export type ReminderSlot = "morning" | "lunch" | "evening";
-
-const DATE_FORMAT: Intl.DateTimeFormatOptions = {
-  weekday: "long",
-  day: "numeric",
-  month: "long",
-  year: "numeric",
-};
-
-const WEEKDAY_FORMAT: Intl.DateTimeFormatOptions = { weekday: "long" };
-
-function formatDate(isoDate: string | null | undefined): string | null {
-  if (!isoDate) return null;
-  const d = new Date(isoDate);
-  if (Number.isNaN(d.getTime())) return null;
-  return new Intl.DateTimeFormat("en-GB", DATE_FORMAT).format(d);
-}
-
-function formatTime(time: string | null | undefined): string | null {
-  if (!time) return null;
-  return time.slice(0, 5);
-}
 
 function firstNameFrom(fullName: string): string {
   const trimmed = fullName.trim();
@@ -37,12 +21,6 @@ function formatAmount(totalChf: number, isFree: boolean): string {
   return `CHF ${totalChf.toFixed(2)}`;
 }
 
-function weekdayOf(isoDate: string): string | null {
-  const d = new Date(isoDate);
-  if (Number.isNaN(d.getTime())) return null;
-  return new Intl.DateTimeFormat("en-GB", WEEKDAY_FORMAT).format(d);
-}
-
 // "Tomorrow morning", "This evening", "Friday morning" — slot-aware, no clock time.
 // The template can compose with event_time_label separately when it needs the exact time.
 function buildTimeUntilLabel(
@@ -52,7 +30,7 @@ function buildTimeUntilLabel(
 ): string {
   if (daysBefore === 0) return `This ${slot}`;
   if (daysBefore === 1) return `Tomorrow ${slot}`;
-  const weekday = weekdayOf(eventStartDate);
+  const weekday = formatWeekday(eventStartDate);
   return weekday ? `${weekday} ${slot}` : `In ${daysBefore} days, ${slot}`;
 }
 
@@ -156,8 +134,8 @@ export async function sendEventReminder(
   const isFree =
     registration.status === "free" || Number(registration.total_amount_chf) === 0;
   const amountLabel = formatAmount(Number(registration.total_amount_chf), isFree);
-  const eventDateLabel = formatDate(event.start_date);
-  const eventTimeLabel = formatTime(event.start_time);
+  const eventDateLabel = formatDateWithWeekday(event.start_date);
+  const eventTimeLabel = formatStartTime(event.start_time);
 
   const timeUntilLabel = buildTimeUntilLabel(daysBefore, slot, event.start_date);
   const motivationLabel = buildMotivationLabel(daysBefore);

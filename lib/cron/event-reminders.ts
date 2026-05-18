@@ -1,9 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEventReminder, type ReminderSlot } from "@/lib/email/event-reminder";
 import { captureServerException } from "@/lib/analytics/server-errors";
+import { nowInZurich, zurichInstantToUtc } from "@/lib/format";
 
 const SLOTS: readonly ReminderSlot[] = ["morning", "lunch", "evening"];
-const ZONE = "Europe/Zurich";
 const WINDOW_DAYS = 60;
 
 export interface EventReminderResult {
@@ -59,54 +59,6 @@ function parseHour(value: string | undefined, fallback: number): number {
   const [hStr] = value.split(":");
   const h = Number(hStr);
   return Number.isFinite(h) && h >= 0 && h <= 23 ? h : fallback;
-}
-
-// Return the (date, hour) of "now" in Europe/Zurich without pulling in a
-// date library. Intl gives us locale-shaped parts; we read them back as
-// numbers. Cheap and DST-correct.
-function nowInZurich(): { date: string; hour: number } {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hour12: false,
-  });
-  const parts = fmt.formatToParts(new Date());
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  const year = get("year");
-  const month = get("month");
-  const day = get("day");
-  const hourStr = get("hour");
-  const hour = hourStr === "24" ? 0 : Number(hourStr);
-  return { date: `${year}-${month}-${day}`, hour };
-}
-
-// Convert a Europe/Zurich-local (date, hour) to a UTC ISO instant for the
-// registration created_at cutoff. Achieved by guessing UTC ± a window and
-// reading back the zoned hour to lock onto the correct UTC value.
-function zurichInstantToUtc(localDate: string, localHour: number): string {
-  // Construct candidate UTC instant by treating local fields as UTC, then
-  // adjusting by the observed offset for that instant.
-  const naiveUtc = new Date(`${localDate}T${String(localHour).padStart(2, "0")}:00:00Z`);
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = fmt.formatToParts(naiveUtc);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
-  const seenAsZurichHour = get("hour") === "24" ? 0 : Number(get("hour"));
-  const deltaHours = seenAsZurichHour - localHour;
-  // Subtract delta — if we saw Zurich showing 10:00 for our 08:00Z guess,
-  // the true 08:00 Zurich is 2h earlier in UTC.
-  const adjusted = new Date(naiveUtc.getTime() - deltaHours * 3600 * 1000);
-  return adjusted.toISOString();
 }
 
 function addDays(isoDate: string, days: number): string {
