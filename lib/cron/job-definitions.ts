@@ -45,4 +45,12 @@ export const JOB_DEFINITIONS: Record<string, JobUIDefinition> = {
     schedule: "0 2 * * *",
     scheduleLabel: "Daily at 02:00 UTC",
   },
+  "event-reminders": {
+    name: "Event Reminders",
+    description:
+      "Sends reminder emails to registered attendees on configured (days_before, slot) tuples in Europe/Zurich",
+    schedule: "0 * * * *",
+    scheduleLabel: "Hourly",
+    emailSettingsKey: "event_reminder_default",
+  },
 };

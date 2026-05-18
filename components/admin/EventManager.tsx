@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
 import posthog from "posthog-js";
+import TestReminderButton from "./TestReminderButton";
 
 interface EventType {
   id: string;
@@ -38,6 +39,34 @@ interface Event {
   registration_enabled?: boolean | null;
   price_member?: number | null;
   price_non_member?: number | null;
+  reminder_schedule?: unknown;
+}
+
+type ReminderSlot = "morning" | "lunch" | "evening";
+interface ReminderEntry {
+  days_before: number;
+  slot: ReminderSlot;
+}
+const REMINDER_SLOTS: ReminderSlot[] = ["morning", "lunch", "evening"];
+
+function coerceReminderSchedule(value: unknown): ReminderEntry[] {
+  if (!Array.isArray(value)) return [];
+  const out: ReminderEntry[] = [];
+  for (const item of value) {
+    if (item && typeof item === "object" && "days_before" in item && "slot" in item) {
+      const d = Number((item as { days_before: unknown }).days_before);
+      const s = (item as { slot: unknown }).slot;
+      if (
+        Number.isInteger(d) &&
+        d >= 0 &&
+        typeof s === "string" &&
+        (REMINDER_SLOTS as string[]).includes(s)
+      ) {
+        out.push({ days_before: d, slot: s as ReminderSlot });
+      }
+    }
+  }
+  return out;
 }
 
 function coerceImages(value: unknown, fallbacks: (string | null | undefined)[]): string[] {
@@ -71,6 +100,7 @@ const emptyForm = {
   registration_enabled: false,
   price_member: "",
   price_non_member: "",
+  reminder_schedule: [] as ReminderEntry[],
 };
 
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -191,6 +221,7 @@ async function handleImageUpload(file: File) {
         event.price_non_member === null || event.price_non_member === undefined
           ? ""
           : String(event.price_non_member),
+      reminder_schedule: coerceReminderSchedule(event.reminder_schedule),
     });
     setEditing(event.id);
     setShowForm(true);
@@ -735,6 +766,97 @@ async function handleImageUpload(file: File) {
                   className={inputClass}
                   placeholder="0.00"
                 />
+              </div>
+            )}
+            {formData.registration_enabled && editing && (
+              <div className="md:col-span-2">
+                <TestReminderButton
+                  eventId={editing}
+                  schedule={formData.reminder_schedule}
+                />
+              </div>
+            )}
+            {formData.registration_enabled && (
+              <div className="md:col-span-2">
+                <label className="block text-xs font-body text-muted-foreground mb-1">
+                  Extra reminder schedule
+                </label>
+                <p className="text-xs text-muted-foreground font-body mb-2">
+                  Layered on top of the global presets (configured in Scheduled Jobs). Each entry: how many days before the event, at which slot.
+                </p>
+                <div className="space-y-2">
+                  {formData.reminder_schedule.map((entry, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max="60"
+                        step="1"
+                        value={entry.days_before}
+                        onChange={(e) => {
+                          const v = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                          const next = formData.reminder_schedule.map((r, i) =>
+                            i === idx ? { ...r, days_before: v } : r
+                          );
+                          setFormData({ ...formData, reminder_schedule: next });
+                        }}
+                        className={`${inputClass} w-24`}
+                      />
+                      <span className="text-xs text-muted-foreground font-body shrink-0">
+                        day(s) before,
+                      </span>
+                      <select
+                        value={entry.slot}
+                        onChange={(e) => {
+                          const next = formData.reminder_schedule.map((r, i) =>
+                            i === idx ? { ...r, slot: e.target.value as ReminderSlot } : r
+                          );
+                          setFormData({ ...formData, reminder_schedule: next });
+                        }}
+                        className={`${inputClass} w-32`}
+                      >
+                        {REMINDER_SLOTS.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = formData.reminder_schedule.filter(
+                            (_, i) => i !== idx
+                          );
+                          setFormData({ ...formData, reminder_schedule: next });
+                        }}
+                        className="px-2 py-1 text-sm font-body text-muted-foreground hover:text-red-600"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = [
+                        ...formData.reminder_schedule,
+                        { days_before: 3, slot: "morning" as ReminderSlot },
+                      ];
+                      // Client-side dedupe
+                      const seen = new Set<string>();
+                      const deduped = next.filter((e) => {
+                        const k = `${e.days_before}|${e.slot}`;
+                        if (seen.has(k)) return false;
+                        seen.add(k);
+                        return true;
+                      });
+                      setFormData({ ...formData, reminder_schedule: deduped });
+                    }}
+                    className="px-3 py-1.5 text-sm font-body text-marine border border-border rounded-lg hover:bg-cream transition-colors"
+                  >
+                    + Add reminder
+                  </button>
+                </div>
               </div>
             )}
           </div>
