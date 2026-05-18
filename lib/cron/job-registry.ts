@@ -7,6 +7,7 @@ import {
   runHoldExpirySafetyNet,
 } from "./committee-reminders";
 import { runExpireMemberships } from "./expire-memberships";
+import { runEventReminders } from "./event-reminders";
 
 export type { JobUIDefinition };
 export { JOB_DEFINITIONS };
@@ -21,6 +22,7 @@ const JOB_RUNNERS: Record<string, () => Promise<Record<string, unknown>>> = {
   "payment-reminders": async () => ({ ...await runPaymentReminders() }),
   "committee-reminders": async () => ({ ...await runCommitteeReminders() }),
   "hold-expiry-safety": async () => ({ ...await runHoldExpirySafetyNet() }),
+  "event-reminders": async () => ({ ...await runEventReminders() }),
 };
 
 export const JOB_REGISTRY: Record<string, JobDefinition> = Object.fromEntries(
