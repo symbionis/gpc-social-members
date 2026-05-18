@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEventReminder, type ReminderSlot } from "@/lib/email/event-reminder";
+import { captureServerException } from "@/lib/analytics/server-errors";
 
 const SLOTS: readonly ReminderSlot[] = ["morning", "lunch", "evening"];
 const ZONE = "Europe/Zurich";
@@ -153,13 +154,28 @@ function parseEventSchedule(raw: unknown): ScheduleEntry[] {
 export async function runEventReminders(): Promise<EventReminderResult> {
   const supabase = createAdminClient();
 
-  const { data: settingsRows } = await supabase
+  const { data: settingsRow, error: settingsErr } = await supabase
     .from("email_settings")
-    .select("value")
+    .select("enabled, value")
     .eq("key", "event_reminder_default")
-    .limit(1);
+    .limit(1)
+    .maybeSingle();
 
-  const settingsValue = (settingsRows?.[0]?.value ?? {}) as SettingsValue;
+  if (settingsErr) {
+    // Throw so withJobLogging records the failure and surfaces via Error Tracking
+    // — a misconfigured DB must never silently disable reminders.
+    throw settingsErr;
+  }
+
+  if (!settingsRow) {
+    return { sent: 0, skipped: 0, errors: 0, reason: "settings_missing" };
+  }
+
+  if (!settingsRow.enabled) {
+    return { sent: 0, skipped: 0, errors: 0, reason: "disabled" };
+  }
+
+  const settingsValue = (settingsRow.value ?? {}) as SettingsValue;
   const slotTimes = settingsValue.slot_times ?? {};
   const enabledPresets: ScheduleEntry[] = (settingsValue.presets ?? [])
     .filter((p) => p.enabled && isSlot(p.slot) && Number.isInteger(p.days_before) && p.days_before >= 0)
@@ -221,6 +237,7 @@ export async function runEventReminders(): Promise<EventReminderResult> {
 
     if (regErr) {
       console.error("[event-reminders] registrations query failed", event.id, regErr);
+      captureServerException(regErr, { path: "cron/event-reminders/registrations", route_kind: event.id });
       errors++;
       continue;
     }
@@ -236,6 +253,7 @@ export async function runEventReminders(): Promise<EventReminderResult> {
 
     if (sentErr) {
       console.error("[event-reminders] sent-rows query failed", event.id, sentErr);
+      captureServerException(sentErr, { path: "cron/event-reminders/sent-rows", route_kind: event.id });
       errors++;
       continue;
     }
@@ -262,6 +280,11 @@ export async function runEventReminders(): Promise<EventReminderResult> {
         );
 
         if (!result.success) {
+          captureServerException(result.error ?? new Error("event reminder send failed"), {
+            path: "cron/event-reminders/send",
+            route_kind: `${event.id}|${tuple.days_before}|${tuple.slot}`,
+            distinct_id: registration.id,
+          });
           errors++;
           continue;
         }
@@ -276,14 +299,28 @@ export async function runEventReminders(): Promise<EventReminderResult> {
           });
 
         if (insertErr) {
-          // Unique-constraint violation here means a concurrent tick already
-          // recorded the send for this tuple. The email did go out twice in
-          // that race window — rare, and the alternative (insert-then-send)
-          // risks under-sending which is worse for an event reminder.
+          const isDuplicate = (insertErr as { code?: string }).code === "23505";
+          if (isDuplicate) {
+            // Concurrent tick already recorded the send. Email went out once
+            // (this code path) and the other tick's email also went out — rare
+            // race window. Classify as skipped rather than error so operators
+            // can tell a race apart from a real failure.
+            console.warn(
+              "[event-reminders] idempotency duplicate (concurrent tick)",
+              { event_id: event.id, registration_id: registration.id, tuple }
+            );
+            skipped++;
+            continue;
+          }
           console.error(
             "[event-reminders] idempotency insert failed",
             { event_id: event.id, registration_id: registration.id, tuple, error: insertErr }
           );
+          captureServerException(insertErr, {
+            path: "cron/event-reminders/idempotency-insert",
+            route_kind: `${event.id}|${tuple.days_before}|${tuple.slot}`,
+            distinct_id: registration.id,
+          });
           errors++;
           continue;
         }

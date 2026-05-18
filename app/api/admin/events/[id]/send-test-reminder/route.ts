@@ -61,38 +61,25 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
   const slot = body.slot as ReminderSlot;
 
-  // Find any registration on this event to seed the merge context.
-  // The send module reads registration fields (quantity, reference_code, etc.)
-  // — for a test send those values come from the real event's first registration
-  // when one exists, otherwise we still try to send by passing a placeholder.
-  const { data: registrations } = await adminClient
-    .from("event_registrations")
-    .select("id")
-    .eq("event_id", eventId)
-    .limit(1);
-
-  const seedRegistrationId = registrations?.[0]?.id;
-  if (!seedRegistrationId) {
-    return NextResponse.json(
-      {
-        error:
-          "No registrations on this event yet — register at least one (e.g. yourself) before sending a test reminder.",
-      },
-      { status: 400 }
-    );
-  }
-
   const adminName =
     [admin.first_name, admin.last_name].filter(Boolean).join(" ") ||
     user.email;
 
-  const result = await sendEventReminder(
-    seedRegistrationId,
-    eventId,
-    daysBefore,
-    slot,
-    { to_email: user.email, to_name: adminName }
-  );
+  // Synthesize a registration so the test send works even before anyone has
+  // actually registered for the event — that's exactly when admins want to
+  // preview the template. Idempotency table is not written for tests.
+  const result = await sendEventReminder(null, eventId, daysBefore, slot, {
+    to_email: user.email,
+    to_name: adminName,
+    synthetic_registration: {
+      name: adminName,
+      email: user.email,
+      quantity: 1,
+      total_amount_chf: 0,
+      reference_code: "PREVIEW",
+      status: "free",
+    },
+  });
 
   if (!result.success) {
     return NextResponse.json(

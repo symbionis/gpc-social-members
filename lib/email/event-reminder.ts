@@ -63,18 +63,34 @@ function buildMotivationLabel(daysBefore: number): string {
   return "Save the date";
 }
 
+interface SyntheticRegistration {
+  name: string;
+  email: string;
+  quantity: number;
+  total_amount_chf: number;
+  reference_code: string;
+  status: string;
+}
+
 export interface SendEventReminderOverrides {
   to_email?: string;
   to_name?: string;
+  // When provided, skip the DB load and use this in place of the registration
+  // row. Used by the admin test-send route to preview without requiring a
+  // real seed registration on the event.
+  synthetic_registration?: SyntheticRegistration;
 }
 
 /**
  * Send a single event reminder. Pure function callable from cron and the
  * admin test-send route. Never throws — returns { success, error } so the
  * caller can decide whether to record idempotency.
+ *
+ * Pass `registrationId = null` together with `overrides.synthetic_registration`
+ * to send without touching the event_registrations table (test-send path).
  */
 export async function sendEventReminder(
-  registrationId: string,
+  registrationId: string | null,
   eventId: string,
   daysBefore: number,
   slot: ReminderSlot,
@@ -82,22 +98,40 @@ export async function sendEventReminder(
 ): Promise<{ success: boolean; error?: unknown }> {
   const supabase = createAdminClient();
 
-  const { data: registration, error: regErr } = await supabase
-    .from("event_registrations")
-    .select(
-      "id, name, email, quantity, total_amount_chf, reference_code, status, event_id"
-    )
-    .eq("id", registrationId)
-    .limit(1)
-    .single();
+  let registration: SyntheticRegistration;
+  if (overrides?.synthetic_registration) {
+    registration = overrides.synthetic_registration;
+  } else if (registrationId) {
+    const { data, error: regErr } = await supabase
+      .from("event_registrations")
+      .select(
+        "id, name, email, quantity, total_amount_chf, reference_code, status, event_id"
+      )
+      .eq("id", registrationId)
+      .limit(1)
+      .maybeSingle();
 
-  if (regErr || !registration) {
-    console.error(
-      "[event-reminder-email] registration not found",
-      registrationId,
-      regErr
-    );
-    return { success: false, error: regErr || "registration not found" };
+    if (regErr) {
+      console.error("[event-reminder-email] registration lookup failed", registrationId, regErr);
+      return { success: false, error: regErr };
+    }
+    if (!data) {
+      console.warn("[event-reminder-email] registration not found", registrationId);
+      return { success: false, error: "registration not found" };
+    }
+    registration = {
+      name: data.name,
+      email: data.email,
+      quantity: data.quantity,
+      total_amount_chf: Number(data.total_amount_chf),
+      reference_code: data.reference_code,
+      status: data.status,
+    };
+  } else {
+    return {
+      success: false,
+      error: "registrationId or synthetic_registration is required",
+    };
   }
 
   const { data: event, error: evErr } = await supabase
@@ -105,15 +139,15 @@ export async function sendEventReminder(
     .select("id, title, start_date, start_time, location, visibility")
     .eq("id", eventId)
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  if (evErr || !event) {
-    console.error(
-      "[event-reminder-email] event not found",
-      eventId,
-      evErr
-    );
-    return { success: false, error: evErr || "event not found" };
+  if (evErr) {
+    console.error("[event-reminder-email] event lookup failed", eventId, evErr);
+    return { success: false, error: evErr };
+  }
+  if (!event) {
+    console.warn("[event-reminder-email] event not found", eventId);
+    return { success: false, error: "event not found" };
   }
 
   const toEmail = overrides?.to_email || registration.email;
@@ -128,7 +162,16 @@ export async function sendEventReminder(
   const timeUntilLabel = buildTimeUntilLabel(daysBefore, slot, event.start_date);
   const motivationLabel = buildMotivationLabel(daysBefore);
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl) {
+    // Production reminders without an app URL would ship unclickable localhost
+    // links — refuse to send and let the caller surface the misconfig.
+    console.error("[event-reminder-email] NEXT_PUBLIC_APP_URL is not set; refusing to send");
+    return {
+      success: false,
+      error: "NEXT_PUBLIC_APP_URL is not set",
+    };
+  }
   const eventUrl =
     event.visibility === "public"
       ? `${appUrl}/public/events/${event.id}`

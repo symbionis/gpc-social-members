@@ -44,7 +44,10 @@ export default function EventReminderSettings({
   const morningBeforeIdx = findPresetIndex(value.presets, 1, "morning");
   const morningOfIdx = findPresetIndex(value.presets, 0, "morning");
 
-  async function persist(next: { enabled?: boolean; value?: SettingsValue }) {
+  async function persist(
+    prev: { enabled: boolean; value: SettingsValue },
+    next: { enabled?: boolean; value?: SettingsValue }
+  ) {
     setSaving(true);
     setError(null);
     try {
@@ -53,8 +56,8 @@ export default function EventReminderSettings({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           key: "event_reminder_default",
-          enabled: next.enabled ?? enabled,
-          value: next.value ?? value,
+          enabled: next.enabled ?? prev.enabled,
+          value: next.value ?? prev.value,
         }),
       });
       if (!res.ok) {
@@ -64,9 +67,11 @@ export default function EventReminderSettings({
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
-      // Revert local state on failure so the UI reflects what's persisted
-      setEnabled(initialEnabled);
-      setValue(initialValue);
+      // Revert to the pre-mutation snapshot (not the stale mount-time props)
+      // so a failed save after a prior successful save doesn't overwrite the
+      // persisted state with an old initial value.
+      setEnabled(prev.enabled);
+      setValue(prev.value);
     } finally {
       setSaving(false);
     }
@@ -74,17 +79,19 @@ export default function EventReminderSettings({
 
   function togglePreset(idx: number, checked: boolean) {
     if (idx < 0) return;
+    const prev = { enabled, value };
     const nextPresets = value.presets.map((p, i) =>
       i === idx ? { ...p, enabled: checked } : p
     );
     const next: SettingsValue = { ...value, presets: nextPresets };
     setValue(next);
-    void persist({ value: next });
+    void persist(prev, { value: next });
   }
 
   function toggleMaster(checked: boolean) {
+    const prev = { enabled, value };
     setEnabled(checked);
-    void persist({ enabled: checked });
+    void persist(prev, { enabled: checked });
   }
 
   function changeSlotTime(slot: Slot, time: string) {
@@ -96,7 +103,23 @@ export default function EventReminderSettings({
   }
 
   function commitSlotTimes() {
-    void persist({ value });
+    const prev = { enabled, value };
+    // Reject duplicate slot hours — otherwise SLOTS.find in the cron silently
+    // drops the colliding slot since only the first match wins per hour.
+    const hours = SLOT_KEYS.map((s) => value.slot_times[s]);
+    const seen = new Set<string>();
+    for (const h of hours) {
+      if (!h) continue;
+      if (seen.has(h)) {
+        setError(
+          "Slot times must be unique — two slots cannot share the same hour. Reverting."
+        );
+        setValue(prev.value);
+        return;
+      }
+      seen.add(h);
+    }
+    void persist(prev, { value });
   }
 
   return (
