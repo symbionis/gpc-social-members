@@ -116,6 +116,10 @@ export default async function EventDetailPage({
     seatsUsed,
   });
   const maxQuantity = seatsRemaining ?? undefined;
+  const hasSeatCap =
+    event.seat_cap !== null && event.seat_cap !== undefined;
+  const showLimitedSeatsNote =
+    hasSeatCap && !isFullyBooked && !isLowAvailability;
 
   return (
     <div>
@@ -215,6 +219,11 @@ export default async function EventDetailPage({
                 {isLowAvailability && seatsRemaining !== null && (
                   <p className="font-body text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
                     Only {seatsRemaining} {seatsRemaining === 1 ? "seat" : "seats"} left
+                  </p>
+                )}
+                {showLimitedSeatsNote && (
+                  <p className="font-body text-xs text-muted-foreground mb-3">
+                    Limited seats — register early to secure your spot.
                   </p>
                 )}
                 <EventRegistrationDrawer
