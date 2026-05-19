@@ -177,6 +177,21 @@ export default async function PublicEventDetailPage({
                       Members only
                     </span>
                   )}
+                  {event.registration_enabled && isFullyBooked && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-marine/10 text-marine">
+                      Fully booked
+                    </span>
+                  )}
+                  {event.registration_enabled && !isFullyBooked && isLowAvailability && seatsRemaining !== null && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
+                      Only {seatsRemaining} left
+                    </span>
+                  )}
+                  {event.registration_enabled && showLimitedSeatsNote && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-sky/10 text-sky-dark">
+                      Limited seats
+                    </span>
+                  )}
                 </div>
 
                 <p className="font-body text-base font-semibold text-sky-dark">
@@ -238,11 +253,6 @@ export default async function PublicEventDetailPage({
                     {isLowAvailability && seatsRemaining !== null && (
                       <p className="font-body text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
                         Only {seatsRemaining} {seatsRemaining === 1 ? "seat" : "seats"} left
-                      </p>
-                    )}
-                    {showLimitedSeatsNote && (
-                      <p className="font-body text-xs text-muted-foreground mb-3">
-                        Limited seats — register early to secure your spot.
                       </p>
                     )}
                     <EventRegistrationDrawer
