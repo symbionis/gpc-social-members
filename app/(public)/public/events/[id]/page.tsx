@@ -144,8 +144,8 @@ export default async function PublicEventDetailPage({
           {registered === "1" && (
             <div className="rounded-sm border border-emerald-200 bg-emerald-50 p-4 mb-4">
               <p className="font-body text-sm text-emerald-900">
-                Payment received. A confirmation email is on its way — check
-                your inbox.
+                Registration confirmed. A confirmation email is on its way —
+                check your inbox.
               </p>
             </div>
           )}

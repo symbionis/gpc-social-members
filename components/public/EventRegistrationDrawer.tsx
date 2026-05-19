@@ -36,6 +36,18 @@ export default function EventRegistrationDrawer({
     setMounted(true);
   }, []);
 
+  // Lock body scroll while the drawer is open. Without this, iOS Safari lets the
+  // page beneath scroll under the drawer, which feels like the form is broken —
+  // users on Instagram's in-app browser were reporting they couldn't submit.
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [open]);
+
   const drawer = open ? (
     <>
       <div
@@ -47,7 +59,7 @@ export default function EventRegistrationDrawer({
         role="dialog"
         aria-modal="true"
         aria-label={`Register for ${eventTitle}`}
-        className="fixed top-0 right-0 h-full w-full sm:w-[480px] max-w-full bg-white shadow-xl z-[110] flex flex-col"
+        className="fixed top-0 right-0 h-full h-[100dvh] w-full sm:w-[480px] max-w-full bg-white shadow-xl z-[110] flex flex-col"
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div>
@@ -76,7 +88,7 @@ export default function EventRegistrationDrawer({
             </svg>
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="flex-1 overflow-y-auto px-6 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           <EventRegistrationForm
             eventId={eventId}
             priceMember={priceMember}

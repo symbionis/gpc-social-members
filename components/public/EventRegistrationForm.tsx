@@ -94,6 +94,16 @@ export default function EventRegistrationForm({
       }
 
       if (data.success && data.reference_code) {
+        // Free path: navigate back to the event page with ?registered=1 so the
+        // user sees the same prominent confirmation banner as paid users.
+        // The inline success panel is too easy to miss inside the drawer,
+        // especially on iOS Safari from the Instagram in-app browser.
+        if (typeof window !== "undefined") {
+          const url = new URL(window.location.href);
+          url.searchParams.set("registered", "1");
+          window.location.assign(url.toString());
+          return;
+        }
         setSuccess({ referenceCode: data.reference_code });
         setSubmitting(false);
         return;
