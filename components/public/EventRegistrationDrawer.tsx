@@ -14,6 +14,8 @@ interface Props {
   /** Hide the non-member rate on the form (used on the member-facing page). */
   memberOnly?: boolean;
   buttonLabel: string;
+  /** Max selectable ticket quantity. Clamped to remaining seats for capped events. */
+  maxQuantity?: number;
 }
 
 export default function EventRegistrationDrawer({
@@ -25,6 +27,7 @@ export default function EventRegistrationDrawer({
   defaultEmail,
   memberOnly = false,
   buttonLabel,
+  maxQuantity,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -82,6 +85,7 @@ export default function EventRegistrationDrawer({
             defaultEmail={defaultEmail}
             memberOnly={memberOnly}
             showMemberRate={false}
+            maxQuantity={maxQuantity}
           />
         </div>
       </div>

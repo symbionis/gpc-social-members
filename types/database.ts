@@ -345,6 +345,48 @@ export type Database = {
           },
         ]
       }
+      event_reminder_sends: {
+        Row: {
+          days_before: number
+          event_id: string
+          id: string
+          registration_id: string
+          sent_at: string
+          slot: string
+        }
+        Insert: {
+          days_before: number
+          event_id: string
+          id?: string
+          registration_id: string
+          sent_at?: string
+          slot: string
+        }
+        Update: {
+          days_before?: number
+          event_id?: string
+          id?: string
+          registration_id?: string
+          sent_at?: string
+          slot?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_reminder_sends_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_reminder_sends_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_types: {
         Row: {
           color: string
@@ -372,6 +414,38 @@ export type Database = {
         }
         Relationships: []
       }
+      event_waitlist: {
+        Row: {
+          created_at: string
+          email: string
+          event_id: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          event_id: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          event_id?: string
+          id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_waitlist_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       events: {
         Row: {
           created_at: string
@@ -389,7 +463,9 @@ export type Database = {
           price_member: number | null
           price_non_member: number | null
           registration_enabled: boolean
+          reminder_schedule: Json
           season_id: string | null
+          seat_cap: number | null
           start_date: string
           start_time: string | null
           title: string
@@ -412,7 +488,9 @@ export type Database = {
           price_member?: number | null
           price_non_member?: number | null
           registration_enabled?: boolean
+          reminder_schedule?: Json
           season_id?: string | null
+          seat_cap?: number | null
           start_date: string
           start_time?: string | null
           title: string
@@ -435,7 +513,9 @@ export type Database = {
           price_member?: number | null
           price_non_member?: number | null
           registration_enabled?: boolean
+          reminder_schedule?: Json
           season_id?: string | null
+          seat_cap?: number | null
           start_date?: string
           start_time?: string | null
           title?: string

@@ -11,9 +11,11 @@ interface Props {
   showMemberRate?: boolean;
   /** When true, show only the member rate (used on the member-facing page). */
   memberOnly?: boolean;
+  /** Max selectable quantity. Defaults to MAX_QUANTITY_HARD_CAP. Clamped to remaining seats for capped events. */
+  maxQuantity?: number;
 }
 
-const MAX_QUANTITY = 6;
+const MAX_QUANTITY_HARD_CAP = 6;
 
 export default function EventRegistrationForm({
   eventId,
@@ -23,7 +25,12 @@ export default function EventRegistrationForm({
   defaultEmail = "",
   showMemberRate = true,
   memberOnly = false,
+  maxQuantity,
 }: Props) {
+  const effectiveMaxQuantity = Math.max(
+    1,
+    Math.min(MAX_QUANTITY_HARD_CAP, maxQuantity ?? MAX_QUANTITY_HARD_CAP)
+  );
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
   const [quantity, setQuantity] = useState(1);
@@ -53,8 +60,8 @@ export default function EventRegistrationForm({
       setError("Please enter your email.");
       return;
     }
-    if (quantity < 1 || quantity > MAX_QUANTITY) {
-      setError(`Quantity must be between 1 and ${MAX_QUANTITY}.`);
+    if (quantity < 1 || quantity > effectiveMaxQuantity) {
+      setError(`Quantity must be between 1 and ${effectiveMaxQuantity}.`);
       return;
     }
 
@@ -188,7 +195,7 @@ export default function EventRegistrationForm({
           onChange={(e) => setQuantity(Number(e.target.value))}
           className={inputClass}
         >
-          {Array.from({ length: MAX_QUANTITY }, (_, i) => i + 1).map((n) => (
+          {Array.from({ length: effectiveMaxQuantity }, (_, i) => i + 1).map((n) => (
             <option key={n} value={n}>
               {n}
             </option>

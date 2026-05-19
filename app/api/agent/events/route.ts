@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("events")
     .select(
-      "id, title, start_date, end_date, start_time, location, description, image_url, image_url_2, images, visibility, is_published, is_confirmed, registration_enabled, price_member, price_non_member, event_type_id, season_id"
+      "id, title, start_date, end_date, start_time, location, description, image_url, image_url_2, images, visibility, is_published, is_confirmed, registration_enabled, price_member, price_non_member, seat_cap, event_type_id, season_id"
     )
     .gte("start_date", from)
     .order("start_date", { ascending: true })

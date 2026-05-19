@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import EventRegistrationDrawer from "@/components/public/EventRegistrationDrawer";
+import EventFullyBookedBlock from "@/components/public/EventFullyBookedBlock";
 import EventGallery from "@/components/EventGallery";
+import { deriveSeatState, getSeatsUsed } from "@/lib/events/seat-usage";
 
 const APPLY_URL = "/apply/GPC-2026";
 
@@ -105,6 +107,17 @@ export default async function PublicEventDetailPage({
   const priceMember = Number(event.price_member ?? 0);
   const priceNonMember = Number(event.price_non_member ?? 0);
 
+  // Capacity state. Skip the count query for uncapped events.
+  const seatsUsed =
+    event.seat_cap !== null && event.seat_cap !== undefined
+      ? await getSeatsUsed(supabase, event.id)
+      : 0;
+  const { isFullyBooked, seatsRemaining, isLowAvailability } = deriveSeatState({
+    seatCap: event.seat_cap,
+    seatsUsed,
+  });
+  const maxQuantity = seatsRemaining ?? undefined;
+
   return (
     <>
       <div className="h-20 bg-marine" />
@@ -204,7 +217,13 @@ export default async function PublicEventDetailPage({
                       Apply for membership →
                     </Link>
                   </>
-                ) : event.registration_enabled ? (
+                ) : !event.registration_enabled ? (
+                  <p className="font-body text-sm text-muted-foreground">
+                    Information only — registration is not open for this event.
+                  </p>
+                ) : isFullyBooked ? (
+                  <EventFullyBookedBlock eventId={event.id} />
+                ) : (
                   <>
                     <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-1">
                       Price
@@ -212,18 +231,20 @@ export default async function PublicEventDetailPage({
                     <p className="font-heading text-2xl font-bold text-marine mb-4">
                       {priceLabel(priceNonMember)}
                     </p>
+                    {isLowAvailability && seatsRemaining !== null && (
+                      <p className="font-body text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
+                        Only {seatsRemaining} {seatsRemaining === 1 ? "seat" : "seats"} left
+                      </p>
+                    )}
                     <EventRegistrationDrawer
                       eventId={event.id}
                       eventTitle={event.title}
                       priceMember={priceMember}
                       priceNonMember={priceNonMember}
+                      maxQuantity={maxQuantity}
                       buttonLabel="Register"
                     />
                   </>
-                ) : (
-                  <p className="font-body text-sm text-muted-foreground">
-                    Information only — registration is not open for this event.
-                  </p>
                 )}
               </div>
             </aside>

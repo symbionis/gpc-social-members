@@ -53,7 +53,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   const current = await supabase
     .from("events")
     .select(
-      "id, title, event_type_id, start_date, end_date, start_time, location, description, notes, season_id, images, image_url, image_url_2, visibility, registration_enabled, price_member, price_non_member"
+      "id, title, event_type_id, start_date, end_date, start_time, location, description, notes, season_id, images, image_url, image_url_2, visibility, registration_enabled, price_member, price_non_member, seat_cap"
     )
     .eq("id", id)
     .limit(1)
@@ -245,6 +245,19 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     if (p !== null && p < 0) return bad(started_at, "price_non_member cannot be negative");
     update.price_non_member = p;
     updatedFields.push("price_non_member");
+  }
+  if ("seat_cap" in body) {
+    const raw = body.seat_cap;
+    if (raw === null || raw === "" || raw === undefined) {
+      update.seat_cap = null;
+    } else {
+      const n = typeof raw === "number" ? raw : Number(raw);
+      if (!Number.isInteger(n) || n <= 0) {
+        return bad(started_at, "seat_cap must be a positive integer or null");
+      }
+      update.seat_cap = n;
+    }
+    updatedFields.push("seat_cap");
   }
 
   if (updatedFields.length === 0) {

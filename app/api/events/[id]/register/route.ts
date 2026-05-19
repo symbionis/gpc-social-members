@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
+import { getSeatsUsed } from "@/lib/events/seat-usage";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -51,7 +52,7 @@ export async function POST(
   const { data: event, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, title, is_published, registration_enabled, price_member, price_non_member, visibility"
+      "id, title, is_published, registration_enabled, price_member, price_non_member, visibility, seat_cap"
     )
     .eq("id", eventId)
     .limit(1)
@@ -120,6 +121,23 @@ export async function POST(
 
   if (existingReg && existingReg.length > 0) {
     return bad("This email is already registered for this event", 409);
+  }
+
+  // Capacity check: recount paid+free seats immediately before insert.
+  // Pending checkouts don't count, so two final checkouts on the last seat
+  // can both succeed (documented oversell-by-one trade-off).
+  if (event.seat_cap !== null && event.seat_cap !== undefined) {
+    let seatsUsed: number;
+    try {
+      seatsUsed = await getSeatsUsed(supabase, eventId);
+    } catch (err) {
+      console.error("[event-register] seat usage lookup failed", err);
+      return bad("Could not verify availability", 500);
+    }
+
+    if (seatsUsed + quantity > event.seat_cap) {
+      return bad("Not enough seats remaining", 409);
+    }
   }
 
   const { data: inserted, error: insertErr } = await supabase
