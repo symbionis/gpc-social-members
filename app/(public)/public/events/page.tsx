@@ -3,7 +3,7 @@ import PublicEventsList, {
   type PublicEvent,
   type PublicEventType,
 } from "@/components/public/PublicEventsList";
-import { getFullyBookedEventIds } from "@/lib/events/seat-usage";
+import { getSeatStateByEvent } from "@/lib/events/seat-usage";
 
 export default async function PublicEventsPage() {
   const supabase = createAdminClient();
@@ -18,7 +18,7 @@ export default async function PublicEventsPage() {
     .gte("start_date", today)
     .order("start_date", { ascending: true });
 
-  const fullyBookedIds = await getFullyBookedEventIds(
+  const seatStateByEvent = await getSeatStateByEvent(
     supabase,
     (events ?? []).map((e) => ({ id: e.id, seat_cap: e.seat_cap }))
   );
@@ -55,7 +55,7 @@ export default async function PublicEventsPage() {
           <PublicEventsList
             events={(events ?? []) as PublicEvent[]}
             eventTypes={eventTypes}
-            fullyBookedIds={Array.from(fullyBookedIds)}
+            seatStateByEvent={seatStateByEvent}
           />
         </div>
       </div>

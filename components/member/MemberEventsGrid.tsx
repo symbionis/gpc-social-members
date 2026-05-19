@@ -3,6 +3,12 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 
+interface SeatState {
+  isFullyBooked: boolean;
+  seatsRemaining: number | null;
+  isLowAvailability: boolean;
+}
+
 export interface MemberEvent {
   id: string;
   title: string;
@@ -32,8 +38,8 @@ interface Props {
   events: MemberEvent[];
   eventTypes: MemberEventType[];
   showFilters?: boolean;
-  /** IDs of events that are fully booked. Closed events should not be included. */
-  fullyBookedIds?: string[];
+  /** Per-event seat state for capped events. Uncapped events omitted. */
+  seatStateByEvent?: Record<string, SeatState>;
 }
 
 function formatDateRange(startDate: string, endDate: string | null): string {
@@ -71,13 +77,9 @@ export default function MemberEventsGrid({
   events,
   eventTypes,
   showFilters = true,
-  fullyBookedIds = [],
+  seatStateByEvent = {},
 }: Props) {
   const [activeType, setActiveType] = useState<string>("all");
-  const fullyBookedSet = useMemo(
-    () => new Set(fullyBookedIds),
-    [fullyBookedIds]
-  );
 
   const filtered = useMemo(() => {
     if (activeType === "all") return events;
@@ -123,14 +125,20 @@ export default function MemberEventsGrid({
             const eventType = event.event_type_id
               ? typeMap.get(event.event_type_id)
               : undefined;
-            const isFullyBooked =
-              Boolean(event.registration_enabled) && fullyBookedSet.has(event.id);
+            const seatState = seatStateByEvent[event.id];
+            const registrationOpen = Boolean(event.registration_enabled);
+            const isFullyBooked = registrationOpen && Boolean(seatState?.isFullyBooked);
+            const lowAvailabilityRemaining =
+              registrationOpen && seatState?.isLowAvailability
+                ? seatState.seatsRemaining
+                : null;
             return (
               <EventCard
                 key={event.id}
                 event={event}
                 eventType={eventType}
                 isFullyBooked={isFullyBooked}
+                lowAvailabilityRemaining={lowAvailabilityRemaining}
               />
             );
           })}
@@ -176,10 +184,12 @@ function EventCard({
   event,
   eventType,
   isFullyBooked,
+  lowAvailabilityRemaining,
 }: {
   event: MemberEvent;
   eventType?: MemberEventType;
   isFullyBooked: boolean;
+  lowAvailabilityRemaining: number | null;
 }) {
   const dateLabel = formatDateRange(event.start_date, event.end_date);
   const hero = heroImage(event);
@@ -219,6 +229,11 @@ function EventCard({
           {isFullyBooked && (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-marine/10 text-marine">
               Fully booked
+            </span>
+          )}
+          {!isFullyBooked && lowAvailabilityRemaining !== null && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
+              Only {lowAvailabilityRemaining} left
             </span>
           )}
         </div>

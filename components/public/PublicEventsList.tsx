@@ -3,6 +3,12 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 
+interface SeatState {
+  isFullyBooked: boolean;
+  seatsRemaining: number | null;
+  isLowAvailability: boolean;
+}
+
 const APPLY_URL = "/apply/GPC-2026";
 
 export interface PublicEvent {
@@ -32,8 +38,8 @@ export interface PublicEventType {
 interface Props {
   events: PublicEvent[];
   eventTypes: PublicEventType[];
-  /** IDs of events that are fully booked (capacity reached). Closed events are never included. */
-  fullyBookedIds?: string[];
+  /** Per-event seat state for capped events. Uncapped events omitted. */
+  seatStateByEvent?: Record<string, SeatState>;
 }
 
 function formatExactDate(startDate: string, endDate: string | null): string {
@@ -90,13 +96,9 @@ function heroImage(event: PublicEvent): string | null {
 export default function PublicEventsList({
   events,
   eventTypes,
-  fullyBookedIds = [],
+  seatStateByEvent = {},
 }: Props) {
   const [activeType, setActiveType] = useState<string>("all");
-  const fullyBookedSet = useMemo(
-    () => new Set(fullyBookedIds),
-    [fullyBookedIds]
-  );
 
   const filtered = useMemo(() => {
     if (activeType === "all") return events;
@@ -142,8 +144,13 @@ export default function PublicEventsList({
           {filtered.map((event) => {
             const isMembersOnly = event.visibility !== "public";
             const eventType = event.event_type_id ? typeMap.get(event.event_type_id) : undefined;
-            const isFullyBooked =
-              Boolean(event.registration_enabled) && fullyBookedSet.has(event.id);
+            const seatState = seatStateByEvent[event.id];
+            const registrationOpen = Boolean(event.registration_enabled);
+            const isFullyBooked = registrationOpen && Boolean(seatState?.isFullyBooked);
+            const lowAvailabilityRemaining =
+              registrationOpen && seatState?.isLowAvailability
+                ? seatState.seatsRemaining
+                : null;
             return (
               <EventCard
                 key={event.id}
@@ -151,6 +158,7 @@ export default function PublicEventsList({
                 eventType={eventType}
                 isMembersOnly={isMembersOnly}
                 isFullyBooked={isFullyBooked}
+                lowAvailabilityRemaining={lowAvailabilityRemaining}
               />
             );
           })}
@@ -197,11 +205,13 @@ function EventCard({
   eventType,
   isMembersOnly,
   isFullyBooked,
+  lowAvailabilityRemaining,
 }: {
   event: PublicEvent;
   eventType?: PublicEventType;
   isMembersOnly: boolean;
   isFullyBooked: boolean;
+  lowAvailabilityRemaining: number | null;
 }) {
   const dateLabel = isMembersOnly
     ? formatMonthOnly(event.start_date, event.end_date)
@@ -260,6 +270,11 @@ function EventCard({
           {isFullyBooked && (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-marine/10 text-marine">
               Fully booked
+            </span>
+          )}
+          {!isFullyBooked && lowAvailabilityRemaining !== null && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
+              Only {lowAvailabilityRemaining} left
             </span>
           )}
         </div>

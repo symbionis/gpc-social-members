@@ -70,17 +70,18 @@ export function isFreeForRegistrant({
 }
 
 // Batch helper for list views. Given a list of events with their seat caps,
-// returns the subset of event IDs that are fully booked. One query for all
-// events; rows summed in app code. Events with null seat_cap never appear.
-export async function getFullyBookedEventIds(
+// returns a map of eventId -> SeatState. One query for all events; rows
+// summed in app code. Uncapped events are omitted from the map (caller
+// treats absence as "no badge, no indicator").
+export async function getSeatStateByEvent(
   supabase: SupabaseClient<Database>,
   events: ReadonlyArray<{ id: string; seat_cap: number | null }>
-): Promise<Set<string>> {
+): Promise<Record<string, SeatState>> {
   const capped = events.filter(
     (e): e is { id: string; seat_cap: number } =>
       e.seat_cap !== null && e.seat_cap !== undefined
   );
-  if (capped.length === 0) return new Set();
+  if (capped.length === 0) return {};
 
   const eventIds = capped.map((e) => e.id);
   const { data, error } = await supabase
@@ -99,11 +100,12 @@ export async function getFullyBookedEventIds(
     usedById[row.event_id] = (usedById[row.event_id] ?? 0) + (row.quantity ?? 0);
   }
 
-  const fullyBooked = new Set<string>();
+  const result: Record<string, SeatState> = {};
   for (const e of capped) {
-    if ((usedById[e.id] ?? 0) >= e.seat_cap) {
-      fullyBooked.add(e.id);
-    }
+    result[e.id] = deriveSeatState({
+      seatCap: e.seat_cap,
+      seatsUsed: usedById[e.id] ?? 0,
+    });
   }
-  return fullyBooked;
+  return result;
 }

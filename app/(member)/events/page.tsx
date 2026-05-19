@@ -6,7 +6,7 @@ import MemberEventsGrid, {
   type MemberEvent,
   type MemberEventType,
 } from "@/components/member/MemberEventsGrid";
-import { getFullyBookedEventIds } from "@/lib/events/seat-usage";
+import { getSeatStateByEvent } from "@/lib/events/seat-usage";
 
 export default async function EventsPage() {
   const supabase = await createClient();
@@ -40,7 +40,7 @@ export default async function EventsPage() {
     .gte("start_date", today)
     .order("start_date", { ascending: true });
 
-  const fullyBookedIds = await getFullyBookedEventIds(
+  const seatStateByEvent = await getSeatStateByEvent(
     adminClient,
     (events ?? []).map((e) => ({ id: e.id, seat_cap: e.seat_cap }))
   );
@@ -72,7 +72,7 @@ export default async function EventsPage() {
       <MemberEventsGrid
         events={(events ?? []) as MemberEvent[]}
         eventTypes={eventTypes}
-        fullyBookedIds={Array.from(fullyBookedIds)}
+        seatStateByEvent={seatStateByEvent}
       />
 
       <div className="mt-8">
