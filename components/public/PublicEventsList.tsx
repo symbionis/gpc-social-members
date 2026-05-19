@@ -151,6 +151,11 @@ export default function PublicEventsList({
               registrationOpen && seatState?.isLowAvailability
                 ? seatState.seatsRemaining
                 : null;
+            const showLimitedSeats =
+              registrationOpen &&
+              Boolean(seatState) &&
+              !isFullyBooked &&
+              lowAvailabilityRemaining === null;
             return (
               <EventCard
                 key={event.id}
@@ -159,6 +164,7 @@ export default function PublicEventsList({
                 isMembersOnly={isMembersOnly}
                 isFullyBooked={isFullyBooked}
                 lowAvailabilityRemaining={lowAvailabilityRemaining}
+                showLimitedSeats={showLimitedSeats}
               />
             );
           })}
@@ -206,12 +212,14 @@ function EventCard({
   isMembersOnly,
   isFullyBooked,
   lowAvailabilityRemaining,
+  showLimitedSeats,
 }: {
   event: PublicEvent;
   eventType?: PublicEventType;
   isMembersOnly: boolean;
   isFullyBooked: boolean;
   lowAvailabilityRemaining: number | null;
+  showLimitedSeats: boolean;
 }) {
   const dateLabel = isMembersOnly
     ? formatMonthOnly(event.start_date, event.end_date)
@@ -275,6 +283,11 @@ function EventCard({
           {!isFullyBooked && lowAvailabilityRemaining !== null && (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
               Only {lowAvailabilityRemaining} left
+            </span>
+          )}
+          {showLimitedSeats && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-sky/10 text-sky-dark">
+              Limited seats
             </span>
           )}
         </div>

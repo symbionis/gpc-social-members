@@ -132,6 +132,11 @@ export default function MemberEventsGrid({
               registrationOpen && seatState?.isLowAvailability
                 ? seatState.seatsRemaining
                 : null;
+            const showLimitedSeats =
+              registrationOpen &&
+              Boolean(seatState) &&
+              !isFullyBooked &&
+              lowAvailabilityRemaining === null;
             return (
               <EventCard
                 key={event.id}
@@ -139,6 +144,7 @@ export default function MemberEventsGrid({
                 eventType={eventType}
                 isFullyBooked={isFullyBooked}
                 lowAvailabilityRemaining={lowAvailabilityRemaining}
+                showLimitedSeats={showLimitedSeats}
               />
             );
           })}
@@ -185,11 +191,13 @@ function EventCard({
   eventType,
   isFullyBooked,
   lowAvailabilityRemaining,
+  showLimitedSeats,
 }: {
   event: MemberEvent;
   eventType?: MemberEventType;
   isFullyBooked: boolean;
   lowAvailabilityRemaining: number | null;
+  showLimitedSeats: boolean;
 }) {
   const dateLabel = formatDateRange(event.start_date, event.end_date);
   const hero = heroImage(event);
@@ -234,6 +242,11 @@ function EventCard({
           {!isFullyBooked && lowAvailabilityRemaining !== null && (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
               Only {lowAvailabilityRemaining} left
+            </span>
+          )}
+          {showLimitedSeats && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-sky/10 text-sky-dark">
+              Limited seats
             </span>
           )}
         </div>
