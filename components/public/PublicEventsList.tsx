@@ -2,6 +2,8 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import type { SeatState } from "@/lib/events/seat-usage";
+import SeatBadges from "@/components/events/SeatBadges";
 
 const APPLY_URL = "/apply/GPC-2026";
 
@@ -19,6 +21,7 @@ export interface PublicEvent {
   registration_enabled: boolean | null;
   visibility: string | null;
   event_type_id: string | null;
+  seat_cap: number | null;
 }
 
 export interface PublicEventType {
@@ -31,6 +34,8 @@ export interface PublicEventType {
 interface Props {
   events: PublicEvent[];
   eventTypes: PublicEventType[];
+  /** Per-event seat state for capped events. Uncapped events omitted. */
+  seatStateByEvent?: Record<string, SeatState>;
 }
 
 function formatExactDate(startDate: string, endDate: string | null): string {
@@ -84,7 +89,11 @@ function heroImage(event: PublicEvent): string | null {
   return event.image_url || event.image_url_2 || null;
 }
 
-export default function PublicEventsList({ events, eventTypes }: Props) {
+export default function PublicEventsList({
+  events,
+  eventTypes,
+  seatStateByEvent = {},
+}: Props) {
   const [activeType, setActiveType] = useState<string>("all");
 
   const filtered = useMemo(() => {
@@ -137,6 +146,7 @@ export default function PublicEventsList({ events, eventTypes }: Props) {
                 event={event}
                 eventType={eventType}
                 isMembersOnly={isMembersOnly}
+                seatState={seatStateByEvent[event.id]}
               />
             );
           })}
@@ -182,10 +192,12 @@ function EventCard({
   event,
   eventType,
   isMembersOnly,
+  seatState,
 }: {
   event: PublicEvent;
   eventType?: PublicEventType;
   isMembersOnly: boolean;
+  seatState: SeatState | undefined;
 }) {
   const dateLabel = isMembersOnly
     ? formatMonthOnly(event.start_date, event.end_date)
@@ -241,6 +253,10 @@ function EventCard({
               Members only
             </span>
           )}
+          <SeatBadges
+            registrationEnabled={event.registration_enabled}
+            seatState={seatState}
+          />
         </div>
         <p className="font-body text-sm font-semibold text-sky-dark">
           {dateLabel}

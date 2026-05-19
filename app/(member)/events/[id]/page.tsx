@@ -3,7 +3,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import EventRegistrationDrawer from "@/components/public/EventRegistrationDrawer";
+import EventFullyBookedBlock from "@/components/public/EventFullyBookedBlock";
 import EventGallery from "@/components/EventGallery";
+import SeatBadges from "@/components/events/SeatBadges";
+import { deriveSeatState, getSeatsUsed } from "@/lib/events/seat-usage";
 
 function coerceImages(value: unknown, fallbacks: (string | null | undefined)[]): string[] {
   if (Array.isArray(value)) {
@@ -105,6 +108,25 @@ export default async function EventDetailPage({
   const priceNonMember = Number(event.price_non_member ?? 0);
   const memberFullName = `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim();
 
+  // Capacity state. Degrade to uncapped rendering on lookup failure; the
+  // register POST handler still recounts before insert.
+  let seatsUsed = 0;
+  if (event.seat_cap !== null && event.seat_cap !== undefined) {
+    try {
+      seatsUsed = await getSeatsUsed(adminClient, event.id);
+    } catch (err) {
+      console.error("[member/events/[id]] seat usage lookup failed", err);
+    }
+  }
+  const seatState = deriveSeatState({
+    seatCap: event.seat_cap,
+    seatsUsed,
+  });
+  const { isFullyBooked, seatsRemaining, isLowAvailability } = seatState;
+  const maxQuantity = seatsRemaining ?? undefined;
+  const hasSeatCap =
+    event.seat_cap !== null && event.seat_cap !== undefined;
+
   return (
     <div>
       <Link
@@ -157,6 +179,10 @@ export default async function EventDetailPage({
                   Dates TBC
                 </span>
               )}
+              <SeatBadges
+                registrationEnabled={event.registration_enabled}
+                seatState={hasSeatCap ? seatState : null}
+              />
             </div>
 
             <p className="font-body text-base font-semibold text-sky-dark">
@@ -182,7 +208,17 @@ export default async function EventDetailPage({
 
         <aside>
           <div className="bg-white rounded-sm border border-border/60 p-5 lg:sticky lg:top-6">
-            {event.registration_enabled ? (
+            {!event.registration_enabled ? (
+              <p className="font-body text-sm text-muted-foreground">
+                Information only — registration is not open for this event.
+              </p>
+            ) : isFullyBooked ? (
+              <EventFullyBookedBlock
+                eventId={event.id}
+                defaultName={memberFullName}
+                defaultEmail={member.email ?? ""}
+              />
+            ) : (
               <>
                 <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-1">
                   Member price
@@ -190,6 +226,11 @@ export default async function EventDetailPage({
                 <p className="font-heading text-2xl font-bold text-marine mb-4">
                   {priceLabel(priceMember)}
                 </p>
+                {isLowAvailability && seatsRemaining !== null && (
+                  <p className="font-body text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
+                    Only {seatsRemaining} {seatsRemaining === 1 ? "seat" : "seats"} left
+                  </p>
+                )}
                 <EventRegistrationDrawer
                   eventId={event.id}
                   eventTitle={event.title}
@@ -198,13 +239,10 @@ export default async function EventDetailPage({
                   defaultName={memberFullName}
                   defaultEmail={member.email ?? ""}
                   memberOnly
+                  maxQuantity={maxQuantity}
                   buttonLabel="Register"
                 />
               </>
-            ) : (
-              <p className="font-body text-sm text-muted-foreground">
-                Information only — registration is not open for this event.
-              </p>
             )}
           </div>
         </aside>

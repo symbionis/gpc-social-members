@@ -2,6 +2,8 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import type { SeatState } from "@/lib/events/seat-usage";
+import SeatBadges from "@/components/events/SeatBadges";
 
 export interface MemberEvent {
   id: string;
@@ -17,6 +19,8 @@ export interface MemberEvent {
   visibility: string | null;
   is_confirmed: boolean | null;
   event_type_id: string | null;
+  registration_enabled: boolean | null;
+  seat_cap: number | null;
 }
 
 export interface MemberEventType {
@@ -30,6 +34,8 @@ interface Props {
   events: MemberEvent[];
   eventTypes: MemberEventType[];
   showFilters?: boolean;
+  /** Per-event seat state for capped events. Uncapped events omitted. */
+  seatStateByEvent?: Record<string, SeatState>;
 }
 
 function formatDateRange(startDate: string, endDate: string | null): string {
@@ -67,6 +73,7 @@ export default function MemberEventsGrid({
   events,
   eventTypes,
   showFilters = true,
+  seatStateByEvent = {},
 }: Props) {
   const [activeType, setActiveType] = useState<string>("all");
 
@@ -119,6 +126,7 @@ export default function MemberEventsGrid({
                 key={event.id}
                 event={event}
                 eventType={eventType}
+                seatState={seatStateByEvent[event.id]}
               />
             );
           })}
@@ -163,9 +171,11 @@ function FilterButton({
 function EventCard({
   event,
   eventType,
+  seatState,
 }: {
   event: MemberEvent;
   eventType?: MemberEventType;
+  seatState: SeatState | undefined;
 }) {
   const dateLabel = formatDateRange(event.start_date, event.end_date);
   const hero = heroImage(event);
@@ -202,6 +212,10 @@ function EventCard({
               Dates TBC
             </span>
           )}
+          <SeatBadges
+            registrationEnabled={event.registration_enabled}
+            seatState={seatState}
+          />
         </div>
         <p className="font-body text-sm font-semibold text-sky-dark">
           {dateLabel}

@@ -39,6 +39,7 @@ interface Event {
   registration_enabled?: boolean | null;
   price_member?: number | null;
   price_non_member?: number | null;
+  seat_cap?: number | null;
   reminder_schedule?: unknown;
 }
 
@@ -81,6 +82,7 @@ interface EventManagerProps {
   events: Event[];
   eventTypes: EventType[];
   seasons: Season[];
+  seatsUsedByEvent?: Record<string, number>;
 }
 
 const emptyForm = {
@@ -100,6 +102,7 @@ const emptyForm = {
   registration_enabled: false,
   price_member: "",
   price_non_member: "",
+  seat_cap: "",
   reminder_schedule: [] as ReminderEntry[],
 };
 
@@ -110,6 +113,7 @@ export default function EventManager({
   events,
   eventTypes,
   seasons,
+  seatsUsedByEvent = {},
 }: EventManagerProps) {
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
@@ -221,6 +225,10 @@ async function handleImageUpload(file: File) {
         event.price_non_member === null || event.price_non_member === undefined
           ? ""
           : String(event.price_non_member),
+      seat_cap:
+        event.seat_cap === null || event.seat_cap === undefined
+          ? ""
+          : String(event.seat_cap),
       reminder_schedule: coerceReminderSchedule(event.reminder_schedule),
     });
     setEditing(event.id);
@@ -257,6 +265,14 @@ async function handleImageUpload(file: File) {
           alert("Non-member price must be a valid non-negative number.");
           return;
         }
+      }
+    }
+
+    if (formData.seat_cap !== "") {
+      const sc = Number(formData.seat_cap);
+      if (!Number.isInteger(sc) || sc <= 0) {
+        alert("Seat cap must be a positive integer, or leave blank for uncapped.");
+        return;
       }
     }
 
@@ -337,11 +353,26 @@ async function handleImageUpload(file: File) {
   async function handleDelete(eventId: string) {
     if (!window.confirm("Are you sure you want to delete this event?")) return;
 
-    await fetch("/api/admin/events/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ event_id: eventId }),
-    });
+    try {
+      const res = await fetch("/api/admin/events/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: eventId }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({} as { error?: string }));
+        const message =
+          (errJson as { error?: string }).error ||
+          `Delete failed (HTTP ${res.status})`;
+        alert(`Could not delete event: ${message}`);
+        return;
+      }
+    } catch (err) {
+      console.error("[admin/events] delete network error", err);
+      alert("Network error deleting event. Please try again.");
+      return;
+    }
 
     router.refresh();
   }
@@ -355,6 +386,17 @@ async function handleImageUpload(file: File) {
 
   const inputClass =
     "w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
+
+  // Seat-cap field derived state — used below in the form's seat_cap input.
+  const seatCapCurrentUsed = editing ? seatsUsedByEvent[editing] ?? 0 : 0;
+  const seatCapParsed =
+    formData.seat_cap === "" ? null : Number(formData.seat_cap);
+  const seatCapBelowUsage =
+    editing !== null &&
+    seatCapParsed !== null &&
+    Number.isInteger(seatCapParsed) &&
+    seatCapParsed > 0 &&
+    seatCapParsed < seatCapCurrentUsed;
 
   return (
     <div className="space-y-6">
@@ -768,6 +810,37 @@ async function handleImageUpload(file: File) {
                 />
               </div>
             )}
+            <div>
+              <label className="block text-xs font-body text-muted-foreground mb-1">
+                Seat cap (optional)
+              </label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={formData.seat_cap}
+                onChange={(e) =>
+                  setFormData({ ...formData, seat_cap: e.target.value })
+                }
+                disabled={!formData.registration_enabled}
+                className={inputClass}
+                placeholder="Leave blank for uncapped"
+              />
+              <p className="text-xs text-muted-foreground font-body mt-1">
+                Counts paid + free seats (sum of ticket quantity). Pending
+                checkouts don&apos;t count.
+              </p>
+              {editing && seatCapCurrentUsed > 0 && (
+                <p className="text-xs text-muted-foreground font-body mt-1">
+                  Current usage: {seatCapCurrentUsed} seat{seatCapCurrentUsed === 1 ? "" : "s"}.
+                </p>
+              )}
+              {seatCapBelowUsage && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1 mt-2">
+                  Cap is below current usage of {seatCapCurrentUsed} seat{seatCapCurrentUsed === 1 ? "" : "s"}. Saving will leave the event overbooked.
+                </p>
+              )}
+            </div>
             {formData.registration_enabled && editing && (
               <div className="md:col-span-2">
                 <TestReminderButton

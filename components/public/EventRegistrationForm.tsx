@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import posthog from "posthog-js";
 
 interface Props {
   eventId: string;
@@ -11,9 +12,11 @@ interface Props {
   showMemberRate?: boolean;
   /** When true, show only the member rate (used on the member-facing page). */
   memberOnly?: boolean;
+  /** Max selectable quantity. Defaults to MAX_QUANTITY_HARD_CAP. Clamped to remaining seats for capped events. */
+  maxQuantity?: number;
 }
 
-const MAX_QUANTITY = 6;
+const MAX_QUANTITY_HARD_CAP = 6;
 
 export default function EventRegistrationForm({
   eventId,
@@ -23,7 +26,12 @@ export default function EventRegistrationForm({
   defaultEmail = "",
   showMemberRate = true,
   memberOnly = false,
+  maxQuantity,
 }: Props) {
+  const effectiveMaxQuantity = Math.max(
+    1,
+    Math.min(MAX_QUANTITY_HARD_CAP, maxQuantity ?? MAX_QUANTITY_HARD_CAP)
+  );
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
   const [quantity, setQuantity] = useState(1);
@@ -32,6 +40,7 @@ export default function EventRegistrationForm({
   const [success, setSuccess] = useState<{ referenceCode: string } | null>(
     null
   );
+  const [soldOut, setSoldOut] = useState(false);
 
   const memberFree = priceMember === 0;
   const nonMemberFree = priceNonMember === 0;
@@ -53,8 +62,8 @@ export default function EventRegistrationForm({
       setError("Please enter your email.");
       return;
     }
-    if (quantity < 1 || quantity > MAX_QUANTITY) {
-      setError(`Quantity must be between 1 and ${MAX_QUANTITY}.`);
+    if (quantity < 1 || quantity > effectiveMaxQuantity) {
+      setError(`Quantity must be between 1 and ${effectiveMaxQuantity}.`);
       return;
     }
 
@@ -69,7 +78,12 @@ export default function EventRegistrationForm({
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || "Could not register. Please try again.");
+        const message = data.error || "Could not register. Please try again.";
+        if (res.status === 409 && /seats? remaining/i.test(message)) {
+          setSoldOut(true);
+        } else {
+          setError(message);
+        }
         setSubmitting(false);
         return;
       }
@@ -89,6 +103,14 @@ export default function EventRegistrationForm({
       setSubmitting(false);
     } catch (err) {
       console.error(err);
+      try {
+        posthog.capture("event_register_network_error", {
+          event_id: eventId,
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      } catch {
+        /* posthog not initialized — ignore */
+      }
       setError("Network error. Please try again.");
       setSubmitting(false);
     }
@@ -104,6 +126,27 @@ export default function EventRegistrationForm({
           A confirmation email is on its way. Reference{" "}
           <span className="font-mono font-semibold">{success.referenceCode}</span>.
         </p>
+      </div>
+    );
+  }
+
+  if (soldOut) {
+    return (
+      <div className="rounded-xl border border-marine/20 bg-marine/5 p-6 space-y-3">
+        <h3 className="font-heading text-lg font-bold text-marine">
+          Sorry — this event just sold out.
+        </h3>
+        <p className="font-body text-sm text-marine/80">
+          Someone else grabbed the last seats while you were registering.
+          Refresh the page to join the waitlist.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="inline-block w-full text-center px-4 py-2 rounded-lg bg-marine text-white text-sm font-body font-semibold hover:bg-marine-light transition-colors cursor-pointer"
+        >
+          Refresh and view waitlist
+        </button>
       </div>
     );
   }
@@ -188,7 +231,7 @@ export default function EventRegistrationForm({
           onChange={(e) => setQuantity(Number(e.target.value))}
           className={inputClass}
         >
-          {Array.from({ length: MAX_QUANTITY }, (_, i) => i + 1).map((n) => (
+          {Array.from({ length: effectiveMaxQuantity }, (_, i) => i + 1).map((n) => (
             <option key={n} value={n}>
               {n}
             </option>

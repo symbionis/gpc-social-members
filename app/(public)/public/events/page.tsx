@@ -3,6 +3,7 @@ import PublicEventsList, {
   type PublicEvent,
   type PublicEventType,
 } from "@/components/public/PublicEventsList";
+import { getSeatStateByEvent } from "@/lib/events/seat-usage";
 
 export default async function PublicEventsPage() {
   const supabase = createAdminClient();
@@ -11,11 +12,23 @@ export default async function PublicEventsPage() {
   const { data: events } = await supabase
     .from("events")
     .select(
-      "id, title, start_date, end_date, start_time, location, description, image_url, image_url_2, images, registration_enabled, visibility, event_type_id"
+      "id, title, start_date, end_date, start_time, location, description, image_url, image_url_2, images, registration_enabled, visibility, event_type_id, seat_cap"
     )
     .eq("is_published", true)
     .gte("start_date", today)
     .order("start_date", { ascending: true });
+
+  // Degrade gracefully on seat-usage failure: render the listing without
+  // capacity badges rather than crashing the whole page.
+  let seatStateByEvent: Awaited<ReturnType<typeof getSeatStateByEvent>> = {};
+  try {
+    seatStateByEvent = await getSeatStateByEvent(
+      supabase,
+      (events ?? []).map((e) => ({ id: e.id, seat_cap: e.seat_cap }))
+    );
+  } catch (err) {
+    console.error("[public/events] seat usage lookup failed", err);
+  }
 
   // Only show event types that have at least one upcoming published event,
   // so the filter row never offers empty buckets.
@@ -49,6 +62,7 @@ export default async function PublicEventsPage() {
           <PublicEventsList
             events={(events ?? []) as PublicEvent[]}
             eventTypes={eventTypes}
+            seatStateByEvent={seatStateByEvent}
           />
         </div>
       </div>
