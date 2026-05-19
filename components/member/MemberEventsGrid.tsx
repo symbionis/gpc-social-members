@@ -17,6 +17,8 @@ export interface MemberEvent {
   visibility: string | null;
   is_confirmed: boolean | null;
   event_type_id: string | null;
+  registration_enabled: boolean | null;
+  seat_cap: number | null;
 }
 
 export interface MemberEventType {
@@ -30,6 +32,8 @@ interface Props {
   events: MemberEvent[];
   eventTypes: MemberEventType[];
   showFilters?: boolean;
+  /** IDs of events that are fully booked. Closed events should not be included. */
+  fullyBookedIds?: string[];
 }
 
 function formatDateRange(startDate: string, endDate: string | null): string {
@@ -67,8 +71,13 @@ export default function MemberEventsGrid({
   events,
   eventTypes,
   showFilters = true,
+  fullyBookedIds = [],
 }: Props) {
   const [activeType, setActiveType] = useState<string>("all");
+  const fullyBookedSet = useMemo(
+    () => new Set(fullyBookedIds),
+    [fullyBookedIds]
+  );
 
   const filtered = useMemo(() => {
     if (activeType === "all") return events;
@@ -114,11 +123,14 @@ export default function MemberEventsGrid({
             const eventType = event.event_type_id
               ? typeMap.get(event.event_type_id)
               : undefined;
+            const isFullyBooked =
+              Boolean(event.registration_enabled) && fullyBookedSet.has(event.id);
             return (
               <EventCard
                 key={event.id}
                 event={event}
                 eventType={eventType}
+                isFullyBooked={isFullyBooked}
               />
             );
           })}
@@ -163,9 +175,11 @@ function FilterButton({
 function EventCard({
   event,
   eventType,
+  isFullyBooked,
 }: {
   event: MemberEvent;
   eventType?: MemberEventType;
+  isFullyBooked: boolean;
 }) {
   const dateLabel = formatDateRange(event.start_date, event.end_date);
   const hero = heroImage(event);
@@ -200,6 +214,11 @@ function EventCard({
           {event.is_confirmed === false && (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
               Dates TBC
+            </span>
+          )}
+          {isFullyBooked && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-marine/10 text-marine">
+              Fully booked
             </span>
           )}
         </div>

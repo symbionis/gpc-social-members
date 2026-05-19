@@ -19,6 +19,7 @@ export interface PublicEvent {
   registration_enabled: boolean | null;
   visibility: string | null;
   event_type_id: string | null;
+  seat_cap: number | null;
 }
 
 export interface PublicEventType {
@@ -31,6 +32,8 @@ export interface PublicEventType {
 interface Props {
   events: PublicEvent[];
   eventTypes: PublicEventType[];
+  /** IDs of events that are fully booked (capacity reached). Closed events are never included. */
+  fullyBookedIds?: string[];
 }
 
 function formatExactDate(startDate: string, endDate: string | null): string {
@@ -84,8 +87,16 @@ function heroImage(event: PublicEvent): string | null {
   return event.image_url || event.image_url_2 || null;
 }
 
-export default function PublicEventsList({ events, eventTypes }: Props) {
+export default function PublicEventsList({
+  events,
+  eventTypes,
+  fullyBookedIds = [],
+}: Props) {
   const [activeType, setActiveType] = useState<string>("all");
+  const fullyBookedSet = useMemo(
+    () => new Set(fullyBookedIds),
+    [fullyBookedIds]
+  );
 
   const filtered = useMemo(() => {
     if (activeType === "all") return events;
@@ -131,12 +142,15 @@ export default function PublicEventsList({ events, eventTypes }: Props) {
           {filtered.map((event) => {
             const isMembersOnly = event.visibility !== "public";
             const eventType = event.event_type_id ? typeMap.get(event.event_type_id) : undefined;
+            const isFullyBooked =
+              Boolean(event.registration_enabled) && fullyBookedSet.has(event.id);
             return (
               <EventCard
                 key={event.id}
                 event={event}
                 eventType={eventType}
                 isMembersOnly={isMembersOnly}
+                isFullyBooked={isFullyBooked}
               />
             );
           })}
@@ -182,10 +196,12 @@ function EventCard({
   event,
   eventType,
   isMembersOnly,
+  isFullyBooked,
 }: {
   event: PublicEvent;
   eventType?: PublicEventType;
   isMembersOnly: boolean;
+  isFullyBooked: boolean;
 }) {
   const dateLabel = isMembersOnly
     ? formatMonthOnly(event.start_date, event.end_date)
@@ -239,6 +255,11 @@ function EventCard({
           {isMembersOnly && (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-sky/10 text-sky-dark">
               Members only
+            </span>
+          )}
+          {isFullyBooked && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-marine/10 text-marine">
+              Fully booked
             </span>
           )}
         </div>

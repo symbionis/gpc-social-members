@@ -68,3 +68,42 @@ export function isFreeForRegistrant({
 }): boolean {
   return unitAmount === 0;
 }
+
+// Batch helper for list views. Given a list of events with their seat caps,
+// returns the subset of event IDs that are fully booked. One query for all
+// events; rows summed in app code. Events with null seat_cap never appear.
+export async function getFullyBookedEventIds(
+  supabase: SupabaseClient<Database>,
+  events: ReadonlyArray<{ id: string; seat_cap: number | null }>
+): Promise<Set<string>> {
+  const capped = events.filter(
+    (e): e is { id: string; seat_cap: number } =>
+      e.seat_cap !== null && e.seat_cap !== undefined
+  );
+  if (capped.length === 0) return new Set();
+
+  const eventIds = capped.map((e) => e.id);
+  const { data, error } = await supabase
+    .from("event_registrations")
+    .select("event_id, quantity")
+    .in("event_id", eventIds)
+    .in("status", COUNTED_STATUSES as unknown as string[]);
+
+  if (error) {
+    throw new Error(`Failed to compute seat usage: ${error.message}`);
+  }
+
+  const usedById: Record<string, number> = {};
+  for (const row of data ?? []) {
+    if (!row.event_id) continue;
+    usedById[row.event_id] = (usedById[row.event_id] ?? 0) + (row.quantity ?? 0);
+  }
+
+  const fullyBooked = new Set<string>();
+  for (const e of capped) {
+    if ((usedById[e.id] ?? 0) >= e.seat_cap) {
+      fullyBooked.add(e.id);
+    }
+  }
+  return fullyBooked;
+}
