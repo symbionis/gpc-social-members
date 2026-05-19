@@ -1093,7 +1093,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      seats_used: { Args: { eid: string }; Returns: number }
+      seats_used_by_events: {
+        Args: { ids: string[] }
+        Returns: {
+          event_id: string
+          seats_used: number
+        }[]
+      }
     }
     Enums: {
       admin_role: "super_admin" | "team_admin" | "originator" | "events_admin"

@@ -2,12 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-
-interface SeatState {
-  isFullyBooked: boolean;
-  seatsRemaining: number | null;
-  isLowAvailability: boolean;
-}
+import type { SeatState } from "@/lib/events/seat-usage";
 
 const APPLY_URL = "/apply/GPC-2026";
 

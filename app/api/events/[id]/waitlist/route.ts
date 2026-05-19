@@ -58,13 +58,18 @@ export async function POST(
 
     let isMember = false;
     if (authUser?.id) {
-      const { data: memberRow } = await supabase
+      const { data: memberRow, error: memberErr } = await supabase
         .from("members")
         .select("id")
         .eq("auth_user_id", authUser.id)
         .eq("status", "active")
         .limit(1)
         .maybeSingle();
+
+      if (memberErr) {
+        console.error("[event-waitlist] member lookup failed", memberErr);
+        return bad("Could not verify membership", 500);
+      }
       isMember = Boolean(memberRow);
     }
 

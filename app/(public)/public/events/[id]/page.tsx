@@ -107,11 +107,18 @@ export default async function PublicEventDetailPage({
   const priceMember = Number(event.price_member ?? 0);
   const priceNonMember = Number(event.price_non_member ?? 0);
 
-  // Capacity state. Skip the count query for uncapped events.
-  const seatsUsed =
-    event.seat_cap !== null && event.seat_cap !== undefined
-      ? await getSeatsUsed(supabase, event.id)
-      : 0;
+  // Capacity state. Skip the count query for uncapped events. On lookup
+  // failure, degrade to "uncapped" rendering — the register POST handler
+  // still recounts before insert, so the cap will be enforced even if the
+  // page-render lookup blips. Closed events also get an immediate skip.
+  let seatsUsed = 0;
+  if (event.seat_cap !== null && event.seat_cap !== undefined) {
+    try {
+      seatsUsed = await getSeatsUsed(supabase, event.id);
+    } catch (err) {
+      console.error("[public/events/[id]] seat usage lookup failed", err);
+    }
+  }
   const { isFullyBooked, seatsRemaining, isLowAvailability } = deriveSeatState({
     seatCap: event.seat_cap,
     seatsUsed,

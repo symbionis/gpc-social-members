@@ -19,17 +19,29 @@ export default async function EventsPage() {
     .select("id, year");
 
   // Aggregate paid+free seat usage per event so the form can warn when the
-  // admin lowers seat_cap below current usage. One query, summed in app code.
-  const { data: usageRows } = await supabase
-    .from("event_registrations")
-    .select("event_id, quantity")
-    .in("status", ["paid", "free"]);
+  // admin lowers seat_cap below current usage. Postgres-side aggregation
+  // avoids the 1000-row default truncation.
+  const eventIds = (events ?? [])
+    .map((e) => e.id)
+    .filter((id): id is string => typeof id === "string");
 
   const seatsUsedByEvent: Record<string, number> = {};
-  for (const row of usageRows ?? []) {
-    if (!row.event_id) continue;
-    seatsUsedByEvent[row.event_id] =
-      (seatsUsedByEvent[row.event_id] ?? 0) + (row.quantity ?? 0);
+  if (eventIds.length > 0) {
+    const { data: usageRows, error: usageErr } = await supabase.rpc(
+      "seats_used_by_events",
+      { ids: eventIds }
+    );
+    if (usageErr) {
+      console.error("[admin/events] seat usage rpc failed", usageErr);
+    } else {
+      for (const row of (usageRows ?? []) as Array<{
+        event_id: string;
+        seats_used: number;
+      }>) {
+        if (!row.event_id) continue;
+        seatsUsedByEvent[row.event_id] = row.seats_used;
+      }
+    }
   }
 
   return (

@@ -18,10 +18,17 @@ export default async function PublicEventsPage() {
     .gte("start_date", today)
     .order("start_date", { ascending: true });
 
-  const seatStateByEvent = await getSeatStateByEvent(
-    supabase,
-    (events ?? []).map((e) => ({ id: e.id, seat_cap: e.seat_cap }))
-  );
+  // Degrade gracefully on seat-usage failure: render the listing without
+  // capacity badges rather than crashing the whole page.
+  let seatStateByEvent: Awaited<ReturnType<typeof getSeatStateByEvent>> = {};
+  try {
+    seatStateByEvent = await getSeatStateByEvent(
+      supabase,
+      (events ?? []).map((e) => ({ id: e.id, seat_cap: e.seat_cap }))
+    );
+  } catch (err) {
+    console.error("[public/events] seat usage lookup failed", err);
+  }
 
   // Only show event types that have at least one upcoming published event,
   // so the filter row never offers empty buckets.

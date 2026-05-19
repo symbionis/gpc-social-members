@@ -107,10 +107,16 @@ export default async function EventDetailPage({
   const priceNonMember = Number(event.price_non_member ?? 0);
   const memberFullName = `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim();
 
-  const seatsUsed =
-    event.seat_cap !== null && event.seat_cap !== undefined
-      ? await getSeatsUsed(adminClient, event.id)
-      : 0;
+  // Capacity state. Degrade to uncapped rendering on lookup failure; the
+  // register POST handler still recounts before insert.
+  let seatsUsed = 0;
+  if (event.seat_cap !== null && event.seat_cap !== undefined) {
+    try {
+      seatsUsed = await getSeatsUsed(adminClient, event.id);
+    } catch (err) {
+      console.error("[member/events/[id]] seat usage lookup failed", err);
+    }
+  }
   const { isFullyBooked, seatsRemaining, isLowAvailability } = deriveSeatState({
     seatCap: event.seat_cap,
     seatsUsed,
