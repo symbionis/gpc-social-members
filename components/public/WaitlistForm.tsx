@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import posthog from "posthog-js";
 
 interface Props {
   eventId: string;
@@ -51,6 +52,14 @@ export default function WaitlistForm({
       setSubmitting(false);
     } catch (err) {
       console.error(err);
+      try {
+        posthog.capture("event_waitlist_network_error", {
+          event_id: eventId,
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      } catch {
+        /* posthog not initialized — ignore */
+      }
       setError("Network error. Please try again.");
       setSubmitting(false);
     }

@@ -127,7 +127,11 @@ export async function POST(request: NextRequest) {
   });
 
   if (error) {
-    return NextResponse.json({ error: "Create failed" }, { status: 500 });
+    console.error("[admin/events/create] insert failed", error);
+    return NextResponse.json(
+      { error: `Create failed: ${error.message}` },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ success: true });

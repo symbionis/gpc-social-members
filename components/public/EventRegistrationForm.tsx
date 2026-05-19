@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import posthog from "posthog-js";
 
 interface Props {
   eventId: string;
@@ -39,6 +40,7 @@ export default function EventRegistrationForm({
   const [success, setSuccess] = useState<{ referenceCode: string } | null>(
     null
   );
+  const [soldOut, setSoldOut] = useState(false);
 
   const memberFree = priceMember === 0;
   const nonMemberFree = priceNonMember === 0;
@@ -76,7 +78,12 @@ export default function EventRegistrationForm({
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || "Could not register. Please try again.");
+        const message = data.error || "Could not register. Please try again.";
+        if (res.status === 409 && /seats? remaining/i.test(message)) {
+          setSoldOut(true);
+        } else {
+          setError(message);
+        }
         setSubmitting(false);
         return;
       }
@@ -96,6 +103,14 @@ export default function EventRegistrationForm({
       setSubmitting(false);
     } catch (err) {
       console.error(err);
+      try {
+        posthog.capture("event_register_network_error", {
+          event_id: eventId,
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      } catch {
+        /* posthog not initialized — ignore */
+      }
       setError("Network error. Please try again.");
       setSubmitting(false);
     }
@@ -111,6 +126,27 @@ export default function EventRegistrationForm({
           A confirmation email is on its way. Reference{" "}
           <span className="font-mono font-semibold">{success.referenceCode}</span>.
         </p>
+      </div>
+    );
+  }
+
+  if (soldOut) {
+    return (
+      <div className="rounded-xl border border-marine/20 bg-marine/5 p-6 space-y-3">
+        <h3 className="font-heading text-lg font-bold text-marine">
+          Sorry — this event just sold out.
+        </h3>
+        <p className="font-body text-sm text-marine/80">
+          Someone else grabbed the last seats while you were registering.
+          Refresh the page to join the waitlist.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="inline-block w-full text-center px-4 py-2 rounded-lg bg-marine text-white text-sm font-body font-semibold hover:bg-marine-light transition-colors cursor-pointer"
+        >
+          Refresh and view waitlist
+        </button>
       </div>
     );
   }

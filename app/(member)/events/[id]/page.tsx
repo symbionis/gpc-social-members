@@ -5,6 +5,7 @@ import Link from "next/link";
 import EventRegistrationDrawer from "@/components/public/EventRegistrationDrawer";
 import EventFullyBookedBlock from "@/components/public/EventFullyBookedBlock";
 import EventGallery from "@/components/EventGallery";
+import SeatBadges from "@/components/events/SeatBadges";
 import { deriveSeatState, getSeatsUsed } from "@/lib/events/seat-usage";
 
 function coerceImages(value: unknown, fallbacks: (string | null | undefined)[]): string[] {
@@ -117,15 +118,14 @@ export default async function EventDetailPage({
       console.error("[member/events/[id]] seat usage lookup failed", err);
     }
   }
-  const { isFullyBooked, seatsRemaining, isLowAvailability } = deriveSeatState({
+  const seatState = deriveSeatState({
     seatCap: event.seat_cap,
     seatsUsed,
   });
+  const { isFullyBooked, seatsRemaining, isLowAvailability } = seatState;
   const maxQuantity = seatsRemaining ?? undefined;
   const hasSeatCap =
     event.seat_cap !== null && event.seat_cap !== undefined;
-  const showLimitedSeatsNote =
-    hasSeatCap && !isFullyBooked && !isLowAvailability;
 
   return (
     <div>
@@ -179,21 +179,10 @@ export default async function EventDetailPage({
                   Dates TBC
                 </span>
               )}
-              {event.registration_enabled && isFullyBooked && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-marine/10 text-marine">
-                  Fully booked
-                </span>
-              )}
-              {event.registration_enabled && !isFullyBooked && isLowAvailability && seatsRemaining !== null && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
-                  Only {seatsRemaining} left
-                </span>
-              )}
-              {event.registration_enabled && showLimitedSeatsNote && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-sky/10 text-sky-dark">
-                  Limited seats
-                </span>
-              )}
+              <SeatBadges
+                registrationEnabled={event.registration_enabled}
+                seatState={hasSeatCap ? seatState : null}
+              />
             </div>
 
             <p className="font-body text-base font-semibold text-sky-dark">

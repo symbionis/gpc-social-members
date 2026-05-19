@@ -83,7 +83,7 @@ export async function POST(
   try {
     seatsUsed = await getSeatsUsed(supabase, eventId);
   } catch (err) {
-    console.error("[event-waitlist] seat usage lookup failed", err);
+    console.error("[event-waitlist] seat usage lookup failed", { eventId, err });
     return bad("Could not verify availability", 500);
   }
 
@@ -105,7 +105,11 @@ export async function POST(
     });
 
   if (insertErr) {
-    console.error("[event-waitlist] insert failed", insertErr);
+    console.error("[event-waitlist] insert failed", {
+      eventId,
+      email,
+      err: insertErr,
+    });
     return bad("Could not join waitlist", 500);
   }
 

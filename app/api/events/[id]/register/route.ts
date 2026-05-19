@@ -131,7 +131,7 @@ export async function POST(
     try {
       seatsUsed = await getSeatsUsed(supabase, eventId);
     } catch (err) {
-      console.error("[event-register] seat usage lookup failed", err);
+      console.error("[event-register] seat usage lookup failed", { eventId, err });
       return bad("Could not verify availability", 500);
     }
 
@@ -160,7 +160,12 @@ export async function POST(
     .single();
 
   if (insertErr || !inserted) {
-    console.error("[event-register] insert failed", insertErr);
+    console.error("[event-register] insert failed", {
+      eventId,
+      email,
+      quantity,
+      err: insertErr,
+    });
     return bad("Could not create registration", 500);
   }
 
@@ -201,7 +206,12 @@ export async function POST(
       cancel_url: `${appUrl}/public/events/${eventId}?cancelled=1`,
     });
   } catch (err) {
-    console.error("[event-register] Stripe session create failed", err);
+    console.error("[event-register] Stripe session create failed", {
+      eventId,
+      email,
+      registrationId: inserted.id,
+      err,
+    });
     return bad("Could not start checkout", 500);
   }
 
@@ -216,7 +226,7 @@ export async function POST(
   if (sessionUpdateErr) {
     console.error(
       "[event-register] failed to persist stripe_checkout_session_id",
-      sessionUpdateErr
+      { eventId, registrationId: inserted.id, sessionId: session.id, err: sessionUpdateErr }
     );
     // Continue: webhook will still find the row by event_registration_id.
   }

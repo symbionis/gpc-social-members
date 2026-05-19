@@ -31,9 +31,10 @@ export default async function EventAttendeesPage({
   const total = (attendees || []).reduce((acc, a) => acc + a.quantity, 0);
 
   const seatCap = event.seat_cap;
-  const overbooked = seatCap !== null && seatCap !== undefined && total > seatCap;
+  const hasSeatCap = seatCap !== null && seatCap !== undefined;
+  const overbooked = hasSeatCap && total > seatCap;
 
-  const { data: waitlist } = seatCap
+  const { data: waitlist } = hasSeatCap
     ? await supabase
         .from("event_waitlist")
         .select("id, name, email, created_at")
@@ -69,9 +70,9 @@ export default async function EventAttendeesPage({
             }`}
           >
             Capacity:{" "}
-            {seatCap === null || seatCap === undefined
-              ? `${total} / ∞ seats (uncapped)`
-              : `${total} / ${seatCap} seats${overbooked ? " — overbooked" : ""}`}
+            {hasSeatCap
+              ? `${total} / ${seatCap} seats${overbooked ? " — overbooked" : ""}`
+              : `${total} / ∞ seats (uncapped)`}
           </p>
         </div>
         <a
@@ -84,7 +85,7 @@ export default async function EventAttendeesPage({
 
       <AttendeeList eventId={id} attendees={attendees || []} />
 
-      {seatCap !== null && seatCap !== undefined && (
+      {hasSeatCap && (
         <div className="mt-10">
           <h2 className="font-heading text-xl font-bold text-marine mb-3">
             Waitlist

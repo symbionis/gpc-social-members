@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import type { SeatState } from "@/lib/events/seat-usage";
+import SeatBadges from "@/components/events/SeatBadges";
 
 const APPLY_URL = "/apply/GPC-2026";
 
@@ -139,27 +140,13 @@ export default function PublicEventsList({
           {filtered.map((event) => {
             const isMembersOnly = event.visibility !== "public";
             const eventType = event.event_type_id ? typeMap.get(event.event_type_id) : undefined;
-            const seatState = seatStateByEvent[event.id];
-            const registrationOpen = Boolean(event.registration_enabled);
-            const isFullyBooked = registrationOpen && Boolean(seatState?.isFullyBooked);
-            const lowAvailabilityRemaining =
-              registrationOpen && seatState?.isLowAvailability
-                ? seatState.seatsRemaining
-                : null;
-            const showLimitedSeats =
-              registrationOpen &&
-              Boolean(seatState) &&
-              !isFullyBooked &&
-              lowAvailabilityRemaining === null;
             return (
               <EventCard
                 key={event.id}
                 event={event}
                 eventType={eventType}
                 isMembersOnly={isMembersOnly}
-                isFullyBooked={isFullyBooked}
-                lowAvailabilityRemaining={lowAvailabilityRemaining}
-                showLimitedSeats={showLimitedSeats}
+                seatState={seatStateByEvent[event.id]}
               />
             );
           })}
@@ -205,16 +192,12 @@ function EventCard({
   event,
   eventType,
   isMembersOnly,
-  isFullyBooked,
-  lowAvailabilityRemaining,
-  showLimitedSeats,
+  seatState,
 }: {
   event: PublicEvent;
   eventType?: PublicEventType;
   isMembersOnly: boolean;
-  isFullyBooked: boolean;
-  lowAvailabilityRemaining: number | null;
-  showLimitedSeats: boolean;
+  seatState: SeatState | undefined;
 }) {
   const dateLabel = isMembersOnly
     ? formatMonthOnly(event.start_date, event.end_date)
@@ -270,21 +253,10 @@ function EventCard({
               Members only
             </span>
           )}
-          {isFullyBooked && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-marine/10 text-marine">
-              Fully booked
-            </span>
-          )}
-          {!isFullyBooked && lowAvailabilityRemaining !== null && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-amber-100 text-amber-800">
-              Only {lowAvailabilityRemaining} left
-            </span>
-          )}
-          {showLimitedSeats && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-sky/10 text-sky-dark">
-              Limited seats
-            </span>
-          )}
+          <SeatBadges
+            registrationEnabled={event.registration_enabled}
+            seatState={seatState}
+          />
         </div>
         <p className="font-body text-sm font-semibold text-sky-dark">
           {dateLabel}

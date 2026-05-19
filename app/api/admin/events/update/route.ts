@@ -131,7 +131,11 @@ export async function POST(request: NextRequest) {
     .eq("id", event_id);
 
   if (error) {
-    return NextResponse.json({ error: "Update failed" }, { status: 500 });
+    console.error("[admin/events/update] update failed", { event_id, error });
+    return NextResponse.json(
+      { error: `Update failed: ${error.message}` },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ success: true });
