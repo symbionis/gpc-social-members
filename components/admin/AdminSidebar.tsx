@@ -3,6 +3,7 @@
 import { signOut } from "@/app/actions/auth";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
+import posthog from "posthog-js";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/types/database";
 
@@ -65,6 +66,13 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
 
   async function handleSignOut() {
     await signOut();
+    // Unlink the browser session from this admin user. Guarded so a posthog
+    // failure can never strand the user on a signed-out page.
+    try {
+      posthog.reset();
+    } catch {
+      /* analytics must never block the post-logout redirect */
+    }
     router.push("/admin/login");
   }
 
