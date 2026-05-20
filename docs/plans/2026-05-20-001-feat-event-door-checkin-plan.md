@@ -1,7 +1,7 @@
 ---
 title: "feat: Event door check-in"
 type: feat
-status: active
+status: completed
 date: 2026-05-20
 origin: docs/brainstorms/2026-05-20-event-checkin-requirements.md
 ---
