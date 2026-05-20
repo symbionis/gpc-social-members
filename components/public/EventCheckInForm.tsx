@@ -11,7 +11,7 @@ interface Props {
 }
 
 type Kind = "registered" | "member" | "guest";
-type Phase = "details" | "waiver" | "blocked";
+type Phase = "details" | "inviter" | "waiver" | "blocked";
 type Inviter = { registrationId: string; label: string };
 type Result = {
   kind: Kind;
@@ -31,6 +31,8 @@ const STRINGS = {
     continue: "Continue",
     checking: "Checking…",
     inviterLabel: "Who invited you?",
+    notRecognized:
+      "It looks like you're not on the registration list or a member yet. Who invited you?",
     inviterHelp:
       "Start typing their name and pick them from the list. If they're not listed, just type the name.",
     waiverAccept: "I have read and accept the waiver above.",
@@ -57,6 +59,8 @@ const STRINGS = {
     continue: "Continuer",
     checking: "Vérification…",
     inviterLabel: "Qui vous a invité ?",
+    notRecognized:
+      "Il semble que vous ne soyez ni sur la liste d'inscription ni membre. Qui vous a invité ?",
     inviterHelp:
       "Commencez à taper leur nom et sélectionnez-le dans la liste. S'il n'apparaît pas, saisissez simplement le nom.",
     waiverAccept: "J’ai lu et j’accepte la décharge ci-dessus.",
@@ -223,7 +227,7 @@ export default function EventCheckInForm({
         setPhase("blocked");
       } else {
         setNeedsInviter(true);
-        setPhase("waiver");
+        setPhase("inviter");
       }
     } catch {
       setError(t.networkError);
@@ -238,11 +242,22 @@ export default function EventCheckInForm({
     setInviterSuggestions([]);
   }
 
+  function handleInviterContinue(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const inviterValue = (selectedInviter?.label ?? inviterQuery).trim();
+    if (!inviterValue) return setError(t.inviterRequired);
+    setPhase("waiver");
+  }
+
   async function handleCheckIn(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     const inviterValue = (selectedInviter?.label ?? inviterQuery).trim();
-    if (needsInviter && !inviterValue) return setError(t.inviterRequired);
+    if (needsInviter && !inviterValue) {
+      setPhase("inviter");
+      return setError(t.inviterRequired);
+    }
     if (!waiverAccepted) return setError(t.waiverRequired);
 
     setSubmitting(true);
@@ -273,6 +288,7 @@ export default function EventCheckInForm({
         // was removed mid-flow) and needs an inviter the form hasn't shown yet.
         if (res.status === 400 && !needsInviter) {
           setNeedsInviter(true);
+          setPhase("inviter");
         }
         setError(data.error || t.networkError);
         return;
@@ -365,6 +381,57 @@ export default function EventCheckInForm({
         </form>
       )}
 
+      {phase === "inviter" && (
+        <form onSubmit={handleInviterContinue} className="space-y-4">
+          <p className="font-body text-sm text-marine bg-cream/40 border border-border rounded-lg px-4 py-3">
+            {t.notRecognized}
+          </p>
+          <div>
+            <label className="block text-xs font-body text-muted-foreground mb-1">
+              {t.inviterLabel}
+            </label>
+            <input
+              type="text"
+              value={inviterQuery}
+              onChange={(e) => {
+                setInviterQuery(e.target.value);
+                setSelectedInviter(null);
+              }}
+              className={inputClass}
+              autoComplete="off"
+              autoFocus
+            />
+            {inviterSuggestions.length > 0 && !selectedInviter && (
+              <ul className="mt-1 rounded-lg border border-border bg-white overflow-hidden">
+                {inviterSuggestions.map((s) => (
+                  <li key={s.registrationId}>
+                    <button
+                      type="button"
+                      onClick={() => pickInviter(s)}
+                      className="w-full text-left px-3 py-2 text-sm font-body text-marine hover:bg-cream/60 cursor-pointer"
+                    >
+                      {s.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">{t.inviterHelp}</p>
+          </div>
+          {error && (
+            <p className="text-sm font-body text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
+          <button
+            type="submit"
+            className="w-full px-4 py-3 bg-marine text-white rounded-lg text-base font-body font-semibold hover:bg-marine-light transition-colors cursor-pointer"
+          >
+            {t.continue}
+          </button>
+        </form>
+      )}
+
       {phase === "waiver" && (
         <form onSubmit={handleCheckIn} className="space-y-4">
           <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-cream/40 p-4 text-sm font-body text-marine">
@@ -394,40 +461,6 @@ export default function EventCheckInForm({
               ))}
             </ol>
           </div>
-
-          {needsInviter && (
-            <div>
-              <label className="block text-xs font-body text-muted-foreground mb-1">
-                {t.inviterLabel}
-              </label>
-              <input
-                type="text"
-                value={inviterQuery}
-                onChange={(e) => {
-                  setInviterQuery(e.target.value);
-                  setSelectedInviter(null);
-                }}
-                className={inputClass}
-                autoComplete="off"
-              />
-              {inviterSuggestions.length > 0 && !selectedInviter && (
-                <ul className="mt-1 rounded-lg border border-border bg-white overflow-hidden">
-                  {inviterSuggestions.map((s) => (
-                    <li key={s.registrationId}>
-                      <button
-                        type="button"
-                        onClick={() => pickInviter(s)}
-                        className="w-full text-left px-3 py-2 text-sm font-body text-marine hover:bg-cream/60 cursor-pointer"
-                      >
-                        {s.label}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <p className="text-xs text-muted-foreground mt-1">{t.inviterHelp}</p>
-            </div>
-          )}
 
           <label className="flex items-start gap-3 cursor-pointer">
             <input
