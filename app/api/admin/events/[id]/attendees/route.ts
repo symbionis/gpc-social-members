@@ -44,10 +44,7 @@ export async function GET(
   const { id: eventId } = await params;
   const url = new URL(request.url);
   if (url.searchParams.get("format") !== "csv") {
-    return NextResponse.json(
-      { error: "format=csv required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "format=csv required" }, { status: 400 });
   }
 
   const { data: event } = await adminClient
@@ -63,45 +60,86 @@ export async function GET(
   const { data: rows } = await adminClient
     .from("event_registrations")
     .select(
-      "name, email, is_member, quantity, total_amount_chf, status, reference_code, created_at, checked_in_at"
+      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, created_at"
     )
     .eq("event_id", eventId)
     .in("status", ["paid", "free"])
     .order("created_at", { ascending: false });
 
+  // Arrival is sourced from event_checkins (single source of truth). Rows with a
+  // registration_id mark a registrant as arrived; rows without one are walk-up
+  // members and invited guests, appended below the registrations.
+  const { data: checkins } = await adminClient
+    .from("event_checkins")
+    .select("registration_id, name, email, kind, inviter_name, created_at")
+    .eq("event_id", eventId)
+    .order("created_at", { ascending: false });
+
+  const arrivalByReg = new Map<string, string>();
+  for (const c of checkins || []) {
+    if (c.registration_id) arrivalByReg.set(c.registration_id, c.created_at);
+  }
+
   const headers = [
     "name",
     "email",
+    "type",
     "is_member",
     "quantity",
     "amount_chf",
     "status",
     "reference_code",
     "registered_at",
-    "checked_in_at",
+    "invited_by",
+    "arrived",
+    "arrived_at",
   ];
 
   const lines: string[] = [headers.join(",")];
+
   for (const r of rows || []) {
+    const arrivedAt = arrivalByReg.get(r.id);
     lines.push(
       [
         csvEscape(r.name),
         csvEscape(r.email),
+        "registration",
         r.is_member ? "yes" : "no",
         r.quantity,
         Number(r.total_amount_chf).toFixed(2),
         r.status,
         r.reference_code,
         r.created_at,
-        r.checked_in_at ?? "",
+        "",
+        arrivedAt ? "yes" : "no",
+        arrivedAt ?? "",
+      ].join(",")
+    );
+  }
+
+  for (const c of (checkins || []).filter((row) => !row.registration_id)) {
+    lines.push(
+      [
+        csvEscape(c.name),
+        csvEscape(c.email),
+        c.kind,
+        c.kind === "member" ? "yes" : "no",
+        "",
+        "",
+        "",
+        "",
+        "",
+        csvEscape(c.inviter_name),
+        "yes",
+        c.created_at,
       ].join(",")
     );
   }
 
   const csv = lines.join("\n");
   const slug =
-    event.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
-      || event.id;
+    event.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") ||
+    event.id;
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const filename = `attendees-${slug}-${datePart}.csv`;
 
@@ -112,41 +150,4 @@ export async function GET(
       "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
-}
-
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = await assertAdmin();
-  if ("error" in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
-  }
-  const { adminClient } = auth;
-
-  const { id: eventId } = await params;
-  const url = new URL(request.url);
-  const registrationId = url.searchParams.get("registration_id");
-  const checkedInParam = url.searchParams.get("checked_in");
-
-  if (!registrationId || (checkedInParam !== "true" && checkedInParam !== "false")) {
-    return NextResponse.json(
-      { error: "registration_id and checked_in=true|false required" },
-      { status: 400 }
-    );
-  }
-
-  const checkedIn = checkedInParam === "true";
-
-  const { error } = await adminClient
-    .from("event_registrations")
-    .update({ checked_in_at: checkedIn ? new Date().toISOString() : null })
-    .eq("id", registrationId)
-    .eq("event_id", eventId);
-
-  if (error) {
-    return NextResponse.json({ error: "Update failed" }, { status: 500 });
-  }
-
-  return NextResponse.json({ success: true });
 }
