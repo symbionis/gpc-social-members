@@ -4,6 +4,12 @@
 //
 // See docs/plans/2026-05-20-001-feat-event-door-checkin-plan.md (U3).
 //
+// EVENT-SPECIFIC: this waiver is for the Open Doors event (22 May 2026). The
+// subtitle names that event/date. Reusing the check-in flow for a future event
+// requires updating this content (which correctly bumps WAIVER_VERSION) — or, if
+// the flow becomes multi-event, parameterizing getWaiver()/the subtitle by event.
+// Do not silently reuse this waiver for a different event.
+//
 // WAIVER_VERSION is DERIVED from a hash of the content below, not hand-maintained,
 // so editing any clause necessarily changes the version recorded against each
 // acceptance — the audit can never silently point a stale version at changed text.

@@ -170,6 +170,7 @@ export default function EventCheckInForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim() }),
+        signal: AbortSignal.timeout(10000),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -210,6 +211,7 @@ export default function EventCheckInForm({
           inviterName: needsInviter ? inviterName.trim() : undefined,
           waiverAccepted: true,
         }),
+        signal: AbortSignal.timeout(10000),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -217,6 +219,11 @@ export default function EventCheckInForm({
         if (res.status === 403) {
           setPhase("blocked");
           return;
+        }
+        // The server re-derived us as an unmatched guest (e.g. a registration
+        // was removed mid-flow) and needs an inviter the form hasn't shown yet.
+        if (res.status === 400 && !needsInviter) {
+          setNeedsInviter(true);
         }
         setError(data.error || t.networkError);
         return;

@@ -31,19 +31,27 @@ export async function POST(
   if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
 
   const supabase = createAdminClient();
-  const { data: event } = await supabase
+  const { data: event, error: eventError } = await supabase
     .from("events")
     .select("id, is_published, strict_checkin")
     .eq("id", eventId)
     .limit(1)
     .maybeSingle();
 
+  if (eventError) {
+    console.error("[event-checkin/match] event lookup failed", { eventId, err: eventError });
+    return bad("Service temporarily unavailable", 503);
+  }
   if (!event || !event.is_published) return bad("Event not found", 404);
 
-  const match = await matchEmail(eventId, email);
-
-  return NextResponse.json({
-    matched: match.kind !== "guest",
-    strict: Boolean(event.strict_checkin),
-  });
+  try {
+    const match = await matchEmail(eventId, email);
+    return NextResponse.json({
+      matched: match.kind !== "guest",
+      strict: Boolean(event.strict_checkin),
+    });
+  } catch (err) {
+    console.error("[event-checkin/match] match failed", { eventId, err });
+    return bad("Service temporarily unavailable", 503);
+  }
 }

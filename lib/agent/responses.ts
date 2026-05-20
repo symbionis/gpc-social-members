@@ -31,6 +31,7 @@ export interface AgentEventListItem {
   is_published: boolean;
   is_confirmed: boolean;
   registration_enabled: boolean;
+  strict_checkin: boolean;
   price_member: number | null;
   price_non_member: number | null;
   event_type_id: string;

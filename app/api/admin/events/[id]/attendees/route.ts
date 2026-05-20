@@ -24,7 +24,13 @@ async function assertAdmin() {
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
-  const str = String(value);
+  let str = String(value);
+  // Formula-injection guard: name / inviter_name come from the unauthenticated
+  // public check-in endpoint. A leading =, +, -, @ (or tab/CR) makes spreadsheet
+  // apps execute the cell as a formula, so neutralize it with a leading quote.
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
   if (/[",\n\r]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
   }

@@ -9,8 +9,8 @@
 // The same normalization point (normalizeEmail) is used by the match and submit
 // endpoints so they cannot diverge.
 
+import { WAIVER_VERSION, type WaiverLanguage } from "@/lib/events/waiver";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { WAIVER_VERSION } from "@/lib/events/waiver";
 
 export type CheckinKind = "registered" | "member" | "guest";
 
@@ -19,11 +19,19 @@ export type MatchResult =
   | { kind: "member"; memberId: string }
   | { kind: "guest" };
 
-export type CheckinLanguage = "fr" | "en";
-
 /** Single normalization point shared by matching and recording. */
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+/**
+ * Escape Postgres LIKE/ILIKE metacharacters so a typed email is matched
+ * literally. Without this, an email containing `%` or `_` (both legal in a local
+ * part) acts as a wildcard, widening the candidate set — on the global members
+ * leg that can blow past the silent 1000-row fetch cap and hide the real match.
+ */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 type RegRow = { id: string; email: string | null };
@@ -53,8 +61,13 @@ export function resolveMatch(
 /**
  * Match a typed email against this event's paid/free registrations, then the
  * active member directory. Both legs use the same case-insensitive comparison;
- * the `ilike` narrows the candidate set and resolveMatch does the exact
- * lowercase comparison so wildcard chars in an email can never over-match.
+ * the escaped `ilike` matches the email literally (no wildcard over-match) and
+ * resolveMatch does the exact lowercase comparison. Registrations are ordered so
+ * a duplicate-email registrant links to a deterministic (earliest) row.
+ *
+ * Query errors throw rather than coercing to an empty result — a silent "no
+ * match" would misclassify a registered member as a guest (or, under strict,
+ * block them) on a transient database failure.
  */
 export async function matchEmail(
   eventId: string,
@@ -62,19 +75,23 @@ export async function matchEmail(
 ): Promise<MatchResult> {
   const supabase = createAdminClient();
   const e = normalizeEmail(email);
+  const pattern = escapeLike(e);
 
-  const { data: regs } = await supabase
+  const { data: regs, error: regsError } = await supabase
     .from("event_registrations")
-    .select("id, email")
+    .select("id, email, created_at")
     .eq("event_id", eventId)
     .in("status", ["paid", "free"])
-    .ilike("email", e);
+    .ilike("email", pattern)
+    .order("created_at", { ascending: true });
+  if (regsError) throw regsError;
 
-  const { data: members } = await supabase
+  const { data: members, error: membersError } = await supabase
     .from("members")
     .select("id, email")
     .eq("status", "active")
-    .ilike("email", e);
+    .ilike("email", pattern);
+  if (membersError) throw membersError;
 
   return resolveMatch(e, regs ?? [], members ?? []);
 }
@@ -84,11 +101,34 @@ export function isUniqueViolation(error: { code?: string } | null): boolean {
   return error?.code === "23505";
 }
 
+/**
+ * Whether a check-in row already exists for (event, email), and its acceptance
+ * time. Used to keep repeat check-ins idempotent even under strict mode — a
+ * person who already checked in must still get the green confirmation, not a
+ * "see the desk" block, if strict was flipped on after they arrived.
+ */
+export async function findExistingCheckin(
+  eventId: string,
+  email: string
+): Promise<{ checkedInAt: string | null } | null> {
+  const supabase = createAdminClient();
+  const e = normalizeEmail(email);
+  const { data, error } = await supabase
+    .from("event_checkins")
+    .select("waiver_accepted_at")
+    .eq("event_id", eventId)
+    .eq("email", e)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return { checkedInAt: data.waiver_accepted_at ?? null };
+}
+
 export type RecordCheckinInput = {
   eventId: string;
   name: string;
   email: string;
-  language: CheckinLanguage;
+  language: WaiverLanguage;
   match: MatchResult;
   inviterName?: string | null;
 };
@@ -132,12 +172,13 @@ export async function recordCheckin(
 
   if (error) {
     if (isUniqueViolation(error)) {
-      const { data: existing } = await supabase
+      const { data: existing, error: refetchError } = await supabase
         .from("event_checkins")
         .select("waiver_accepted_at")
         .eq("event_id", input.eventId)
         .eq("email", e)
         .single();
+      if (refetchError) throw refetchError;
       return {
         already: true,
         checkedInAt: existing?.waiver_accepted_at ?? null,

@@ -3,16 +3,22 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/events/checkin", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/events/checkin")>();
-  return { ...actual, matchEmail: vi.fn(), recordCheckin: vi.fn() };
+  return {
+    ...actual,
+    matchEmail: vi.fn(),
+    recordCheckin: vi.fn(),
+    findExistingCheckin: vi.fn(),
+  };
 });
 
 import { POST } from "@/app/api/events/[id]/check-in/route";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { matchEmail, recordCheckin } from "@/lib/events/checkin";
+import { matchEmail, recordCheckin, findExistingCheckin } from "@/lib/events/checkin";
 
 const mockedCreateAdminClient = vi.mocked(createAdminClient);
 const mockedMatchEmail = vi.mocked(matchEmail);
 const mockedRecordCheckin = vi.mocked(recordCheckin);
+const mockedFindExistingCheckin = vi.mocked(findExistingCheckin);
 
 // Minimal fake client whose only used path is the events lookup chain.
 function eventClient(event: unknown) {
@@ -51,6 +57,7 @@ beforeEach(() => {
     already: false,
     checkedInAt: "2026-05-22T10:00:00Z",
   });
+  mockedFindExistingCheckin.mockResolvedValue(null);
 });
 
 describe("POST /api/events/[id]/check-in — validation", () => {
@@ -71,6 +78,11 @@ describe("POST /api/events/[id]/check-in — validation", () => {
 
   it("requires a valid email", async () => {
     const res = await post({ ...validBody, email: "not-an-email" });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an over-long email", async () => {
+    const res = await post({ ...validBody, email: `${"a".repeat(250)}@b.com` });
     expect(res.status).toBe(400);
   });
 
@@ -111,6 +123,17 @@ describe("POST /api/events/[id]/check-in — gating and recording", () => {
     mockedMatchEmail.mockResolvedValue({ kind: "guest" });
     const res = await post(validBody);
     expect(res.status).toBe(403);
+    expect(mockedRecordCheckin).not.toHaveBeenCalled();
+  });
+
+  it("lets an already-checked-in guest through under strict mode (idempotency)", async () => {
+    mockedCreateAdminClient.mockReturnValue(eventClient(publishedStrict));
+    mockedMatchEmail.mockResolvedValue({ kind: "guest" });
+    mockedFindExistingCheckin.mockResolvedValue({ checkedInAt: "2026-05-22T09:00:00Z" });
+    const res = await post(validBody);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ ok: true, already: true });
     expect(mockedRecordCheckin).not.toHaveBeenCalled();
   });
 

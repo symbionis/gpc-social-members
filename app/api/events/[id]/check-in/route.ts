@@ -3,8 +3,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   matchEmail,
   recordCheckin,
-  type CheckinLanguage,
+  findExistingCheckin,
 } from "@/lib/events/checkin";
+import { type WaiverLanguage } from "@/lib/events/waiver";
 
 // Public, unauthenticated door check-in submit. Validates input, re-derives the
 // match server-side (authoritative — the match endpoint is advisory only),
@@ -15,6 +16,7 @@ import {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LANGUAGES = ["fr", "en"] as const;
 const MAX_LEN = 200;
+const MAX_EMAIL_LEN = 254; // RFC 5321
 
 const MESSAGES = {
   fr: {
@@ -61,35 +63,54 @@ export async function POST(
   if (!name) return bad("name is required");
   if (name.length > MAX_LEN) return bad("name is too long");
   if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
-  if (!LANGUAGES.includes(language as CheckinLanguage)) {
+  if (email.length > MAX_EMAIL_LEN) return bad("email is too long");
+  if (!LANGUAGES.includes(language as WaiverLanguage)) {
     return bad("language must be 'fr' or 'en'");
   }
   if (inviterName.length > MAX_LEN) return bad("inviter name is too long");
   if (!waiverAccepted) return bad("the waiver must be accepted");
 
-  const lang = language as CheckinLanguage;
+  const lang = language as WaiverLanguage;
 
   const supabase = createAdminClient();
-  const { data: event } = await supabase
+  const { data: event, error: eventError } = await supabase
     .from("events")
     .select("id, is_published, strict_checkin")
     .eq("id", eventId)
     .limit(1)
     .maybeSingle();
 
+  if (eventError) {
+    console.error("[event-checkin] event lookup failed", { eventId, err: eventError });
+    return bad("Service temporarily unavailable", 503);
+  }
   if (!event || !event.is_published) return bad("Event not found", 404);
 
-  // Authoritative match — never trust the client's earlier disclosure call.
-  const match = await matchEmail(eventId, email);
-
-  if (match.kind === "guest") {
-    if (event.strict_checkin) return bad(MESSAGES[lang].blocked, 403);
-    if (!inviterName) return bad(MESSAGES[lang].inviter, 400);
-  }
-
-  let result;
   try {
-    result = await recordCheckin({
+    // Authoritative match — never trust the client's earlier disclosure call.
+    const match = await matchEmail(eventId, email);
+
+    if (match.kind === "guest") {
+      if (event.strict_checkin) {
+        // Idempotency must hold even under strict: a person who already checked
+        // in (e.g. before strict was turned on) still gets the green screen
+        // rather than being sent to the desk.
+        const existing = await findExistingCheckin(eventId, email);
+        if (existing) {
+          return NextResponse.json({
+            ok: true,
+            kind: "guest",
+            name,
+            checkedInAt: existing.checkedInAt,
+            already: true,
+          });
+        }
+        return bad(MESSAGES[lang].blocked, 403);
+      }
+      if (!inviterName) return bad(MESSAGES[lang].inviter, 400);
+    }
+
+    const result = await recordCheckin({
       eventId,
       name,
       email,
@@ -98,16 +119,16 @@ export async function POST(
       // inviterName is recorded only for guests; recordCheckin also guards this.
       inviterName: match.kind === "guest" ? inviterName : null,
     });
+
+    return NextResponse.json({
+      ok: true,
+      kind: match.kind,
+      name,
+      checkedInAt: result.checkedInAt,
+      already: result.already,
+    });
   } catch (err) {
     console.error("[event-checkin] record failed", { eventId, email, err });
     return bad("Could not record check-in", 500);
   }
-
-  return NextResponse.json({
-    ok: true,
-    kind: match.kind,
-    name,
-    checkedInAt: result.checkedInAt,
-    already: result.already,
-  });
 }

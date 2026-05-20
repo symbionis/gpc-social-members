@@ -342,7 +342,6 @@ export type Database = {
       }
       event_registrations: {
         Row: {
-          checked_in_at: string | null
           created_at: string
           email: string
           event_id: string
@@ -360,7 +359,6 @@ export type Database = {
           unit_amount_chf: number
         }
         Insert: {
-          checked_in_at?: string | null
           created_at?: string
           email: string
           event_id: string
@@ -378,7 +376,6 @@ export type Database = {
           unit_amount_chf: number
         }
         Update: {
-          checked_in_at?: string | null
           created_at?: string
           email?: string
           event_id?: string
