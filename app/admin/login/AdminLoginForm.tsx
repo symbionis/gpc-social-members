@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { sendOtpCode, verifyOtpCode } from "@/app/actions/auth";
 import { useSearchParams, useRouter } from "next/navigation";
+import posthog from "posthog-js";
 
 export default function AdminLoginForm() {
   const [email, setEmail] = useState("");
@@ -46,6 +47,20 @@ export default function AdminLoginForm() {
     }
 
     if (result.redirect) {
+      if (result.identity) {
+        // Tie this browser session (pageviews, autocapture) to the signed-in
+        // user. Guarded so a posthog failure can never block the redirect.
+        try {
+          posthog.identify(result.identity.distinctId, {
+            email: result.identity.email,
+            account_type: result.identity.accountType,
+            role: result.identity.role,
+            member_id: result.identity.memberId,
+          });
+        } catch {
+          /* analytics must never block login navigation */
+        }
+      }
       router.push(result.redirect);
     }
   }
