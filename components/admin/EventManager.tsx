@@ -1055,14 +1055,12 @@ async function handleImageUpload(file: File) {
                   })()}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {event.registration_enabled && (
-                    <a
-                      href={`/admin/events/${event.id}/attendees`}
-                      className="px-4 py-2 bg-white border border-border text-marine rounded-lg text-sm font-body hover:bg-cream transition-colors"
-                    >
-                      Attendees
-                    </a>
-                  )}
+                  <a
+                    href={`/admin/events/${event.id}/attendees`}
+                    className="px-4 py-2 bg-white border border-border text-marine rounded-lg text-sm font-body hover:bg-cream transition-colors"
+                  >
+                    Manage Event
+                  </a>
                   <button
                     onClick={() => startEdit(event)}
                     className="px-4 py-2 bg-white border border-border text-marine rounded-lg text-sm font-body hover:bg-cream transition-colors"
