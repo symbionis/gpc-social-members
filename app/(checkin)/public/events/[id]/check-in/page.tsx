@@ -4,7 +4,8 @@ import EventCheckInForm from "@/components/public/EventCheckInForm";
 import { formatDate } from "@/lib/format";
 
 // Public, unauthenticated door check-in page. Reached by scanning the per-event
-// QR poster (link copied from the admin Manage Event → Settings tab).
+// QR poster. Lives in the (checkin) route group so it renders without the public
+// site header/footer nav — a focused, kiosk-style flow.
 export default async function EventCheckInPage({
   params,
 }: {
@@ -24,7 +25,7 @@ export default async function EventCheckInPage({
 
   return (
     <div className="min-h-screen bg-cream">
-      <div className="h-20 bg-marine" />
+      <div className="h-16 bg-marine" />
       <div className="mx-auto max-w-md px-5 py-8 sm:py-10">
         <EventCheckInForm
           eventId={event.id}

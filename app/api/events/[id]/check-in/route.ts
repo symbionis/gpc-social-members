@@ -44,6 +44,7 @@ export async function POST(
     email?: unknown;
     language?: unknown;
     inviterName?: unknown;
+    invitedByRegistrationId?: unknown;
     waiverAccepted?: unknown;
   };
   try {
@@ -58,6 +59,10 @@ export async function POST(
   const language = typeof body.language === "string" ? body.language : "";
   const inviterName =
     typeof body.inviterName === "string" ? body.inviterName.trim() : "";
+  const invitedByRegistrationId =
+    typeof body.invitedByRegistrationId === "string"
+      ? body.invitedByRegistrationId
+      : null;
   const waiverAccepted = body.waiverAccepted === true;
 
   if (!name) return bad("name is required");
@@ -116,8 +121,11 @@ export async function POST(
       email,
       language: lang,
       match,
-      // inviterName is recorded only for guests; recordCheckin also guards this.
+      // inviterName / invitedByRegistrationId are recorded only for guests;
+      // recordCheckin also guards this.
       inviterName: match.kind === "guest" ? inviterName : null,
+      invitedByRegistrationId:
+        match.kind === "guest" ? invitedByRegistrationId : null,
     });
 
     return NextResponse.json({

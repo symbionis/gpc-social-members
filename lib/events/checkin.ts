@@ -131,6 +131,8 @@ export type RecordCheckinInput = {
   language: WaiverLanguage;
   match: MatchResult;
   inviterName?: string | null;
+  /** Registration the guest picked as their inviter (typeahead). Guests only. */
+  invitedByRegistrationId?: string | null;
 };
 
 export type RecordCheckinResult = {
@@ -160,6 +162,8 @@ export async function recordCheckin(
     kind: input.match.kind,
     inviter_name:
       input.match.kind === "guest" ? input.inviterName?.trim() || null : null,
+    invited_by_registration_id:
+      input.match.kind === "guest" ? input.invitedByRegistrationId ?? null : null,
     language: input.language,
     waiver_version: WAIVER_VERSION,
   };

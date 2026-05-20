@@ -279,6 +279,8 @@ export type Database = {
           email: string
           event_id: string
           id: string
+          invited_by_member_id: string | null
+          invited_by_registration_id: string | null
           inviter_name: string | null
           kind: string
           language: string
@@ -293,6 +295,8 @@ export type Database = {
           email: string
           event_id: string
           id?: string
+          invited_by_member_id?: string | null
+          invited_by_registration_id?: string | null
           inviter_name?: string | null
           kind: string
           language: string
@@ -307,6 +311,8 @@ export type Database = {
           email?: string
           event_id?: string
           id?: string
+          invited_by_member_id?: string | null
+          invited_by_registration_id?: string | null
           inviter_name?: string | null
           kind?: string
           language?: string

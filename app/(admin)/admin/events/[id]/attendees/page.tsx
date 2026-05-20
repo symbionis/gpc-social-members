@@ -33,9 +33,11 @@ export default async function ManageEventPage({
   // members and invited guests.
   const { data: checkins } = await supabase
     .from("event_checkins")
-    .select("id, name, email, kind, inviter_name, registration_id, created_at")
+    .select(
+      "id, name, email, kind, inviter_name, registration_id, member_id, invited_by_registration_id, created_at"
+    )
     .eq("event_id", id)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: true });
 
   const checkedInRegIds = new Set(
     (checkins ?? [])
@@ -47,8 +49,6 @@ export default async function ManageEventPage({
     ...r,
     checkedIn: checkedInRegIds.has(r.id),
   }));
-
-  const walkIns = (checkins ?? []).filter((c) => !c.registration_id);
 
   const total = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
   const seatCap = event.seat_cap as number | null;
@@ -87,7 +87,7 @@ export default async function ManageEventPage({
       <ManageEventTabs
         eventId={id}
         attendees={attendees}
-        walkIns={walkIns}
+        checkins={checkins ?? []}
         waitlist={waitlist ?? []}
         hasSeatCap={hasSeatCap}
         total={total}

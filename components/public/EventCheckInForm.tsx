@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getWaiver, type WaiverLanguage } from "@/lib/events/waiver";
 import { formatDateTime } from "@/lib/format";
 
@@ -12,6 +12,7 @@ interface Props {
 
 type Kind = "registered" | "member" | "guest";
 type Phase = "details" | "waiver" | "blocked";
+type Inviter = { registrationId: string; label: string };
 type Result = {
   kind: Kind;
   name: string;
@@ -23,13 +24,15 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const STRINGS = {
   en: {
+    title: "Check-in",
     chooseLanguage: "Choose your language",
     nameLabel: "Full name",
     emailLabel: "Email",
     continue: "Continue",
     checking: "Checking…",
     inviterLabel: "Who invited you?",
-    inviterHelp: "The name of the member or person who invited you.",
+    inviterHelp:
+      "Start typing their name and pick them from the list. If they're not listed, just type the name.",
     waiverAccept: "I have read and accept the waiver above.",
     checkIn: "Check in",
     checkingIn: "Checking in…",
@@ -47,13 +50,15 @@ const STRINGS = {
     badge: { registered: "Registered", member: "Member", guest: "Guest" },
   },
   fr: {
+    title: "Enregistrement",
     chooseLanguage: "Choisissez votre langue",
     nameLabel: "Nom complet",
     emailLabel: "E-mail",
     continue: "Continuer",
     checking: "Vérification…",
     inviterLabel: "Qui vous a invité ?",
-    inviterHelp: "Le nom du membre ou de la personne qui vous a invité.",
+    inviterHelp:
+      "Commencez à taper leur nom et sélectionnez-le dans la liste. S'il n'apparaît pas, saisissez simplement le nom.",
     waiverAccept: "J’ai lu et j’accepte la décharge ci-dessus.",
     checkIn: "S’enregistrer",
     checkingIn: "Enregistrement…",
@@ -84,7 +89,9 @@ export default function EventCheckInForm({
   const [phase, setPhase] = useState<Phase>("details");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [inviterName, setInviterName] = useState("");
+  const [inviterQuery, setInviterQuery] = useState("");
+  const [inviterSuggestions, setInviterSuggestions] = useState<Inviter[]>([]);
+  const [selectedInviter, setSelectedInviter] = useState<Inviter | null>(null);
   const [needsInviter, setNeedsInviter] = useState(false);
   const [waiverAccepted, setWaiverAccepted] = useState(false);
   const [matching, setMatching] = useState(false);
@@ -92,10 +99,42 @@ export default function EventCheckInForm({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
 
+  // Debounced typeahead over this event's registrations for the inviter picker.
+  useEffect(() => {
+    if (selectedInviter && selectedInviter.label === inviterQuery) return;
+    const q = inviterQuery.trim();
+    if (q.length < 2) {
+      setInviterSuggestions([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/events/${eventId}/check-in/inviters?q=${encodeURIComponent(q)}`,
+          { signal: controller.signal }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setInviterSuggestions(data.inviters ?? []);
+        }
+      } catch {
+        /* aborted or offline — leave suggestions as-is */
+      }
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [inviterQuery, eventId, selectedInviter]);
+
   // ---- Screen 1: language selector (and nothing else) ----
   if (!lang) {
     return (
       <div className="bg-white rounded-sm border border-border/60 p-6 text-center">
+        <p className="font-accent text-xs tracking-[0.3em] uppercase text-sky-dark mb-2">
+          Check-in
+        </p>
         <h1 className="font-heading text-xl font-bold text-marine mb-1">
           {eventTitle}
         </h1>
@@ -193,10 +232,17 @@ export default function EventCheckInForm({
     }
   }
 
+  function pickInviter(inviter: Inviter) {
+    setSelectedInviter(inviter);
+    setInviterQuery(inviter.label);
+    setInviterSuggestions([]);
+  }
+
   async function handleCheckIn(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (needsInviter && !inviterName.trim()) return setError(t.inviterRequired);
+    const inviterValue = (selectedInviter?.label ?? inviterQuery).trim();
+    if (needsInviter && !inviterValue) return setError(t.inviterRequired);
     if (!waiverAccepted) return setError(t.waiverRequired);
 
     setSubmitting(true);
@@ -208,7 +254,10 @@ export default function EventCheckInForm({
           name: name.trim(),
           email: email.trim(),
           language: lang,
-          inviterName: needsInviter ? inviterName.trim() : undefined,
+          inviterName: needsInviter ? inviterValue : undefined,
+          invitedByRegistrationId: needsInviter
+            ? selectedInviter?.registrationId
+            : undefined,
           waiverAccepted: true,
         }),
         signal: AbortSignal.timeout(10000),
@@ -247,6 +296,9 @@ export default function EventCheckInForm({
     <div className="bg-white rounded-sm border border-border/60 p-6">
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
+          <p className="font-accent text-xs tracking-[0.3em] uppercase text-sky-dark mb-1">
+            {t.title}
+          </p>
           <h1 className="font-heading text-xl font-bold text-marine">
             {eventTitle}
           </h1>
@@ -350,10 +402,29 @@ export default function EventCheckInForm({
               </label>
               <input
                 type="text"
-                value={inviterName}
-                onChange={(e) => setInviterName(e.target.value)}
+                value={inviterQuery}
+                onChange={(e) => {
+                  setInviterQuery(e.target.value);
+                  setSelectedInviter(null);
+                }}
                 className={inputClass}
+                autoComplete="off"
               />
+              {inviterSuggestions.length > 0 && !selectedInviter && (
+                <ul className="mt-1 rounded-lg border border-border bg-white overflow-hidden">
+                  {inviterSuggestions.map((s) => (
+                    <li key={s.registrationId}>
+                      <button
+                        type="button"
+                        onClick={() => pickInviter(s)}
+                        className="w-full text-left px-3 py-2 text-sm font-body text-marine hover:bg-cream/60 cursor-pointer"
+                      >
+                        {s.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
               <p className="text-xs text-muted-foreground mt-1">{t.inviterHelp}</p>
             </div>
           )}
