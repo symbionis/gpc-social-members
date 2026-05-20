@@ -107,7 +107,7 @@ export default function EventCheckInForm({
   useEffect(() => {
     if (selectedInviter && selectedInviter.label === inviterQuery) return;
     const q = inviterQuery.trim();
-    if (q.length < 2) {
+    if (q.length < 4) {
       setInviterSuggestions([]);
       return;
     }
