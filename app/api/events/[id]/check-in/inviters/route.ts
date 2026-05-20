@@ -30,35 +30,21 @@ export async function GET(
     .maybeSingle();
   if (!event || !event.is_published) return NextResponse.json({ inviters: [] });
 
-  // Word-prefix match only (a name word that STARTS with the query) — not a
-  // loose substring, so "andr" matches "Andrea" but not "Alexandra". Two ilike
-  // passes (leading word, or a word after a space) merged and de-duped.
-  const escaped = escapeLike(q);
-  const baseQuery = () =>
-    supabase
-      .from("event_registrations")
-      .select("id, name")
-      .eq("event_id", eventId)
-      .in("status", ["paid", "free"])
-      .order("name", { ascending: true })
-      .limit(MAX_RESULTS);
+  // Substring match on the name (the 4-character minimum keeps it narrow enough).
+  const pattern = `%${escapeLike(q)}%`;
+  const { data: regs } = await supabase
+    .from("event_registrations")
+    .select("id, name")
+    .eq("event_id", eventId)
+    .in("status", ["paid", "free"])
+    .ilike("name", pattern)
+    .order("name", { ascending: true })
+    .limit(MAX_RESULTS);
 
-  const [{ data: byLeading }, { data: byWord }] = await Promise.all([
-    baseQuery().ilike("name", `${escaped}%`),
-    baseQuery().ilike("name", `% ${escaped}%`),
-  ]);
-
-  const seen = new Set<string>();
-  const inviters: { registrationId: string; label: string }[] = [];
-  for (const r of [...(byLeading ?? []), ...(byWord ?? [])] as {
-    id: string;
-    name: string;
-  }[]) {
-    if (seen.has(r.id)) continue;
-    seen.add(r.id);
-    inviters.push({ registrationId: r.id, label: r.name });
-    if (inviters.length >= MAX_RESULTS) break;
-  }
+  const inviters = (regs ?? []).map((r: { id: string; name: string }) => ({
+    registrationId: r.id,
+    label: r.name,
+  }));
 
   return NextResponse.json({ inviters });
 }
