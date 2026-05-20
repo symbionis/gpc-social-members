@@ -273,6 +273,73 @@ export type Database = {
           },
         ]
       }
+      event_checkins: {
+        Row: {
+          created_at: string
+          email: string
+          event_id: string
+          id: string
+          inviter_name: string | null
+          kind: string
+          language: string
+          member_id: string | null
+          name: string
+          registration_id: string | null
+          waiver_accepted_at: string
+          waiver_version: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          event_id: string
+          id?: string
+          inviter_name?: string | null
+          kind: string
+          language: string
+          member_id?: string | null
+          name: string
+          registration_id?: string | null
+          waiver_accepted_at?: string
+          waiver_version: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          event_id?: string
+          id?: string
+          inviter_name?: string | null
+          kind?: string
+          language?: string
+          member_id?: string | null
+          name?: string
+          registration_id?: string | null
+          waiver_accepted_at?: string
+          waiver_version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_checkins_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_checkins_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_checkins_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_registrations: {
         Row: {
           checked_in_at: string | null
@@ -468,6 +535,7 @@ export type Database = {
           seat_cap: number | null
           start_date: string
           start_time: string | null
+          strict_checkin: boolean
           title: string
           updated_at: string
           visibility: string
@@ -493,6 +561,7 @@ export type Database = {
           seat_cap?: number | null
           start_date: string
           start_time?: string | null
+          strict_checkin?: boolean
           title: string
           updated_at?: string
           visibility?: string
@@ -518,6 +587,7 @@ export type Database = {
           seat_cap?: number | null
           start_date?: string
           start_time?: string | null
+          strict_checkin?: boolean
           title?: string
           updated_at?: string
           visibility?: string
