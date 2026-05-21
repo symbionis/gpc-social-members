@@ -4,11 +4,22 @@
 //
 // See docs/plans/2026-05-20-001-feat-event-door-checkin-plan.md (U3).
 //
-// EVENT-SPECIFIC: this waiver is for the Open Doors event (22 May 2026). The
-// subtitle names that event/date. Reusing the check-in flow for a future event
-// requires updating this content (which correctly bumps WAIVER_VERSION) — or, if
-// the flow becomes multi-event, parameterizing getWaiver()/the subtitle by event.
-// Do not silently reuse this waiver for a different event.
+// EVENT-SPECIFIC: this waiver is written for the Open Doors event. Its clauses
+// name "the Open Doors event", so serving it for any other event would make
+// attendees sign a document about the wrong event. `WAIVER_EVENT_ID` +
+// `hasWaiverForEvent()` are the single gate: the public check-in page refuses
+// (404) for any other event until the flow is parameterized per event. The
+// subtitle's DATE is no longer hardcoded — it is derived from the event's
+// start_date at render time (see formatWaiverDate in lib/format.ts) so the
+// legal text can never drift from the DB the way "May 22" once did.
+
+// The one event this waiver is valid for. When check-in goes multi-event,
+// replace this constant + hasWaiverForEvent with a per-event waiver lookup.
+export const WAIVER_EVENT_ID = "d83759b3-36d1-4a78-8060-542d55c25cf3";
+
+export function hasWaiverForEvent(eventId: string): boolean {
+  return eventId === WAIVER_EVENT_ID;
+}
 //
 // WAIVER_VERSION is DERIVED from a hash of the content below, not hand-maintained,
 // so editing any clause necessarily changes the version recorded against each
@@ -35,7 +46,8 @@ export type Waiver = {
 const WAIVERS: Record<WaiverLanguage, Waiver> = {
   en: {
     title: "Liability Waiver – One-Day Visit",
-    subtitle: "Open Doors Event – Thursday, May 22, 2026",
+    // Event name only — the date is appended at render from start_date.
+    subtitle: "Open Doors Event",
     intro: "By signing this document, I acknowledge and agree to the following:",
     clauses: [
       {
@@ -102,7 +114,8 @@ const WAIVERS: Record<WaiverLanguage, Waiver> = {
   },
   fr: {
     title: "Décharge de responsabilité – Visite ponctuelle",
-    subtitle: "Portes Ouvertes – Jeudi 22 mai 2026",
+    // Nom de l'événement uniquement — la date est ajoutée au rendu depuis start_date.
+    subtitle: "Portes Ouvertes",
     intro: "En signant la présente, je reconnais et accepte ce qui suit :",
     clauses: [
       {

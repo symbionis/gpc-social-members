@@ -6,7 +6,7 @@ import AttendeeList from "@/components/admin/AttendeeList";
 import EventCheckInSettings from "@/components/admin/EventCheckInSettings";
 import { formatDateTime } from "@/lib/format";
 
-type Tab = "registrations" | "checkins" | "settings";
+type Tab = "registrations" | "checkins" | "waitlist" | "settings";
 
 interface Attendee {
   id: string;
@@ -222,6 +222,11 @@ export default function ManageEventTabs({
         <button type="button" className={tabClass(tab === "checkins")} onClick={() => setTab("checkins")}>
           Check-ins{checkins.length > 0 ? ` (${checkins.length})` : ""}
         </button>
+        {(hasSeatCap || waitlist.length > 0) && (
+          <button type="button" className={tabClass(tab === "waitlist")} onClick={() => setTab("waitlist")}>
+            Waitlist{waitlist.length > 0 ? ` (${waitlist.length})` : ""}
+          </button>
+        )}
         <button type="button" className={tabClass(tab === "settings")} onClick={() => setTab("settings")}>
           Settings
         </button>
@@ -248,71 +253,6 @@ export default function ManageEventTabs({
             </div>
             <AttendeeList attendees={attendees} />
           </div>
-
-          {hasSeatCap && (
-            <div>
-              <h2 className="font-heading text-xl font-bold text-marine mb-3">Waitlist</h2>
-              {notice && (
-                <p className="font-body text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 mb-3">
-                  {notice}
-                </p>
-              )}
-              {visibleWaitlist.length === 0 ? (
-                <p className="font-body text-sm text-muted-foreground">No waitlist entries.</p>
-              ) : (
-                <div className="overflow-x-auto rounded-sm border border-border/60 bg-white">
-                  <table className="min-w-full text-sm font-body">
-                    <thead className="bg-cream/60 text-muted-foreground">
-                      <tr>
-                        <th className="px-4 py-2 text-left">Name</th>
-                        <th className="px-4 py-2 text-left">Email</th>
-                        <th className="px-4 py-2 text-left">Joined</th>
-                        <th className="px-4 py-2 text-left">Register</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleWaitlist.map((entry) => {
-                        const r = row(entry.id);
-                        return (
-                          <tr key={entry.id} className="border-t border-border/60 align-top">
-                            <td className="px-4 py-2 text-marine">{entry.name}</td>
-                            <td className="px-4 py-2 text-muted-foreground">{entry.email}</td>
-                            <td className="px-4 py-2 text-muted-foreground text-xs">{formatDateTime(entry.created_at)}</td>
-                            <td className="px-4 py-2">
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={1}
-                                  max={6}
-                                  value={r.quantity}
-                                  onChange={(e) =>
-                                    patchRow(entry.id, {
-                                      quantity: Math.max(1, Math.min(6, Number(e.target.value) || 1)),
-                                    })
-                                  }
-                                  className="w-14 px-2 py-1 rounded-md border border-border bg-white text-marine text-sm"
-                                  aria-label="Tickets"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => convertEntry(entry)}
-                                  disabled={r.submitting}
-                                  className="px-3 py-1.5 bg-marine text-white rounded-lg text-xs font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                                >
-                                  {r.submitting ? "Registering…" : "Register"}
-                                </button>
-                              </div>
-                              {r.error && <p className="text-xs text-red-700 mt-1">{r.error}</p>}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       )}
 
@@ -391,6 +331,75 @@ export default function ManageEventTabs({
                   </ul>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "waitlist" && (
+        <div>
+          <p className="text-sm font-body text-muted-foreground mb-3">
+            {visibleWaitlist.length} on the waitlist
+          </p>
+          {notice && (
+            <p className="font-body text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 mb-3">
+              {notice}
+            </p>
+          )}
+          {visibleWaitlist.length === 0 ? (
+            <p className="font-body text-sm text-muted-foreground">No waitlist entries.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-sm border border-border/60 bg-white">
+              <table className="min-w-full text-sm font-body">
+                <thead className="bg-cream/60 text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Name</th>
+                    <th className="px-4 py-2 text-left">Email</th>
+                    <th className="px-4 py-2 text-left">Joined</th>
+                    <th className="px-4 py-2 text-left">Register</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleWaitlist.map((entry) => {
+                    const r = row(entry.id);
+                    return (
+                      <tr key={entry.id} className="border-t border-border/60 align-top">
+                        <td className="px-4 py-2 text-marine">{entry.name}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{entry.email}</td>
+                        <td className="px-4 py-2 text-muted-foreground text-xs">
+                          {formatDateTime(entry.created_at)}
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min={1}
+                              max={6}
+                              value={r.quantity}
+                              onChange={(e) =>
+                                patchRow(entry.id, {
+                                  quantity: Math.max(1, Math.min(6, Number(e.target.value) || 1)),
+                                })
+                              }
+                              className="w-14 px-2 py-1 rounded-md border border-border bg-white text-marine text-sm"
+                              aria-label="Tickets"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => convertEntry(entry)}
+                              disabled={r.submitting}
+                              className="px-3 py-1.5 bg-marine text-white rounded-lg text-xs font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                            >
+                              {r.submitting ? "Registering…" : "Register"}
+                            </button>
+                          </div>
+                          {r.error && <p className="text-xs text-red-700 mt-1">{r.error}</p>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

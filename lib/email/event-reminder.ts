@@ -21,17 +21,39 @@ function formatAmount(totalChf: number, isFree: boolean): string {
   return `CHF ${totalChf.toFixed(2)}`;
 }
 
-// "Tomorrow morning", "This evening", "Friday morning" — slot-aware, no clock time.
-// The template can compose with event_time_label separately when it needs the exact time.
+// Map an event's wall-clock start time to a time-of-day word for the copy.
+// 08:00 → "morning", 13:00 → "afternoon", 17:30 → "evening". Returns null
+// when the event has no start time so the copy falls back to date-only.
+// IMPORTANT: this is the EVENT's time of day — never the reminder send slot.
+// The send slot (morning/lunch/evening) only controls *when the email goes
+// out*; using it to describe the event mislabels a 17:30 event reminded at
+// 08:00 as "Tomorrow morning".
+function eventTimeOfDay(
+  startTime: string | null | undefined
+): "morning" | "afternoon" | "evening" | null {
+  if (!startTime) return null;
+  const hour = Number(startTime.slice(0, 2));
+  if (Number.isNaN(hour)) return null;
+  if (hour < 12) return "morning";
+  if (hour < 17) return "afternoon";
+  return "evening";
+}
+
+// "Tomorrow evening", "This evening", "Friday morning" — time-of-day derived
+// from the event's own start time, no clock time. The template composes with
+// event_time_label separately when it needs the exact time.
 function buildTimeUntilLabel(
   daysBefore: number,
-  slot: ReminderSlot,
-  eventStartDate: string
+  eventStartDate: string,
+  eventStartTime: string | null | undefined
 ): string {
-  if (daysBefore === 0) return `This ${slot}`;
-  if (daysBefore === 1) return `Tomorrow ${slot}`;
+  const tod = eventTimeOfDay(eventStartTime);
+  const suffix = tod ? ` ${tod}` : "";
+  if (daysBefore === 0) return tod ? `This ${tod}` : "Today";
+  if (daysBefore === 1) return `Tomorrow${suffix}`;
   const weekday = formatWeekday(eventStartDate);
-  return weekday ? `${weekday} ${slot}` : `In ${daysBefore} days, ${slot}`;
+  if (weekday) return `${weekday}${suffix}`;
+  return `In ${daysBefore} days${suffix}`;
 }
 
 function buildMotivationLabel(daysBefore: number): string {
@@ -137,7 +159,7 @@ export async function sendEventReminder(
   const eventDateLabel = formatDateWithWeekday(event.start_date);
   const eventTimeLabel = formatStartTime(event.start_time);
 
-  const timeUntilLabel = buildTimeUntilLabel(daysBefore, slot, event.start_date);
+  const timeUntilLabel = buildTimeUntilLabel(daysBefore, event.start_date, event.start_time);
   const motivationLabel = buildMotivationLabel(daysBefore);
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
