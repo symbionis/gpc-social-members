@@ -4,17 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
+import { generateReferenceCode } from "@/lib/events/registration";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-function generateReferenceCode(): string {
-  let code = "";
-  for (let i = 0; i < 8; i += 1) {
-    code += REF_ALPHABET[Math.floor(Math.random() * REF_ALPHABET.length)];
-  }
-  return `EV-${code}`;
-}
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
