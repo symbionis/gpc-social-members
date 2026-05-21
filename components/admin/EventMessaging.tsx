@@ -47,7 +47,7 @@ function previewDoc(subject: string, bodyHtml: string): string {
     h2{font-family:Georgia,serif;font-size:20px;color:#052938;margin:24px 0 8px;line-height:1.3}
     h3{font-size:17px;font-weight:600;color:#052938;margin:20px 0 6px;line-height:1.4}
     p{margin:0 0 16px}
-    ul,ol{padding-left:24px;margin:0 0 16px}li{margin-bottom:6px}
+    ul,ol{padding-left:24px;margin:0 0 16px}li{margin-bottom:6px}li p{margin:0}
     a{color:#052938}
     .pv-label{font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#7aafc4;margin:0 0 2px}
     .pv-subject{font-weight:600;color:#052938;font-size:15px;margin:0 0 20px;padding-bottom:12px;border-bottom:1px solid #E8ECF0}

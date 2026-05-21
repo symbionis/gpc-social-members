@@ -176,6 +176,11 @@
     li {
       margin-bottom: 6px;
     }
+    /* TipTap wraps each list item's content in <p>; strip its margin so the
+       text aligns with the bullet and items don't gap apart. */
+    li p {
+      margin: 0;
+    }
 
     /* Buttons */
     .button {
