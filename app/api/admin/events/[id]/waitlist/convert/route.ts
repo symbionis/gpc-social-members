@@ -87,11 +87,19 @@ export async function POST(
   const name = String(entry.name).trim();
 
   // Fast-path duplicate guard; the partial unique index is the race-safe backstop.
-  if (await hasExistingRegistration(eventId, email)) {
+  let alreadyRegistered: boolean;
+  let member: { id: string } | null;
+  try {
+    alreadyRegistered = await hasExistingRegistration(eventId, email);
+    member = alreadyRegistered ? null : await findActiveMemberByEmail(email);
+  } catch (err) {
+    console.error("[waitlist-convert] lookup failed", { eventId, email, err });
+    return bad("Service temporarily unavailable", 503);
+  }
+  if (alreadyRegistered) {
     return bad("This email is already registered for this event", 409);
   }
 
-  const member = await findActiveMemberByEmail(email);
   const referenceCode = generateReferenceCode();
 
   const { data: inserted, error: insertErr } = await adminClient

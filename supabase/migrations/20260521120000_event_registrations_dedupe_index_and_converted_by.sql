@@ -11,6 +11,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS event_registrations_event_email_paidfree_uniq
   ON public.event_registrations (event_id, lower(email))
   WHERE status IN ('paid', 'free');
 
+-- Rollback (manual; no down-migration):
+--   DROP INDEX IF EXISTS public.event_registrations_event_email_paidfree_uniq;
+--   ALTER TABLE public.event_registrations DROP COLUMN IF EXISTS converted_by;
+-- Both are safe: converted_by is nullable, and the index can be recreated.
+
 -- Audit: which admin comped this registration (e.g. a waitlist conversion).
 -- Nullable: only set for admin-comped rows; SET NULL so removing an admin keeps
 -- the registration record.

@@ -121,6 +121,13 @@ describe("POST /api/admin/events/[id]/waitlist/convert — auth & validation", (
 });
 
 describe("POST /api/admin/events/[id]/waitlist/convert — conversion", () => {
+  it("503s when a lookup throws (DB error, not an opaque 500)", async () => {
+    mockedHasExisting.mockRejectedValue(new Error("db down"));
+    const res = await post({ waitlistId: "wl-1", quantity: 1 });
+    expect(res.status).toBe(503);
+    expect(capturedInsert).toBeNull();
+  });
+
   it("409s when the email already has a registration (no insert)", async () => {
     mockedHasExisting.mockResolvedValue(true);
     const res = await post({ waitlistId: "wl-1", quantity: 1 });
