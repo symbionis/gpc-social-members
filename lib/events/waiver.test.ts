@@ -1,21 +1,18 @@
 import { describe, it, expect } from "vitest";
 import {
   WAIVER_VERSION,
-  WAIVER_EVENT_ID,
   computeWaiverVersion,
   getWaiver,
-  hasWaiverForEvent,
   type Waiver,
   type WaiverLanguage,
 } from "@/lib/events/waiver";
 
 describe("getWaiver", () => {
   it.each<WaiverLanguage>(["fr", "en"])(
-    "returns non-empty title, subtitle, intro and clauses for %s",
+    "returns non-empty title, intro and clauses for %s",
     (lang) => {
       const w = getWaiver(lang);
       expect(w.title.length).toBeGreaterThan(0);
-      expect(w.subtitle.length).toBeGreaterThan(0);
       expect(w.intro.length).toBeGreaterThan(0);
       expect(w.clauses.length).toBeGreaterThan(0);
       for (const clause of w.clauses) {
@@ -29,27 +26,23 @@ describe("getWaiver", () => {
     expect(getWaiver("fr").clauses.length).toBe(getWaiver("en").clauses.length);
   });
 
-  // Regression: the event date must NOT be hardcoded in the subtitle. It is
-  // appended at render from start_date so it can never disagree with the DB
-  // (the original "May 22" vs 21-May-DB bug). A year in the subtitle means
-  // someone re-hardcoded the date.
+  // Regression: this is a GENERIC visitor waiver shown at every event's
+  // check-in. It must not name a specific event (the check-in header shows the
+  // event + date). "Open Doors"/"Portes Ouvertes" leaking back in would make
+  // other events' attendees sign text about the wrong event.
   it.each<WaiverLanguage>(["fr", "en"])(
-    "does not hardcode a date in the %s subtitle",
+    "does not name a specific event in the %s waiver",
     (lang) => {
-      expect(getWaiver(lang).subtitle).not.toMatch(/\d{4}/);
+      const w = getWaiver(lang);
+      const text = [w.title, w.intro, ...w.clauses.flatMap((c) => [
+        c.heading,
+        ...c.paragraphs,
+        ...(c.bullets ?? []),
+        c.closing ?? "",
+      ])].join(" ");
+      expect(text).not.toMatch(/Open Doors|Portes Ouvertes/i);
     }
   );
-});
-
-describe("hasWaiverForEvent", () => {
-  it("is true only for the waiver's event id", () => {
-    expect(hasWaiverForEvent(WAIVER_EVENT_ID)).toBe(true);
-  });
-
-  it("is false for any other event id", () => {
-    expect(hasWaiverForEvent("00000000-0000-0000-0000-000000000000")).toBe(false);
-    expect(hasWaiverForEvent("")).toBe(false);
-  });
 });
 
 describe("WAIVER_VERSION", () => {

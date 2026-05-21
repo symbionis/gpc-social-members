@@ -8,9 +8,6 @@ interface Props {
   eventId: string;
   eventTitle: string;
   eventDate: string;
-  // Localized event date for the waiver subtitle, derived server-side from
-  // start_date so it always matches the DB (and the header above it).
-  waiverDate: { en: string; fr: string };
 }
 
 type Kind = "registered" | "member" | "guest";
@@ -95,7 +92,6 @@ export default function EventCheckInForm({
   eventId,
   eventTitle,
   eventDate,
-  waiverDate,
 }: Props) {
   const [lang, setLang] = useState<WaiverLanguage | null>(null);
   const [phase, setPhase] = useState<Phase>("details");
@@ -317,9 +313,6 @@ export default function EventCheckInForm({
   }
 
   const waiver = getWaiver(lang);
-  const waiverSubtitle = waiverDate[lang]
-    ? `${waiver.subtitle} – ${waiverDate[lang]}`
-    : waiver.subtitle;
 
   return (
     <div className="bg-white rounded-sm border border-border/60 p-6">
@@ -451,7 +444,6 @@ export default function EventCheckInForm({
             <h2 className="font-heading text-base font-bold text-marine">
               {waiver.title}
             </h2>
-            <p className="text-xs text-muted-foreground mb-2">{waiverSubtitle}</p>
             <p className="mb-3">{waiver.intro}</p>
             <ol className="space-y-3 list-decimal pl-4">
               {waiver.clauses.map((clause, i) => (
