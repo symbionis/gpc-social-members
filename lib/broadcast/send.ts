@@ -17,6 +17,12 @@ const CHANNELS: Record<string, BroadcastChannel> = {
   email: PostmarkEmailChannel,
 };
 
+/** A broadcast still at status='sending' older than this is treated as a dead
+ *  in-flight send (process killed mid-dispatch) and reset so the event-send
+ *  in-flight guard can't wedge an event+kind permanently. Real sends finalise
+ *  in seconds, so this window only ever catches genuinely-dead rows. */
+const STALE_SENDING_MS = 10 * 60 * 1000;
+
 export interface SendBroadcastInput {
   subject: string;
   body_html: string;
@@ -181,6 +187,20 @@ export async function sendEventMessage(
     include_non_consented: includeNonConsented,
   };
 
+  // Self-heal a wedged in-flight row before inserting. If a prior send for this
+  // event+kind died mid-dispatch (serverless timeout, OOM, deploy), its row is
+  // stuck at status='sending' and the in-flight partial unique index would
+  // block every future send. A real send finalises in seconds, so a 'sending'
+  // row older than the stale window is dead — flip it to 'failed' so the guard
+  // releases. Recent in-flight rows are untouched, preserving the guard.
+  await supabase
+    .from("broadcasts")
+    .update({ status: "failed" })
+    .eq("event_id", input.event_id)
+    .eq("kind", input.kind)
+    .eq("status", "sending")
+    .lt("created_at", new Date(Date.now() - STALE_SENDING_MS).toISOString());
+
   const { data: inserted, error: insertErr } = await supabase
     .from("broadcasts")
     .insert({
@@ -202,7 +222,7 @@ export async function sendEventMessage(
 
   if (insertErr || !inserted) {
     if ((insertErr as { code?: string } | null)?.code === "23505") {
-      return classifyGuardCollision(supabase, insertErr, input.idempotency_key ?? null);
+      return classifyGuardCollision(supabase, input.event_id, input.idempotency_key ?? null);
     }
     throw new Error(
       `Failed to create event broadcast row: ${insertErr?.message ?? "no row returned"}`
@@ -225,22 +245,22 @@ export async function sendEventMessage(
   return { status: "sent", result };
 }
 
-/** Interpret a 23505 on the event-send insert. An idempotency-key collision
- *  means a retried request — return the original send's result. Anything else
- *  is the in-flight (event_id, kind) guard. */
+/** Interpret a 23505 on the event-send insert without depending on which
+ *  constraint Postgres reported (locale- and ordering-fragile). When the
+ *  request carried an idempotency_key, a row with that key for this event means
+ *  it's a retry — return the original send's result. Scoped to event_id so a
+ *  reused key from a different event can't return the wrong send's data. No
+ *  matching row means the collision was the in-flight guard. */
 async function classifyGuardCollision(
   supabase: AdminClient,
-  insertErr: { message?: string; details?: string } | null,
+  eventId: string,
   idempotencyKey: string | null
 ): Promise<SendEventMessageResult> {
-  const haystack = `${insertErr?.message ?? ""} ${insertErr?.details ?? ""}`;
-  const isIdempotencyCollision =
-    haystack.includes("idempotency") && idempotencyKey !== null;
-
-  if (isIdempotencyCollision) {
+  if (idempotencyKey !== null) {
     const { data: existing } = await supabase
       .from("broadcasts")
       .select("id, recipient_count, error_count, skipped_count")
+      .eq("event_id", eventId)
       .eq("idempotency_key", idempotencyKey)
       .limit(1)
       .maybeSingle();
@@ -373,10 +393,15 @@ async function dispatchToChannel(opts: {
   const failed = results.filter((r) => r.status === "failed");
   const sent = results.length - failed.length;
 
+  // If every recipient failed (e.g. a missing Postmark template returns a
+  // per-row error rather than throwing), the send delivered nothing — record it
+  // as 'failed', not 'sent', so the comms log doesn't claim a phantom success.
+  const finalStatus = sent === 0 ? "failed" : "sent";
+
   const { error: finalUpdateErr } = await supabase
     .from("broadcasts")
     .update({
-      status: "sent",
+      status: finalStatus,
       sent_at: new Date().toISOString(),
       error_count: failed.length,
     })

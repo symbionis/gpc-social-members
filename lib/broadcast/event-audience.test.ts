@@ -185,7 +185,7 @@ describe("resolveEventAudience — dedup, pagination, empty", () => {
     expect(skipped).toBe(0);
   });
 
-  it("returns all recipients past the 1000-row page boundary", async () => {
+  it("returns all recipients past the 1000-row page boundary (registrations)", async () => {
     const many = Array.from({ length: 1500 }, (_, i) => ({
       email: `u${i}@x.com`,
       name: `U ${i}`,
@@ -195,6 +195,19 @@ describe("resolveEventAudience — dedup, pagination, empty", () => {
     }));
     mockedCreateAdminClient.mockReturnValue(client({ event_registrations: many }));
     const { recipients } = await resolveEventAudience({ event_id: "e1", kind: "event_pre" });
+    expect(recipients).toHaveLength(1500);
+  });
+
+  it("returns all recipients past the 1000-row page boundary (check-ins)", async () => {
+    const many = Array.from({ length: 1500 }, (_, i) => ({
+      email: `c${i}@x.com`,
+      name: `C ${i}`,
+      member_id: null,
+      marketing_consent: true,
+      event_id: "e1",
+    }));
+    mockedCreateAdminClient.mockReturnValue(client({ event_checkins: many }));
+    const { recipients } = await resolveEventAudience({ event_id: "e1", kind: "event_post" });
     expect(recipients).toHaveLength(1500);
   });
 

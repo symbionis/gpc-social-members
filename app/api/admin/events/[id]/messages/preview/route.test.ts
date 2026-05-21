@@ -51,9 +51,19 @@ beforeEach(() => {
 });
 
 describe("POST /api/admin/events/[id]/messages/preview", () => {
+  it("401s an unauthenticated caller", async () => {
+    mockedCreateClient.mockResolvedValue(sessionClient(null));
+    expect((await post({ kind: "event_pre" })).status).toBe(401);
+  });
+
   it("403s a non-admin", async () => {
     mockedCreateAdminClient.mockReturnValue(adminClient([], { id: "e1" }));
     expect((await post({ kind: "event_pre" })).status).toBe(403);
+  });
+
+  it("404s when the event does not exist", async () => {
+    mockedCreateAdminClient.mockReturnValue(adminClient(eventsAdmin, null));
+    expect((await post({ kind: "event_pre" })).status).toBe(404);
   });
 
   it("does not require subject/body for a preview", async () => {

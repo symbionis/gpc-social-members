@@ -39,25 +39,33 @@ export async function POST(
   const { kind, subject, body_html, include_non_consented, idempotency_key } =
     parsed.payload;
 
-  const outcome = await sendEventMessage({
-    event_id: id,
-    kind,
-    subject,
-    body_html,
-    include_non_consented,
-    created_by: auth.admin.id,
-    idempotency_key,
-  });
+  try {
+    const outcome = await sendEventMessage({
+      event_id: id,
+      kind,
+      subject,
+      body_html,
+      include_non_consented,
+      created_by: auth.admin.id,
+      idempotency_key,
+    });
 
-  if (outcome.status === "in_progress") {
-    return NextResponse.json(
-      { error: "A message for this event is already being sent.", status: "in_progress" },
-      { status: 409 }
-    );
+    if (outcome.status === "in_progress") {
+      return NextResponse.json(
+        { error: "A message for this event is already being sent.", status: "in_progress" },
+        { status: 409 }
+      );
+    }
+
+    return NextResponse.json({
+      ...outcome.result,
+      deduplicated: outcome.status === "duplicate",
+    });
+  } catch (err) {
+    // Adapter-wide failure (e.g. missing Postmark template/env). The broadcast
+    // row is already marked 'failed' inside the dispatch core; surface a
+    // structured 500 so the UI shows a real message, not an opaque error page.
+    const message = err instanceof Error ? err.message : "Send failed.";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  return NextResponse.json({
-    ...outcome.result,
-    deduplicated: outcome.status === "duplicate",
-  });
 }

@@ -2,7 +2,10 @@
  *  confirmation logic is unit-testable without a DOM (the repo unit-tests pure
  *  logic; component rendering is covered by Playwright E2E). */
 
-export type EventMessageKind = "event_pre" | "event_post";
+// Single source of truth lives with the resolver; re-exported here (type-only,
+// erased at build) so the client composer doesn't redeclare the union.
+export type { EventMessageKind } from "@/lib/broadcast/event-audience";
+import type { EventMessageKind } from "@/lib/broadcast/event-audience";
 
 export interface SendGateInput {
   subjectEmpty: boolean;

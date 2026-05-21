@@ -114,7 +114,7 @@ async function fetchRegistrations(
       .from("event_registrations")
       .select("email, name, member_id")
       .eq("event_id", eventId)
-      .in("status", ACTIVE_REGISTRATION_STATUSES as unknown as string[])
+      .in("status", [...ACTIVE_REGISTRATION_STATUSES])
       .order("created_at", { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
     if (error) throw new Error(`Failed to resolve registrations: ${error.message}`);

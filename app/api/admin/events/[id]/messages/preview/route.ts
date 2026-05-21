@@ -31,14 +31,21 @@ export async function POST(
     return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
 
-  const { recipients, skipped } = await resolveEventAudience({
-    event_id: id,
-    kind: parsed.payload.kind,
-    include_non_consented: parsed.payload.include_non_consented,
-  });
+  try {
+    const { recipients, skipped } = await resolveEventAudience({
+      event_id: id,
+      kind: parsed.payload.kind,
+      include_non_consented: parsed.payload.include_non_consented,
+    });
 
-  return NextResponse.json({
-    recipient_count: recipients.length,
-    skipped_count: skipped,
-  });
+    return NextResponse.json({
+      recipient_count: recipients.length,
+      skipped_count: skipped,
+    });
+  } catch {
+    return NextResponse.json(
+      { error: "Could not resolve the recipient count. Try again." },
+      { status: 500 }
+    );
+  }
 }

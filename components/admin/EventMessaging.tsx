@@ -12,12 +12,8 @@ import {
   buildSendConfirm,
 } from "@/components/admin/event-messaging-state";
 
-export interface ReminderSummaryRow {
-  days_before: number;
-  slot: string;
-  recipient_count: number;
-  last_sent_at: string;
-}
+import type { ReminderSummaryRow } from "@/lib/events/reminder-summary";
+export type { ReminderSummaryRow };
 
 export interface SentMessageRow {
   id: string;

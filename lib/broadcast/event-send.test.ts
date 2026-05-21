@@ -42,6 +42,7 @@ function supabase(opts: SupabaseOpts = {}) {
       c.update = () => c;
       c.select = () => c;
       c.eq = () => c;
+      c.lt = () => c;
       c.limit = () => c;
       c.single = async () =>
         isInsert ? opts.insertResult ?? { data: { id: "b1" }, error: null } : { data: null, error: null };
@@ -224,6 +225,47 @@ describe("sendEventMessage — double-send guard (23505)", () => {
     expect(out.status).toBe("duplicate");
     if (out.status !== "duplicate") throw new Error("unreachable");
     expect(out.result).toMatchObject({ broadcast_id: "b9", sent: 4, failed: 1, skipped: 2 });
+    expect(mockedSend).not.toHaveBeenCalled();
+  });
+
+  it("falls back to in_progress when a key is present but no prior row is found", async () => {
+    // 23505 from the in-flight guard while carrying a key whose row isn't
+    // visible/found — must not double-send, reports in_progress.
+    mockedCreateAdminClient.mockReturnValue(
+      supabase({
+        insertResult: { data: null, error: { code: "23505", message: "unique violation" } },
+        existingRow: null,
+      })
+    );
+    const out = await sendEventMessage({
+      event_id: "e1",
+      kind: "event_post",
+      subject: "s",
+      body_html: "<p>b</p>",
+      created_by: "admin-1",
+      idempotency_key: "key-x",
+    });
+    expect(out.status).toBe("in_progress");
+    expect(mockedSend).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendEventMessage — non-guard insert failure", () => {
+  it("throws on a non-23505 insert error rather than swallowing it", async () => {
+    mockedCreateAdminClient.mockReturnValue(
+      supabase({
+        insertResult: { data: null, error: { code: "42501", message: "permission denied" } },
+      })
+    );
+    await expect(
+      sendEventMessage({
+        event_id: "e1",
+        kind: "event_pre",
+        subject: "s",
+        body_html: "<p>b</p>",
+        created_by: "admin-1",
+      })
+    ).rejects.toThrow(/permission denied/);
     expect(mockedSend).not.toHaveBeenCalled();
   });
 });

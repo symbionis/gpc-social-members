@@ -145,4 +145,11 @@ describe("POST /api/admin/events/[id]/messages/send — outcomes", () => {
     await post(validBody);
     expect(mockedSend).toHaveBeenCalledWith(expect.objectContaining({ created_by: "a1", event_id: "e1" }));
   });
+
+  it("500s with a structured body when the send throws (adapter-wide failure)", async () => {
+    mockedSend.mockRejectedValue(new Error("event-message template not found"));
+    const res = await post(validBody);
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toContain("template not found");
+  });
 });
