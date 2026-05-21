@@ -46,6 +46,7 @@ export async function POST(
     inviterName?: unknown;
     invitedByRegistrationId?: unknown;
     waiverAccepted?: unknown;
+    marketingConsent?: unknown;
   };
   try {
     body = await request.json();
@@ -64,6 +65,9 @@ export async function POST(
       ? body.invitedByRegistrationId
       : null;
   const waiverAccepted = body.waiverAccepted === true;
+  // Optional communication consent — ticked by default in the form, so anything
+  // other than an explicit `false` is treated as consent given.
+  const marketingConsent = body.marketingConsent !== false;
 
   if (!name) return bad("name is required");
   if (name.length > MAX_LEN) return bad("name is too long");
@@ -126,6 +130,7 @@ export async function POST(
       inviterName: match.kind === "guest" ? inviterName : null,
       invitedByRegistrationId:
         match.kind === "guest" ? invitedByRegistrationId : null,
+      marketingConsent,
     });
 
     return NextResponse.json({

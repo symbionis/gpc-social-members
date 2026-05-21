@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   WAIVER_VERSION,
+  WAIVER_EVENT_ID,
   computeWaiverVersion,
   getWaiver,
+  hasWaiverForEvent,
   type Waiver,
   type WaiverLanguage,
 } from "@/lib/events/waiver";
@@ -25,6 +27,28 @@ describe("getWaiver", () => {
 
   it("returns the same clause count for both languages", () => {
     expect(getWaiver("fr").clauses.length).toBe(getWaiver("en").clauses.length);
+  });
+
+  // Regression: the event date must NOT be hardcoded in the subtitle. It is
+  // appended at render from start_date so it can never disagree with the DB
+  // (the original "May 22" vs 21-May-DB bug). A year in the subtitle means
+  // someone re-hardcoded the date.
+  it.each<WaiverLanguage>(["fr", "en"])(
+    "does not hardcode a date in the %s subtitle",
+    (lang) => {
+      expect(getWaiver(lang).subtitle).not.toMatch(/\d{4}/);
+    }
+  );
+});
+
+describe("hasWaiverForEvent", () => {
+  it("is true only for the waiver's event id", () => {
+    expect(hasWaiverForEvent(WAIVER_EVENT_ID)).toBe(true);
+  });
+
+  it("is false for any other event id", () => {
+    expect(hasWaiverForEvent("00000000-0000-0000-0000-000000000000")).toBe(false);
+    expect(hasWaiverForEvent("")).toBe(false);
   });
 });
 

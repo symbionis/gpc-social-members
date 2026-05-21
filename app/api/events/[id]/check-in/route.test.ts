@@ -163,3 +163,26 @@ describe("POST /api/events/[id]/check-in — gating and recording", () => {
     expect(json).toMatchObject({ ok: true, already: true });
   });
 });
+
+describe("POST /api/events/[id]/check-in — communication consent", () => {
+  it("defaults consent to true when the field is absent (ticked by default)", async () => {
+    await post(validBody);
+    expect(mockedRecordCheckin).toHaveBeenCalledWith(
+      expect.objectContaining({ marketingConsent: true })
+    );
+  });
+
+  it("records consent=true when explicitly checked", async () => {
+    await post({ ...validBody, marketingConsent: true });
+    expect(mockedRecordCheckin).toHaveBeenCalledWith(
+      expect.objectContaining({ marketingConsent: true })
+    );
+  });
+
+  it("records consent=false when the box is unchecked", async () => {
+    await post({ ...validBody, marketingConsent: false });
+    expect(mockedRecordCheckin).toHaveBeenCalledWith(
+      expect.objectContaining({ marketingConsent: false })
+    );
+  });
+});

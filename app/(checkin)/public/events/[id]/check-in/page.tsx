@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import EventCheckInForm from "@/components/public/EventCheckInForm";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatWaiverDate } from "@/lib/format";
+import { hasWaiverForEvent } from "@/lib/events/waiver";
 
 // Public, unauthenticated door check-in page. Reached by scanning the per-event
 // QR poster. Lives in the (checkin) route group so it renders without the public
@@ -23,6 +24,10 @@ export default async function EventCheckInPage({
 
   if (!event) notFound();
 
+  // The waiver is written for one specific event. Refuse to serve check-in for
+  // any other event rather than show a waiver naming the wrong event/date.
+  if (!hasWaiverForEvent(event.id)) notFound();
+
   return (
     <div className="min-h-screen bg-cream">
       <div className="h-16 bg-marine" />
@@ -31,6 +36,10 @@ export default async function EventCheckInPage({
           eventId={event.id}
           eventTitle={event.title}
           eventDate={formatDate(event.start_date)}
+          waiverDate={{
+            en: formatWaiverDate(event.start_date, "en") ?? "",
+            fr: formatWaiverDate(event.start_date, "fr") ?? "",
+          }}
         />
       </div>
     </div>

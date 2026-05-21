@@ -14,6 +14,13 @@ const MONTHS_LONG = [
 const WEEKDAYS_LONG = [
   "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 ] as const;
+const MONTHS_LONG_FR = [
+  "janvier", "février", "mars", "avril", "mai", "juin",
+  "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+] as const;
+const WEEKDAYS_LONG_FR = [
+  "dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi",
+] as const;
 
 const GENEVA_FMT = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Zurich",
@@ -100,6 +107,29 @@ export function formatWeekday(input: string | Date | null | undefined): string |
 export function formatStartTime(time: string | null | undefined): string | null {
   if (!time) return null;
   return time.slice(0, 5);
+}
+
+// Localized long date for the door check-in waiver subtitle, derived from the
+// event's start_date so the legal text can never disagree with the DB (the
+// original bug: a hardcoded "May 22" against a 21 May DB row — and 22 May was a
+// Friday, not the stated Thursday).
+//   en → "Thursday, May 21, 2026"   fr → "jeudi 21 mai 2026"
+export function formatWaiverDate(
+  input: string | Date | null | undefined,
+  lang: "en" | "fr",
+): string | null {
+  const d = toDate(input);
+  if (!d) return null;
+  const p = genevaParts(d);
+  const day = parseInt(p.day, 10);
+  const monthIdx = parseInt(p.month, 10) - 1;
+  const weekdayIdx = WEEKDAYS_LONG.indexOf(p.weekday as (typeof WEEKDAYS_LONG)[number]);
+  if (lang === "fr") {
+    const wd = weekdayIdx >= 0 ? WEEKDAYS_LONG_FR[weekdayIdx] : "";
+    return `${wd} ${day} ${MONTHS_LONG_FR[monthIdx]} ${p.year}`.trim();
+  }
+  const wd = weekdayIdx >= 0 ? WEEKDAYS_LONG[weekdayIdx] : p.weekday;
+  return `${wd}, ${MONTHS_LONG[monthIdx]} ${day}, ${p.year}`;
 }
 
 // ------------------------------------------------------------------
