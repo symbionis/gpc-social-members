@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import ManageEventTabs from "@/components/admin/ManageEventTabs";
+import { getEventReminderSummary } from "@/lib/events/reminder-summary";
 
 export default async function ManageEventPage({
   params,
@@ -63,6 +64,14 @@ export default async function ManageEventPage({
         .order("created_at", { ascending: true })
     : { data: [] };
 
+  // Event comms log: reminders already sent + ad-hoc messages sent from this tab.
+  const reminders = await getEventReminderSummary(id);
+  const { data: sentMessages } = await supabase
+    .from("broadcasts")
+    .select("id, subject, kind, recipient_count, error_count, status, sent_at, created_at")
+    .eq("event_id", id)
+    .order("created_at", { ascending: false });
+
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
   const checkInPath = `/public/events/${id}/check-in`;
 
@@ -97,6 +106,8 @@ export default async function ManageEventPage({
         baseUrl={baseUrl}
         checkInPath={checkInPath}
         strictCheckin={Boolean(event.strict_checkin)}
+        reminders={reminders}
+        sentMessages={sentMessages ?? []}
       />
     </div>
   );
