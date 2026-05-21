@@ -251,7 +251,7 @@ export default function ManageEventTabs({
                 Export CSV
               </a>
             </div>
-            <AttendeeList attendees={attendees} />
+            <AttendeeList attendees={attendees} eventId={eventId} seatCap={seatCap} />
           </div>
         </div>
       )}
