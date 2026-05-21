@@ -1,0 +1,51 @@
+<!--
+  Postmark template alias: event-waitlist-confirmed
+  Layout:  main-polo-club
+  Subject: You're confirmed for {{event_title}} — a spot opened up
+  Sent by: lib/email/event-waitlist.ts (sendWaitlistConfirmation)
+
+  This is the template body that renders inside the main-polo-club layout
+  ({{{@content}}}). Mustachio templating: use {{#key}}...{{/key}} for optional
+  values; the sender passes null (not "") for absent fields.
+-->
+<h1 style="font-family: Georgia, 'Times New Roman', serif; color: #0f2540; font-size: 24px; margin: 0 0 16px;">
+  Good news, {{first_name}} — you're in!
+</h1>
+
+<p style="font-family: Arial, sans-serif; color: #1f2937; font-size: 16px; line-height: 1.6; margin: 0 0 20px;">
+  A spot has freed up and you're now <strong>fully registered</strong> for
+  {{event_title}}. We're looking forward to welcoming you.
+</p>
+
+<table cellpadding="0" cellspacing="0" style="width: 100%; font-family: Arial, sans-serif; color: #1f2937; font-size: 15px; line-height: 1.6; margin: 0 0 24px; border-collapse: collapse;">
+  <tr>
+    <td style="padding: 6px 0; color: #6b7280; width: 120px;">Event</td>
+    <td style="padding: 6px 0;">{{event_title}}</td>
+  </tr>
+  {{#event_date_label}}
+  <tr>
+    <td style="padding: 6px 0; color: #6b7280;">Date</td>
+    <td style="padding: 6px 0;">{{event_date_label}}{{#event_time}} · {{event_time}}{{/event_time}}</td>
+  </tr>
+  {{/event_date_label}}
+  {{#event_location}}
+  <tr>
+    <td style="padding: 6px 0; color: #6b7280;">Location</td>
+    <td style="padding: 6px 0;">{{event_location}}</td>
+  </tr>
+  {{/event_location}}
+  {{#quantity}}
+  <tr>
+    <td style="padding: 6px 0; color: #6b7280;">Tickets</td>
+    <td style="padding: 6px 0;">{{quantity}}</td>
+  </tr>
+  {{/quantity}}
+  <tr>
+    <td style="padding: 6px 0; color: #6b7280;">Reference</td>
+    <td style="padding: 6px 0; font-family: 'Courier New', monospace;">{{reference_code}}</td>
+  </tr>
+</table>
+
+<p style="font-family: Arial, sans-serif; font-size: 16px; margin: 0 0 8px;">
+  <a href="{{event_url}}" style="color: #0f2540; font-weight: bold;">View event details →</a>
+</p>
