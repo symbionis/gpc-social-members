@@ -4,9 +4,10 @@
   Subject: You're confirmed for {{event_title}} — a spot opened up
   Sent by: lib/email/event-waitlist.ts (sendWaitlistConfirmation)
 
-  This is the template body that renders inside the main-polo-club layout
-  ({{{@content}}}). Mustachio templating: use {{#key}}...{{/key}} for optional
-  values; the sender passes null (not "") for absent fields.
+  Renders inside the main-polo-club layout ({{{@content}}}). Mustachio: inside a
+  scalar section {{#key}}...{{/key}} the context IS the scalar, so print it with
+  {{.}} — referencing {{key}} again inside its own section renders empty. Optional
+  values are passed as null so the section is skipped.
 -->
 <h1 style="font-family: Georgia, 'Times New Roman', serif; color: #0f2540; font-size: 24px; margin: 0 0 16px;">
   Good news, {{first_name}} — you're in!
@@ -25,19 +26,25 @@
   {{#event_date_label}}
   <tr>
     <td style="padding: 6px 0; color: #6b7280;">Date</td>
-    <td style="padding: 6px 0;">{{event_date_label}}{{#event_time}} · {{event_time}}{{/event_time}}</td>
+    <td style="padding: 6px 0;">{{.}}</td>
   </tr>
   {{/event_date_label}}
+  {{#event_time}}
+  <tr>
+    <td style="padding: 6px 0; color: #6b7280;">Time</td>
+    <td style="padding: 6px 0;">{{.}}</td>
+  </tr>
+  {{/event_time}}
   {{#event_location}}
   <tr>
     <td style="padding: 6px 0; color: #6b7280;">Location</td>
-    <td style="padding: 6px 0;">{{event_location}}</td>
+    <td style="padding: 6px 0;">{{.}}</td>
   </tr>
   {{/event_location}}
   {{#quantity}}
   <tr>
     <td style="padding: 6px 0; color: #6b7280;">Tickets</td>
-    <td style="padding: 6px 0;">{{quantity}}</td>
+    <td style="padding: 6px 0;">{{.}}</td>
   </tr>
   {{/quantity}}
   <tr>
@@ -46,6 +53,8 @@
   </tr>
 </table>
 
+{{#event_url}}
 <p style="font-family: Arial, sans-serif; font-size: 16px; margin: 0 0 8px;">
-  <a href="{{event_url}}" style="color: #0f2540; font-weight: bold;">View event details →</a>
+  <a href="{{.}}" style="color: #0f2540; font-weight: bold;">View event details →</a>
 </p>
+{{/event_url}}
