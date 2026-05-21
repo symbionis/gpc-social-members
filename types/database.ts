@@ -348,6 +348,7 @@ export type Database = {
       }
       event_registrations: {
         Row: {
+          converted_by: string | null
           created_at: string
           email: string
           event_id: string
@@ -365,6 +366,7 @@ export type Database = {
           unit_amount_chf: number
         }
         Insert: {
+          converted_by?: string | null
           created_at?: string
           email: string
           event_id: string
@@ -382,6 +384,7 @@ export type Database = {
           unit_amount_chf: number
         }
         Update: {
+          converted_by?: string | null
           created_at?: string
           email?: string
           event_id?: string
