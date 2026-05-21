@@ -10,7 +10,8 @@
     "test": "npx playwright test",
     "test:admin": "npx playwright test --project=admin",
     "test:member": "npx playwright test --project=member",
-    "test:public": "npx playwright test --project=public"
+    "test:public": "npx playwright test --project=public",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^6.1.0",
@@ -48,6 +49,7 @@
     "eslint": "^9",
     "eslint-config-next": "^15",
     "supabase": "^1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.7"
   }
 }

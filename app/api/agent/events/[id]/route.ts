@@ -53,7 +53,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   const current = await supabase
     .from("events")
     .select(
-      "id, title, event_type_id, start_date, end_date, start_time, location, description, notes, season_id, images, image_url, image_url_2, visibility, registration_enabled, price_member, price_non_member, seat_cap"
+      "id, title, event_type_id, start_date, end_date, start_time, location, description, notes, season_id, images, image_url, image_url_2, visibility, registration_enabled, strict_checkin, price_member, price_non_member, seat_cap"
     )
     .eq("id", id)
     .limit(1)
@@ -220,6 +220,15 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     }
     update.registration_enabled = v;
     updatedFields.push("registration_enabled");
+  }
+
+  if ("strict_checkin" in body) {
+    const v = body.strict_checkin;
+    if (typeof v !== "boolean") {
+      return bad(started_at, "strict_checkin must be a boolean");
+    }
+    update.strict_checkin = v;
+    updatedFields.push("strict_checkin");
   }
 
   function parsePrice(raw: unknown): number | null | "invalid" {

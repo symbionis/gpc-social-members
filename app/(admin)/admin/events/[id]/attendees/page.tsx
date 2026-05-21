@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import AttendeeList from "@/components/admin/AttendeeList";
+import ManageEventTabs from "@/components/admin/ManageEventTabs";
 
-export default async function EventAttendeesPage({
+export default async function ManageEventPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -13,24 +13,45 @@ export default async function EventAttendeesPage({
 
   const { data: event } = await supabase
     .from("events")
-    .select("id, title, start_date, seat_cap")
+    .select("id, title, start_date, seat_cap, strict_checkin")
     .eq("id", id)
     .single();
 
   if (!event) notFound();
 
-  const { data: attendees } = await supabase
+  const { data: registrations } = await supabase
     .from("event_registrations")
     .select(
-      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, created_at, checked_in_at"
+      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, created_at"
     )
     .eq("event_id", id)
     .in("status", ["paid", "free"])
     .order("created_at", { ascending: false });
 
-  const total = (attendees || []).reduce((acc, a) => acc + a.quantity, 0);
+  // event_checkins is the single source of arrival truth. A registration has
+  // arrived iff a row links to it; rows without a registration_id are walk-up
+  // members and invited guests.
+  const { data: checkins } = await supabase
+    .from("event_checkins")
+    .select(
+      "id, name, email, kind, inviter_name, registration_id, member_id, invited_by_registration_id, created_at"
+    )
+    .eq("event_id", id)
+    .order("created_at", { ascending: true });
 
-  const seatCap = event.seat_cap;
+  const checkedInRegIds = new Set(
+    (checkins ?? [])
+      .filter((c) => c.registration_id)
+      .map((c) => c.registration_id as string)
+  );
+
+  const attendees = (registrations ?? []).map((r) => ({
+    ...r,
+    checkedIn: checkedInRegIds.has(r.id),
+  }));
+
+  const total = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
+  const seatCap = event.seat_cap as number | null;
   const hasSeatCap = seatCap !== null && seatCap !== undefined;
   const overbooked = hasSeatCap && total > seatCap;
 
@@ -42,6 +63,9 @@ export default async function EventAttendeesPage({
         .order("created_at", { ascending: true })
     : { data: [] };
 
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+  const checkInPath = `/public/events/${id}/check-in`;
+
   return (
     <div>
       <Link
@@ -51,85 +75,29 @@ export default async function EventAttendeesPage({
         ← Back to Events
       </Link>
 
-      <div className="flex items-end justify-between gap-4 flex-wrap mb-6">
-        <div>
-          <p className="font-accent text-xs tracking-[0.3em] uppercase text-sky-dark mb-1">
-            Attendees
-          </p>
-          <h1 className="font-heading text-2xl sm:text-3xl font-bold text-marine">
-            {event.title}
-          </h1>
-          <p className="text-sm font-body text-muted-foreground mt-1">
-            {(attendees || []).length} registration
-            {(attendees || []).length === 1 ? "" : "s"} · {total} ticket
-            {total === 1 ? "" : "s"}
-          </p>
-          <p
-            className={`text-sm font-body mt-1 ${
-              overbooked ? "text-red-700 font-semibold" : "text-muted-foreground"
-            }`}
-          >
-            Capacity:{" "}
-            {hasSeatCap
-              ? `${total} / ${seatCap} seats${overbooked ? " — overbooked" : ""}`
-              : `${total} / ∞ seats (uncapped)`}
-          </p>
-        </div>
-        <a
-          href={`/api/admin/events/${id}/attendees?format=csv`}
-          className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors"
-        >
-          Export CSV
-        </a>
+      <div className="mb-6">
+        <p className="font-accent text-xs tracking-[0.3em] uppercase text-sky-dark mb-1">
+          Manage Event
+        </p>
+        <h1 className="font-heading text-2xl sm:text-3xl font-bold text-marine">
+          {event.title}
+        </h1>
       </div>
 
-      <AttendeeList eventId={id} attendees={attendees || []} />
-
-      {hasSeatCap && (
-        <div className="mt-10">
-          <h2 className="font-heading text-xl font-bold text-marine mb-3">
-            Waitlist
-          </h2>
-          {(waitlist?.length ?? 0) === 0 ? (
-            <p className="font-body text-sm text-muted-foreground">
-              No waitlist entries.
-            </p>
-          ) : (
-            <div className="overflow-x-auto rounded-sm border border-border/60 bg-white">
-              <table className="min-w-full text-sm font-body">
-                <thead className="bg-cream/60 text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-2 text-left">Name</th>
-                    <th className="px-4 py-2 text-left">Email</th>
-                    <th className="px-4 py-2 text-left">Joined</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(waitlist ?? []).map((entry) => (
-                    <tr key={entry.id} className="border-t border-border/60">
-                      <td className="px-4 py-2 text-marine">{entry.name}</td>
-                      <td className="px-4 py-2">
-                        <a
-                          href={`mailto:${entry.email}`}
-                          className="text-sky-dark hover:text-marine underline-offset-2 hover:underline"
-                        >
-                          {entry.email}
-                        </a>
-                      </td>
-                      <td className="px-4 py-2 text-muted-foreground">
-                        {new Date(entry.created_at).toLocaleString("en-GB", {
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
+      <ManageEventTabs
+        eventId={id}
+        attendees={attendees}
+        checkins={checkins ?? []}
+        waitlist={waitlist ?? []}
+        hasSeatCap={hasSeatCap}
+        total={total}
+        seatCap={seatCap}
+        overbooked={overbooked}
+        csvHref={`/api/admin/events/${id}/attendees?format=csv`}
+        baseUrl={baseUrl}
+        checkInPath={checkInPath}
+        strictCheckin={Boolean(event.strict_checkin)}
+      />
     </div>
   );
 }
