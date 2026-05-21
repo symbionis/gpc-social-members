@@ -3,9 +3,11 @@
 -- See docs/plans/2026-05-21-001-feat-waitlist-to-registration-plan.md (U5)
 --
 -- Partial unique index: at most one paid/free registration per (event,
--- lowercased email). Makes the register route and the waitlist-convert duplicate
--- guards race-safe — a concurrent duplicate insert raises 23505 instead of
--- silently double-booking. Pre-checked clean before creation (no existing
+-- lowercased email). Makes the waitlist-convert and the register route's
+-- free-path duplicate guards race-safe — a concurrent duplicate insert raises
+-- 23505 instead of silently double-booking. Paid registrations insert as
+-- 'pending' (outside this index) and are deduped at the pending→paid promotion
+-- in the Stripe webhook. Pre-checked clean before creation (no existing
 -- (event_id, lower(email)) duplicates among paid/free rows).
 CREATE UNIQUE INDEX IF NOT EXISTS event_registrations_event_email_paidfree_uniq
   ON public.event_registrations (event_id, lower(email))

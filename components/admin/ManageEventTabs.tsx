@@ -194,7 +194,7 @@ export default function ManageEventTabs({
       }
       setNotice(
         data.email_sent === false
-          ? `${entry.name} registered — but the confirmation email failed, please notify them manually.`
+          ? `${entry.name} registered (ref ${data.reference_code}) — confirmation email failed, please notify them manually.`
           : `${entry.name} registered and emailed.`
       );
       router.refresh();

@@ -5,6 +5,11 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 
+// Registration statuses that occupy a seat / count as "registered". Kept in sync
+// with the partial unique index event_registrations_event_email_paidfree_uniq
+// (WHERE status IN ('paid','free')).
+export const REGISTERED_STATUSES = ["paid", "free"] as const;
+
 const REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /** Short human-friendly registration reference, e.g. EV-AB12CD34. */
@@ -42,7 +47,8 @@ export async function findActiveMemberByEmail(
     .select("id, email, created_at")
     .eq("status", "active")
     .ilike("email", escapeLike(e))
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .limit(20);
   if (error) throw error;
 
   const match = (data ?? []).find(
@@ -63,8 +69,9 @@ export async function hasExistingRegistration(
     .from("event_registrations")
     .select("id, email")
     .eq("event_id", eventId)
-    .in("status", ["paid", "free"])
-    .ilike("email", escapeLike(e));
+    .in("status", [...REGISTERED_STATUSES])
+    .ilike("email", escapeLike(e))
+    .limit(50);
   if (error) throw error;
 
   return (data ?? []).some(

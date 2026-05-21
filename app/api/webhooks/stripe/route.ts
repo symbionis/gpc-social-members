@@ -238,6 +238,25 @@ export async function POST(request: NextRequest) {
                 paymentIntent: session.payment_intent,
               }
             );
+            // Durable, queryable signal so the charged customer can be found and
+            // refunded even after logs rotate — tag the PaymentIntent in Stripe.
+            // Best-effort: a tagging failure must not turn this back into a 500.
+            if (typeof session.payment_intent === "string") {
+              try {
+                await getStripe().paymentIntents.update(session.payment_intent, {
+                  metadata: {
+                    needs_refund: "duplicate_registration",
+                    registration_id: existing.id,
+                    event_session: session.id,
+                  },
+                });
+              } catch (tagErr) {
+                console.error("[webhook] failed to tag PaymentIntent for refund", {
+                  paymentIntent: session.payment_intent,
+                  err: tagErr,
+                });
+              }
+            }
             return NextResponse.json({ received: true, duplicate_registration: true });
           }
           console.error(

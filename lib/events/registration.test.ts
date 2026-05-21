@@ -18,7 +18,7 @@ function client(result: QResult) {
   return {
     from: () => {
       const c: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "in", "ilike", "order"]) c[m] = () => c;
+      for (const m of ["select", "eq", "in", "ilike", "order", "limit"]) c[m] = () => c;
       (c as { then: unknown }).then = (resolve: (r: QResult) => unknown) => resolve(result);
       return c;
     },

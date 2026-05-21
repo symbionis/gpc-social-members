@@ -32,7 +32,7 @@ async function assertAdmin() {
     .limit(1);
 
   const admin = admins?.[0];
-  if (!admin || !ALLOWED_ROLES.includes(admin.role)) {
+  if (!admin || !admin.id || !ALLOWED_ROLES.includes(admin.role)) {
     return { error: "Forbidden", status: 403 as const };
   }
   return { adminClient, adminId: admin.id as string };
@@ -159,8 +159,9 @@ export async function POST(
   let seatsUsed: number | null = null;
   try {
     seatsUsed = await getSeatsUsed(adminClient, eventId);
-  } catch {
-    /* resulting-count display is non-essential */
+  } catch (err) {
+    // Display-only; continue, but log so an RPC regression isn't masked.
+    console.error("[waitlist-convert] seat count failed (non-fatal)", { eventId, err });
   }
 
   return NextResponse.json({

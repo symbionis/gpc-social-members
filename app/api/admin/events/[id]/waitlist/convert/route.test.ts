@@ -149,6 +149,7 @@ describe("POST /api/admin/events/[id]/waitlist/convert — conversion", () => {
       converted_by: "admin-1",
       is_member: false,
     });
+    expect(typeof capturedInsert?.paid_at).toBe("string");
     expect(mockedSendEmail).toHaveBeenCalledWith("reg-new");
   });
 
@@ -175,5 +176,21 @@ describe("POST /api/admin/events/[id]/waitlist/convert — conversion", () => {
     const res = await post({ waitlistId: "wl-1", quantity: 1 });
     expect(res.status).toBe(200);
     expect((await res.json()).email_sent).toBe(false);
+  });
+
+  it("still succeeds (200) when the waitlist delete fails after insert (orphan kept)", async () => {
+    mockedCreateAdminClient.mockReturnValue(
+      adminClient({ admins: superAdmin, waitlistEntry: entry, deleteErr: { message: "delete failed" } })
+    );
+    const res = await post({ waitlistId: "wl-1", quantity: 1 });
+    expect(res.status).toBe(200);
+    expect((await res.json()).reference_code).toBe("EV-TEST1234");
+  });
+
+  it("returns seats_used:null (still 200) when the seat-count read fails", async () => {
+    mockedSeatsUsed.mockRejectedValue(new Error("rpc down"));
+    const res = await post({ waitlistId: "wl-1", quantity: 1 });
+    expect(res.status).toBe(200);
+    expect((await res.json()).seats_used).toBeNull();
   });
 });

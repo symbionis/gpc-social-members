@@ -154,7 +154,9 @@ export async function POST(
   if (insertErr || !inserted) {
     // Race with the partial unique index (event_id, lower(email)) WHERE
     // status IN ('paid','free'): a concurrent duplicate raises 23505 — surface
-    // it as the same "already registered" 409 the pre-check returns.
+    // it as the same "already registered" 409 the pre-check returns. (Fires for
+    // free registrations; paid rows insert as 'pending' and are deduped at the
+    // pending→paid promotion in the Stripe webhook.)
     if (insertErr && (insertErr as { code?: string }).code === "23505") {
       return bad("This email is already registered for this event", 409);
     }
