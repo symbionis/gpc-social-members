@@ -10,7 +10,11 @@ function getClient(): ServerClient {
     if (!process.env.POSTMARK_SERVER_TOKEN) {
       throw new Error("POSTMARK_SERVER_TOKEN is not set");
     }
-    _client = new ServerClient(process.env.POSTMARK_SERVER_TOKEN);
+    // Bound each request at 30s (Postmark's `timeout` is in seconds; default is
+    // 60). A hung Postmark call then fails fast instead of tying up the request
+    // until the platform kills it — which, for an event send, would leave the
+    // broadcast row stuck at 'sending'. Generous vs Postmark's sub-second norm.
+    _client = new ServerClient(process.env.POSTMARK_SERVER_TOKEN, { timeout: 30 });
   }
   return _client;
 }

@@ -1,5 +1,6 @@
 import type { AudienceFilter } from "@/lib/broadcast/types";
 import type { MemberStatus } from "@/types/database";
+import { isHtmlBodyEmpty } from "@/lib/broadcast/html-body";
 
 export const ALLOWED_AUDIENCE_STATUSES: Array<MemberStatus | "all"> = [
   "all",
@@ -50,7 +51,7 @@ export function parseBroadcastPayload(
 
   if (!opts.forDraft) {
     if (!subject) return { ok: false, error: "subject is required" };
-    if (!bodyHtml || bodyHtml.replace(/<[^>]+>/g, "").trim().length === 0) {
+    if (isHtmlBodyEmpty(bodyHtml)) {
       return { ok: false, error: "body is required" };
     }
   }

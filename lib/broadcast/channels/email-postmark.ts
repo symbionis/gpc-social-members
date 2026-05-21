@@ -1,5 +1,6 @@
 import { getPostmarkClient } from "@/lib/postmark";
 import { stripHtml } from "@/lib/broadcast/strip-html";
+import { sendPostmarkBatch } from "@/lib/broadcast/channels/postmark-batch";
 import type {
   BroadcastChannel,
   BroadcastContent,
@@ -65,49 +66,10 @@ export const PostmarkEmailChannel: BroadcastChannel = {
         MessageStream: streamId,
       }));
 
-      // Wrap each chunk so an error sending batch N does not lose the
-      // results from batch N-1 — those recipients already got the email.
-      let responses: Awaited<
-        ReturnType<typeof client.sendEmailBatchWithTemplates>
-      > = [];
-      try {
-        responses = await client.sendEmailBatchWithTemplates(batch);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Postmark batch failed";
-        for (const recipient of chunk) {
-          results.push({
-            member_id: recipient.member_id,
-            email: recipient.email,
-            status: "failed",
-            error: message,
-          });
-        }
-        continue;
-      }
-
-      // Postmark returns one response per input row in order. Map back by
-      // index; any unmatched recipients are recorded as failed with a clear
-      // marker so the audit log never drops a row silently.
-      chunk.forEach((recipient, idx) => {
-        const res = responses[idx];
-        if (!res) {
-          results.push({
-            member_id: recipient.member_id,
-            email: recipient.email,
-            status: "failed",
-            error: "No response from Postmark for this recipient",
-          });
-          return;
-        }
-        const ok = res.ErrorCode === 0;
-        results.push({
-          member_id: recipient.member_id,
-          email: recipient.email,
-          status: ok ? "sent" : "failed",
-          error: ok ? undefined : res.Message || `ErrorCode ${res.ErrorCode}`,
-          provider_message_id: ok ? res.MessageID : undefined,
-        });
-      });
+      // Per-batch send + response mapping (failed-row recording on a batch-wide
+      // throw, index-aligned per-recipient results) is shared with the
+      // transactional channel.
+      results.push(...(await sendPostmarkBatch(client, batch, chunk)));
     }
 
     return results;

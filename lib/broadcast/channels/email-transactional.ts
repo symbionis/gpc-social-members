@@ -1,5 +1,6 @@
 import { getPostmarkClient, FROM_EMAIL } from "@/lib/postmark";
 import { stripHtml } from "@/lib/broadcast/strip-html";
+import { sendPostmarkBatch } from "@/lib/broadcast/channels/postmark-batch";
 import type {
   BroadcastChannel,
   BroadcastContent,
@@ -58,44 +59,8 @@ export const TransactionalEmailChannel: BroadcastChannel = {
         // No MessageStream → default transactional/outbound stream.
       }));
 
-      let responses: Awaited<
-        ReturnType<typeof client.sendEmailBatchWithTemplates>
-      > = [];
-      try {
-        responses = await client.sendEmailBatchWithTemplates(batch);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Postmark batch failed";
-        for (const recipient of chunk) {
-          results.push({
-            member_id: recipient.member_id,
-            email: recipient.email,
-            status: "failed",
-            error: message,
-          });
-        }
-        continue;
-      }
-
-      chunk.forEach((recipient, idx) => {
-        const res = responses[idx];
-        if (!res) {
-          results.push({
-            member_id: recipient.member_id,
-            email: recipient.email,
-            status: "failed",
-            error: "No response from Postmark for this recipient",
-          });
-          return;
-        }
-        const ok = res.ErrorCode === 0;
-        results.push({
-          member_id: recipient.member_id,
-          email: recipient.email,
-          status: ok ? "sent" : "failed",
-          error: ok ? undefined : res.Message || `ErrorCode ${res.ErrorCode}`,
-          provider_message_id: ok ? res.MessageID : undefined,
-        });
-      });
+      // Shared per-batch send + response mapping (see broadcast channel).
+      results.push(...(await sendPostmarkBatch(client, batch, chunk)));
     }
 
     return results;

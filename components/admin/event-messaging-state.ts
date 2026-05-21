@@ -29,11 +29,9 @@ export function computeCanSend(i: SendGateInput): boolean {
   );
 }
 
-/** body_html is "empty" when it has no text content after stripping tags —
- *  matches the server-side validator and the member composer. */
-export function isBodyEmpty(bodyHtml: string): boolean {
-  return !bodyHtml || bodyHtml.replace(/<[^>]+>/g, "").trim().length === 0;
-}
+// "Empty body" rule shared with the server-side validators; re-exported under
+// the composer-local name the component and its tests already use.
+export { isHtmlBodyEmpty as isBodyEmpty } from "@/lib/broadcast/html-body";
 
 /** Confirmation prompt shown before an irreversible send. For a post-event send
  *  with the consent override on, it explicitly states that the message reaches

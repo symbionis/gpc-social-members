@@ -1,4 +1,5 @@
 import type { EventMessageKind } from "@/lib/broadcast/event-audience";
+import { isHtmlBodyEmpty } from "@/lib/broadcast/html-body";
 
 export interface EventMessagePayload {
   kind: EventMessageKind;
@@ -38,7 +39,7 @@ export function parseEventMessagePayload(
 
   if (!opts.forPreview) {
     if (!subject) return { ok: false, error: "subject is required" };
-    if (!bodyHtml || bodyHtml.replace(/<[^>]+>/g, "").trim().length === 0) {
+    if (isHtmlBodyEmpty(bodyHtml)) {
       return { ok: false, error: "body is required" };
     }
   }
