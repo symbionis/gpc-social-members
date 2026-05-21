@@ -4,9 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import AttendeeList from "@/components/admin/AttendeeList";
 import EventCheckInSettings from "@/components/admin/EventCheckInSettings";
+import EventMessaging, {
+  type ReminderSummaryRow,
+  type SentMessageRow,
+} from "@/components/admin/EventMessaging";
 import { formatDateTime } from "@/lib/format";
 
-type Tab = "registrations" | "checkins" | "waitlist" | "settings";
+type Tab = "registrations" | "checkins" | "messaging" | "waitlist" | "settings";
 
 interface Attendee {
   id: string;
@@ -53,6 +57,8 @@ interface Props {
   baseUrl: string;
   checkInPath: string;
   strictCheckin: boolean;
+  reminders: ReminderSummaryRow[];
+  sentMessages: SentMessageRow[];
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -143,6 +149,8 @@ export default function ManageEventTabs({
   baseUrl,
   checkInPath,
   strictCheckin,
+  reminders,
+  sentMessages,
 }: Props) {
   const [tab, setTab] = useState<Tab>("registrations");
   const router = useRouter();
@@ -227,6 +235,9 @@ export default function ManageEventTabs({
             Waitlist{visibleWaitlist.length > 0 ? ` (${visibleWaitlist.length})` : ""}
           </button>
         )}
+        <button type="button" className={tabClass(tab === "messaging")} onClick={() => setTab("messaging")}>
+          Messaging
+        </button>
         <button type="button" className={tabClass(tab === "settings")} onClick={() => setTab("settings")}>
           Settings
         </button>
@@ -403,6 +414,14 @@ export default function ManageEventTabs({
             </div>
           )}
         </div>
+      )}
+
+      {tab === "messaging" && (
+        <EventMessaging
+          eventId={eventId}
+          reminders={reminders}
+          sentMessages={sentMessages}
+        />
       )}
 
       {tab === "settings" && (

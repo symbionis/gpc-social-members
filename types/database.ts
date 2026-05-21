@@ -163,7 +163,10 @@ export type Database = {
           created_at: string
           created_by: string | null
           error_count: number
+          event_id: string | null
           id: string
+          idempotency_key: string | null
+          kind: string
           recipient_count: number
           sent_at: string | null
           skipped_count: number
@@ -177,7 +180,10 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           error_count?: number
+          event_id?: string | null
           id?: string
+          idempotency_key?: string | null
+          kind?: string
           recipient_count?: number
           sent_at?: string | null
           skipped_count?: number
@@ -191,7 +197,10 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           error_count?: number
+          event_id?: string | null
           id?: string
+          idempotency_key?: string | null
+          kind?: string
           recipient_count?: number
           sent_at?: string | null
           skipped_count?: number
@@ -204,6 +213,13 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "admin_users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broadcasts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
