@@ -48,7 +48,6 @@ export async function POST(request: NextRequest) {
     registration_enabled,
     price_member,
     price_non_member,
-    seat_cap,
     reminder_schedule,
   } = await request.json();
 
@@ -86,17 +85,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  let seatCap: number | null = null;
-  if (seat_cap !== null && seat_cap !== undefined && seat_cap !== "") {
-    const parsed = Number(seat_cap);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      return NextResponse.json(
-        { error: "seat_cap must be a positive integer or null" },
-        { status: 400 }
-      );
-    }
-    seatCap = parsed;
-  }
+  // seat_cap is managed on the event's Settings tab (PATCH .../settings), not
+  // here — so editing an event never touches the ticket cap.
 
   const imageList = Array.isArray(images)
     ? images.filter((u): u is string => typeof u === "string" && u.length > 0)
@@ -125,7 +115,6 @@ export async function POST(request: NextRequest) {
       registration_enabled: regEnabled,
       price_member: priceMember,
       price_non_member: effectivePriceNonMember,
-      seat_cap: seatCap,
       reminder_schedule: reminderResult.value ?? [],
     })
     .eq("id", event_id);

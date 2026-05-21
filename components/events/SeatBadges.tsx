@@ -1,7 +1,7 @@
 // Three-tier capacity badge ladder used on event list cards and detail
 // pages. Mutually exclusive: a closed event shows nothing here; a full
 // event shows "Fully booked"; a low-availability event shows "Only N
-// left"; otherwise the event shows "Limited seats". An uncapped event
+// left"; otherwise the event shows "Limited tickets". An uncapped event
 // (seatState null/undefined) shows nothing.
 //
 // Pass the registrationEnabled flag explicitly so this component never
@@ -45,7 +45,7 @@ export default function SeatBadges({
 
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-sky/10 text-sky-dark">
-      Limited seats
+      Limited tickets
     </span>
   );
 }

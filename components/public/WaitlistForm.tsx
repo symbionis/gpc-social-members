@@ -69,7 +69,7 @@ export default function WaitlistForm({
     return (
       <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
         <p className="font-body text-sm text-emerald-900">
-          You&apos;re on the waitlist. We&apos;ll be in touch if a seat opens up.
+          You&apos;re on the waitlist. We&apos;ll be in touch if a ticket opens up.
         </p>
       </div>
     );

@@ -87,7 +87,7 @@ export default function AttendeeList({ attendees, eventId, seatCap }: Props) {
       if (
         resultingTotal > seatCap &&
         !window.confirm(
-          `This will put the event at ${resultingTotal} / ${seatCap} seats — save anyway?`
+          `This will put the event at ${resultingTotal} / ${seatCap} tickets — save anyway?`
         )
       ) {
         return;

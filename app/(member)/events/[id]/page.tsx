@@ -228,7 +228,7 @@ export default async function EventDetailPage({
                 </p>
                 {isLowAvailability && seatsRemaining !== null && (
                   <p className="font-body text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
-                    Only {seatsRemaining} {seatsRemaining === 1 ? "seat" : "seats"} left
+                    Only {seatsRemaining} {seatsRemaining === 1 ? "ticket" : "tickets"} left
                   </p>
                 )}
                 <EventRegistrationDrawer
