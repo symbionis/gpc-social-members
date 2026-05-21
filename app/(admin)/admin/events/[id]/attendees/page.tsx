@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import ManageEventTabs from "@/components/admin/ManageEventTabs";
 import { getEventReminderSummary } from "@/lib/events/reminder-summary";
+import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
 
 export default async function ManageEventPage({
   params,
@@ -14,7 +15,7 @@ export default async function ManageEventPage({
 
   const { data: event } = await supabase
     .from("events")
-    .select("id, title, start_date, seat_cap, strict_checkin")
+    .select("id, title, start_date, seat_cap, strict_checkin, reminder_schedule")
     .eq("id", id)
     .single();
 
@@ -64,6 +65,10 @@ export default async function ManageEventPage({
         .order("created_at", { ascending: true })
     : { data: [] };
 
+  // Per-event extra reminder schedule, edited from the Messaging tab.
+  const reminderSchedule =
+    validateReminderSchedule(event.reminder_schedule).value ?? [];
+
   // Event comms log: reminders already sent + ad-hoc messages sent from this tab.
   const reminders = await getEventReminderSummary(id);
   const { data: sentMessages } = await supabase
@@ -108,6 +113,7 @@ export default async function ManageEventPage({
         strictCheckin={Boolean(event.strict_checkin)}
         reminders={reminders}
         sentMessages={sentMessages ?? []}
+        reminderSchedule={reminderSchedule}
       />
     </div>
   );

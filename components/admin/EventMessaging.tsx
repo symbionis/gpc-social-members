@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 import RichTextEditor from "@/components/admin/RichTextEditor";
+import EventReminderSchedule from "@/components/admin/EventReminderSchedule";
 import { formatDateTime } from "@/lib/format";
 import {
   type EventMessageKind,
@@ -13,6 +14,7 @@ import {
 } from "@/components/admin/event-messaging-state";
 
 import type { ReminderSummaryRow } from "@/lib/events/reminder-summary";
+import type { ReminderEntry } from "@/lib/events/reminder-schedule";
 export type { ReminderSummaryRow };
 
 export interface SentMessageRow {
@@ -58,6 +60,7 @@ interface Props {
   eventId: string;
   reminders: ReminderSummaryRow[];
   sentMessages: SentMessageRow[];
+  reminderSchedule: ReminderEntry[];
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -70,7 +73,12 @@ const AUDIENCE_HINT: Record<EventMessageKind, string> = {
   event_post: "Goes to everyone who checked in. By default only those who opted in at the door.",
 };
 
-export default function EventMessaging({ eventId, reminders, sentMessages }: Props) {
+export default function EventMessaging({
+  eventId,
+  reminders,
+  sentMessages,
+  reminderSchedule,
+}: Props) {
   const router = useRouter();
 
   const [kind, setKind] = useState<EventMessageKind>("event_pre");
@@ -292,6 +300,8 @@ export default function EventMessaging({ eventId, reminders, sentMessages }: Pro
           </p>
         )}
       </section>
+
+      <EventReminderSchedule eventId={eventId} schedule={reminderSchedule} />
 
       <section>
         <h3 className="font-body font-semibold text-marine mb-3">Messages sent</h3>

@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse, type NextRequest } from "next/server";
-import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -48,13 +47,7 @@ export async function POST(request: NextRequest) {
     registration_enabled,
     price_member,
     price_non_member,
-    reminder_schedule,
   } = await request.json();
-
-  const reminderResult = validateReminderSchedule(reminder_schedule);
-  if (!reminderResult.ok) {
-    return NextResponse.json({ error: reminderResult.error }, { status: 400 });
-  }
 
   const regEnabled = Boolean(registration_enabled);
   const priceMember = price_member === "" || price_member === null || price_member === undefined
@@ -85,8 +78,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // seat_cap is managed on the event's Settings tab (PATCH .../settings), not
-  // here — so editing an event never touches the ticket cap.
+  // seat_cap and reminder_schedule are managed on the event's Manage page
+  // (PATCH .../settings) — the Settings and Messaging tabs respectively — not
+  // here, so editing an event never touches the ticket cap or reminder schedule.
 
   const imageList = Array.isArray(images)
     ? images.filter((u): u is string => typeof u === "string" && u.length > 0)
@@ -115,7 +109,6 @@ export async function POST(request: NextRequest) {
       registration_enabled: regEnabled,
       price_member: priceMember,
       price_non_member: effectivePriceNonMember,
-      reminder_schedule: reminderResult.value ?? [],
     })
     .eq("id", event_id);
 
