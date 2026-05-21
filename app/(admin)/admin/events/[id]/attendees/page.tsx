@@ -68,7 +68,7 @@ export default async function ManageEventPage({
   const reminders = await getEventReminderSummary(id);
   const { data: sentMessages } = await supabase
     .from("broadcasts")
-    .select("id, subject, kind, recipient_count, error_count, status, sent_at, created_at")
+    .select("id, subject, body_html, kind, recipient_count, error_count, status, sent_at, created_at")
     .eq("event_id", id)
     .order("created_at", { ascending: false });
 

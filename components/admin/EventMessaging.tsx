@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 import RichTextEditor from "@/components/admin/RichTextEditor";
@@ -18,12 +18,40 @@ export type { ReminderSummaryRow };
 export interface SentMessageRow {
   id: string;
   subject: string;
+  body_html: string;
   kind: string;
   recipient_count: number;
   error_count: number;
   status: string;
   sent_at: string | null;
   created_at: string;
+}
+
+/** Escape text for safe interpolation into the preview document's markup. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Self-contained HTML for the sent-message preview iframe. Approximates the
+ *  club email's body typography (matching the layout's heading/list styles) so
+ *  the admin sees roughly what was sent. The body_html is rendered as authored;
+ *  the iframe is sandboxed (no scripts) as defence-in-depth. */
+function previewDoc(subject: string, bodyHtml: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#333F48;line-height:1.65;font-size:16px;margin:0;padding:20px;background:#fff}
+    h1{font-family:Georgia,serif;font-size:26px;color:#052938;margin:0 0 8px;line-height:1.3}
+    h2{font-family:Georgia,serif;font-size:20px;color:#052938;margin:24px 0 8px;line-height:1.3}
+    h3{font-size:17px;font-weight:600;color:#052938;margin:20px 0 6px;line-height:1.4}
+    p{margin:0 0 16px}
+    ul,ol{padding-left:24px;margin:0 0 16px}li{margin-bottom:6px}
+    a{color:#052938}
+    .pv-label{font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#7aafc4;margin:0 0 2px}
+    .pv-subject{font-weight:600;color:#052938;font-size:15px;margin:0 0 20px;padding-bottom:12px;border-bottom:1px solid #E8ECF0}
+  </style></head><body><p class="pv-label">Subject</p><p class="pv-subject">${escapeHtml(subject)}</p>${bodyHtml}</body></html>`;
 }
 
 interface Props {
@@ -56,6 +84,7 @@ export default function EventMessaging({ eventId, reminders, sentMessages }: Pro
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
 
   // Reused across retries of the same compose attempt so a lost-response retry
   // de-duplicates server-side; regenerated after a successful send.
@@ -282,19 +311,43 @@ export default function EventMessaging({ eventId, reminders, sentMessages }: Pro
                 </tr>
               </thead>
               <tbody>
-                {sentMessages.map((m) => (
-                  <tr key={m.id} className="border-t border-border/60">
-                    <td className="px-4 py-2 text-muted-foreground text-xs">
-                      {formatDateTime(m.sent_at ?? m.created_at)}
-                    </td>
-                    <td className="px-4 py-2 text-marine">{KIND_LABEL[m.kind] ?? m.kind}</td>
-                    <td className="px-4 py-2 text-marine">{m.subject}</td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {m.recipient_count}
-                      {m.error_count > 0 ? ` · ${m.error_count} failed` : ""}
-                    </td>
-                  </tr>
-                ))}
+                {sentMessages.map((m) => {
+                  const open = previewId === m.id;
+                  return (
+                    <Fragment key={m.id}>
+                      <tr
+                        className="border-t border-border/60 cursor-pointer hover:bg-cream/40"
+                        onClick={() => setPreviewId(open ? null : m.id)}
+                      >
+                        <td className="px-4 py-2 text-muted-foreground text-xs">
+                          {formatDateTime(m.sent_at ?? m.created_at)}
+                        </td>
+                        <td className="px-4 py-2 text-marine">{KIND_LABEL[m.kind] ?? m.kind}</td>
+                        <td className="px-4 py-2 text-marine">{m.subject}</td>
+                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
+                          {m.recipient_count}
+                          {m.error_count > 0 ? ` · ${m.error_count} failed` : ""}
+                          <span className="ml-2 text-xs text-sky-dark">{open ? "Hide" : "Preview"}</span>
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr className="bg-cream/20">
+                          <td colSpan={4} className="px-4 py-3">
+                            <p className="text-[11px] font-body text-muted-foreground mb-2">
+                              Approximate preview of the message body as sent (club header and footer are added by the email template).
+                            </p>
+                            <iframe
+                              title={`Preview: ${m.subject}`}
+                              sandbox=""
+                              srcDoc={previewDoc(m.subject, m.body_html)}
+                              className="w-full min-h-[320px] rounded border border-border bg-white"
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
