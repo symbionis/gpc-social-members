@@ -5,7 +5,7 @@ import AttendeeList from "@/components/admin/AttendeeList";
 import EventCheckInSettings from "@/components/admin/EventCheckInSettings";
 import { formatDateTime } from "@/lib/format";
 
-type Tab = "registrations" | "checkins" | "settings";
+type Tab = "registrations" | "checkins" | "waitlist" | "settings";
 
 interface Attendee {
   id: string;
@@ -164,6 +164,11 @@ export default function ManageEventTabs({
         <button type="button" className={tabClass(tab === "checkins")} onClick={() => setTab("checkins")}>
           Check-ins{checkins.length > 0 ? ` (${checkins.length})` : ""}
         </button>
+        {(hasSeatCap || waitlist.length > 0) && (
+          <button type="button" className={tabClass(tab === "waitlist")} onClick={() => setTab("waitlist")}>
+            Waitlist{waitlist.length > 0 ? ` (${waitlist.length})` : ""}
+          </button>
+        )}
         <button type="button" className={tabClass(tab === "settings")} onClick={() => setTab("settings")}>
           Settings
         </button>
@@ -190,36 +195,6 @@ export default function ManageEventTabs({
             </div>
             <AttendeeList attendees={attendees} />
           </div>
-
-          {hasSeatCap && (
-            <div>
-              <h2 className="font-heading text-xl font-bold text-marine mb-3">Waitlist</h2>
-              {waitlist.length === 0 ? (
-                <p className="font-body text-sm text-muted-foreground">No waitlist entries.</p>
-              ) : (
-                <div className="overflow-x-auto rounded-sm border border-border/60 bg-white">
-                  <table className="min-w-full text-sm font-body">
-                    <thead className="bg-cream/60 text-muted-foreground">
-                      <tr>
-                        <th className="px-4 py-2 text-left">Name</th>
-                        <th className="px-4 py-2 text-left">Email</th>
-                        <th className="px-4 py-2 text-left">Joined</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {waitlist.map((entry) => (
-                        <tr key={entry.id} className="border-t border-border/60">
-                          <td className="px-4 py-2 text-marine">{entry.name}</td>
-                          <td className="px-4 py-2 text-muted-foreground">{entry.email}</td>
-                          <td className="px-4 py-2 text-muted-foreground text-xs">{formatDateTime(entry.created_at)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       )}
 
@@ -298,6 +273,40 @@ export default function ManageEventTabs({
                   </ul>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "waitlist" && (
+        <div>
+          <p className="text-sm font-body text-muted-foreground mb-3">
+            {waitlist.length} on the waitlist
+          </p>
+          {waitlist.length === 0 ? (
+            <p className="font-body text-sm text-muted-foreground">No waitlist entries.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-sm border border-border/60 bg-white">
+              <table className="min-w-full text-sm font-body">
+                <thead className="bg-cream/60 text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Name</th>
+                    <th className="px-4 py-2 text-left">Email</th>
+                    <th className="px-4 py-2 text-left">Joined</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {waitlist.map((entry) => (
+                    <tr key={entry.id} className="border-t border-border/60">
+                      <td className="px-4 py-2 text-marine">{entry.name}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{entry.email}</td>
+                      <td className="px-4 py-2 text-muted-foreground text-xs">
+                        {formatDateTime(entry.created_at)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
