@@ -15,9 +15,11 @@ export interface AudienceFilter {
   tier_ids?: string[] | null;
 }
 
-/** A single recipient passed to a channel adapter. */
+/** A single recipient passed to a channel adapter.
+ *  `member_id` is nullable: event-message recipients (notably door guests
+ *  captured at check-in) exist in no member table. */
 export interface BroadcastRecipient {
-  member_id: string;
+  member_id: string | null;
   email: string;
   first_name: string;
   last_name: string;
@@ -37,7 +39,7 @@ export interface BroadcastContent {
  *  recipient failures — it returns a result row so the orchestrator can
  *  persist a complete audit trail. */
 export interface RecipientResult {
-  member_id: string;
+  member_id: string | null;
   email: string;
   status: "sent" | "failed";
   error?: string;
