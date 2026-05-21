@@ -4,22 +4,11 @@
 //
 // See docs/plans/2026-05-20-001-feat-event-door-checkin-plan.md (U3).
 //
-// EVENT-SPECIFIC: this waiver is written for the Open Doors event. Its clauses
-// name "the Open Doors event", so serving it for any other event would make
-// attendees sign a document about the wrong event. `WAIVER_EVENT_ID` +
-// `hasWaiverForEvent()` are the single gate: the public check-in page refuses
-// (404) for any other event until the flow is parameterized per event. The
-// subtitle's DATE is no longer hardcoded — it is derived from the event's
-// start_date at render time (see formatWaiverDate in lib/format.ts) so the
-// legal text can never drift from the DB the way "May 22" once did.
-
-// The one event this waiver is valid for. When check-in goes multi-event,
-// replace this constant + hasWaiverForEvent with a per-event waiver lookup.
-export const WAIVER_EVENT_ID = "d83759b3-36d1-4a78-8060-542d55c25cf3";
-
-export function hasWaiverForEvent(eventId: string): boolean {
-  return eventId === WAIVER_EVENT_ID;
-}
+// GENERIC visitor waiver: the same one-day liability text is shown at every
+// event's door check-in. It names no specific event on purpose — the check-in
+// page header already shows which event and date the visit is for, and each
+// acceptance is tied to its event_id + timestamp in event_checkins. Keep the
+// clauses event-neutral so this stays valid for any event.
 //
 // WAIVER_VERSION is DERIVED from a hash of the content below, not hand-maintained,
 // so editing any clause necessarily changes the version recorded against each
@@ -38,7 +27,6 @@ export type WaiverClause = {
 
 export type Waiver = {
   title: string;
-  subtitle: string;
   intro: string;
   clauses: WaiverClause[];
 };
@@ -46,14 +34,12 @@ export type Waiver = {
 const WAIVERS: Record<WaiverLanguage, Waiver> = {
   en: {
     title: "Liability Waiver – One-Day Visit",
-    // Event name only — the date is appended at render from start_date.
-    subtitle: "Open Doors Event",
     intro: "By signing this document, I acknowledge and agree to the following:",
     clauses: [
       {
         heading: "Risks inherent to a polo event",
         paragraphs: [
-          "My presence as a spectator or participant at the Genève Polo Social Members Club Open Doors event implies awareness and acceptance of the risks inherent to this environment.",
+          "My presence as a spectator or participant at a Genève Polo Social Members Club event implies awareness and acceptance of the risks inherent to this environment.",
           "These risks include, but are not limited to:",
         ],
         bullets: [
@@ -114,14 +100,12 @@ const WAIVERS: Record<WaiverLanguage, Waiver> = {
   },
   fr: {
     title: "Décharge de responsabilité – Visite ponctuelle",
-    // Nom de l'événement uniquement — la date est ajoutée au rendu depuis start_date.
-    subtitle: "Portes Ouvertes",
     intro: "En signant la présente, je reconnais et accepte ce qui suit :",
     clauses: [
       {
         heading: "Risques inhérents à un événement de polo",
         paragraphs: [
-          "Ma présence en qualité de spectateur ou participant aux Portes Ouvertes du Genève Polo Social Club implique la connaissance et l’acceptation des risques inhérents à cet environnement.",
+          "Ma présence en qualité de spectateur ou participant à un événement du Genève Polo Social Club implique la connaissance et l’acceptation des risques inhérents à cet environnement.",
           "Ces risques incluent notamment, sans s’y limiter :",
         ],
         bullets: [
