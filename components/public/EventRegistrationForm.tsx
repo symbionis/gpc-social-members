@@ -79,7 +79,7 @@ export default function EventRegistrationForm({
 
       if (!res.ok) {
         const message = data.error || "Could not register. Please try again.";
-        if (res.status === 409 && /seats? remaining/i.test(message)) {
+        if (res.status === 409 && /tickets? remaining/i.test(message)) {
           setSoldOut(true);
         } else {
           setError(message);
@@ -147,7 +147,7 @@ export default function EventRegistrationForm({
           Sorry — this event just sold out.
         </h3>
         <p className="font-body text-sm text-marine/80">
-          Someone else grabbed the last seats while you were registering.
+          Someone else grabbed the last tickets while you were registering.
           Refresh the page to join the waitlist.
         </p>
         <button

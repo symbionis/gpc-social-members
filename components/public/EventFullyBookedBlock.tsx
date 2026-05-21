@@ -21,7 +21,7 @@ export default function EventFullyBookedBlock({
           Fully booked
         </p>
         <p className="font-body text-sm text-muted-foreground mt-1">
-          Join the waitlist and we&apos;ll let you know if a seat opens up.
+          Join the waitlist and we&apos;ll let you know if a ticket opens up.
         </p>
       </div>
       <WaitlistForm

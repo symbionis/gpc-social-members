@@ -181,7 +181,7 @@ export default function ManageEventTabs({
     if (hasSeatCap && seatCap !== null && total + qty > seatCap) {
       if (
         !window.confirm(
-          `This will put the event at ${total + qty} / ${seatCap} seats — convert anyway?`
+          `This will put the event at ${total + qty} / ${seatCap} tickets — convert anyway?`
         )
       ) {
         return;
@@ -248,12 +248,11 @@ export default function ManageEventTabs({
           <div>
             <div className="flex items-end justify-between gap-4 flex-wrap mb-3">
               <p className={`text-sm font-body ${overbooked ? "text-red-700 font-semibold" : "text-muted-foreground"}`}>
-                {attendees.length} registration{attendees.length === 1 ? "" : "s"} · {total} ticket
-                {total === 1 ? "" : "s"}
+                {attendees.length} registration{attendees.length === 1 ? "" : "s"}
                 {" · "}
                 {hasSeatCap
-                  ? `${total} / ${seatCap} seats${overbooked ? " — overbooked" : ""}`
-                  : "uncapped"}
+                  ? `${total} / ${seatCap} tickets${overbooked ? " — overbooked" : ""}`
+                  : `${total} ticket${total === 1 ? "" : "s"} · uncapped`}
               </p>
               <a
                 href={csvHref}
@@ -430,6 +429,8 @@ export default function ManageEventTabs({
           baseUrl={baseUrl}
           checkInPath={checkInPath}
           strictCheckin={strictCheckin}
+          seatCap={seatCap}
+          seatsUsed={total}
         />
       )}
     </div>

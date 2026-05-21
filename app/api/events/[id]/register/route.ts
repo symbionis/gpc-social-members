@@ -128,7 +128,7 @@ export async function POST(
     }
 
     if (seatsUsed + quantity > event.seat_cap) {
-      return bad("Not enough seats remaining", 409);
+      return bad("Not enough tickets remaining", 409);
     }
   }
 
