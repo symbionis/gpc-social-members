@@ -223,19 +223,11 @@ export default function EventMessaging({ eventId, reminders, sentMessages }: Pro
             onChange={setBodyHtml}
             placeholder="Write to attendees…"
           />
-          <div className="mt-2 text-xs font-body text-muted-foreground">
-            <p className="mb-1">Available variables:</p>
-            <ul className="space-y-0.5">
-              <li>
-                <code className="px-1.5 py-0.5 rounded bg-cream text-marine">{"{{first_name}}"}</code>{" "}
-                — recipient&rsquo;s first name
-              </li>
-              <li>
-                <code className="px-1.5 py-0.5 rounded bg-cream text-marine">{"{{email}}"}</code>{" "}
-                — recipient&rsquo;s email address
-              </li>
-            </ul>
-          </div>
+          <p className="mt-2 text-xs font-body text-muted-foreground">
+            The message sends exactly as written, wrapped in the club email
+            template. Personalisation placeholders are not substituted — write
+            the greeting directly.
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
