@@ -1,0 +1,12 @@
+Good news, {{first_name}} — you're in!
+
+A spot has freed up and you're now fully registered for {{event_title}}. We're looking forward to welcoming you.
+
+Event: {{event_title}}
+{{#event_date_label}}Date: {{.}}
+{{/event_date_label}}{{#event_time}}Time: {{.}}
+{{/event_time}}{{#event_location}}Location: {{.}}
+{{/event_location}}{{#quantity}}Tickets: {{.}}
+{{/quantity}}Reference: {{reference_code}}
+
+{{#event_url}}View event details: {{.}}{{/event_url}}

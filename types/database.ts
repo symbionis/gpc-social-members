@@ -351,6 +351,7 @@ export type Database = {
       }
       event_registrations: {
         Row: {
+          converted_by: string | null
           created_at: string
           email: string
           event_id: string
@@ -368,6 +369,7 @@ export type Database = {
           unit_amount_chf: number
         }
         Insert: {
+          converted_by?: string | null
           created_at?: string
           email: string
           event_id: string
@@ -385,6 +387,7 @@ export type Database = {
           unit_amount_chf: number
         }
         Update: {
+          converted_by?: string | null
           created_at?: string
           email?: string
           event_id?: string
@@ -414,6 +417,13 @@ export type Database = {
             columns: ["member_id"]
             isOneToOne: false
             referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registrations_converted_by_fkey"
+            columns: ["converted_by"]
+            isOneToOne: false
+            referencedRelation: "admin_users"
             referencedColumns: ["id"]
           },
         ]

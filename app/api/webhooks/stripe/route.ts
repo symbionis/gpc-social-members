@@ -223,6 +223,42 @@ export async function POST(request: NextRequest) {
           .eq("id", existing.id);
 
         if (updateErr) {
+          // The partial unique index (event_id, lower(email)) WHERE status IN
+          // ('paid','free') can reject this promotion if the person was already
+          // comped off the waitlist (a 'free' row took the slot) while this paid
+          // checkout was in flight. The customer HAS been charged but a
+          // registration already exists — do NOT 500-loop on Stripe retries.
+          // Acknowledge and flag loudly for manual refund / reconciliation.
+          if ((updateErr as { code?: string }).code === "23505") {
+            console.error(
+              "[webhook] duplicate registration on pending→paid (likely a waitlist comp) — payment captured, NEEDS MANUAL REFUND/RECONCILIATION",
+              {
+                registrationId: existing.id,
+                sessionId: session.id,
+                paymentIntent: session.payment_intent,
+              }
+            );
+            // Durable, queryable signal so the charged customer can be found and
+            // refunded even after logs rotate — tag the PaymentIntent in Stripe.
+            // Best-effort: a tagging failure must not turn this back into a 500.
+            if (typeof session.payment_intent === "string") {
+              try {
+                await getStripe().paymentIntents.update(session.payment_intent, {
+                  metadata: {
+                    needs_refund: "duplicate_registration",
+                    registration_id: existing.id,
+                    event_session: session.id,
+                  },
+                });
+              } catch (tagErr) {
+                console.error("[webhook] failed to tag PaymentIntent for refund", {
+                  paymentIntent: session.payment_intent,
+                  err: tagErr,
+                });
+              }
+            }
+            return NextResponse.json({ received: true, duplicate_registration: true });
+          }
           console.error(
             "[webhook] event registration update failed — returning 500 for retry",
             updateErr

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import AttendeeList from "@/components/admin/AttendeeList";
 import EventCheckInSettings from "@/components/admin/EventCheckInSettings";
 import { formatDateTime } from "@/lib/format";
@@ -144,6 +145,63 @@ export default function ManageEventTabs({
   strictCheckin,
 }: Props) {
   const [tab, setTab] = useState<Tab>("registrations");
+  const router = useRouter();
+
+  // Per-row convert state (quantity / in-flight / inline error) + a component-
+  // level notice that survives the soft refresh after a successful conversion.
+  const [rows, setRows] = useState<
+    Record<string, { quantity: number; submitting: boolean; error: string | null }>
+  >({});
+  const [notice, setNotice] = useState<string | null>(null);
+
+  function row(id: string) {
+    return rows[id] ?? { quantity: 1, submitting: false, error: null };
+  }
+  function patchRow(id: string, patch: Partial<{ quantity: number; submitting: boolean; error: string | null }>) {
+    setRows((s) => ({ ...s, [id]: { ...row(id), ...patch } }));
+  }
+
+  // Self-heal: hide waitlist entries whose email already has a registration
+  // (e.g. an orphan left by a delete-after-insert failure).
+  const registeredEmails = new Set(attendees.map((a) => a.email.toLowerCase()));
+  const visibleWaitlist = waitlist.filter(
+    (w) => !registeredEmails.has(w.email.toLowerCase())
+  );
+
+  async function convertEntry(entry: Waitlist) {
+    const qty = row(entry.id).quantity;
+    if (hasSeatCap && seatCap !== null && total + qty > seatCap) {
+      if (
+        !window.confirm(
+          `This will put the event at ${total + qty} / ${seatCap} seats — convert anyway?`
+        )
+      ) {
+        return;
+      }
+    }
+    patchRow(entry.id, { submitting: true, error: null });
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/events/${eventId}/waitlist/convert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ waitlistId: entry.id, quantity: qty }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        patchRow(entry.id, { submitting: false, error: data.error || "Could not register." });
+        return;
+      }
+      setNotice(
+        data.email_sent === false
+          ? `${entry.name} registered (ref ${data.reference_code}) — confirmation email failed, please notify them manually.`
+          : `${entry.name} registered and emailed.`
+      );
+      router.refresh();
+    } catch {
+      patchRow(entry.id, { submitting: false, error: "Network error. Try again." });
+    }
+  }
 
   function tabClass(active: boolean) {
     return `px-5 py-3 text-sm font-body transition-colors cursor-pointer ${
@@ -281,9 +339,14 @@ export default function ManageEventTabs({
       {tab === "waitlist" && (
         <div>
           <p className="text-sm font-body text-muted-foreground mb-3">
-            {waitlist.length} on the waitlist
+            {visibleWaitlist.length} on the waitlist
           </p>
-          {waitlist.length === 0 ? (
+          {notice && (
+            <p className="font-body text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 mb-3">
+              {notice}
+            </p>
+          )}
+          {visibleWaitlist.length === 0 ? (
             <p className="font-body text-sm text-muted-foreground">No waitlist entries.</p>
           ) : (
             <div className="overflow-x-auto rounded-sm border border-border/60 bg-white">
@@ -293,18 +356,48 @@ export default function ManageEventTabs({
                     <th className="px-4 py-2 text-left">Name</th>
                     <th className="px-4 py-2 text-left">Email</th>
                     <th className="px-4 py-2 text-left">Joined</th>
+                    <th className="px-4 py-2 text-left">Register</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {waitlist.map((entry) => (
-                    <tr key={entry.id} className="border-t border-border/60">
-                      <td className="px-4 py-2 text-marine">{entry.name}</td>
-                      <td className="px-4 py-2 text-muted-foreground">{entry.email}</td>
-                      <td className="px-4 py-2 text-muted-foreground text-xs">
-                        {formatDateTime(entry.created_at)}
-                      </td>
-                    </tr>
-                  ))}
+                  {visibleWaitlist.map((entry) => {
+                    const r = row(entry.id);
+                    return (
+                      <tr key={entry.id} className="border-t border-border/60 align-top">
+                        <td className="px-4 py-2 text-marine">{entry.name}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{entry.email}</td>
+                        <td className="px-4 py-2 text-muted-foreground text-xs">
+                          {formatDateTime(entry.created_at)}
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min={1}
+                              max={6}
+                              value={r.quantity}
+                              onChange={(e) =>
+                                patchRow(entry.id, {
+                                  quantity: Math.max(1, Math.min(6, Number(e.target.value) || 1)),
+                                })
+                              }
+                              className="w-14 px-2 py-1 rounded-md border border-border bg-white text-marine text-sm"
+                              aria-label="Tickets"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => convertEntry(entry)}
+                              disabled={r.submitting}
+                              className="px-3 py-1.5 bg-marine text-white rounded-lg text-xs font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                            >
+                              {r.submitting ? "Registering…" : "Register"}
+                            </button>
+                          </div>
+                          {r.error && <p className="text-xs text-red-700 mt-1">{r.error}</p>}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
