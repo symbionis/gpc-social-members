@@ -54,6 +54,7 @@ export async function GET(request: NextRequest) {
     .select(
       "id, subject, status, audience_filter, recipient_count, error_count, skipped_count, created_at, sent_at, channel"
     )
+    .is("event_id", null) // member broadcasts only; event sends are surfaced per-event
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 

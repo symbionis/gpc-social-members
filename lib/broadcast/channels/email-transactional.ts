@@ -1,4 +1,4 @@
-import { getPostmarkClient } from "@/lib/postmark";
+import { getPostmarkClient, FROM_EMAIL } from "@/lib/postmark";
 import { stripHtml } from "@/lib/broadcast/strip-html";
 import type {
   BroadcastChannel,
@@ -8,19 +8,25 @@ import type {
 } from "@/lib/broadcast/types";
 
 const POSTMARK_BATCH_LIMIT = 500;
-const TEMPLATE_ALIAS = "members-comms-broadcast";
+const TEMPLATE_ALIAS = "event-message";
 
 /**
- * Postmark broadcast-stream adapter. Fans recipients out using
- * `sendEmailBatchWithTemplates` against the broadcast stream so deliverability
- * stays separated from the transactional stream and Postmark auto-injects the
- * unsubscribe footer required for marketing email.
+ * Transactional email adapter for event messages (pre-event logistics,
+ * post-event thank-yous).
  *
- * Postmark accepts up to 500 messages per batch call; this adapter chunks
- * larger audiences and serialises the batches to honour Postmark's
- * recommendation of ≤10 concurrent connections per server.
+ * Unlike the broadcast adapter, this sends from the transactional sender
+ * (`social@`) on the **default** message stream — no `MessageStream: broadcast`
+ * — and uses the `event-message` template, which wraps the admin's body in the
+ * main Geneva Polo layout with NO marketing unsubscribe footer. Event-specific
+ * comms are transactional: recipients have a direct relationship to the event,
+ * and consent is enforced at audience selection, not via an unsubscribe link.
+ *
+ * Same fan-out shape as the broadcast adapter: ≤500 per batch, serialised, with
+ * per-batch try/catch so a failing batch never drops earlier batches' audit
+ * rows. `key` stays "email" — this is an email channel, distinguished from the
+ * broadcast adapter by which stream/template it dispatches through, not by key.
  */
-export const PostmarkEmailChannel: BroadcastChannel = {
+export const TransactionalEmailChannel: BroadcastChannel = {
   key: "email",
 
   async send(
@@ -29,44 +35,29 @@ export const PostmarkEmailChannel: BroadcastChannel = {
   ): Promise<RecipientResult[]> {
     if (recipients.length === 0) return [];
 
-    const streamId = process.env.POSTMARK_BROADCAST_STREAM_ID;
-    const fromAddress = process.env.POSTMARK_BROADCAST_FROM;
-
-    if (!streamId) {
-      throw new Error(
-        "POSTMARK_BROADCAST_STREAM_ID is not set — cannot send broadcast"
-      );
-    }
-    if (!fromAddress) {
-      throw new Error(
-        "POSTMARK_BROADCAST_FROM is not set — cannot send broadcast"
-      );
-    }
-
     const client = getPostmarkClient();
     const results: RecipientResult[] = [];
+    const bodyText = content.body_text ?? stripHtml(content.body_html);
 
     for (let i = 0; i < recipients.length; i += POSTMARK_BATCH_LIMIT) {
       const chunk = recipients.slice(i, i + POSTMARK_BATCH_LIMIT);
 
       const batch = chunk.map((r) => ({
-        From: fromAddress,
+        From: FROM_EMAIL,
         To: r.email,
         TemplateAlias: TEMPLATE_ALIAS,
         TemplateModel: {
           subject: content.subject,
           body_html: content.body_html,
-          body_text: content.body_text ?? stripHtml(content.body_html),
-          first_name: r.first_name,
-          last_name: r.last_name,
-          tier_name: r.tier_name ?? "",
+          body_text: bodyText,
+          // Greeting fallback: pass null (not "") so the Mustachio template can
+          // branch with {{#first_name}}…{{/first_name}} / {{^first_name}}.
+          first_name: r.first_name?.trim() ? r.first_name : null,
           email: r.email,
         },
-        MessageStream: streamId,
+        // No MessageStream → default transactional/outbound stream.
       }));
 
-      // Wrap each chunk so an error sending batch N does not lose the
-      // results from batch N-1 — those recipients already got the email.
       let responses: Awaited<
         ReturnType<typeof client.sendEmailBatchWithTemplates>
       > = [];
@@ -85,9 +76,6 @@ export const PostmarkEmailChannel: BroadcastChannel = {
         continue;
       }
 
-      // Postmark returns one response per input row in order. Map back by
-      // index; any unmatched recipients are recorded as failed with a clear
-      // marker so the audit log never drops a row silently.
       chunk.forEach((recipient, idx) => {
         const res = responses[idx];
         if (!res) {

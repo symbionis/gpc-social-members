@@ -48,6 +48,7 @@ export default async function MessagesPage({
           "id, subject, audience_filter, recipient_count, error_count, status, sent_at, created_at"
         )
         .neq("status", "draft")
+        .is("event_id", null) // member history only; event sends live on the event's Messaging tab
         .order("created_at", { ascending: false })
         .limit(100),
       adminClient

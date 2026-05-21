@@ -1,10 +1,16 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PostmarkEmailChannel } from "@/lib/broadcast/channels/email-postmark";
+import { TransactionalEmailChannel } from "@/lib/broadcast/channels/email-transactional";
 import { resolveAudience } from "@/lib/broadcast/audience";
+import {
+  resolveEventAudience,
+  type EventMessageKind,
+} from "@/lib/broadcast/event-audience";
 import type {
   AudienceFilter,
   BroadcastChannel,
   BroadcastContent,
+  BroadcastRecipient,
 } from "@/lib/broadcast/types";
 
 const CHANNELS: Record<string, BroadcastChannel> = {
@@ -33,15 +39,17 @@ export interface SendBroadcastResult {
   errors: Array<{ email: string; error: string }>;
 }
 
+type AdminClient = ReturnType<typeof createAdminClient>;
+
 /**
- * End-to-end broadcast dispatch:
+ * End-to-end member broadcast dispatch:
  *   1. Resolve audience (consent-filtered).
  *   2. Insert broadcasts row with status='sending'.
- *   3. Hand recipients to the channel adapter.
- *   4. Persist per-recipient results to broadcast_recipients.
- *   5. Update broadcasts row with final counts and status.
+ *   3. Dispatch + persist via the shared core.
  *
- * Returns aggregate counts for the API route to relay to the UI.
+ * Returns aggregate counts for the API route to relay to the UI. Behavior is
+ * unchanged from before the event-messaging refactor — the post-row-creation
+ * work now lives in `dispatchToChannel`, shared with `sendEventMessage`.
  */
 export async function sendBroadcast(
   input: SendBroadcastInput
@@ -55,6 +63,7 @@ export async function sendBroadcast(
   }
 
   const { recipients, skipped } = await resolveAudience(input.audience_filter);
+  const audienceFilter = input.audience_filter as unknown as Record<string, unknown>;
 
   let broadcastId: string;
   if (input.broadcast_id) {
@@ -66,7 +75,7 @@ export async function sendBroadcast(
       .update({
         subject: input.subject,
         body_html: input.body_html,
-        audience_filter: input.audience_filter as unknown as Record<string, unknown>,
+        audience_filter: audienceFilter,
         channel: channelKey,
         status: "sending",
         recipient_count: recipients.length,
@@ -88,7 +97,7 @@ export async function sendBroadcast(
       .insert({
         subject: input.subject,
         body_html: input.body_html,
-        audience_filter: input.audience_filter as unknown as Record<string, unknown>,
+        audience_filter: audienceFilter,
         channel: channelKey,
         status: "sending",
         recipient_count: recipients.length,
@@ -106,6 +115,168 @@ export async function sendBroadcast(
     }
     broadcastId = inserted.id;
   }
+
+  return dispatchToChannel({
+    supabase,
+    broadcastId,
+    recipients,
+    skipped,
+    channel,
+    content: {
+      subject: input.subject,
+      body_html: input.body_html,
+      body_text: input.body_text,
+    },
+  });
+}
+
+export interface SendEventMessageInput {
+  event_id: string;
+  kind: EventMessageKind;
+  subject: string;
+  body_html: string;
+  body_text?: string;
+  /** event_post only: include attendees who did not opt in (transactional). */
+  include_non_consented?: boolean;
+  created_by: string;
+  /** Client-supplied key; a retried request reuses it and is de-duplicated. */
+  idempotency_key?: string | null;
+}
+
+export type SendEventMessageResult =
+  | { status: "sent"; result: SendBroadcastResult }
+  /** A request with the same idempotency_key already ran — existing result returned. */
+  | { status: "duplicate"; result: SendBroadcastResult }
+  /** Another send for this event+kind is in flight (in-flight guard collision). */
+  | { status: "in_progress" };
+
+/**
+ * Send an event-scoped message (pre-event to registered attendees, post-event
+ * to checked-in attendees) through the transactional channel, reusing the
+ * broadcast row + per-recipient audit + dispatch core.
+ *
+ * Double-send guards live on the broadcasts insert (partial unique indexes from
+ * the event-messaging migration). A 23505 here is classified as benign:
+ *   - idempotency_key collision → return the existing send's result
+ *   - in-flight (event_id, kind) collision → report in_progress
+ * Never a thrown 500 for those — same posture as the reminder idempotency path.
+ */
+export async function sendEventMessage(
+  input: SendEventMessageInput
+): Promise<SendEventMessageResult> {
+  const supabase = createAdminClient();
+
+  const includeNonConsented =
+    input.kind === "event_post" ? input.include_non_consented ?? false : false;
+
+  const { recipients, skipped } = await resolveEventAudience({
+    event_id: input.event_id,
+    kind: input.kind,
+    include_non_consented: includeNonConsented,
+  });
+
+  const audienceFilter: Record<string, unknown> = {
+    kind: input.kind,
+    event_id: input.event_id,
+    include_non_consented: includeNonConsented,
+  };
+
+  const { data: inserted, error: insertErr } = await supabase
+    .from("broadcasts")
+    .insert({
+      subject: input.subject,
+      body_html: input.body_html,
+      audience_filter: audienceFilter,
+      channel: "email",
+      status: "sending",
+      recipient_count: recipients.length,
+      skipped_count: skipped,
+      created_by: input.created_by,
+      event_id: input.event_id,
+      kind: input.kind,
+      idempotency_key: input.idempotency_key ?? null,
+    })
+    .select("id")
+    .limit(1)
+    .single();
+
+  if (insertErr || !inserted) {
+    if ((insertErr as { code?: string } | null)?.code === "23505") {
+      return classifyGuardCollision(supabase, insertErr, input.idempotency_key ?? null);
+    }
+    throw new Error(
+      `Failed to create event broadcast row: ${insertErr?.message ?? "no row returned"}`
+    );
+  }
+
+  const result = await dispatchToChannel({
+    supabase,
+    broadcastId: inserted.id,
+    recipients,
+    skipped,
+    channel: TransactionalEmailChannel,
+    content: {
+      subject: input.subject,
+      body_html: input.body_html,
+      body_text: input.body_text,
+    },
+  });
+
+  return { status: "sent", result };
+}
+
+/** Interpret a 23505 on the event-send insert. An idempotency-key collision
+ *  means a retried request — return the original send's result. Anything else
+ *  is the in-flight (event_id, kind) guard. */
+async function classifyGuardCollision(
+  supabase: AdminClient,
+  insertErr: { message?: string; details?: string } | null,
+  idempotencyKey: string | null
+): Promise<SendEventMessageResult> {
+  const haystack = `${insertErr?.message ?? ""} ${insertErr?.details ?? ""}`;
+  const isIdempotencyCollision =
+    haystack.includes("idempotency") && idempotencyKey !== null;
+
+  if (isIdempotencyCollision) {
+    const { data: existing } = await supabase
+      .from("broadcasts")
+      .select("id, recipient_count, error_count, skipped_count")
+      .eq("idempotency_key", idempotencyKey)
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      return {
+        status: "duplicate",
+        result: {
+          broadcast_id: existing.id,
+          recipient_count: existing.recipient_count,
+          sent: Math.max(existing.recipient_count - existing.error_count, 0),
+          failed: existing.error_count,
+          skipped: existing.skipped_count,
+          errors: [],
+        },
+      };
+    }
+  }
+
+  return { status: "in_progress" };
+}
+
+/**
+ * Shared post-row dispatch: hand recipients to the channel, persist the
+ * per-recipient audit trail, and finalise the broadcasts row. Identical for
+ * member and event sends — the only difference upstream is how the row and
+ * recipients were produced.
+ */
+async function dispatchToChannel(opts: {
+  supabase: AdminClient;
+  broadcastId: string;
+  recipients: BroadcastRecipient[];
+  skipped: number;
+  channel: BroadcastChannel;
+  content: BroadcastContent;
+}): Promise<SendBroadcastResult> {
+  const { supabase, broadcastId, recipients, skipped, channel, content } = opts;
 
   // Empty audience: finalise immediately, no adapter call.
   if (recipients.length === 0) {
@@ -132,12 +303,6 @@ export async function sendBroadcast(
       errors: [],
     };
   }
-
-  const content: BroadcastContent = {
-    subject: input.subject,
-    body_html: input.body_html,
-    body_text: input.body_text,
-  };
 
   let results;
   try {

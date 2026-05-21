@@ -1,6 +1,7 @@
 import { ServerClient } from "postmark";
 
-const FROM_EMAIL = '"Geneva Polo Social Club" <social@genevapolo.com>';
+/** Transactional sender. Event messages reuse this (not the broadcast stream). */
+export const FROM_EMAIL = '"Geneva Polo Social Club" <social@genevapolo.com>';
 
 let _client: ServerClient | null = null;
 
