@@ -133,6 +133,8 @@ export type RecordCheckinInput = {
   inviterName?: string | null;
   /** Registration the guest picked as their inviter (typeahead). Guests only. */
   invitedByRegistrationId?: string | null;
+  /** Optional communication/marketing consent from the waiver step (ticked by default). */
+  marketingConsent?: boolean;
 };
 
 export type RecordCheckinResult = {
@@ -165,6 +167,7 @@ export async function recordCheckin(
     invited_by_registration_id:
       input.match.kind === "guest" ? input.invitedByRegistrationId ?? null : null,
     language: input.language,
+    marketing_consent: input.marketingConsent ?? true,
     waiver_version: WAIVER_VERSION,
   };
 

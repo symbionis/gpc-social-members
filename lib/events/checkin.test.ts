@@ -173,6 +173,7 @@ describe("recordCheckin", () => {
     language: "en" as const,
     match: { kind: "guest" as const },
     inviterName: "Marie",
+    marketingConsent: true,
   };
 
   it("returns already:false with the inserted acceptance time on success", async () => {

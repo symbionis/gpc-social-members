@@ -8,6 +8,9 @@ interface Props {
   eventId: string;
   eventTitle: string;
   eventDate: string;
+  // Localized event date for the waiver subtitle, derived server-side from
+  // start_date so it always matches the DB (and the header above it).
+  waiverDate: { en: string; fr: string };
 }
 
 type Kind = "registered" | "member" | "guest";
@@ -36,6 +39,8 @@ const STRINGS = {
     inviterHelp:
       "Start typing their name and pick them from the list. If they're not listed, just type the name.",
     waiverAccept: "I have read and accept the waiver above.",
+    commsConsent:
+      "I’d like to receive news and invitations from Geneva Polo Social Club. (optional)",
     checkIn: "Check in",
     checkingIn: "Checking in…",
     blockedTitle: "Please see the welcome desk",
@@ -64,6 +69,8 @@ const STRINGS = {
     inviterHelp:
       "Commencez à taper leur nom et sélectionnez-le dans la liste. S'il n'apparaît pas, saisissez simplement le nom.",
     waiverAccept: "J’ai lu et j’accepte la décharge ci-dessus.",
+    commsConsent:
+      "Je souhaite recevoir les actualités et invitations du Genève Polo Social Club. (facultatif)",
     checkIn: "S’enregistrer",
     checkingIn: "Enregistrement…",
     blockedTitle: "Veuillez vous adresser à l’accueil",
@@ -88,6 +95,7 @@ export default function EventCheckInForm({
   eventId,
   eventTitle,
   eventDate,
+  waiverDate,
 }: Props) {
   const [lang, setLang] = useState<WaiverLanguage | null>(null);
   const [phase, setPhase] = useState<Phase>("details");
@@ -98,6 +106,7 @@ export default function EventCheckInForm({
   const [selectedInviter, setSelectedInviter] = useState<Inviter | null>(null);
   const [needsInviter, setNeedsInviter] = useState(false);
   const [waiverAccepted, setWaiverAccepted] = useState(false);
+  const [marketingConsent, setMarketingConsent] = useState(true);
   const [matching, setMatching] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -274,6 +283,7 @@ export default function EventCheckInForm({
             ? selectedInviter?.registrationId
             : undefined,
           waiverAccepted: true,
+          marketingConsent,
         }),
         signal: AbortSignal.timeout(10000),
       });
@@ -307,6 +317,9 @@ export default function EventCheckInForm({
   }
 
   const waiver = getWaiver(lang);
+  const waiverSubtitle = waiverDate[lang]
+    ? `${waiver.subtitle} – ${waiverDate[lang]}`
+    : waiver.subtitle;
 
   return (
     <div className="bg-white rounded-sm border border-border/60 p-6">
@@ -438,7 +451,7 @@ export default function EventCheckInForm({
             <h2 className="font-heading text-base font-bold text-marine">
               {waiver.title}
             </h2>
-            <p className="text-xs text-muted-foreground mb-2">{waiver.subtitle}</p>
+            <p className="text-xs text-muted-foreground mb-2">{waiverSubtitle}</p>
             <p className="mb-3">{waiver.intro}</p>
             <ol className="space-y-3 list-decimal pl-4">
               {waiver.clauses.map((clause, i) => (
@@ -470,6 +483,18 @@ export default function EventCheckInForm({
               className="mt-1 h-5 w-5 shrink-0 accent-marine cursor-pointer"
             />
             <span className="text-sm font-body text-marine">{t.waiverAccept}</span>
+          </label>
+
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={marketingConsent}
+              onChange={(e) => setMarketingConsent(e.target.checked)}
+              className="mt-1 h-5 w-5 shrink-0 accent-marine cursor-pointer"
+            />
+            <span className="text-sm font-body text-muted-foreground">
+              {t.commsConsent}
+            </span>
           </label>
 
           {error && (

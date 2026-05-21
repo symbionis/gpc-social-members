@@ -284,6 +284,7 @@ export type Database = {
           inviter_name: string | null
           kind: string
           language: string
+          marketing_consent: boolean | null
           member_id: string | null
           name: string
           registration_id: string | null
@@ -300,6 +301,7 @@ export type Database = {
           inviter_name?: string | null
           kind: string
           language: string
+          marketing_consent?: boolean | null
           member_id?: string | null
           name: string
           registration_id?: string | null
@@ -316,6 +318,7 @@ export type Database = {
           inviter_name?: string | null
           kind?: string
           language?: string
+          marketing_consent?: boolean | null
           member_id?: string | null
           name?: string
           registration_id?: string | null
