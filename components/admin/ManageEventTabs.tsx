@@ -222,9 +222,9 @@ export default function ManageEventTabs({
         <button type="button" className={tabClass(tab === "checkins")} onClick={() => setTab("checkins")}>
           Check-ins{checkins.length > 0 ? ` (${checkins.length})` : ""}
         </button>
-        {(hasSeatCap || waitlist.length > 0) && (
+        {(hasSeatCap || visibleWaitlist.length > 0) && (
           <button type="button" className={tabClass(tab === "waitlist")} onClick={() => setTab("waitlist")}>
-            Waitlist{waitlist.length > 0 ? ` (${waitlist.length})` : ""}
+            Waitlist{visibleWaitlist.length > 0 ? ` (${visibleWaitlist.length})` : ""}
           </button>
         )}
         <button type="button" className={tabClass(tab === "settings")} onClick={() => setTab("settings")}>
