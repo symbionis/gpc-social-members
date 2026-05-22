@@ -9,6 +9,7 @@ import EventMessaging, {
   type SentMessageRow,
 } from "@/components/admin/EventMessaging";
 import { formatDateTime } from "@/lib/format";
+import type { ReminderEntry } from "@/lib/events/reminder-schedule";
 
 type Tab = "registrations" | "checkins" | "messaging" | "waitlist" | "settings";
 
@@ -59,6 +60,7 @@ interface Props {
   strictCheckin: boolean;
   reminders: ReminderSummaryRow[];
   sentMessages: SentMessageRow[];
+  reminderSchedule: ReminderEntry[];
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -151,6 +153,7 @@ export default function ManageEventTabs({
   strictCheckin,
   reminders,
   sentMessages,
+  reminderSchedule,
 }: Props) {
   const [tab, setTab] = useState<Tab>("registrations");
   const router = useRouter();
@@ -420,6 +423,7 @@ export default function ManageEventTabs({
           eventId={eventId}
           reminders={reminders}
           sentMessages={sentMessages}
+          reminderSchedule={reminderSchedule}
         />
       )}
 

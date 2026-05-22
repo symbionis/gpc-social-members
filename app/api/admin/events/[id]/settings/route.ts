@@ -1,10 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  validateReminderSchedule,
+  type ReminderEntry,
+} from "@/lib/events/reminder-schedule";
 
-// Admin endpoint for per-event settings: the strict_checkin toggle and the
-// ticket cap (events.seat_cap). Both fields are optional — callers PATCH
-// whichever they're changing. assertAdmin mirrors the attendees route.
+// Admin endpoint for per-event settings: the strict_checkin toggle, the ticket
+// cap (events.seat_cap), and the extra reminder schedule. All fields are
+// optional — callers PATCH whichever they're changing. assertAdmin mirrors the
+// attendees route.
 async function assertAdmin() {
   const supabase = await createClient();
   const {
@@ -40,6 +45,7 @@ export async function PATCH(
   let body: {
     strict_checkin?: unknown;
     seat_cap?: unknown;
+    reminder_schedule?: unknown;
   };
   try {
     body = await request.json();
@@ -50,6 +56,7 @@ export async function PATCH(
   const updates: {
     strict_checkin?: boolean;
     seat_cap?: number | null;
+    reminder_schedule?: ReminderEntry[];
   } = {};
 
   if ("strict_checkin" in body) {
@@ -76,6 +83,14 @@ export async function PATCH(
       }
       updates.seat_cap = parsed;
     }
+  }
+
+  if ("reminder_schedule" in body) {
+    const result = validateReminderSchedule(body.reminder_schedule);
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+    updates.reminder_schedule = result.value ?? [];
   }
 
   if (Object.keys(updates).length === 0) {
