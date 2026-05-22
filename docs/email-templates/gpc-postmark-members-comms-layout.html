@@ -184,6 +184,15 @@
       font-size: 13px;
       color: #6B7C93;
     }
+    /* Composer (rich text) body: each paragraph is a line; a blank line (empty
+       paragraph, normalised to &nbsp; on send) is the only vertical spacing,
+       mirroring the editor. The global p{margin-bottom:16px} otherwise
+       double-spaced every line and turned authored blank lines into big gaps.
+       Scoped to .rich-body so hand-authored transactional templates keep their
+       paragraph spacing. Also covers TipTap's <li><p> via .rich-body p. */
+    .rich-body p {
+      margin: 0;
+    }
 
     /* Buttons */
     .button {

@@ -181,6 +181,13 @@
     li p {
       margin: 0;
     }
+    /* Composer (rich text) body: each paragraph is a line; a blank line (empty
+       paragraph, normalised to &nbsp; on send) is the only vertical spacing,
+       mirroring the editor. The global p{margin-bottom:16px} otherwise
+       double-spaced every line and turned authored blank lines into big gaps. */
+    .rich-body p {
+      margin: 0;
+    }
 
     /* Buttons */
     .button {
@@ -316,7 +323,7 @@
 </head>
 <body>
 
-  <span class="preheader">Geneva Polo Club Update</span>
+  <span class="preheader">Geneva Polo Social Club Update</span>
 
   <table class="email-wrapper" width="100%" cellpadding="0" cellspacing="0" role="presentation">
     <tr>
@@ -378,7 +385,7 @@
                     </p>
 
                     <div class="footer-links">
-                      <a href="https://genevapolo.com/">Website</a>
+                      <a href="https://social.genevapolo.com/">Website</a>
                       <a href="https://www.instagram.com/genevapoloclub/">Instagram</a>
                     </div>
 

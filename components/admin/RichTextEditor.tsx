@@ -55,8 +55,14 @@ export default function RichTextEditor({
     immediatelyRender: false,
     editorProps: {
       attributes: {
+        // `prose-p:my-0` strips the default paragraph margins so the composer
+        // mirrors the email, where `.rich-body p { margin: 0 }` makes lines
+        // stack tightly and a blank line (empty paragraph) is the only source
+        // of vertical spacing. Without this the editor looked tighter than the
+        // sent mail, so authors padded with extra blank lines that ballooned
+        // into big gaps once the email's paragraph margins applied.
         class:
-          "prose prose-sm max-w-none min-h-[240px] px-4 py-3 focus:outline-none text-marine font-body",
+          "prose prose-sm max-w-none min-h-[240px] px-4 py-3 focus:outline-none text-marine font-body prose-p:my-0 prose-p:leading-relaxed",
       },
     },
     onUpdate: ({ editor }) => {

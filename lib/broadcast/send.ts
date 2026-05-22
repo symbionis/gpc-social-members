@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { PostmarkEmailChannel } from "@/lib/broadcast/channels/email-postmark";
 import { TransactionalEmailChannel } from "@/lib/broadcast/channels/email-transactional";
 import { resolveAudience } from "@/lib/broadcast/audience";
+import { normalizeRichBody } from "@/lib/broadcast/rich-body";
 import {
   resolveEventAudience,
   type EventMessageKind,
@@ -70,6 +71,8 @@ export async function sendBroadcast(
 
   const { recipients, skipped } = await resolveAudience(input.audience_filter);
   const audienceFilter = input.audience_filter as unknown as Record<string, unknown>;
+  // Normalise once; the stored row then matches exactly what is dispatched.
+  const bodyHtml = normalizeRichBody(input.body_html);
 
   let broadcastId: string;
   if (input.broadcast_id) {
@@ -80,7 +83,7 @@ export async function sendBroadcast(
       .from("broadcasts")
       .update({
         subject: input.subject,
-        body_html: input.body_html,
+        body_html: bodyHtml,
         audience_filter: audienceFilter,
         channel: channelKey,
         status: "sending",
@@ -102,7 +105,7 @@ export async function sendBroadcast(
       .from("broadcasts")
       .insert({
         subject: input.subject,
-        body_html: input.body_html,
+        body_html: bodyHtml,
         audience_filter: audienceFilter,
         channel: channelKey,
         status: "sending",
@@ -130,7 +133,7 @@ export async function sendBroadcast(
     channel,
     content: {
       subject: input.subject,
-      body_html: input.body_html,
+      body_html: bodyHtml,
       body_text: input.body_text,
     },
   });
@@ -174,6 +177,8 @@ export async function sendEventMessage(
 
   const includeNonConsented =
     input.kind === "event_post" ? input.include_non_consented ?? false : false;
+  // Normalise once; the stored row then matches exactly what is dispatched.
+  const bodyHtml = normalizeRichBody(input.body_html);
 
   const { recipients, skipped } = await resolveEventAudience({
     event_id: input.event_id,
@@ -205,7 +210,7 @@ export async function sendEventMessage(
     .from("broadcasts")
     .insert({
       subject: input.subject,
-      body_html: input.body_html,
+      body_html: bodyHtml,
       audience_filter: audienceFilter,
       channel: "email",
       status: "sending",
@@ -237,7 +242,7 @@ export async function sendEventMessage(
     channel: TransactionalEmailChannel,
     content: {
       subject: input.subject,
-      body_html: input.body_html,
+      body_html: bodyHtml,
       body_text: input.body_text,
     },
   });
