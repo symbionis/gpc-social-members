@@ -883,7 +883,6 @@ export type Database = {
           price_eur: number
           slug: string
           sort_order: number
-          stripe_price_id: string | null
           updated_at: string
         }
         Insert: {
@@ -899,7 +898,6 @@ export type Database = {
           price_eur: number
           slug: string
           sort_order?: number
-          stripe_price_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -915,7 +913,6 @@ export type Database = {
           price_eur?: number
           slug?: string
           sort_order?: number
-          stripe_price_id?: string | null
           updated_at?: string
         }
         Relationships: []

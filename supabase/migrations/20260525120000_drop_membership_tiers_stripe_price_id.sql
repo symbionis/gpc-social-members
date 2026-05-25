@@ -1,0 +1,25 @@
+-- Drop the now-unused membership_tiers.stripe_price_id column.
+--
+-- PR #30 made every membership checkout build Stripe line_items from inline
+-- price_data (currency "chf", unit_amount from tier.price_eur) instead of a
+-- stored Stripe price object, so nothing READS this column. The last WRITER
+-- (the admin tier-update route) is removed in the same PR as this migration.
+-- The values it held were test-mode price IDs that never existed in
+-- production's Stripe account, so the data loss is nil.
+--
+-- DEPLOY ORDERING: apply this migration ONLY AFTER the build that removes the
+-- writer is live. If it runs while older code is still deployed, an admin
+-- saving a tier sends an UPDATE carrying stripe_price_id and gets PGRST204 /
+-- HTTP 500. The reverse (code live, migration deferred) is harmless — the
+-- column just lingers as dead metadata. When in doubt, the migration lags
+-- the code. NB: dev and prod share one Supabase database, so applying this
+-- locally mutates production schema immediately.
+--
+-- Pre-flight (the drop is irreversible; save the output first):
+--   SELECT id, slug, stripe_price_id FROM public.membership_tiers
+--   WHERE stripe_price_id IS NOT NULL ORDER BY id;
+--
+-- DROP COLUMN is metadata-only (no table rewrite); the ACCESS EXCLUSIVE lock
+-- on this small config table is held for milliseconds.
+
+ALTER TABLE public.membership_tiers DROP COLUMN IF EXISTS stripe_price_id;
