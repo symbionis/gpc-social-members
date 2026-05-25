@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
 
   const { data: tiers } = await adminClient
     .from("membership_tiers")
-    .select("name, stripe_price_id, price_eur")
+    .select("name, price_eur")
     .eq("id", member.tier_id)
     .limit(1);
 
@@ -54,27 +54,56 @@ export async function POST(request: NextRequest) {
   // Create Stripe checkout session if tier has a price
   console.log("[welcome-email] Tier data:", {
     name: tier?.name,
-    stripe_price_id: tier?.stripe_price_id,
     price_eur: tier?.price_eur,
   });
 
-  if (tier?.stripe_price_id && tier.price_eur > 0) {
+  if (tier && tier.price_eur > 0) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const session = await getStripe().checkout.sessions.create({
-      mode: "payment",
-      customer_email: member.email,
-      line_items: [{ price: tier.stripe_price_id, quantity: 1 }],
-      metadata: { member_id: member.id },
-      success_url: `${appUrl}/login?payment=success`,
-      cancel_url: `${appUrl}/login?payment=cancelled`,
-    });
-    checkoutUrl = session.url || "";
-    console.log("[welcome-email] Stripe session created:", {
-      session_id: session.id,
-      url: checkoutUrl,
-    });
+    try {
+      const session = await getStripe().checkout.sessions.create({
+        mode: "payment",
+        customer_email: member.email,
+        line_items: [
+          {
+            price_data: {
+              currency: "chf",
+              unit_amount: Math.round(tier.price_eur * 100),
+              product_data: { name: tier.name },
+            },
+            quantity: 1,
+          },
+        ],
+        metadata: { member_id: member.id },
+        success_url: `${appUrl}/login?payment=success`,
+        cancel_url: `${appUrl}/login?payment=cancelled`,
+      });
+      checkoutUrl = session.url || "";
+      console.log("[welcome-email] Stripe session created:", {
+        session_id: session.id,
+        url: checkoutUrl,
+      });
+    } catch (err) {
+      console.error("[welcome-email] Stripe session creation failed:", err);
+      return NextResponse.json(
+        {
+          error: `Could not create the payment link (Stripe: ${
+            err instanceof Error ? err.message : "unknown error"
+          }). Resolve the issue, then try again.`,
+        },
+        { status: 502 }
+      );
+    }
+
+    // A paid tier with no usable URL must not fall through to a paymentless email.
+    if (!checkoutUrl) {
+      console.error("[welcome-email] Stripe returned no checkout URL");
+      return NextResponse.json(
+        { error: "Could not create the payment link (Stripe returned no URL). Please try again." },
+        { status: 502 }
+      );
+    }
   } else {
-    console.log("[welcome-email] Skipping Stripe — no price_id or price is 0");
+    console.log("[welcome-email] Skipping Stripe — price is 0");
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";

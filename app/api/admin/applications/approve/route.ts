@@ -12,23 +12,30 @@ async function recordApprovalAudit(
   memberId: string,
   adminId: string
 ) {
-  await adminClient.from("applications").insert({
-    member_id: memberId,
-    reviewed_by: adminId,
-    status: "approved",
-  });
-
-  const { data: members } = await adminClient
-    .from("members")
-    .select("originator_id")
-    .eq("id", memberId)
-    .limit(1);
-
-  if (members?.[0]?.originator_id) {
-    await adminClient.from("referrals").insert({
-      originator_id: members[0].originator_id,
+  // Best-effort: the member is already approved by the time this runs, so an
+  // audit/referral insert failure must not throw and turn an otherwise handled
+  // response into an unhandled 500.
+  try {
+    await adminClient.from("applications").insert({
       member_id: memberId,
+      reviewed_by: adminId,
+      status: "approved",
     });
+
+    const { data: members } = await adminClient
+      .from("members")
+      .select("originator_id")
+      .eq("id", memberId)
+      .limit(1);
+
+    if (members?.[0]?.originator_id) {
+      await adminClient.from("referrals").insert({
+        originator_id: members[0].originator_id,
+        member_id: memberId,
+      });
+    }
+  } catch (err) {
+    console.error("[approve] recordApprovalAudit failed (non-fatal):", err);
   }
 }
 
@@ -439,8 +446,8 @@ export async function POST(request: NextRequest) {
 
     const stale = stalePayments?.[0];
 
-    // Verify tier has a Stripe price BEFORE marking the member approved.
-    // Without it we cannot send a usable payment link.
+    // Verify the tier has a positive price BEFORE marking the member approved.
+    // Without it we cannot build a usable payment link.
     const { data: memberRow } = await adminClient
       .from("members")
       .select("tier_id")
@@ -450,17 +457,17 @@ export async function POST(request: NextRequest) {
 
     const { data: tiers } = await adminClient
       .from("membership_tiers")
-      .select("name, stripe_price_id, price_eur")
+      .select("name, price_eur")
       .eq("id", memberRow?.tier_id ?? "")
       .limit(1);
 
     const tier = tiers?.[0];
 
-    if (!tier?.stripe_price_id || tier.price_eur <= 0) {
+    if (!tier || tier.price_eur <= 0) {
       return NextResponse.json(
         {
           error:
-            "Cannot approve: tier has no Stripe price configured. Set stripe_price_id on the tier before approving.",
+            "Cannot approve: tier has no price configured. Set a price on the tier before approving.",
         },
         { status: 500 }
       );
@@ -504,18 +511,49 @@ export async function POST(request: NextRequest) {
 
     // Create Checkout Session for the applicant to pay directly.
     let checkoutUrl = "";
+    let checkoutError: string | null = null;
     try {
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
         customer_email: member.email,
-        line_items: [{ price: tier.stripe_price_id, quantity: 1 }],
+        line_items: [
+          {
+            price_data: {
+              currency: "chf",
+              unit_amount: Math.round(tier.price_eur * 100),
+              product_data: { name: tier.name },
+            },
+            quantity: 1,
+          },
+        ],
         metadata: { member_id: member.id },
         success_url: `${appUrl}/login?payment=success`,
         cancel_url: `${appUrl}/login?payment=cancelled`,
       });
       checkoutUrl = session.url || "";
+      if (!checkoutUrl) {
+        checkoutError = "Stripe returned no checkout URL.";
+      }
     } catch (err) {
       console.error("[approve] Checkout Session creation failed:", err);
+      checkoutError = err instanceof Error ? err.message : "Unknown Stripe error.";
+    }
+
+    // The committee decision stands and the member is already marked approved,
+    // so record the approval audit regardless of the payment-link outcome.
+    await recordApprovalAudit(adminClient, member_id, admin.id);
+
+    if (checkoutError) {
+      // Do NOT send a paymentless "you're approved" email — that strands the
+      // member as approved with no way to pay and hides the failure. Surface
+      // the real Stripe error so the admin can resolve it and then use
+      // "Resend Payment Link" on the member's page.
+      return NextResponse.json(
+        {
+          error: `Member approved, but the payment link could not be created (Stripe: ${checkoutError}). Resolve the issue, then use "Resend Payment Link" on the member's page.`,
+        },
+        { status: 502 }
+      );
     }
 
     await sendEmail({
@@ -530,8 +568,6 @@ export async function POST(request: NextRequest) {
         dashboard_url: `${appUrl}/login`,
       },
     });
-
-    await recordApprovalAudit(adminClient, member_id, admin.id);
   }
 
   return NextResponse.json({ success: true });

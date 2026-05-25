@@ -144,6 +144,9 @@ export default function ApplicationQueue({
     } else {
       const data = await res.json().catch(() => ({}));
       setActionError(data.error || "Failed to approve application.");
+      // A 502 means the member WAS approved but the payment link failed —
+      // refresh so the now-approved member leaves the pending queue.
+      router.refresh();
     }
 
     setProcessing(null);

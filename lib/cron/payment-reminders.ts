@@ -67,7 +67,7 @@ export async function runPaymentReminders(): Promise<PaymentReminderResult> {
 
   const { data: tiers } = await supabase
     .from("membership_tiers")
-    .select("id, name, stripe_price_id, price_eur")
+    .select("id, name, price_eur")
     .in("id", tierIds);
 
   const tierMap = new Map(
@@ -81,7 +81,7 @@ export async function runPaymentReminders(): Promise<PaymentReminderResult> {
   for (const member of legacyMembers) {
     const tier = tierMap.get(member.tier_id);
 
-    if (!tier?.stripe_price_id || tier.price_eur <= 0) {
+    if (!tier || tier.price_eur <= 0) {
       console.warn(
         `Member ${member.id} has no payable tier (tier_id=${member.tier_id}) — skipping`
       );
@@ -93,7 +93,16 @@ export async function runPaymentReminders(): Promise<PaymentReminderResult> {
       const session = await getStripe().checkout.sessions.create({
         mode: "payment",
         customer_email: member.email,
-        line_items: [{ price: tier.stripe_price_id, quantity: 1 }],
+        line_items: [
+          {
+            price_data: {
+              currency: "chf",
+              unit_amount: Math.round(tier.price_eur * 100),
+              product_data: { name: tier.name },
+            },
+            quantity: 1,
+          },
+        ],
         metadata: { member_id: member.id },
         success_url: `${appUrl}/login?payment=success`,
         cancel_url: `${appUrl}/login?payment=cancelled`,

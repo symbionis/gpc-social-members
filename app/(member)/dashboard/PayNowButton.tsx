@@ -10,15 +10,17 @@ export default function PayNowButton() {
   async function handleClick() {
     setLoading(true);
     setError(null);
-    const result = await createMemberCheckoutSession();
-    if (result.error) {
-      setError(result.error);
-      setLoading(false);
-      return;
+    try {
+      const result = await createMemberCheckoutSession();
+      if (result.url) {
+        window.location.href = result.url;
+        return; // keep the spinner while the browser navigates away
+      }
+      setError(result.error ?? "Could not start payment. Please try again.");
+    } catch {
+      setError("Could not start payment. Please try again.");
     }
-    if (result.url) {
-      window.location.href = result.url;
-    }
+    setLoading(false);
   }
 
   return (

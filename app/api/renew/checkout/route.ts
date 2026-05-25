@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   // Fetch tier
   const { data: tiers } = await supabase
     .from("membership_tiers")
-    .select("id, name, price_eur, stripe_price_id")
+    .select("id, name, price_eur")
     .eq("id", tier_id)
     .eq("is_active", true)
     .limit(1);
@@ -125,25 +125,54 @@ export async function POST(request: NextRequest) {
   }
 
   // Paid tier — create Stripe checkout session
-  if (!tier.stripe_price_id) {
+  if (tier.price_eur <= 0) {
     return NextResponse.json(
-      { error: "No Stripe price configured for this tier" },
+      { error: "No price configured for this tier" },
       { status: 400 }
     );
   }
 
-  const session = await getStripe().checkout.sessions.create({
-    mode: "payment",
-    line_items: [{ price: tier.stripe_price_id, quantity: 1 }],
-    metadata: {
-      member_id: memberId,
-      renewal: "true",
-      renewal_token_id: renewalToken.id,
-      tier_id,
-    },
-    success_url: `${appUrl}/login?payment=success`,
-    cancel_url: `${appUrl}/renew/${token}`,
-  });
+  let session;
+  try {
+    session = await getStripe().checkout.sessions.create({
+      mode: "payment",
+      line_items: [
+        {
+          price_data: {
+            currency: "chf",
+            unit_amount: Math.round(tier.price_eur * 100),
+            product_data: { name: tier.name },
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: {
+        member_id: memberId,
+        renewal: "true",
+        renewal_token_id: renewalToken.id,
+        tier_id,
+      },
+      success_url: `${appUrl}/login?payment=success`,
+      cancel_url: `${appUrl}/renew/${token}`,
+    });
+  } catch (err) {
+    console.error("[renew-checkout] Stripe session creation failed:", err);
+    return NextResponse.json(
+      {
+        error: `Could not create the payment session (Stripe: ${
+          err instanceof Error ? err.message : "unknown error"
+        }).`,
+      },
+      { status: 502 }
+    );
+  }
+
+  if (!session.url) {
+    return NextResponse.json(
+      { error: "Failed to create payment session." },
+      { status: 502 }
+    );
+  }
 
   return NextResponse.json({ checkout_url: session.url });
 }
