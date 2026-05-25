@@ -9,7 +9,6 @@ interface Tier {
   name: string;
   price_eur: number;
   category: string;
-  stripe_price_id: string | null;
   benefits: unknown;
   guest_invitations_per_season: number;
   is_active: boolean;
@@ -31,7 +30,6 @@ export default function TierManager({ tiers }: TierManagerProps) {
       name: tier.name,
       price_eur: tier.price_eur,
       guest_invitations_per_season: tier.guest_invitations_per_season,
-      stripe_price_id: tier.stripe_price_id,
       is_active: tier.is_active,
     });
   }
@@ -105,23 +103,6 @@ export default function TierManager({ tiers }: TierManagerProps) {
                     className="w-full px-3 py-2 border border-border rounded-lg text-sm font-body"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-body text-muted-foreground mb-1">
-                    Stripe Price ID
-                  </label>
-                  <input
-                    type="text"
-                    value={editData.stripe_price_id || ""}
-                    onChange={(e) =>
-                      setEditData({
-                        ...editData,
-                        stripe_price_id: e.target.value || null,
-                      })
-                    }
-                    placeholder="price_..."
-                    className="w-full px-3 py-2 border border-border rounded-lg text-sm font-body"
-                  />
-                </div>
               </div>
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 text-sm font-body">
@@ -173,11 +154,6 @@ export default function TierManager({ tiers }: TierManagerProps) {
                     {tier.guest_invitations_per_season} guest
                     {tier.guest_invitations_per_season !== 1 ? "s" : ""}
                   </span>
-                  {tier.stripe_price_id && (
-                    <span className="text-xs font-mono">
-                      {tier.stripe_price_id}
-                    </span>
-                  )}
                 </div>
               </div>
               <button
