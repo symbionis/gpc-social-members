@@ -4,6 +4,8 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 
 import {
   generateReferenceCode,
+  generateInviteCode,
+  isValidInviteCode,
   findActiveMemberByEmail,
   hasExistingRegistration,
 } from "@/lib/events/registration";
@@ -32,6 +34,45 @@ describe("generateReferenceCode", () => {
     expect(generateReferenceCode()).toMatch(
       /^EV-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/
     );
+  });
+});
+
+describe("generateInviteCode", () => {
+  it("returns 16 chars from the reference alphabet, no EV- prefix", () => {
+    expect(generateInviteCode()).toMatch(
+      /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}$/
+    );
+  });
+
+  it("produces different codes across calls", () => {
+    const codes = new Set(Array.from({ length: 20 }, () => generateInviteCode()));
+    expect(codes.size).toBe(20);
+  });
+});
+
+describe("isValidInviteCode", () => {
+  it("matches an exact stored code", () => {
+    expect(isValidInviteCode("ABCD1234WXYZ5678", "ABCD1234WXYZ5678")).toBe(true);
+  });
+
+  it("trims surrounding whitespace on the supplied code", () => {
+    expect(isValidInviteCode("ABCD1234WXYZ5678", "  ABCD1234WXYZ5678 ")).toBe(true);
+  });
+
+  it("is case-sensitive (lowercase supplied does not match)", () => {
+    expect(isValidInviteCode("ABCD1234WXYZ5678", "abcd1234wxyz5678")).toBe(false);
+  });
+
+  it("a blank supplied code never matches a null/empty stored code", () => {
+    expect(isValidInviteCode(null, "")).toBe(false);
+    expect(isValidInviteCode("", "")).toBe(false);
+    expect(isValidInviteCode(null, "anything")).toBe(false);
+    expect(isValidInviteCode(undefined, "anything")).toBe(false);
+  });
+
+  it("a present stored code is not matched by an empty supplied code", () => {
+    expect(isValidInviteCode("ABCD1234WXYZ5678", "")).toBe(false);
+    expect(isValidInviteCode("ABCD1234WXYZ5678", "   ")).toBe(false);
   });
 });
 

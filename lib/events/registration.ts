@@ -21,6 +21,46 @@ export function generateReferenceCode(): string {
   return `EV-${code}`;
 }
 
+const INVITE_CODE_LENGTH = 16;
+
+/**
+ * A per-event invite-link secret: 16 chars (~80 bits) from REF_ALPHABET.
+ *
+ * Unlike generateReferenceCode, this is a security credential that gates
+ * members-only registration, so it draws from a CSPRNG (crypto.getRandomValues)
+ * rather than Math.random. REF_ALPHABET has exactly 32 characters, which divides
+ * 256 evenly, so `byte % 32` is an unbiased mapping (no rejection sampling
+ * needed). No EV- prefix — the whole string is the secret.
+ */
+export function generateInviteCode(): string {
+  const bytes = new Uint8Array(INVITE_CODE_LENGTH);
+  crypto.getRandomValues(bytes);
+  let code = "";
+  for (let i = 0; i < INVITE_CODE_LENGTH; i += 1) {
+    code += REF_ALPHABET[bytes[i] % REF_ALPHABET.length];
+  }
+  return code;
+}
+
+/**
+ * Whether a supplied invite code matches an event's stored code.
+ *
+ * Shared by the register API (app/api/events/[id]/register/route.ts) and the
+ * public event page so the two surfaces cannot drift. The strict guard means a
+ * blank `?code=` can never match a null or empty stored invite_code. Comparison
+ * is case-sensitive and trimmed-but-not-lowercased: generated codes are always
+ * uppercase REF_ALPHABET, so a case-insensitive match would silently accept
+ * lowercase variants the generator never produces.
+ */
+export function isValidInviteCode(
+  storedCode: string | null | undefined,
+  supplied: string | null | undefined
+): boolean {
+  if (typeof storedCode !== "string" || storedCode.length === 0) return false;
+  if (typeof supplied !== "string") return false;
+  return supplied.trim() === storedCode;
+}
+
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
