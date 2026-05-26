@@ -346,7 +346,7 @@ export default async function HomePage() {
                     href={`/public/events/${openDoors.id}`}
                     className="inline-block px-6 py-3 rounded-full bg-marine text-white font-body font-medium text-sm hover:bg-marine-light transition-colors cursor-pointer"
                   >
-                    Register →
+                    Reserve your spot →
                   </Link>
                   <Link
                     href={`/public/events/${openDoors.id}`}

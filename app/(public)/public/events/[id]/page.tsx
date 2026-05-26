@@ -362,7 +362,7 @@ export default async function PublicEventDetailPage({
                       eventTitle={event.title}
                       ticketTypes={ticketTypeOptions}
                       maxQuantity={maxQuantity}
-                      buttonLabel="Register"
+                      buttonLabel="Reserve your spot"
                       code={isMembersOnly ? suppliedCode : undefined}
                     />
                   </>

@@ -252,7 +252,7 @@ export default function EventRegistrationForm({
         disabled={submitting || totalQuantity < 1}
         className="w-full px-4 py-3 bg-marine text-white rounded-lg text-sm font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
       >
-        {submitting ? "Processing…" : allFree ? "Confirm registration" : "Register"}
+        {submitting ? "Processing…" : allFree ? "Confirm registration" : "Reserve your spot"}
       </button>
     </form>
   );
