@@ -1,0 +1,42 @@
+/* Layout + print rules for the (print) route group. Kept separate from the
+   admin/member chrome so the flyer renders the same on screen as on paper. */
+
+.flyer {
+  width: 210mm; /* A4 width */
+  max-width: 100%;
+  padding: 14mm;
+  margin: 0 auto;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  /* Screen-only controls (e.g. the Print / Save as PDF button). */
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff;
+  }
+
+  .flyer {
+    width: auto;
+    padding: 0;
+    margin: 0;
+  }
+
+  /* Keep an event from splitting across a page break. */
+  .flyer-event {
+    break-inside: avoid;
+  }
+
+  /* Force brand backgrounds/colors to render instead of being dropped. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
