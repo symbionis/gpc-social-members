@@ -111,10 +111,14 @@ export default function EventInviteLink({
   }
 
   async function regenerate() {
-    const confirmed = window.confirm(
-      "Regenerating revokes the current link immediately. Anyone holding it will lose access. Continue?"
-    );
-    if (!confirmed) return;
+    // Only confirm when there is an existing link to revoke. The first
+    // generation has nothing to revoke, so it shouldn't prompt.
+    if (inviteCode) {
+      const confirmed = window.confirm(
+        "Regenerating revokes the current link immediately. Anyone holding it will lose access. Continue?"
+      );
+      if (!confirmed) return;
+    }
     setLinkError(null);
     setStatus(null);
     setGenerating(true);

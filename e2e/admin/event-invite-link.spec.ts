@@ -13,7 +13,7 @@ import {
 // the spec correct and committed without going red in environments where the
 // test admin isn't provisioned.
 
-const ADMIN_EMAIL = "test@syks.co";
+const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? "test@syks.co";
 const db = adminDb();
 
 // The Settings tab renders both EventCheckInSettings and EventInviteLink, so we
@@ -75,10 +75,13 @@ test.describe("Admin invite-link panel (Manage Event → Settings)", () => {
     await panel.getByRole("button", { name: /Save guest prices/i }).click();
     await expect(panel.getByText(/^Saved$/)).toBeVisible();
 
+    // First generation has no existing link, so it must NOT prompt a confirm
+    // (this test registers no dialog handler — a stray confirm would be
+    // auto-dismissed and the link would never generate).
     await panel.getByRole("button", { name: /Generate invite link/i }).click();
-    await expect(panel.getByLabel("Invite link")).toHaveValue(
-      new RegExp(`/public/events/${blankId}\\?code=`)
-    );
+    await expect(
+      panel.getByLabel("Invite link", { exact: true })
+    ).toHaveValue(new RegExp(`/public/events/${blankId}\\?code=`), { timeout: 10000 });
   });
 
   test("regenerate replaces the existing link", async ({ page }) => {
@@ -86,19 +89,19 @@ test.describe("Admin invite-link panel (Manage Event → Settings)", () => {
     await openSettings(page, seededId!);
     const panel = invitePanel(page);
 
-    const before = await panel.getByLabel("Invite link").inputValue();
+    const before = await panel.getByLabel("Invite link", { exact: true }).inputValue();
     expect(before).toContain("?code=");
 
-    await panel.getByRole("button", { name: /Regenerate link/i }).click();
+    await panel.getByRole("button", { name: /Regenerate invite link/i }).click();
     await expect(panel.getByText(/New link generated/i)).toBeVisible();
-    await expect(panel.getByLabel("Invite link")).not.toHaveValue(before);
+    await expect(panel.getByLabel("Invite link", { exact: true })).not.toHaveValue(before);
   });
 
   test("registration disabled → prerequisite reason, no link", async ({ page }) => {
     await openSettings(page, regOffId!);
     const panel = invitePanel(page);
     await expect(panel.getByText(/Enable registration/i)).toBeVisible();
-    await expect(panel.getByLabel("Invite link")).toHaveCount(0);
+    await expect(panel.getByLabel("Invite link", { exact: true })).toHaveCount(0);
   });
 
   test("public event → invite panel is not shown", async ({ page }) => {
