@@ -91,6 +91,7 @@ export default function EventManager({
   const [filterStatus, setFilterStatus] = useState<
     "all" | "confirmed" | "unconfirmed"
   >("all");
+  const [view, setView] = useState<"future" | "past">("future");
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -331,18 +332,68 @@ async function handleImageUpload(file: File) {
     router.refresh();
   }
 
-  const filteredEvents = events.filter((event) => {
-    if (filterType !== "all" && event.event_type_id !== filterType) return false;
-    if (filterStatus === "confirmed" && !event.is_confirmed) return false;
-    if (filterStatus === "unconfirmed" && event.is_confirmed) return false;
-    return true;
-  });
+  // Today as YYYY-MM-DD (local), compared against the date-only columns.
+  const today = new Date().toLocaleDateString("en-CA");
+  // An event is "past" once its last day (end_date, or start_date when there is
+  // no end_date) is before today. Anything from today onward is "current".
+  function isPast(event: Event): boolean {
+    return (event.end_date || event.start_date) < today;
+  }
+
+  const futureCount = events.filter((e) => !isPast(e)).length;
+  const pastCount = events.length - futureCount;
+
+  const filteredEvents = events
+    .filter((event) => {
+      if (view === "past" ? !isPast(event) : isPast(event)) return false;
+      if (filterType !== "all" && event.event_type_id !== filterType) return false;
+      if (filterStatus === "confirmed" && !event.is_confirmed) return false;
+      if (filterStatus === "unconfirmed" && event.is_confirmed) return false;
+      return true;
+    })
+    // Future: soonest first (events arrive sorted ascending). Past: most recent first.
+    .sort((a, b) =>
+      view === "past"
+        ? b.start_date.localeCompare(a.start_date)
+        : a.start_date.localeCompare(b.start_date)
+    );
 
   const inputClass =
     "w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
 
   return (
     <div className="space-y-6">
+      {/* Current / Past tabs */}
+      <div
+        role="tablist"
+        aria-label="Event timeframe"
+        className="flex items-center gap-1 border-b border-border"
+      >
+        {(
+          [
+            { key: "future", label: "Future", count: futureCount },
+            { key: "past", label: "Past", count: pastCount },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.key}
+            role="tab"
+            aria-selected={view === tab.key}
+            onClick={() => setView(tab.key)}
+            className={`px-4 py-2 -mb-px border-b-2 text-sm font-body font-medium transition-colors ${
+              view === tab.key
+                ? "border-marine text-marine"
+                : "border-transparent text-muted-foreground hover:text-marine"
+            }`}
+          >
+            {tab.label}
+            <span className="ml-1.5 text-xs text-muted-foreground">
+              ({tab.count})
+            </span>
+          </button>
+        ))}
+      </div>
+
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
