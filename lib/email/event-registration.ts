@@ -75,6 +75,35 @@ export async function sendEventRegistrationConfirmation(
 
   const isFree = registration.status === "free" || Number(registration.total_amount_chf) === 0;
   const amountLabel = formatAmount(Number(registration.total_amount_chf), isFree);
+
+  // Per-type breakdown. Render as a Mustachio section in the template:
+  //   {{#ticket_lines}} {{title}} × {{quantity}} — {{line_label}} {{/ticket_lines}}
+  const { data: items, error: itemsErr } = await supabase
+    .from("event_registration_items")
+    .select("title_snapshot, quantity, line_total_chf")
+    .eq("registration_id", registrationId)
+    .order("created_at", { ascending: true });
+
+  // Log a query error distinctly so a real failure isn't disguised as the
+  // legitimate "itemless legacy row" fallback below (which would email a
+  // collapsed single-line breakdown for an order that actually has items).
+  if (itemsErr) {
+    console.error("[event-registration-email] items lookup failed", { registrationId, err: itemsErr });
+  }
+
+  const ticketLines =
+    items && items.length > 0
+      ? items.map((i) => ({
+          title: i.title_snapshot,
+          quantity: i.quantity,
+          line_label:
+            Number(i.line_total_chf) === 0 ? "Free" : `CHF ${Number(i.line_total_chf).toFixed(2)}`,
+        }))
+      : // Itemless fallback (legacy rows, or deploy-window pending→paid rows the
+        // webhook promoted without items): synthesize one line so the breakdown
+        // is never blank.
+        [{ title: "Registration", quantity: registration.quantity, line_label: amountLabel }];
+
   const eventDateLabel = formatDate(event.start_date);
   const eventTime = formatTime(event.start_time);
   const firstName = firstNameFrom(registration.name) || registration.name;
@@ -95,6 +124,7 @@ export async function sendEventRegistrationConfirmation(
       event_time: eventTime,
       event_location: event.location || null,
       quantity: registration.quantity,
+      ticket_lines: ticketLines,
       amount_label: amountLabel,
       reference_code: registration.reference_code,
       is_free: isFree,

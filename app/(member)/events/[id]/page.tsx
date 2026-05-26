@@ -104,9 +104,25 @@ export default async function EventDetailPage({
     | { name: string; color: string }
     | null;
   const images = coerceImages(event.images, [event.image_url, event.image_url_2]);
-  const priceMember = Number(event.price_member ?? 0);
-  const priceNonMember = Number(event.price_non_member ?? 0);
   const memberFullName = `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim();
+
+  // The viewer is always an active member here, so every ticket type resolves to
+  // its member price; a null member price means "not open yet".
+  const { data: rawTicketTypes } = await adminClient
+    .from("event_ticket_types")
+    .select("id, title, price_member, sort_order")
+    .eq("event_id", id)
+    .is("archived_at", null)
+    .order("sort_order", { ascending: true });
+  const ticketTypeOptions = (rawTicketTypes ?? []).map((t) => ({
+    id: t.id,
+    title: t.title,
+    price: t.price_member,
+  }));
+  const priceableValues = ticketTypeOptions
+    .map((o) => o.price)
+    .filter((p): p is number => p !== null);
+  const minPrice = priceableValues.length > 0 ? Math.min(...priceableValues) : 0;
 
   // Capacity state. Degrade to uncapped rendering on lookup failure; the
   // register POST handler still recounts before insert.
@@ -215,6 +231,7 @@ export default async function EventDetailPage({
             ) : isFullyBooked ? (
               <EventFullyBookedBlock
                 eventId={event.id}
+                ticketTypes={ticketTypeOptions}
                 defaultName={memberFullName}
                 defaultEmail={member.email ?? ""}
               />
@@ -224,7 +241,7 @@ export default async function EventDetailPage({
                   Member price
                 </p>
                 <p className="font-heading text-2xl font-bold text-marine mb-4">
-                  {priceLabel(priceMember)}
+                  {priceableValues.length > 1 ? `From ${priceLabel(minPrice)}` : priceLabel(minPrice)}
                 </p>
                 {isLowAvailability && seatsRemaining !== null && (
                   <p className="font-body text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
@@ -234,11 +251,9 @@ export default async function EventDetailPage({
                 <EventRegistrationDrawer
                   eventId={event.id}
                   eventTitle={event.title}
-                  priceMember={priceMember}
-                  priceNonMember={priceNonMember}
+                  ticketTypes={ticketTypeOptions}
                   defaultName={memberFullName}
                   defaultEmail={member.email ?? ""}
-                  memberOnly
                   maxQuantity={maxQuantity}
                   buttonLabel="Register"
                 />

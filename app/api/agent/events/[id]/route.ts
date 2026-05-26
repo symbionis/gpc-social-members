@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAgentToken, unauthorizedResponse } from "@/lib/agent/auth";
 import { trackAgentAction } from "@/lib/agent/track";
+import { assertEventRegistrationPriceable } from "@/lib/events/ticket-types";
 import type {
   AgentApiError,
   EventUpdatedResponse,
@@ -53,7 +54,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   const current = await supabase
     .from("events")
     .select(
-      "id, title, event_type_id, start_date, end_date, start_time, location, description, notes, season_id, images, image_url, image_url_2, visibility, registration_enabled, strict_checkin, price_member, price_non_member, seat_cap"
+      "id, title, event_type_id, start_date, end_date, start_time, location, description, notes, season_id, images, image_url, image_url_2, visibility, registration_enabled, strict_checkin, seat_cap"
     )
     .eq("id", id)
     .limit(1)
@@ -231,30 +232,9 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     updatedFields.push("strict_checkin");
   }
 
-  function parsePrice(raw: unknown): number | null | "invalid" {
-    if (raw === null || raw === "" || raw === undefined) return null;
-    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-    if (typeof raw === "string") {
-      const n = Number(raw);
-      if (Number.isFinite(n)) return n;
-    }
-    return "invalid";
-  }
-
-  if ("price_member" in body) {
-    const p = parsePrice(body.price_member);
-    if (p === "invalid") return bad(started_at, "price_member must be a number or null");
-    if (p !== null && p < 0) return bad(started_at, "price_member cannot be negative");
-    update.price_member = p;
-    updatedFields.push("price_member");
-  }
-  if ("price_non_member" in body) {
-    const p = parsePrice(body.price_non_member);
-    if (p === "invalid") return bad(started_at, "price_non_member must be a number or null");
-    if (p !== null && p < 0) return bad(started_at, "price_non_member cannot be negative");
-    update.price_non_member = p;
-    updatedFields.push("price_non_member");
-  }
+  // This route no longer accepts or writes the per-event price columns (being
+  // retired in the cutover); ticket-type prices are owned by the ticket-types
+  // route (single writer).
   if ("seat_cap" in body) {
     const raw = body.seat_cap;
     if (raw === null || raw === "" || raw === undefined) {
@@ -278,31 +258,11 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   if ("end_date" in merged && merged.end_date && merged.start_date && merged.end_date < merged.start_date) {
     return bad(started_at, "end_date must be on or after start_date");
   }
-  const mergedVisibility = merged.visibility === "public" ? "public" : "members_only";
-  const isMembersOnly = mergedVisibility === "members_only";
-
-  // Force price_non_member to null for members_only events, mirroring the
-  // admin update route. Otherwise an old non-member price would persist on
-  // an event that's now members-only.
-  if (isMembersOnly && merged.price_non_member !== null) {
-    update.price_non_member = null;
-    if (!updatedFields.includes("price_non_member")) updatedFields.push("price_non_member");
-    merged.price_non_member = null;
-  }
-
+  // Enabling registration requires every active ticket type to be priced for
+  // the event's visibility (replaces the dropped event-level price constraint).
   if (merged.registration_enabled) {
-    if (merged.price_member === null || Number.isNaN(Number(merged.price_member))) {
-      return bad(
-        started_at,
-        "price_member is required when registration_enabled is true"
-      );
-    }
-    if (!isMembersOnly && (merged.price_non_member === null || Number.isNaN(Number(merged.price_non_member)))) {
-      return bad(
-        started_at,
-        "price_non_member is required for public events when registration_enabled is true"
-      );
-    }
+    const priceable = await assertEventRegistrationPriceable(id);
+    if (!priceable.ok) return bad(started_at, priceable.error);
   }
 
   const { error } = await supabase.from("events").update(update).eq("id", id);

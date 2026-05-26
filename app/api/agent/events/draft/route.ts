@@ -201,6 +201,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Seed a default "Standard" ticket type so the draft isn't typeless. Prices
+  // stay null (a draft has none yet); the admin sets them before enabling
+  // registration, which the enable guard enforces. Non-fatal on failure — the
+  // draft can't take registrations until a priced type exists either way.
+  const { error: ttError } = await supabase
+    .from("event_ticket_types")
+    .insert({ event_id: data.id, title: "Standard", counts_as_seat: true, sort_order: 0 });
+  if (ttError) {
+    console.error("[agent/events/draft] seed ticket type failed", { eventId: data.id, ttError });
+  }
+
   trackAgentAction({
     endpoint: ENDPOINT,
     method: "POST",

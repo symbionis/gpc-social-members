@@ -26,12 +26,22 @@ export async function isEventsAdmin(
   return !!role && EVENTS_ADMIN_ROLES.includes(role);
 }
 
+interface TicketTypeSeed {
+  title: string;
+  price_member?: number | null;
+  price_non_member?: number | null;
+  invite_price?: number | null;
+  counts_as_seat?: boolean;
+}
+
 interface CreateOpts {
   inviteCode?: string | null;
   invitePrice?: number | null;
   registrationEnabled?: boolean;
   visibility?: "members_only" | "public";
   title?: string;
+  /** Override the seeded ticket types. Defaults to a single "Standard". */
+  ticketTypes?: TicketTypeSeed[];
 }
 
 /**
@@ -55,6 +65,9 @@ export async function createTestEvent(
     );
   }
 
+  const isPublic = (opts.visibility ?? "members_only") === "public";
+
+  // Prices live on event_ticket_types now — the event row carries none.
   const { data, error } = await db
     .from("events")
     .insert({
@@ -64,8 +77,6 @@ export async function createTestEvent(
       visibility: opts.visibility ?? "members_only",
       is_published: true,
       registration_enabled: opts.registrationEnabled ?? true,
-      price_member: 20, // required by the price CHECK when registration_enabled
-      invite_price: opts.invitePrice === undefined ? 50 : opts.invitePrice,
       invite_code: opts.inviteCode ?? null,
     })
     .select("id")
@@ -74,7 +85,33 @@ export async function createTestEvent(
   if (error || !data) {
     throw new Error(`invite-link e2e: failed to create test event: ${error?.message}`);
   }
-  return data.id as string;
+  const eventId = data.id as string;
+
+  // Seed ticket types carrying the prices the page/register API read. Defaults
+  // to a single "Standard"; pass opts.ticketTypes for a multi-type event.
+  const seeds: TicketTypeSeed[] = opts.ticketTypes ?? [
+    {
+      title: "Standard",
+      price_member: 20,
+      price_non_member: isPublic ? 30 : null,
+      invite_price: isPublic ? null : opts.invitePrice === undefined ? 50 : opts.invitePrice,
+    },
+  ];
+  const { error: ttError } = await db.from("event_ticket_types").insert(
+    seeds.map((s, i) => ({
+      event_id: eventId,
+      title: s.title,
+      price_member: s.price_member ?? null,
+      price_non_member: s.price_non_member ?? null,
+      invite_price: s.invite_price ?? null,
+      counts_as_seat: s.counts_as_seat ?? true,
+      sort_order: i,
+    }))
+  );
+  if (ttError) {
+    throw new Error(`invite-link e2e: failed to seed ticket type: ${ttError.message}`);
+  }
+  return eventId;
 }
 
 export async function deleteEvent(db: SupabaseClient, id: string | undefined) {

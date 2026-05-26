@@ -2,17 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import EventRegistrationForm from "./EventRegistrationForm";
+import EventRegistrationForm, { type TicketTypeOption } from "./EventRegistrationForm";
 
 interface Props {
   eventId: string;
   eventTitle: string;
-  priceMember: number;
-  priceNonMember: number;
+  /** Ticket types with prices already resolved for the current viewer. */
+  ticketTypes: TicketTypeOption[];
   defaultName?: string;
   defaultEmail?: string;
-  /** Hide the non-member rate on the form (used on the member-facing page). */
-  memberOnly?: boolean;
   buttonLabel: string;
   /** Max selectable ticket quantity. Clamped to remaining seats for capped events. */
   maxQuantity?: number;
@@ -23,11 +21,9 @@ interface Props {
 export default function EventRegistrationDrawer({
   eventId,
   eventTitle,
-  priceMember,
-  priceNonMember,
+  ticketTypes,
   defaultName,
   defaultEmail,
-  memberOnly = false,
   buttonLabel,
   maxQuantity,
   code,
@@ -94,12 +90,9 @@ export default function EventRegistrationDrawer({
         <div className="flex-1 overflow-y-auto px-6 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           <EventRegistrationForm
             eventId={eventId}
-            priceMember={priceMember}
-            priceNonMember={priceNonMember}
+            ticketTypes={ticketTypes}
             defaultName={defaultName}
             defaultEmail={defaultEmail}
-            memberOnly={memberOnly}
-            showMemberRate={false}
             maxQuantity={maxQuantity}
             code={code}
           />

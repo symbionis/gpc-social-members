@@ -16,12 +16,21 @@ export default async function ManageEventPage({
   const { data: event } = await supabase
     .from("events")
     .select(
-      "id, title, start_date, seat_cap, strict_checkin, reminder_schedule, visibility, registration_enabled, invite_code, invite_price"
+      "id, title, start_date, seat_cap, strict_checkin, reminder_schedule, visibility, registration_enabled, invite_code"
     )
     .eq("id", id)
     .single();
 
   if (!event) notFound();
+
+  // Active ticket types — the Settings tab edits per-type guest (invite) prices.
+  const { data: rawTicketTypes } = await supabase
+    .from("event_ticket_types")
+    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat")
+    .eq("event_id", id)
+    .is("archived_at", null)
+    .order("sort_order", { ascending: true });
+  const ticketTypes = rawTicketTypes ?? [];
 
   const { data: registrations } = await supabase
     .from("event_registrations")
@@ -49,9 +58,28 @@ export default async function ManageEventPage({
       .map((c) => c.registration_id as string)
   );
 
+  // Per-registration line items → a read-only "2× Standard, 2× Kids" breakdown.
+  const regIds = (registrations ?? []).map((r) => r.id);
+  const { data: items } = regIds.length
+    ? await supabase
+        .from("event_registration_items")
+        .select("registration_id, title_snapshot, quantity, created_at")
+        .in("registration_id", regIds)
+        .order("created_at", { ascending: true })
+    : { data: [] as { registration_id: string; title_snapshot: string; quantity: number }[] };
+
+  const breakdownByReg = new Map<string, string>();
+  for (const it of items ?? []) {
+    const line = `${it.quantity}× ${it.title_snapshot}`;
+    const prev = breakdownByReg.get(it.registration_id);
+    breakdownByReg.set(it.registration_id, prev ? `${prev}, ${line}` : line);
+  }
+
   const attendees = (registrations ?? []).map((r) => ({
     ...r,
     checkedIn: checkedInRegIds.has(r.id),
+    // Itemless fallback (legacy / window-promoted rows): "{quantity}× —".
+    breakdown: breakdownByReg.get(r.id) ?? `${r.quantity}× —`,
   }));
 
   const total = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
@@ -118,7 +146,7 @@ export default async function ManageEventPage({
         reminderSchedule={reminderSchedule}
         visibility={(event.visibility as string) ?? "members_only"}
         inviteCode={(event.invite_code as string | null) ?? null}
-        invitePrice={(event.invite_price as number | null) ?? null}
+        ticketTypes={ticketTypes}
         registrationEnabled={Boolean(event.registration_enabled)}
       />
     </div>

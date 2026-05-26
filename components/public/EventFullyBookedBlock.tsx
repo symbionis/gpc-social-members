@@ -2,12 +2,14 @@ import WaitlistForm from "./WaitlistForm";
 
 interface Props {
   eventId: string;
+  ticketTypes: { id: string; title: string }[];
   defaultName?: string;
   defaultEmail?: string;
 }
 
 export default function EventFullyBookedBlock({
   eventId,
+  ticketTypes,
   defaultName,
   defaultEmail,
 }: Props) {
@@ -26,6 +28,7 @@ export default function EventFullyBookedBlock({
       </div>
       <WaitlistForm
         eventId={eventId}
+        ticketTypes={ticketTypes}
         defaultName={defaultName}
         defaultEmail={defaultEmail}
       />

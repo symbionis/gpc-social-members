@@ -137,14 +137,39 @@ export default async function PublicEventDetailPage({
     isMembersOnly && isValidInviteCode(event.invite_code, suppliedCode);
   const invalidCodePresent = isMembersOnly && !!suppliedCode && !hasValidInvite;
 
-  // A valid invite only unlocks registration once a guest price is set. Without
-  // it the register API rejects the submit as misconfigured (Number(null)=0
-  // would otherwise read as free), so don't advertise a (free-looking) form the
-  // POST will refuse — show the "not open yet" state instead.
-  const inviteRegisterable = hasValidInvite && event.invite_price !== null;
+  // Load active ticket types and resolve each one's price for THIS viewer: an
+  // active member sees price_member; a valid-invite guest on a members-only
+  // event sees invite_price; everyone else sees price_non_member. A null
+  // resolved price means "not open yet" (the register API is authoritative).
+  const { data: rawTicketTypes } = await supabase
+    .from("event_ticket_types")
+    .select("id, title, price_member, price_non_member, invite_price, sort_order")
+    .eq("event_id", id)
+    .is("archived_at", null)
+    .order("sort_order", { ascending: true });
+
+  const ticketTypeOptions = (rawTicketTypes ?? []).map((t) => ({
+    id: t.id,
+    title: t.title,
+    price: isMembersOnly
+      ? isActiveMember
+        ? t.price_member
+        : t.invite_price
+      : t.price_non_member,
+  }));
+  const priceableValues = ticketTypeOptions
+    .map((o) => o.price)
+    .filter((p): p is number => p !== null);
+  const anyPriceable = priceableValues.length > 0;
+  const minPrice = anyPriceable ? Math.min(...priceableValues) : 0;
+
+  // A valid invite only unlocks registration once guest prices exist; otherwise
+  // the register API would reject the submit (a null price is misconfigured, not
+  // free), so show the "not open yet" state instead of a form the POST refuses.
+  const inviteRegisterable = hasValidInvite && anyPriceable;
 
   // On a members-only event, the registration form appears for an active member
-  // or a valid invite-code holder with a configured price; everyone else gets
+  // or a valid invite-code holder with configured prices; everyone else gets
   // the "Apply" block (or the "not open yet" notice for a priced-pending invite).
   const showForm = !isMembersOnly || isActiveMember || inviteRegisterable;
   // Obscure date/time/location only when this is a members-only event the
@@ -155,15 +180,6 @@ export default async function PublicEventDetailPage({
     | { name: string; color: string }
     | null;
   const images = coerceImages(event.images, [event.image_url, event.image_url_2]);
-  const priceMember = Number(event.price_member ?? 0);
-  // What this viewer pays / sees: a member always pays member rate; on a
-  // members-only invite page a guest pays invite_price; public events use
-  // price_non_member. Server-side pricing in the register API is authoritative.
-  const displayPrice = isMembersOnly
-    ? isActiveMember
-      ? priceMember
-      : Number(event.invite_price ?? 0)
-    : Number(event.price_non_member ?? 0);
 
   // Capacity state. Skip the count query for uncapped events. On lookup
   // failure, degrade to "uncapped" rendering — the register POST handler
@@ -307,14 +323,16 @@ export default async function PublicEventDetailPage({
                     Information only — registration is not open for this event.
                   </p>
                 ) : isFullyBooked ? (
-                  <EventFullyBookedBlock eventId={event.id} />
+                  <EventFullyBookedBlock eventId={event.id} ticketTypes={ticketTypeOptions} />
                 ) : (
                   <>
                     <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-1">
                       Price
                     </p>
                     <p className="font-heading text-2xl font-bold text-marine mb-4">
-                      {priceLabel(displayPrice)}
+                      {priceableValues.length > 1
+                        ? `From ${priceLabel(minPrice)}`
+                        : priceLabel(minPrice)}
                     </p>
                     {isMembersOnly && !isActiveMember && (
                       <p className="font-body text-sm text-sky-dark bg-sky/5 border border-sky/20 rounded-lg px-3 py-2 mb-3">
@@ -342,8 +360,7 @@ export default async function PublicEventDetailPage({
                     <EventRegistrationDrawer
                       eventId={event.id}
                       eventTitle={event.title}
-                      priceMember={priceMember}
-                      priceNonMember={displayPrice}
+                      ticketTypes={ticketTypeOptions}
                       maxQuantity={maxQuantity}
                       buttonLabel="Register"
                       code={isMembersOnly ? suppliedCode : undefined}

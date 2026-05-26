@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
 import posthog from "posthog-js";
+import TicketTypesEditor, {
+  type TicketTypeDraft,
+  makeStandardDraft,
+} from "@/components/admin/TicketTypesEditor";
 
 interface EventType {
   id: string;
@@ -36,8 +40,6 @@ interface Event {
   images?: unknown;
   visibility?: string | null;
   registration_enabled?: boolean | null;
-  price_member?: number | null;
-  price_non_member?: number | null;
   seat_cap?: number | null;
 }
 
@@ -70,8 +72,6 @@ const emptyForm = {
   images: [] as string[],
   visibility: "members_only" as "members_only" | "public",
   registration_enabled: false,
-  price_member: "",
-  price_non_member: "",
 };
 
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -87,6 +87,12 @@ export default function EventManager({
   const [editing, setEditing] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
+  // Ticket types: a controlled draft array. On create they seed the new event
+  // atomically (create_event_with_ticket_types RPC); on edit they diff-sync to
+  // the single-writer ticket-types API. originalTicketTypeIds tracks what
+  // existed when the editor opened so save can compute deletions.
+  const [ticketTypes, setTicketTypes] = useState<TicketTypeDraft[]>([makeStandardDraft()]);
+  const [originalTicketTypeIds, setOriginalTicketTypeIds] = useState<string[]>([]);
   const [filterType, setFilterType] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<
     "all" | "confirmed" | "unconfirmed"
@@ -165,11 +171,13 @@ async function handleImageUpload(file: File) {
 
   function startCreate() {
     setFormData(emptyForm);
+    setTicketTypes([makeStandardDraft()]);
+    setOriginalTicketTypeIds([]);
     setEditing(null);
     setShowForm(true);
   }
 
-  function startEdit(event: Event) {
+  async function startEdit(event: Event) {
     setFormData({
       title: event.title,
       event_type_id: event.event_type_id || "",
@@ -185,89 +193,178 @@ async function handleImageUpload(file: File) {
       images: coerceImages(event.images, [event.image_url, event.image_url_2]),
       visibility: event.visibility === "public" ? "public" : "members_only",
       registration_enabled: Boolean(event.registration_enabled),
-      price_member:
-        event.price_member === null || event.price_member === undefined
-          ? ""
-          : String(event.price_member),
-      price_non_member:
-        event.price_non_member === null || event.price_non_member === undefined
-          ? ""
-          : String(event.price_non_member),
     });
     setEditing(event.id);
+    // Load this event's active ticket types from the single-writer API.
+    setTicketTypes([makeStandardDraft()]);
+    setOriginalTicketTypeIds([]);
     setShowForm(true);
+    try {
+      const res = await fetch(`/api/admin/events/${event.id}/ticket-types`);
+      if (res.ok) {
+        const { ticket_types } = (await res.json()) as {
+          ticket_types: {
+            id: string;
+            title: string;
+            price_member: number | null;
+            price_non_member: number | null;
+            invite_price: number | null;
+            counts_as_seat: boolean;
+            archived_at: string | null;
+          }[];
+        };
+        const active = ticket_types.filter((t) => !t.archived_at);
+        if (active.length > 0) {
+          setTicketTypes(
+            active.map((t) => ({
+              id: t.id,
+              title: t.title,
+              price_member: t.price_member === null ? "" : String(t.price_member),
+              price_non_member: t.price_non_member === null ? "" : String(t.price_non_member),
+              // Carry the guest price through so saving an edit preserves it
+              // (Settings owns editing it; the editor must not null it).
+              invite_price: t.invite_price === null ? "" : String(t.invite_price),
+              counts_as_seat: t.counts_as_seat,
+            }))
+          );
+          setOriginalTicketTypeIds(active.map((t) => t.id));
+        }
+      }
+    } catch (err) {
+      console.error("[admin/events] load ticket types failed", err);
+    }
   }
 
   function cancelForm() {
     setShowForm(false);
     setEditing(null);
     setFormData(emptyForm);
+    setTicketTypes([makeStandardDraft()]);
+    setOriginalTicketTypeIds([]);
+  }
+
+  function validateTicketTypes(): string | null {
+    if (ticketTypes.length === 0) return "Add at least one ticket type.";
+    const isMembersOnly = formData.visibility === "members_only";
+    for (const t of ticketTypes) {
+      if (!t.title.trim()) return "Every ticket type needs a name.";
+    }
+    if (formData.registration_enabled) {
+      for (const t of ticketTypes) {
+        const label = t.title.trim() || "Untitled";
+        const pm = Number(t.price_member);
+        if (t.price_member === "" || !Number.isFinite(pm) || pm < 0) {
+          return `"${label}" needs a member price (0 or more) when registration is enabled.`;
+        }
+        if (!isMembersOnly) {
+          const pn = Number(t.price_non_member);
+          if (t.price_non_member === "" || !Number.isFinite(pn) || pn < 0) {
+            return `"${label}" needs a non-member price (0 or more) for a public event.`;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function ticketTypeBody(t: TicketTypeDraft) {
+    return {
+      title: t.title.trim(),
+      price_member: t.price_member,
+      price_non_member: t.price_non_member,
+      // Preserve the existing guest price (edited only in Settings) so a PATCH
+      // from this editor never nulls it.
+      invite_price: t.invite_price,
+      counts_as_seat: t.counts_as_seat,
+    };
+  }
+
+  // Diff-sync the local ticket-type drafts to the single-writer API (edit mode).
+  // Every write goes through the dedicated ticket-types route, preserving
+  // single-writer ownership. Returns an error string, or null on success.
+  async function syncTicketTypes(eventId: string): Promise<string | null> {
+    const base = `/api/admin/events/${eventId}/ticket-types`;
+    const headers = { "Content-Type": "application/json" };
+    const errOf = async (r: Response, fallback: string) =>
+      ((await r.json().catch(() => ({}))) as { error?: string }).error || fallback;
+
+    const currentIds = new Set(ticketTypes.filter((t) => t.id).map((t) => t.id as string));
+    // Deletions first (types removed in the editor).
+    for (const id of originalTicketTypeIds) {
+      if (!currentIds.has(id)) {
+        const r = await fetch(`${base}/${id}`, { method: "DELETE" });
+        if (!r.ok) return errOf(r, "Could not remove a ticket type");
+      }
+    }
+    // Upserts, collecting the final id order.
+    const orderedIds: string[] = [];
+    for (const t of ticketTypes) {
+      const body = JSON.stringify(ticketTypeBody(t));
+      if (t.id) {
+        const r = await fetch(`${base}/${t.id}`, { method: "PATCH", headers, body });
+        if (!r.ok) return errOf(r, "Could not update a ticket type");
+        orderedIds.push(t.id);
+      } else {
+        const r = await fetch(base, { method: "POST", headers, body });
+        if (!r.ok) return errOf(r, "Could not add a ticket type");
+        const { ticket_type } = (await r.json()) as { ticket_type: { id: string } };
+        orderedIds.push(ticket_type.id);
+      }
+    }
+    // Persist order.
+    const r = await fetch(base, { method: "PATCH", headers, body: JSON.stringify({ order: orderedIds }) });
+    if (!r.ok) return errOf(r, "Could not reorder ticket types");
+    return null;
   }
 
   async function handleSubmit() {
     if (!formData.title || !formData.start_date) return;
 
-    if (formData.registration_enabled) {
-      const isMembersOnly = formData.visibility === "members_only";
-      if (formData.price_member === "") {
-        alert("Member price is required when registration is enabled.");
-        return;
-      }
-      if (!isMembersOnly && formData.price_non_member === "") {
-        alert("Non-member price is required for public events when registration is enabled.");
-        return;
-      }
-      const pm = Number(formData.price_member);
-      if (!Number.isFinite(pm) || pm < 0) {
-        alert("Member price must be a valid non-negative number.");
-        return;
-      }
-      if (!isMembersOnly && formData.price_non_member !== "") {
-        const pn = Number(formData.price_non_member);
-        if (!Number.isFinite(pn) || pn < 0) {
-          alert("Non-member price must be a valid non-negative number.");
-          return;
-        }
-      }
+    const ttError = validateTicketTypes();
+    if (ttError) {
+      alert(ttError);
+      return;
     }
 
     setSaving(true);
     const action = editing ? "update" : "create";
-    const endpoint = editing
-      ? "/api/admin/events/update"
-      : "/api/admin/events/create";
-
-    const body = editing
-      ? { event_id: editing, ...formData }
-      : { ...formData };
 
     try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({} as { error?: string }));
-        const message =
-          (errJson as { error?: string }).error ||
-          `Save failed (HTTP ${res.status})`;
-        try {
-          posthog.capture("event_save_failed", {
-            action,
-            event_id: editing || null,
-            status: res.status,
-            error: message,
-            visibility: formData.visibility,
-            registration_enabled: formData.registration_enabled,
-          });
-        } catch {
-          /* posthog not initialized — ignore */
+      if (!editing) {
+        // Create: event + seeded ticket types, atomically (RPC).
+        const res = await fetch("/api/admin/events/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...formData, ticket_types: ticketTypes.map(ticketTypeBody) }),
+        });
+        if (!res.ok) {
+          const message = ((await res.json().catch(() => ({}))) as { error?: string }).error || `Save failed (HTTP ${res.status})`;
+          alert(`Could not save event: ${message}`);
+          setSaving(false);
+          return;
         }
-        alert(`Could not save event: ${message}`);
-        setSaving(false);
-        return;
+      } else {
+        // Edit: diff-sync ticket types FIRST through the single-writer API, so
+        // that if this save also enables registration, the update route's
+        // priceability guard sees the freshly-saved types. Then core fields.
+        const syncErr = await syncTicketTypes(editing);
+        if (syncErr) {
+          alert(`Ticket types could not be saved: ${syncErr}`);
+          setSaving(false);
+          router.refresh();
+          return;
+        }
+        const res = await fetch("/api/admin/events/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ event_id: editing, ...formData }),
+        });
+        if (!res.ok) {
+          const message = ((await res.json().catch(() => ({}))) as { error?: string }).error || `Save failed (HTTP ${res.status})`;
+          alert(`Could not save event: ${message}`);
+          setSaving(false);
+          return;
+        }
       }
 
       try {
@@ -302,6 +399,8 @@ async function handleImageUpload(file: File) {
     setShowForm(false);
     setEditing(null);
     setFormData(emptyForm);
+    setTicketTypes([makeStandardDraft()]);
+    setOriginalTicketTypeIds([]);
     router.refresh();
   }
 
@@ -735,7 +834,7 @@ async function handleImageUpload(file: File) {
                     value="members_only"
                     checked={formData.visibility === "members_only"}
                     onChange={() =>
-                      setFormData({ ...formData, visibility: "members_only", price_non_member: "" })
+                      setFormData({ ...formData, visibility: "members_only" })
                     }
                   />
                   Members only
@@ -772,46 +871,16 @@ async function handleImageUpload(file: File) {
               </label>
               <p className="text-xs text-muted-foreground mt-1">
                 When enabled, attendees can register and pay through the event
-                page. Member price is required; non-member price is required only for public events (use 0 for free).
+                page, choosing from the ticket types below.
               </p>
             </div>
 
-            <div>
-              <label className="block text-xs font-body text-muted-foreground mb-1">
-                Member price (CHF)
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.price_member}
-                onChange={(e) =>
-                  setFormData({ ...formData, price_member: e.target.value })
-                }
-                disabled={!formData.registration_enabled}
-                className={inputClass}
-                placeholder="0.00"
-              />
-            </div>
-            {formData.visibility !== "members_only" && (
-              <div>
-                <label className="block text-xs font-body text-muted-foreground mb-1">
-                  Non-member price (CHF)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={formData.price_non_member}
-                  onChange={(e) =>
-                    setFormData({ ...formData, price_non_member: e.target.value })
-                  }
-                  disabled={!formData.registration_enabled}
-                  className={inputClass}
-                  placeholder="0.00"
-                />
-              </div>
-            )}
+            <TicketTypesEditor
+              value={ticketTypes}
+              onChange={setTicketTypes}
+              visibility={formData.visibility}
+              registrationEnabled={formData.registration_enabled}
+            />
           </div>
             </div>
             <footer className="flex gap-2 px-6 py-4 border-t border-border shrink-0 bg-white">
