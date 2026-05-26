@@ -520,6 +520,8 @@ export type Database = {
           event_id: string
           id: string
           name: string
+          quantity: number | null
+          ticket_type_id: string | null
         }
         Insert: {
           created_at?: string
@@ -527,6 +529,8 @@ export type Database = {
           event_id: string
           id?: string
           name: string
+          quantity?: number | null
+          ticket_type_id?: string | null
         }
         Update: {
           created_at?: string
@@ -534,6 +538,8 @@ export type Database = {
           event_id?: string
           id?: string
           name?: string
+          quantity?: number | null
+          ticket_type_id?: string | null
         }
         Relationships: [
           {
@@ -541,6 +547,108 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_waitlist_ticket_type_id_fkey"
+            columns: ["ticket_type_id"]
+            isOneToOne: false
+            referencedRelation: "event_ticket_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_ticket_types: {
+        Row: {
+          archived_at: string | null
+          counts_as_seat: boolean
+          created_at: string
+          event_id: string
+          id: string
+          invite_price: number | null
+          price_member: number | null
+          price_non_member: number | null
+          sort_order: number
+          title: string
+        }
+        Insert: {
+          archived_at?: string | null
+          counts_as_seat?: boolean
+          created_at?: string
+          event_id: string
+          id?: string
+          invite_price?: number | null
+          price_member?: number | null
+          price_non_member?: number | null
+          sort_order?: number
+          title: string
+        }
+        Update: {
+          archived_at?: string | null
+          counts_as_seat?: boolean
+          created_at?: string
+          event_id?: string
+          id?: string
+          invite_price?: number | null
+          price_member?: number | null
+          price_non_member?: number | null
+          sort_order?: number
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_ticket_types_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_registration_items: {
+        Row: {
+          created_at: string
+          id: string
+          line_total_chf: number
+          quantity: number
+          registration_id: string
+          ticket_type_id: string
+          title_snapshot: string
+          unit_amount_chf: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          line_total_chf: number
+          quantity: number
+          registration_id: string
+          ticket_type_id: string
+          title_snapshot: string
+          unit_amount_chf: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          line_total_chf?: number
+          quantity?: number
+          registration_id?: string
+          ticket_type_id?: string
+          title_snapshot?: string
+          unit_amount_chf?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_registration_items_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registration_items_ticket_type_id_fkey"
+            columns: ["ticket_type_id"]
+            isOneToOne: false
+            referencedRelation: "event_ticket_types"
             referencedColumns: ["id"]
           },
         ]
