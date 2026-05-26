@@ -16,7 +16,7 @@ export default async function EventsPage() {
 
   const { data: seasons } = await supabase
     .from("seasons")
-    .select("id, year");
+    .select("id, slug");
 
   return (
     <div>

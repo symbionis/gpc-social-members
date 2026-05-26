@@ -19,7 +19,7 @@ interface EventType {
 
 interface Season {
   id: string;
-  year: number;
+  slug: string;
 }
 
 interface Event {
@@ -613,7 +613,7 @@ async function handleImageUpload(file: File) {
                 <option value="">Select season...</option>
                 {seasons.map((season) => (
                   <option key={season.id} value={season.id}>
-                    {season.year}
+                    {season.slug}
                   </option>
                 ))}
               </select>
@@ -974,7 +974,7 @@ async function handleImageUpload(file: File) {
                     {event.start_time && <span>{event.start_time}</span>}
                     {event.location && <span>{event.location}</span>}
                     {season && (
-                      <span className="text-xs">{season.year} season</span>
+                      <span className="text-xs">{season.slug} season</span>
                     )}
                   </div>
                   {event.description && (

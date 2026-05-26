@@ -54,7 +54,7 @@ export default async function MemberDashboardPage() {
   // Get current season
   const { data: seasons } = await adminClient
     .from("seasons")
-    .select("year, start_date, end_date")
+    .select("slug, start_date, end_date")
     .gte("end_date", new Date().toISOString().slice(0, 10))
     .order("start_date", { ascending: true })
     .limit(1);
@@ -197,7 +197,7 @@ export default async function MemberDashboardPage() {
         {season && (
           <div className="bg-white rounded-xl border border-border p-6">
             <p className="text-sm font-body text-muted-foreground mb-2">
-              {season.year} Season
+              {season.slug} Season
             </p>
             <p className="font-body text-marine">
               {new Date(season.start_date).toLocaleDateString("en-GB", {
