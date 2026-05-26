@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import AttendeeList from "@/components/admin/AttendeeList";
 import EventCheckInSettings from "@/components/admin/EventCheckInSettings";
+import EventInviteLink from "@/components/admin/EventInviteLink";
 import EventMessaging, {
   type ReminderSummaryRow,
   type SentMessageRow,
@@ -61,6 +62,10 @@ interface Props {
   reminders: ReminderSummaryRow[];
   sentMessages: SentMessageRow[];
   reminderSchedule: ReminderEntry[];
+  visibility: string;
+  inviteCode: string | null;
+  invitePrice: number | null;
+  registrationEnabled: boolean;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -154,6 +159,10 @@ export default function ManageEventTabs({
   reminders,
   sentMessages,
   reminderSchedule,
+  visibility,
+  inviteCode,
+  invitePrice,
+  registrationEnabled,
 }: Props) {
   const [tab, setTab] = useState<Tab>("registrations");
   const router = useRouter();
@@ -428,14 +437,25 @@ export default function ManageEventTabs({
       )}
 
       {tab === "settings" && (
-        <EventCheckInSettings
-          eventId={eventId}
-          baseUrl={baseUrl}
-          checkInPath={checkInPath}
-          strictCheckin={strictCheckin}
-          seatCap={seatCap}
-          seatsUsed={total}
-        />
+        <div className="space-y-10">
+          <EventCheckInSettings
+            eventId={eventId}
+            baseUrl={baseUrl}
+            checkInPath={checkInPath}
+            strictCheckin={strictCheckin}
+            seatCap={seatCap}
+            seatsUsed={total}
+          />
+          {visibility === "members_only" && (
+            <EventInviteLink
+              eventId={eventId}
+              baseUrl={baseUrl}
+              inviteCode={inviteCode}
+              invitePrice={invitePrice}
+              registrationEnabled={registrationEnabled}
+            />
+          )}
+        </div>
       )}
     </div>
   );

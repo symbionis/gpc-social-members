@@ -110,7 +110,7 @@ describe("POST /api/admin/events/[id]/waitlist/convert — auth & validation", (
     expect((await post({ quantity: 1 })).status).toBe(400);
   });
 
-  it.each([1.5, 0, 7, "3"])("400s a non-strict-integer quantity %p", async (q) => {
+  it.each([1.5, 0, 11, "3"])("400s a non-strict-integer quantity %p", async (q) => {
     expect((await post({ waitlistId: "wl-1", quantity: q })).status).toBe(400);
   });
 

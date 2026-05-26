@@ -4,7 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
-import { generateReferenceCode } from "@/lib/events/registration";
+import {
+  generateReferenceCode,
+  isValidInviteCode,
+} from "@/lib/events/registration";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -18,7 +21,12 @@ export async function POST(
 ) {
   const { id: eventId } = await params;
 
-  let body: { name?: unknown; email?: unknown; quantity?: unknown };
+  let body: {
+    name?: unknown;
+    email?: unknown;
+    quantity?: unknown;
+    code?: unknown;
+  };
   try {
     body = await request.json();
   } catch {
@@ -28,6 +36,7 @@ export async function POST(
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const email =
     typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  const code = typeof body.code === "string" ? body.code.trim() : "";
   const quantity =
     typeof body.quantity === "number"
       ? body.quantity
@@ -44,7 +53,7 @@ export async function POST(
   const { data: event, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, title, is_published, registration_enabled, price_member, price_non_member, visibility, seat_cap"
+      "id, title, is_published, registration_enabled, price_member, price_non_member, visibility, seat_cap, invite_code, invite_price"
     )
     .eq("id", eventId)
     .limit(1)
@@ -83,16 +92,35 @@ export async function POST(
     }
   }
 
-  // Members-only events require an authenticated active member.
-  if (event.visibility === "members_only" && !isMember) {
+  // Members-only events require either an authenticated active member or a
+  // valid invite code. The code is re-validated here server-side (after the
+  // not-found / published / registration_enabled gates above) because the
+  // public page's render gate is cosmetic — a direct POST must not bypass it.
+  // The code relaxes ONLY the members-only block; it never confers pricing.
+  const isMembersOnly = event.visibility === "members_only";
+  const hasValidInvite = isValidInviteCode(event.invite_code, code);
+
+  if (isMembersOnly && !isMember && !hasValidInvite) {
     return bad("This event is for members only", 403);
   }
 
+  // Pricing is decided by the session, never by the code. A logged-out invitee
+  // on a members-only event pays invite_price (its dedicated guest price);
+  // a logged-in active member always pays price_member; everyone else on a
+  // public event pays price_non_member.
   const unitAmount = isMember
     ? Number(event.price_member)
-    : Number(event.price_non_member);
+    : isMembersOnly
+      ? Number(event.invite_price)
+      : Number(event.price_non_member);
 
-  if (!Number.isFinite(unitAmount) || unitAmount < 0) {
+  // Number(null) === 0, so an unset invite_price must be caught explicitly here
+  // rather than silently registering every invited guest for free.
+  if (
+    (isMembersOnly && !isMember && event.invite_price === null) ||
+    !Number.isFinite(unitAmount) ||
+    unitAmount < 0
+  ) {
     return bad("Event pricing is misconfigured", 500);
   }
 
@@ -183,6 +211,12 @@ export async function POST(
   // Paid path: create Stripe Checkout Session
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
+  // Carry the invite code into the return URLs so a cancelled checkout returns
+  // to a still-valid invite page (a members-only page with no code re-renders
+  // the "Apply for membership" block). If the code was regenerated mid-checkout
+  // the returned code no longer validates — the guest needs a fresh link.
+  const codeParam = code ? `&code=${encodeURIComponent(code)}` : "";
+
   let session;
   try {
     session = await getStripe().checkout.sessions.create({
@@ -202,8 +236,8 @@ export async function POST(
         event_registration_id: inserted.id,
         event_id: eventId,
       },
-      success_url: `${appUrl}/public/events/${eventId}?registered=1`,
-      cancel_url: `${appUrl}/public/events/${eventId}?cancelled=1`,
+      success_url: `${appUrl}/public/events/${eventId}?registered=1${codeParam}`,
+      cancel_url: `${appUrl}/public/events/${eventId}?cancelled=1${codeParam}`,
     });
   } catch (err) {
     console.error("[event-register] Stripe session create failed", {

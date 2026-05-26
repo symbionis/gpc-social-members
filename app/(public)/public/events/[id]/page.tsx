@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import EventRegistrationDrawer from "@/components/public/EventRegistrationDrawer";
 import EventFullyBookedBlock from "@/components/public/EventFullyBookedBlock";
 import EventGallery from "@/components/EventGallery";
 import SeatBadges from "@/components/events/SeatBadges";
 import { deriveSeatState, getSeatsUsed } from "@/lib/events/seat-usage";
+import { isValidInviteCode } from "@/lib/events/registration";
 
 const APPLY_URL = "/apply/GPC-2026";
 
@@ -84,10 +86,10 @@ export default async function PublicEventDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ registered?: string; cancelled?: string }>;
+  searchParams: Promise<{ registered?: string; cancelled?: string; code?: string }>;
 }) {
   const { id } = await params;
-  const { registered, cancelled } = await searchParams;
+  const { registered, cancelled, code } = await searchParams;
 
   const supabase = createAdminClient();
 
@@ -101,12 +103,67 @@ export default async function PublicEventDetailPage({
   if (!event) notFound();
 
   const isMembersOnly = event.visibility !== "public";
+
+  // Session awareness (additive on this otherwise-public page). A logged-in
+  // active member sees their member price and no nudge. Any failure here
+  // degrades to guest rendering — this route must never redirect to login.
+  let isActiveMember = false;
+  let isLoggedIn = false;
+  try {
+    const sessionClient = await createClient();
+    const {
+      data: { user },
+    } = await sessionClient.auth.getUser();
+    if (user?.id) {
+      isLoggedIn = true;
+      const { data: memberRow } = await supabase
+        .from("members")
+        .select("id, status")
+        .eq("auth_user_id", user.id)
+        .eq("status", "active")
+        .limit(1)
+        .maybeSingle();
+      if (memberRow) isActiveMember = true;
+    }
+  } catch (err) {
+    console.error("[public/events/[id]] session lookup failed", err);
+  }
+
+  // Invite-code gate. The stored event.invite_code is read SERVER-SIDE only and
+  // is never passed to a client component; only the visitor-supplied URL `code`
+  // (and the boolean below) cross to the client.
+  const suppliedCode = typeof code === "string" ? code : "";
+  const hasValidInvite =
+    isMembersOnly && isValidInviteCode(event.invite_code, suppliedCode);
+  const invalidCodePresent = isMembersOnly && !!suppliedCode && !hasValidInvite;
+
+  // A valid invite only unlocks registration once a guest price is set. Without
+  // it the register API rejects the submit as misconfigured (Number(null)=0
+  // would otherwise read as free), so don't advertise a (free-looking) form the
+  // POST will refuse — show the "not open yet" state instead.
+  const inviteRegisterable = hasValidInvite && event.invite_price !== null;
+
+  // On a members-only event, the registration form appears for an active member
+  // or a valid invite-code holder with a configured price; everyone else gets
+  // the "Apply" block (or the "not open yet" notice for a priced-pending invite).
+  const showForm = !isMembersOnly || isActiveMember || inviteRegisterable;
+  // Obscure date/time/location only when this is a members-only event the
+  // visitor cannot register for; invite-holders and members see full details.
+  const obscureDetails = isMembersOnly && !showForm;
+
   const eventType = event.event_types as
     | { name: string; color: string }
     | null;
   const images = coerceImages(event.images, [event.image_url, event.image_url_2]);
   const priceMember = Number(event.price_member ?? 0);
-  const priceNonMember = Number(event.price_non_member ?? 0);
+  // What this viewer pays / sees: a member always pays member rate; on a
+  // members-only invite page a guest pays invite_price; public events use
+  // price_non_member. Server-side pricing in the register API is authoritative.
+  const displayPrice = isMembersOnly
+    ? isActiveMember
+      ? priceMember
+      : Number(event.invite_price ?? 0)
+    : Number(event.price_non_member ?? 0);
 
   // Capacity state. Skip the count query for uncapped events. On lookup
   // failure, degrade to "uncapped" rendering — the register POST handler
@@ -187,22 +244,22 @@ export default async function PublicEventDetailPage({
                   <SeatBadges
                     registrationEnabled={event.registration_enabled}
                     seatState={hasSeatCap ? seatState : null}
-                    suppress={isMembersOnly}
+                    suppress={obscureDetails}
                   />
                 </div>
 
                 <p className="font-body text-base font-semibold text-sky-dark">
-                  {isMembersOnly
+                  {obscureDetails
                     ? formatMonthOnly(event.start_date, event.end_date)
                     : formatDateRange(event.start_date, event.end_date)}
-                  {!isMembersOnly && event.start_time
+                  {!obscureDetails && event.start_time
                     ? ` · ${event.start_time.slice(0, 5)}`
                     : ""}
                 </p>
                 <h1 className="font-heading text-2xl sm:text-3xl font-bold text-marine mt-1 mb-2">
                   {event.title}
                 </h1>
-                {!isMembersOnly && event.location && (
+                {!obscureDetails && event.location && (
                   <p className="text-base font-body text-muted-foreground mb-4">
                     {event.location}
                   </p>
@@ -218,8 +275,20 @@ export default async function PublicEventDetailPage({
 
             <aside>
               <div className="bg-white rounded-sm border border-border/60 p-5 lg:sticky lg:top-6">
-                {isMembersOnly ? (
+                {!showForm && hasValidInvite ? (
+                  // Valid invite, but the guest price isn't set yet — invited,
+                  // not yet open. (Matches the register API's misconfig guard.)
+                  <p className="font-body text-sm text-muted-foreground">
+                    Registration isn&apos;t open for this event yet. Please check
+                    back with your host.
+                  </p>
+                ) : !showForm ? (
                   <>
+                    {invalidCodePresent && (
+                      <p className="font-body text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-4">
+                        This invite link is no longer valid.
+                      </p>
+                    )}
                     <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-1">
                       Members only
                     </p>
@@ -245,8 +314,26 @@ export default async function PublicEventDetailPage({
                       Price
                     </p>
                     <p className="font-heading text-2xl font-bold text-marine mb-4">
-                      {priceLabel(priceNonMember)}
+                      {priceLabel(displayPrice)}
                     </p>
+                    {isMembersOnly && !isActiveMember && (
+                      <p className="font-body text-sm text-sky-dark bg-sky/5 border border-sky/20 rounded-lg px-3 py-2 mb-3">
+                        {isLoggedIn ? (
+                          <>Renew your membership for the member rate.</>
+                        ) : (
+                          <>
+                            Already a member?{" "}
+                            <Link
+                              href="/login"
+                              className="underline underline-offset-2 hover:text-marine"
+                            >
+                              Log in
+                            </Link>{" "}
+                            for your member rate.
+                          </>
+                        )}
+                      </p>
+                    )}
                     {isLowAvailability && seatsRemaining !== null && (
                       <p className="font-body text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
                         Only {seatsRemaining} {seatsRemaining === 1 ? "ticket" : "tickets"} left
@@ -256,9 +343,10 @@ export default async function PublicEventDetailPage({
                       eventId={event.id}
                       eventTitle={event.title}
                       priceMember={priceMember}
-                      priceNonMember={priceNonMember}
+                      priceNonMember={displayPrice}
                       maxQuantity={maxQuantity}
                       buttonLabel="Register"
+                      code={isMembersOnly ? suppliedCode : undefined}
                     />
                   </>
                 )}

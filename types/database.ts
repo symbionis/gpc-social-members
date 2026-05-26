@@ -555,6 +555,8 @@ export type Database = {
           image_url: string | null
           image_url_2: string | null
           images: Json
+          invite_code: string | null
+          invite_price: number | null
           is_confirmed: boolean
           is_published: boolean
           location: string | null
@@ -581,6 +583,8 @@ export type Database = {
           image_url?: string | null
           image_url_2?: string | null
           images?: Json
+          invite_code?: string | null
+          invite_price?: number | null
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null
@@ -607,6 +611,8 @@ export type Database = {
           image_url?: string | null
           image_url_2?: string | null
           images?: Json
+          invite_code?: string | null
+          invite_price?: number | null
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null

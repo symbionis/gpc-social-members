@@ -53,6 +53,9 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // NB: invite_code and invite_price are deliberately absent from this
+  // whitelist — they are owned by POST|PATCH /api/admin/events/[id]/invite-code
+  // (single-writer). Do not add them here.
   const updates: {
     strict_checkin?: boolean;
     seat_cap?: number | null;

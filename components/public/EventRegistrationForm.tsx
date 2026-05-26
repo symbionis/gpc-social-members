@@ -14,6 +14,10 @@ interface Props {
   memberOnly?: boolean;
   /** Max selectable quantity. Defaults to MAX_QUANTITY_HARD_CAP. Clamped to remaining seats for capped events. */
   maxQuantity?: number;
+  /** Invite code from the URL; forwarded to the register API to unlock a
+   *  members-only event. This is the visitor-supplied URL value, never the
+   *  event's stored secret. */
+  code?: string;
 }
 
 const MAX_QUANTITY_HARD_CAP = 10;
@@ -27,6 +31,7 @@ export default function EventRegistrationForm({
   showMemberRate = true,
   memberOnly = false,
   maxQuantity,
+  code,
 }: Props) {
   const effectiveMaxQuantity = Math.max(
     1,
@@ -72,7 +77,12 @@ export default function EventRegistrationForm({
       const res = await fetch(`/api/events/${eventId}/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), quantity }),
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          quantity,
+          ...(code ? { code } : {}),
+        }),
       });
 
       const data = await res.json();

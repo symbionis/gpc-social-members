@@ -15,7 +15,9 @@ export default async function ManageEventPage({
 
   const { data: event } = await supabase
     .from("events")
-    .select("id, title, start_date, seat_cap, strict_checkin, reminder_schedule")
+    .select(
+      "id, title, start_date, seat_cap, strict_checkin, reminder_schedule, visibility, registration_enabled, invite_code, invite_price"
+    )
     .eq("id", id)
     .single();
 
@@ -114,6 +116,10 @@ export default async function ManageEventPage({
         reminders={reminders}
         sentMessages={sentMessages ?? []}
         reminderSchedule={reminderSchedule}
+        visibility={(event.visibility as string) ?? "members_only"}
+        inviteCode={(event.invite_code as string | null) ?? null}
+        invitePrice={(event.invite_price as number | null) ?? null}
+        registrationEnabled={Boolean(event.registration_enabled)}
       />
     </div>
   );

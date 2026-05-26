@@ -81,6 +81,12 @@ export async function POST(request: NextRequest) {
   // seat_cap and reminder_schedule are managed on the event's Manage page
   // (PATCH .../settings) — the Settings and Messaging tabs respectively — not
   // here, so editing an event never touches the ticket cap or reminder schedule.
+  //
+  // invite_code and invite_price are owned by POST|PATCH
+  // /api/admin/events/[id]/invite-code (single-writer). They MUST NOT be added
+  // to the update payload below: doing so would let an unrelated edit (e.g. a
+  // title change) silently wipe a live invite link or its guest price. See
+  // docs/solutions/architecture-patterns/single-writer-field-ownership-across-routes.md.
 
   const imageList = Array.isArray(images)
     ? images.filter((u): u is string => typeof u === "string" && u.length > 0)

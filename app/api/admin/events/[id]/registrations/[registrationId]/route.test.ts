@@ -91,7 +91,7 @@ describe("PATCH /api/admin/events/[id]/registrations/[registrationId]", () => {
 
   it("400s a non-integer or out-of-range quantity", async () => {
     expect((await patch({ quantity: 0 })).status).toBe(400);
-    expect((await patch({ quantity: 7 })).status).toBe(400);
+    expect((await patch({ quantity: 11 })).status).toBe(400);
     expect((await patch({ quantity: 2.5 })).status).toBe(400);
     expect((await patch({ quantity: "abc" })).status).toBe(400);
   });
