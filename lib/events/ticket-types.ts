@@ -65,16 +65,21 @@ export function normalizeTicketType(
       // carry an invite (guest) price. Force the irrelevant one null.
       price_non_member: isMembersOnly ? null : pnm.value,
       invite_price: isMembersOnly ? inv.value : null,
-      counts_as_seat: o.counts_as_seat !== false, // default true
+      // Accept a real boolean; anything else (absent, or a stray non-boolean)
+      // defaults to true rather than being silently coerced.
+      counts_as_seat: typeof o.counts_as_seat === "boolean" ? o.counts_as_seat : true,
     },
   };
 }
 
 /**
  * Guard that MUST be called before flipping events.registration_enabled true,
- * on every path that can do so (admin update route, agent route). It replaces
- * the dropped events_prices_required_when_registration_enabled DB constraint:
- * every ACTIVE ticket type must carry the prices its visibility requires.
+ * on every event-update path that can do so (admin update route, agent route).
+ * The admin create route enforces the same rule inline instead of calling this
+ * (it validates pre-insert normalized values rather than stored rows). It
+ * replaces the dropped events_prices_required_when_registration_enabled DB
+ * constraint: every ACTIVE ticket type must carry the prices its visibility
+ * requires.
  */
 export async function assertEventRegistrationPriceable(
   eventId: string

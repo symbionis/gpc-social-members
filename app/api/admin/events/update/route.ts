@@ -63,9 +63,10 @@ export async function POST(request: NextRequest) {
   }
 
   // Single-writer ownership — this bulk update route MUST NOT write:
-  //   seat_cap, reminder_schedule          → Manage page (Settings / Messaging)
-  //   invite_code, invite_price            → invite-code route
-  //   price_member, price_non_member, and per-type prices → ticket-types route
+  //   seat_cap, reminder_schedule   → Manage page (Settings / Messaging)
+  //   invite_code                   → invite-code route
+  //   all ticket-type prices (event_ticket_types.price_member / price_non_member
+  //                            / invite_price) → ticket-types route
   // Adding any of them here would let an unrelated edit (e.g. a title change)
   // silently wipe values an owning surface saved. See
   // docs/solutions/architecture-patterns/single-writer-field-ownership-across-routes.md.

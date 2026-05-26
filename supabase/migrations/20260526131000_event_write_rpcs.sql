@@ -79,11 +79,13 @@ $$;
 
 -- ---------------------------------------------------------------------------
 -- create_event_with_ticket_types: event row + its seeded ticket types,
--- atomically, so an event can never exist without >=1 type. The caller
--- (admin create route U4, agent create/draft U13) does all input normalization
--- and passes already-clean values; this function only owns atomicity. The
--- column list mirrors what app/api/admin/events/create/route.ts inserts (minus
--- the price columns, which now live on the types). Keep them in sync.
+-- atomically, so an event created through it can never exist without >=1 type.
+-- Its only caller is the admin create route (U4), which does all input
+-- normalization and passes already-clean values; this function only owns
+-- atomicity. (The agent draft route seeds its Standard type with a separate
+-- insert, not this RPC.) The column list mirrors what
+-- app/api/admin/events/create/route.ts inserts (minus the price columns, which
+-- now live on the types). Keep them in sync.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.create_event_with_ticket_types(
   p_event jsonb,

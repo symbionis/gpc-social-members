@@ -98,12 +98,16 @@ export default function EventInviteLink({
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           setPriceError(data.error || `Could not save the guest price for "${t.title}".`);
+          // Refresh so the link-activation gate reflects whatever DID persist
+          // (earlier types in the loop may already be saved).
+          router.refresh();
           return;
         }
       }
       setPriceSaved(true);
       router.refresh();
-    } catch {
+    } catch (err) {
+      console.error("[invite-link] savePrices failed", err);
       setPriceError("Network error. Could not save guest prices.");
     } finally {
       setPriceSaving(false);

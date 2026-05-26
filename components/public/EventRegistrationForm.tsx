@@ -47,8 +47,11 @@ export default function EventRegistrationForm({
   const [soldOut, setSoldOut] = useState(false);
 
   const totalQuantity = Object.values(quantities).reduce((a, b) => a + b, 0);
-  const totalAmount = ticketTypes.reduce(
-    (sum, t) => sum + (t.price ?? 0) * (quantities[t.id] ?? 0),
+  // Sum over selectable (priced) types only — keeps the "a null price never
+  // counts as free" invariant local rather than relying on null-priced rows
+  // never accruing a quantity.
+  const totalAmount = selectable.reduce(
+    (sum, t) => sum + (t.price as number) * (quantities[t.id] ?? 0),
     0
   );
   const atCap = totalQuantity >= cap;

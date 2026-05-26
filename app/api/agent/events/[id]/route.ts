@@ -232,9 +232,9 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     updatedFields.push("strict_checkin");
   }
 
-  // Per-event prices were dropped — ticket-type prices are owned by the
-  // ticket-types route (single writer). This route no longer accepts or writes
-  // price_member / price_non_member.
+  // This route no longer accepts or writes the per-event price columns (being
+  // retired in the cutover); ticket-type prices are owned by the ticket-types
+  // route (single writer).
   if ("seat_cap" in body) {
     const raw = body.seat_cap;
     if (raw === null || raw === "" || raw === undefined) {

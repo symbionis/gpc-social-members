@@ -1314,6 +1314,10 @@ export type Database = {
           seats_used: number
         }[]
       }
+      // HAND-AUTHORED nullable RPC args (re-apply after every `supabase gen
+      // types` — the generator types these non-null, which breaks the
+      // anonymous-registration / not-converted call sites that pass null).
+      // Same re-append discipline as the manual aliases at the file end.
       create_event_registration: {
         Args: {
           p_event_id: string

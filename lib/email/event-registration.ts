@@ -78,11 +78,18 @@ export async function sendEventRegistrationConfirmation(
 
   // Per-type breakdown. Render as a Mustachio section in the template:
   //   {{#ticket_lines}} {{title}} × {{quantity}} — {{line_label}} {{/ticket_lines}}
-  const { data: items } = await supabase
+  const { data: items, error: itemsErr } = await supabase
     .from("event_registration_items")
     .select("title_snapshot, quantity, line_total_chf")
     .eq("registration_id", registrationId)
     .order("created_at", { ascending: true });
+
+  // Log a query error distinctly so a real failure isn't disguised as the
+  // legitimate "itemless legacy row" fallback below (which would email a
+  // collapsed single-line breakdown for an order that actually has items).
+  if (itemsErr) {
+    console.error("[event-registration-email] items lookup failed", { registrationId, err: itemsErr });
+  }
 
   const ticketLines =
     items && items.length > 0
