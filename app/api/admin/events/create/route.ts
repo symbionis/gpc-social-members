@@ -2,7 +2,12 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse, type NextRequest } from "next/server";
 import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
+import { normalizeTicketType } from "@/lib/events/ticket-types";
 
+// Creates an event AND its seeded ticket types atomically via the
+// create_event_with_ticket_types RPC, so a typeless event can never exist.
+// This route no longer writes the events price columns (they moved to
+// event_ticket_types) — ticket-type prices are owned by the ticket-types route.
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const {
@@ -45,9 +50,8 @@ export async function POST(request: NextRequest) {
     images,
     visibility,
     registration_enabled,
-    price_member,
-    price_non_member,
     reminder_schedule,
+    ticket_types,
   } = await request.json();
 
   const reminderResult = validateReminderSchedule(reminder_schedule);
@@ -56,36 +60,40 @@ export async function POST(request: NextRequest) {
   }
 
   const regEnabled = Boolean(registration_enabled);
-  const priceMember = price_member === "" || price_member === null || price_member === undefined
-    ? null
-    : Number(price_member);
-  const priceNonMember = price_non_member === "" || price_non_member === null || price_non_member === undefined
-    ? null
-    : Number(price_non_member);
+  const eventVisibility = visibility === "public" ? "public" : "members_only";
+  const isMembersOnly = eventVisibility === "members_only";
 
-  const isMembersOnly = visibility !== "public";
-  const effectivePriceNonMember = isMembersOnly ? null : priceNonMember;
-
-  if (regEnabled) {
-    if (priceMember === null || Number.isNaN(priceMember)) {
-      return NextResponse.json(
-        { error: "Member price is required when registration is enabled" },
-        { status: 400 }
-      );
-    }
-    if (!isMembersOnly && (effectivePriceNonMember === null || Number.isNaN(effectivePriceNonMember))) {
-      return NextResponse.json(
-        { error: "Non-member price is required for public events when registration is enabled" },
-        { status: 400 }
-      );
-    }
-    if (priceMember < 0 || (effectivePriceNonMember !== null && effectivePriceNonMember < 0)) {
-      return NextResponse.json({ error: "Prices cannot be negative" }, { status: 400 });
-    }
+  // Validate + normalize ticket types (visibility-aware null rules).
+  if (!Array.isArray(ticket_types) || ticket_types.length === 0) {
+    return NextResponse.json(
+      { error: "At least one ticket type is required" },
+      { status: 400 }
+    );
   }
-
-  // New events start with no ticket cap (unlimited). The cap is set afterwards
-  // on the event's Settings tab (PATCH .../settings).
+  const normalizedTypes = [];
+  for (let i = 0; i < ticket_types.length; i++) {
+    const r = normalizeTicketType(ticket_types[i], eventVisibility);
+    if (!r.ok) {
+      return NextResponse.json({ error: r.error }, { status: 400 });
+    }
+    // When registration is enabled, every type must carry the prices its
+    // visibility requires (mirrors assertEventRegistrationPriceable).
+    if (regEnabled) {
+      if (r.value.price_member === null) {
+        return NextResponse.json(
+          { error: `"${r.value.title}" needs a member price when registration is enabled` },
+          { status: 400 }
+        );
+      }
+      if (!isMembersOnly && r.value.price_non_member === null) {
+        return NextResponse.json(
+          { error: `"${r.value.title}" needs a non-member price for a public event` },
+          { status: 400 }
+        );
+      }
+    }
+    normalizedTypes.push({ ...r.value, sort_order: i });
+  }
 
   const imageList = Array.isArray(images)
     ? images.filter((u): u is string => typeof u === "string" && u.length > 0)
@@ -93,7 +101,7 @@ export async function POST(request: NextRequest) {
   const heroImage = imageList[0] ?? image_url ?? null;
   const secondImage = imageList[1] ?? image_url_2 ?? null;
 
-  const { error } = await adminClient.from("events").insert({
+  const eventPayload = {
     title,
     event_type_id: event_type_id || null,
     start_date,
@@ -108,15 +116,18 @@ export async function POST(request: NextRequest) {
     image_url: heroImage,
     image_url_2: secondImage,
     images: imageList,
-    visibility: visibility === "public" ? "public" : "members_only",
+    visibility: eventVisibility,
     registration_enabled: regEnabled,
-    price_member: priceMember,
-    price_non_member: effectivePriceNonMember,
     reminder_schedule: reminderResult.value ?? [],
+  };
+
+  const { error } = await adminClient.rpc("create_event_with_ticket_types", {
+    p_event: eventPayload,
+    p_types: normalizedTypes,
   });
 
   if (error) {
-    console.error("[admin/events/create] insert failed", error);
+    console.error("[admin/events/create] rpc failed", error);
     return NextResponse.json(
       { error: `Create failed: ${error.message}` },
       { status: 500 }

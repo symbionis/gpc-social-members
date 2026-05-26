@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse, type NextRequest } from "next/server";
+import { assertEventRegistrationPriceable } from "@/lib/events/ticket-types";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -45,47 +46,28 @@ export async function POST(request: NextRequest) {
     images,
     visibility,
     registration_enabled,
-    price_member,
-    price_non_member,
   } = await request.json();
 
   const regEnabled = Boolean(registration_enabled);
-  const priceMember = price_member === "" || price_member === null || price_member === undefined
-    ? null
-    : Number(price_member);
-  const priceNonMember = price_non_member === "" || price_non_member === null || price_non_member === undefined
-    ? null
-    : Number(price_non_member);
 
-  const isMembersOnly = visibility !== "public";
-  const effectivePriceNonMember = isMembersOnly ? null : priceNonMember;
-
+  // Enabling registration: every active ticket type must carry the prices its
+  // visibility requires. This guard replaces the dropped event-level price
+  // CHECK constraint and is the single home of that invariant for this route.
+  // (EventManager syncs ticket-type edits BEFORE calling update, so the guard
+  // sees the freshly-saved types.)
   if (regEnabled) {
-    if (priceMember === null || Number.isNaN(priceMember)) {
-      return NextResponse.json(
-        { error: "Member price is required when registration is enabled" },
-        { status: 400 }
-      );
-    }
-    if (!isMembersOnly && (effectivePriceNonMember === null || Number.isNaN(effectivePriceNonMember))) {
-      return NextResponse.json(
-        { error: "Non-member price is required for public events when registration is enabled" },
-        { status: 400 }
-      );
-    }
-    if (priceMember < 0 || (effectivePriceNonMember !== null && effectivePriceNonMember < 0)) {
-      return NextResponse.json({ error: "Prices cannot be negative" }, { status: 400 });
+    const priceable = await assertEventRegistrationPriceable(event_id);
+    if (!priceable.ok) {
+      return NextResponse.json({ error: priceable.error }, { status: 400 });
     }
   }
 
-  // seat_cap and reminder_schedule are managed on the event's Manage page
-  // (PATCH .../settings) — the Settings and Messaging tabs respectively — not
-  // here, so editing an event never touches the ticket cap or reminder schedule.
-  //
-  // invite_code and invite_price are owned by POST|PATCH
-  // /api/admin/events/[id]/invite-code (single-writer). They MUST NOT be added
-  // to the update payload below: doing so would let an unrelated edit (e.g. a
-  // title change) silently wipe a live invite link or its guest price. See
+  // Single-writer ownership — this bulk update route MUST NOT write:
+  //   seat_cap, reminder_schedule          → Manage page (Settings / Messaging)
+  //   invite_code, invite_price            → invite-code route
+  //   price_member, price_non_member, and per-type prices → ticket-types route
+  // Adding any of them here would let an unrelated edit (e.g. a title change)
+  // silently wipe values an owning surface saved. See
   // docs/solutions/architecture-patterns/single-writer-field-ownership-across-routes.md.
 
   const imageList = Array.isArray(images)
@@ -113,8 +95,6 @@ export async function POST(request: NextRequest) {
       images: imageList,
       visibility: visibility === "public" ? "public" : "members_only",
       registration_enabled: regEnabled,
-      price_member: priceMember,
-      price_non_member: effectivePriceNonMember,
     })
     .eq("id", event_id);
 
