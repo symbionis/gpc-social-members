@@ -1,6 +1,7 @@
 ---
 title: "Don't reuse a column that's force-null for a row category as a value source"
 date: "2026-05-26"
+last_refreshed: "2026-05-26"
 category: "architecture-patterns"
 module: "events"
 problem_type: "architecture_pattern"
@@ -28,23 +29,16 @@ tags:
 
 ## Context
 
-The `events` table makes `price_non_member` **structurally null for members-only events**, by deliberate design enforced at every layer:
+The events pricing model makes `price_non_member` **structurally null for members-only events** by deliberate design — originally on the `events` table, now per ticket type on `event_ticket_types` (PR #35). The force-null is enforced at every layer:
 
-- **DB constraint** (`supabase/migrations/20260508120000_events_price_constraint_visibility.sql`) requires only `price_member` for members-only rows — `price_non_member` is explicitly allowed null:
-  ```sql
-  registration_enabled = false
-  OR (
-    price_member IS NOT NULL
-    AND ( visibility = 'members_only' OR price_non_member IS NOT NULL )
-  )
-  ```
-- **Write routes force it null on every edit** (`app/api/admin/events/create/route.ts`, `app/api/admin/events/update/route.ts`):
+- **Server-side write coercion** (`lib/events/ticket-types.ts`, `normalizeTicketType` — the single per-type writer) force-nulls the irrelevant column when persisting a ticket type: members-only types never carry `price_non_member`, public types never carry `invite_price`:
   ```ts
-  const isMembersOnly = visibility !== "public";
-  const effectivePriceNonMember = isMembersOnly ? null : priceNonMember;
-  // ...persisted as price_non_member: effectivePriceNonMember
+  // normalizeTicketType
+  price_non_member: isMembersOnly ? null : pnm.value,
+  invite_price:     isMembersOnly ? inv.value : null,
   ```
-- **The agent route does the same** (`app/api/agent/events/[id]/route.ts`), and **the admin UI hides/clears the input** for members_only (`components/admin/EventManager.tsx`).
+- **The admin UI hides/clears the input** for the irrelevant visibility (`components/admin/EventManager.tsx` → `TicketTypesEditor`), and the agent route persists through the same per-type writer.
+- **Historical note:** before the per-type model, an `events`-table CHECK constraint (`events_prices_required_when_registration_enabled`, relaxed for members-only in `20260508120000_events_price_constraint_visibility.sql`) enforced this. That constraint was **dropped** in `20260526133000_drop_events_price_constraint.sql` once prices moved to `event_ticket_types`; the per-type equivalent now lives in `normalizeTicketType` + `assertEventRegistrationPriceable`.
 
 The trap: the private-invite-link feature (PR #32) planned to **reuse `price_non_member` as the flat guest price** for invited registrants on members-only events. But the register API computes amounts with `Number(...)`, and `Number(null) === 0` — so every invited guest would have registered **FREE**. A silent correctness/financial bug, not a crash. It was caught only at code/doc review (four reviewers independently converged on it), not in the brainstorm or the plan.
 
@@ -52,23 +46,21 @@ The trap: the private-invite-link feature (PR #32) planned to **reuse `price_non
 
 Before reusing an existing column to carry a new meaning, **verify the column is actually populated for the specific row category your feature targets.** A column that is non-null in general can be force-null for one category by constraint, write-path coercion, or UI gating — and `Number(null) === 0` (and `null ?? 0`) turns that absence into a silent, plausible-looking zero rather than an error.
 
-When a row category cannot carry the existing column by design, **add a dedicated column** rather than overloading the one that's null there. The resolution here was `events.invite_price` (`supabase/migrations/20260526120000_events_invite_link.sql`), kept separate from `price_non_member`:
+When a row category cannot carry the existing column by design, **add a dedicated column** rather than overloading the one that's null there. The resolution was a dedicated `invite_price` — first as `events.invite_price` (`20260526120000_events_invite_link.sql`), then moved per ticket type to `event_ticket_types.invite_price` (`20260526130000_event_ticket_types.sql`) when the multi-ticket-type model landed — kept separate from `price_non_member`:
 
-- Pricing is decided by session, never by the form email/code. Logged-out invitee → `invite_price`; logged-in active member → `price_member`.
-- The register API **guards the null case explicitly** instead of trusting arithmetic (`app/api/events/[id]/register/route.ts`):
+- Pricing is decided by session, never by the form email/code. Logged-out invitee → `invite_price`; logged-in active member → `price_member`; public non-member → `price_non_member`.
+- The register API resolves the rate **per ticket type** and **guards the null case explicitly** instead of trusting arithmetic (`app/api/events/[id]/register/route.ts`):
   ```ts
-  const unitAmount = isMember
-    ? Number(event.price_member)
-    : isMembersOnly
-      ? Number(event.invite_price)   // dedicated guest price, NOT price_non_member
-      : Number(event.price_non_member);
+  // per chosen ticket type (t), resolved by the registrant's rate class
+  const unit =
+    rateClass === "member"
+      ? t.price_member
+      : rateClass === "invite"
+        ? t.invite_price        // dedicated guest price, NOT price_non_member
+        : t.price_non_member;
 
-  // Number(null) === 0, so an unset invite_price must be caught explicitly here
-  if (
-    (isMembersOnly && !isMember && event.invite_price === null) ||
-    !Number.isFinite(unitAmount) ||
-    unitAmount < 0
-  ) {
+  // Number(null) === 0, so an unset price must be caught explicitly here
+  if (unit === null || !Number.isFinite(Number(unit)) || Number(unit) < 0) {
     return bad("Event pricing is misconfigured", 500); // loud, not silently free
   }
   ```
@@ -92,17 +84,17 @@ A related operational reason to add a *new* column rather than start populating 
 **Wrong — reusing the structurally-null column (the planned approach):**
 ```ts
 // Members-only invited guest. price_non_member is ALWAYS null for these rows.
-const unitAmount = isMember ? Number(event.price_member) : Number(event.price_non_member);
+const unitAmount = isMember ? Number(t.price_member) : Number(t.price_non_member);
 // Number(null) === 0  ->  every invited guest registers FREE, silently.
 ```
 
 **Right — dedicated column + explicit null guard** (`app/api/events/[id]/register/route.ts`): see the Guidance snippet above.
 
-**Display/charge agreement — "Free" vs "not open yet"** (`app/(public)/public/events/[id]/page.tsx`). The page initially rendered `Number(event.invite_price ?? 0)` → "Free" with a working Register button, while the API 500'd on submit. Fixed by treating a null `invite_price` on the invite path as "not open yet," matching the API's misconfig guard:
+**Display/charge agreement — "Free" vs "not open yet"** (`app/(public)/public/events/[id]/page.tsx`). The page initially rendered a free-looking form (a null guest price coerced to `Number(... ?? 0)` → "Free") with a working Register button, while the API 500'd on submit. Fixed by treating a null resolved price on the invite path as "not open yet," matching the API's misconfig guard — now computed per ticket type:
 ```ts
 // A valid invite only unlocks registration once a guest price is set, so don't
 // advertise a free-looking form the POST will refuse — show "not open yet".
-const inviteRegisterable = hasValidInvite && event.invite_price !== null;
+const inviteRegisterable = hasValidInvite && anyPriceable; // anyPriceable: some type has a non-null resolved price
 const showForm = !isMembersOnly || isActiveMember || inviteRegisterable;
 ```
 
@@ -110,7 +102,7 @@ const showForm = !isMembersOnly || isActiveMember || inviteRegisterable;
 
 ## Related
 
-- [single-writer-field-ownership-across-routes.md](../architecture-patterns/single-writer-field-ownership-across-routes.md) — sibling events-pricing learning. `invite_code`/`invite_price` follow the single-writer rule established there (the bulk update + settings routes must not write them), but the failure mode is distinct: that doc is about a bulk route silently *wiping* a field; this one is about *reusing* a force-null field that silently reads as 0. `invite_code`/`invite_price` are the latest real-world instance of that single-writer pattern.
+- [single-writer-field-ownership-across-routes.md](../architecture-patterns/single-writer-field-ownership-across-routes.md) — sibling events-pricing learning. `invite_price` follows the single-writer rule established there; PR #35 moved it to a per-type column and added that doc's "Shape B" carry-through case (the shared ticket-type editor must echo the guest price, not null it). The failure mode here is distinct: that doc is about *wiping* a field; this one is about *reusing* a force-null field that silently reads as 0.
 - [partial-unique-index-stripe-webhook-23505-deadlock-2026-05-21.md](../database-issues/partial-unique-index-stripe-webhook-23505-deadlock-2026-05-21.md) — the invite migration adds a partial unique index on `events.invite_code`; same indexing-hazard family for event tables.
 - [stripe-supabase-payment-flow-integration-issues.md](../integration-issues/stripe-supabase-payment-flow-integration-issues.md) — sibling "silent failure in the payment path" learning; `Number(null)=0 → free registration` is the same genre.
-- Source PRs: **#32** (feature + the "dedicated `invite_price` rather than reusing `price_non_member`" decision and rationale), **#33** (e2e pricing-matrix coverage, including the `invite_price`-unset → "not open yet" branch).
+- Source PRs: **#32** (feature + the "dedicated `invite_price` rather than reusing `price_non_member`" decision and rationale), **#33** (e2e pricing-matrix coverage, including the `invite_price`-unset → "not open yet" branch), **#35** (moved `invite_price` to the per-type `event_ticket_types` model; the register/display snippets above reflect per-type resolution, and the events-table price constraint was dropped in `20260526133000`).
