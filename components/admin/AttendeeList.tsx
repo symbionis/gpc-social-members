@@ -70,8 +70,8 @@ export default function AttendeeList({ attendees, eventId, seatCap }: Props) {
   }
 
   async function saveEdit(row: Attendee) {
-    if (!Number.isInteger(editQty) || editQty < 1 || editQty > 6) {
-      setError("Ticket count must be a whole number between 1 and 6.");
+    if (!Number.isInteger(editQty) || editQty < 1 || editQty > 10) {
+      setError("Ticket count must be a whole number between 1 and 10.");
       return;
     }
     if (editQty === row.quantity) {

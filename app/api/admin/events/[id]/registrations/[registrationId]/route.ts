@@ -59,8 +59,8 @@ export async function PATCH(
       ? body.quantity
       : Number.parseInt(String(body.quantity ?? ""), 10);
 
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 6) {
-    return bad("quantity must be an integer between 1 and 6");
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
+    return bad("quantity must be an integer between 1 and 10");
   }
 
   // Load the registration scoped to the event (IDOR guard) and confirm it is a

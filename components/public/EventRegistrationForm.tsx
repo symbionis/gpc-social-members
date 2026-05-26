@@ -16,7 +16,7 @@ interface Props {
   maxQuantity?: number;
 }
 
-const MAX_QUANTITY_HARD_CAP = 6;
+const MAX_QUANTITY_HARD_CAP = 10;
 
 export default function EventRegistrationForm({
   eventId,

@@ -35,8 +35,8 @@ export async function POST(
 
   if (!name) return bad("name is required");
   if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 6) {
-    return bad("quantity must be an integer between 1 and 6");
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
+    return bad("quantity must be an integer between 1 and 10");
   }
 
   const supabase = createAdminClient();

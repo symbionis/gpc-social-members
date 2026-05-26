@@ -63,8 +63,8 @@ export async function POST(
   const waitlistId = typeof body.waitlistId === "string" ? body.waitlistId : "";
   const quantity = body.quantity;
   if (!waitlistId) return bad("waitlistId is required");
-  if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1 || quantity > 6) {
-    return bad("quantity must be an integer between 1 and 6");
+  if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
+    return bad("quantity must be an integer between 1 and 10");
   }
 
   // Load the waitlist entry scoped to BOTH id and the path event — prevents
