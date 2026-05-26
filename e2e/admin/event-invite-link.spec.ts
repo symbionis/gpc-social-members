@@ -72,7 +72,7 @@ test.describe("Admin invite-link panel (Manage Event → Settings)", () => {
     await expect(panel.getByText(/Set a guest price/i)).toBeVisible();
 
     await panel.getByPlaceholder("e.g. 50").fill("40");
-    await panel.getByRole("button", { name: /^Save$/ }).click();
+    await panel.getByRole("button", { name: /Save guest prices/i }).click();
     await expect(panel.getByText(/^Saved$/)).toBeVisible();
 
     await panel.getByRole("button", { name: /Generate invite link/i }).click();
