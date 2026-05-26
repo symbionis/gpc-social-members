@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import AttendeeList from "@/components/admin/AttendeeList";
 import EventCheckInSettings from "@/components/admin/EventCheckInSettings";
-import EventInviteLink from "@/components/admin/EventInviteLink";
+import EventInviteLink, { type InviteTicketType } from "@/components/admin/EventInviteLink";
 import EventMessaging, {
   type ReminderSummaryRow,
   type SentMessageRow,
@@ -64,7 +64,7 @@ interface Props {
   reminderSchedule: ReminderEntry[];
   visibility: string;
   inviteCode: string | null;
-  invitePrice: number | null;
+  ticketTypes: InviteTicketType[];
   registrationEnabled: boolean;
 }
 
@@ -161,7 +161,7 @@ export default function ManageEventTabs({
   reminderSchedule,
   visibility,
   inviteCode,
-  invitePrice,
+  ticketTypes,
   registrationEnabled,
 }: Props) {
   const [tab, setTab] = useState<Tab>("registrations");
@@ -451,7 +451,7 @@ export default function ManageEventTabs({
               eventId={eventId}
               baseUrl={baseUrl}
               inviteCode={inviteCode}
-              invitePrice={invitePrice}
+              ticketTypes={ticketTypes}
               registrationEnabled={registrationEnabled}
             />
           )}

@@ -16,12 +16,21 @@ export default async function ManageEventPage({
   const { data: event } = await supabase
     .from("events")
     .select(
-      "id, title, start_date, seat_cap, strict_checkin, reminder_schedule, visibility, registration_enabled, invite_code, invite_price"
+      "id, title, start_date, seat_cap, strict_checkin, reminder_schedule, visibility, registration_enabled, invite_code"
     )
     .eq("id", id)
     .single();
 
   if (!event) notFound();
+
+  // Active ticket types — the Settings tab edits per-type guest (invite) prices.
+  const { data: rawTicketTypes } = await supabase
+    .from("event_ticket_types")
+    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat")
+    .eq("event_id", id)
+    .is("archived_at", null)
+    .order("sort_order", { ascending: true });
+  const ticketTypes = rawTicketTypes ?? [];
 
   const { data: registrations } = await supabase
     .from("event_registrations")
@@ -118,7 +127,7 @@ export default async function ManageEventPage({
         reminderSchedule={reminderSchedule}
         visibility={(event.visibility as string) ?? "members_only"}
         inviteCode={(event.invite_code as string | null) ?? null}
-        invitePrice={(event.invite_price as number | null) ?? null}
+        ticketTypes={ticketTypes}
         registrationEnabled={Boolean(event.registration_enabled)}
       />
     </div>

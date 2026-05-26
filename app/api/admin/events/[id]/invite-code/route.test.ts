@@ -4,7 +4,7 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 // Real generateInviteCode — we assert on its output shape.
 
-import { POST, PATCH } from "@/app/api/admin/events/[id]/invite-code/route";
+import { POST } from "@/app/api/admin/events/[id]/invite-code/route";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -54,7 +54,8 @@ function req(method: string, body?: unknown, eventId = "evt-1") {
     headers: { "content-type": "application/json" },
   });
   const params = { params: Promise.resolve({ id: eventId }) };
-  return method === "POST" ? POST(r as never, params) : PATCH(r as never, params);
+  void method;
+  return POST(r as never, params);
 }
 
 let capture: Capture;
@@ -97,40 +98,5 @@ describe("POST (regenerate invite code)", () => {
   });
 });
 
-describe("PATCH (set guest price)", () => {
-  it("persists a numeric invite_price (only that field)", async () => {
-    const res = await req("PATCH", { invite_price: 40 });
-    expect(res.status).toBe(200);
-    expect(capture.updated).toEqual({ invite_price: 40 });
-  });
-
-  it("accepts 0 as a free guest price", async () => {
-    const res = await req("PATCH", { invite_price: 0 });
-    expect(res.status).toBe(200);
-    expect(capture.updated).toEqual({ invite_price: 0 });
-  });
-
-  it("clears the price when given null or empty string", async () => {
-    await req("PATCH", { invite_price: null });
-    expect(capture.updated).toEqual({ invite_price: null });
-    await req("PATCH", { invite_price: "" });
-    expect(capture.updated).toEqual({ invite_price: null });
-  });
-
-  it("400s a negative price", async () => {
-    const res = await req("PATCH", { invite_price: -5 });
-    expect(res.status).toBe(400);
-  });
-
-  it("400s when invite_price is absent", async () => {
-    const res = await req("PATCH", {});
-    expect(res.status).toBe(400);
-  });
-
-  it("403s a non-admin, no write", async () => {
-    mockedAdmin.mockReturnValue(adminClient([], capture));
-    const res = await req("PATCH", { invite_price: 40 });
-    expect(res.status).toBe(403);
-    expect(capture.updated).toBeUndefined();
-  });
-});
+// Guest pricing moved to the per-type ticket-types route (U8); the invite-code
+// route no longer exposes a PATCH for invite_price.

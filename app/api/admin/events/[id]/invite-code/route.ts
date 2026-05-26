@@ -3,14 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateInviteCode } from "@/lib/events/registration";
 
-// Sole writer of events.invite_code and events.invite_price (single-writer
-// ownership — see docs/solutions/architecture-patterns/single-writer-field-
-// ownership-across-routes.md). The bulk update route and the settings PATCH
-// route must never write these columns.
+// Sole writer of events.invite_code (single-writer ownership — see
+// docs/solutions/architecture-patterns/single-writer-field-ownership-across-routes.md).
+// Per-type guest prices (event_ticket_types.invite_price) are owned by the
+// ticket-types route, NOT here.
 //
-//   POST  → generate/regenerate the invite code (regenerate = revoke; the old
-//           code stops validating immediately since it is overwritten).
-//   PATCH → set or clear the guest invite_price.
+//   POST → generate/regenerate the invite code (regenerate = revoke; the old
+//          code stops validating immediately since it is overwritten).
 //
 // assertAdmin mirrors the settings route.
 async function assertAdmin() {
@@ -61,54 +60,4 @@ export async function POST(
   }
 
   return NextResponse.json({ invite_code });
-}
-
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = await assertAdmin();
-  if ("error" in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
-  }
-  const { adminClient } = auth;
-  const { id: eventId } = await params;
-
-  let body: { invite_price?: unknown };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  if (!("invite_price" in body)) {
-    return NextResponse.json({ error: "invite_price is required" }, { status: 400 });
-  }
-
-  let invite_price: number | null;
-  const raw = body.invite_price;
-  if (raw === null || raw === "") {
-    invite_price = null; // clear the guest price
-  } else {
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      return NextResponse.json(
-        { error: "Guest price must be 0 or a positive amount, or blank to clear" },
-        { status: 400 }
-      );
-    }
-    invite_price = Number(parsed.toFixed(2));
-  }
-
-  const { error } = await adminClient
-    .from("events")
-    .update({ invite_price })
-    .eq("id", eventId);
-
-  if (error) {
-    console.error("[admin/events/invite-code] set price failed", { eventId, error });
-    return NextResponse.json({ error: "Could not save guest price" }, { status: 500 });
-  }
-
-  return NextResponse.json({ invite_price });
 }
