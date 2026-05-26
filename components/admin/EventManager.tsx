@@ -423,6 +423,14 @@ async function handleImageUpload(file: File) {
             <option value="unconfirmed">Unconfirmed</option>
           </select>
         </div>
+        <a
+          href="/print/events-flyer"
+          target="_blank"
+          rel="noopener"
+          className="px-4 py-2 rounded-lg border border-marine bg-white text-marine text-sm font-body font-medium hover:bg-cream transition-colors"
+        >
+          Events Flyer (PDF)
+        </a>
         <button
           onClick={startCreate}
           className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors"
