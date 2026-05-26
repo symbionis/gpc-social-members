@@ -137,9 +137,16 @@ export default async function PublicEventDetailPage({
     isMembersOnly && isValidInviteCode(event.invite_code, suppliedCode);
   const invalidCodePresent = isMembersOnly && !!suppliedCode && !hasValidInvite;
 
+  // A valid invite only unlocks registration once a guest price is set. Without
+  // it the register API rejects the submit as misconfigured (Number(null)=0
+  // would otherwise read as free), so don't advertise a (free-looking) form the
+  // POST will refuse — show the "not open yet" state instead.
+  const inviteRegisterable = hasValidInvite && event.invite_price !== null;
+
   // On a members-only event, the registration form appears for an active member
-  // or a valid invite-code holder; everyone else gets the "Apply" block.
-  const showForm = !isMembersOnly || isActiveMember || hasValidInvite;
+  // or a valid invite-code holder with a configured price; everyone else gets
+  // the "Apply" block (or the "not open yet" notice for a priced-pending invite).
+  const showForm = !isMembersOnly || isActiveMember || inviteRegisterable;
   // Obscure date/time/location only when this is a members-only event the
   // visitor cannot register for; invite-holders and members see full details.
   const obscureDetails = isMembersOnly && !showForm;
@@ -268,7 +275,14 @@ export default async function PublicEventDetailPage({
 
             <aside>
               <div className="bg-white rounded-sm border border-border/60 p-5 lg:sticky lg:top-6">
-                {!showForm ? (
+                {!showForm && hasValidInvite ? (
+                  // Valid invite, but the guest price isn't set yet — invited,
+                  // not yet open. (Matches the register API's misconfig guard.)
+                  <p className="font-body text-sm text-muted-foreground">
+                    Registration isn&apos;t open for this event yet. Please check
+                    back with your host.
+                  </p>
+                ) : !showForm ? (
                   <>
                     {invalidCodePresent && (
                       <p className="font-body text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-4">

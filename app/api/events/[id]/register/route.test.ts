@@ -182,12 +182,31 @@ describe("pricing by session, not by code", () => {
     };
     mockedAdmin.mockReturnValue(adminClient(cfg));
     mockedSession.mockResolvedValue(sessionClient({ id: "auth-1" }));
-    const res = await post(guest); // no code needed — member session unlocks it
+    // Supply a valid code too: the member session must win — price_member, not invite_price.
+    const res = await post({ ...guest, code: INVITE });
     expect(res.status).toBe(200);
     expect(cfg.capturedInsert).toMatchObject({
       unit_amount_chf: 30,
       is_member: true,
       member_id: "mem-1",
+    });
+  });
+
+  it("charges a logged-in NON-active member the invite_price (treated as a guest)", async () => {
+    // Session present, but no active member row (e.g. expired membership).
+    const cfg: Cfg = {
+      event: membersOnlyPaid,
+      memberRow: null,
+      inserted: { id: "reg-1" },
+    };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+    mockedSession.mockResolvedValue(sessionClient({ id: "auth-1" }));
+    const res = await post({ ...guest, code: INVITE });
+    expect(res.status).toBe(200);
+    expect(cfg.capturedInsert).toMatchObject({
+      unit_amount_chf: 50, // invite_price, not price_member
+      is_member: false,
+      member_id: null,
     });
   });
 

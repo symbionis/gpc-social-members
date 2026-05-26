@@ -24,16 +24,19 @@ export default function EventInviteLink({
 }: Props) {
   const router = useRouter();
 
-  const path = inviteCode
-    ? `/public/events/${eventId}?code=${inviteCode}`
-    : "";
-  const [url, setUrl] = useState(baseUrl && inviteCode ? `${baseUrl}${path}` : path);
+  // Origin is build-time-stable when NEXT_PUBLIC_APP_URL is set; otherwise fall
+  // back to the live origin after mount. `url` is derived from the current
+  // inviteCode on every render (not stored in state) so it always reflects the
+  // latest code after a regenerate + router.refresh().
+  const [origin, setOrigin] = useState(baseUrl);
   useEffect(() => {
-    if (inviteCode && !/^https?:\/\//.test(url) && typeof window !== "undefined") {
-      setUrl(`${window.location.origin}${path}`);
+    if (!baseUrl && typeof window !== "undefined") {
+      setOrigin(window.location.origin);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inviteCode]);
+  }, [baseUrl]);
+  const url = inviteCode
+    ? `${origin}/public/events/${eventId}?code=${inviteCode}`
+    : "";
 
   // Guest price (events.invite_price). Empty string = unset.
   const [price, setPrice] = useState(invitePrice === null ? "" : String(invitePrice));

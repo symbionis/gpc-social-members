@@ -25,3 +25,11 @@
 
 ALTER TABLE public.events ADD COLUMN IF NOT EXISTS invite_code text;
 ALTER TABLE public.events ADD COLUMN IF NOT EXISTS invite_price numeric(10,2);
+
+-- Partial unique index on invite_code: a code is a security credential, so two
+-- events must never share one. With ~80 bits of entropy a collision is already
+-- astronomically unlikely, but the index turns the impossible-in-practice case
+-- into a hard DB error at regenerate time rather than silent cross-event access.
+CREATE UNIQUE INDEX IF NOT EXISTS events_invite_code_unique
+  ON public.events (invite_code)
+  WHERE invite_code IS NOT NULL;

@@ -64,6 +64,10 @@ describe("single-writer: bulk update never touches invite fields", () => {
       visibility: "members_only",
       registration_enabled: false,
       start_date: "2026-07-01",
+      // Even if a caller maliciously/accidentally injects these, the explicit
+      // destructuring must drop them — they are owned by the invite-code route.
+      invite_code: "INJECTEDCODE0000",
+      invite_price: 999,
     });
     expect(res.status).toBe(200);
     expect(capture.updated).toBeDefined();
