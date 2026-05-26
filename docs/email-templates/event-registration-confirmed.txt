@@ -21,8 +21,11 @@ Location:     {{.}}
 {{/event_location}}
 Reference:    {{reference_code}}
 
-Tickets:      {{quantity}}
-Amount:       {{amount_label}}
+Tickets:
+{{#each ticket_lines}}
+  {{quantity}} x {{title}} - {{line_label}}
+{{/each}}
+Total:        {{amount_label}}
 
 {{#event_url}}
 View event details:
