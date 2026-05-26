@@ -4,6 +4,7 @@ import { requireAgentToken, unauthorizedResponse } from "@/lib/agent/auth";
 import { trackAgentAction } from "@/lib/agent/track";
 import type {
   AgentApiError,
+  AgentTicketType,
   EventsListResponse,
 } from "@/lib/agent/responses";
 
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("events")
     .select(
-      "id, title, start_date, end_date, start_time, location, description, image_url, image_url_2, images, visibility, is_published, is_confirmed, registration_enabled, strict_checkin, price_member, price_non_member, seat_cap, event_type_id, season_id"
+      "id, title, start_date, end_date, start_time, location, description, image_url, image_url_2, images, visibility, is_published, is_confirmed, registration_enabled, strict_checkin, seat_cap, event_type_id, season_id"
     )
     .gte("start_date", from)
     .order("start_date", { ascending: true })
@@ -96,16 +97,41 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Attach each event's active ticket types (per-type prices replaced the old
+  // per-event price columns).
+  const eventIds = (data ?? []).map((e) => e.id);
+  const { data: tts } = eventIds.length
+    ? await supabase
+        .from("event_ticket_types")
+        .select("id, event_id, title, price_member, price_non_member, invite_price, counts_as_seat, sort_order")
+        .in("event_id", eventIds)
+        .is("archived_at", null)
+        .order("sort_order", { ascending: true })
+    : { data: [] as (AgentTicketType & { event_id: string })[] };
+
+  const ttByEvent = new Map<string, AgentTicketType[]>();
+  for (const t of tts ?? []) {
+    const arr = ttByEvent.get(t.event_id) ?? [];
+    arr.push({
+      id: t.id,
+      title: t.title,
+      price_member: t.price_member,
+      price_non_member: t.price_non_member,
+      invite_price: t.invite_price,
+      counts_as_seat: t.counts_as_seat,
+      sort_order: t.sort_order,
+    });
+    ttByEvent.set(t.event_id, arr);
+  }
+
+  const events = (data ?? []).map((e) => ({ ...e, ticket_types: ttByEvent.get(e.id) ?? [] }));
+
   trackAgentAction({
     endpoint: ENDPOINT,
     method: "GET",
     status_code: 200,
     started_at,
-    extra: { count: data?.length ?? 0 },
+    extra: { count: events.length },
   });
-  return NextResponse.json<EventsListResponse>({
-    events: data ?? [],
-    limit,
-    offset,
-  });
+  return NextResponse.json<EventsListResponse>({ events, limit, offset });
 }

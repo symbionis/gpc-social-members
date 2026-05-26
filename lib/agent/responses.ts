@@ -16,6 +16,19 @@ export interface AgentApiError {
 
 // --- Read endpoints ---------------------------------------------------------
 
+// Per-type prices replaced the old per-event price_member / price_non_member
+// columns. Each event now carries an array of ticket types (BREAKING change to
+// the agent API: the flat price_member / price_non_member fields are gone).
+export interface AgentTicketType {
+  id: string;
+  title: string;
+  price_member: number | null;
+  price_non_member: number | null;
+  invite_price: number | null;
+  counts_as_seat: boolean;
+  sort_order: number;
+}
+
 export interface AgentEventListItem {
   id: string;
   title: string;
@@ -32,8 +45,7 @@ export interface AgentEventListItem {
   is_confirmed: boolean;
   registration_enabled: boolean;
   strict_checkin: boolean;
-  price_member: number | null;
-  price_non_member: number | null;
+  ticket_types: AgentTicketType[];
   event_type_id: string;
   season_id: string | null;
 }
