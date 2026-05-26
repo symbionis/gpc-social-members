@@ -5,17 +5,24 @@ import posthog from "posthog-js";
 
 interface Props {
   eventId: string;
+  /** Active ticket types the waitlister can request (id + title only). */
+  ticketTypes: { id: string; title: string }[];
   defaultName?: string;
   defaultEmail?: string;
 }
 
+const MAX_WAITLIST_QUANTITY = 10;
+
 export default function WaitlistForm({
   eventId,
+  ticketTypes,
   defaultName = "",
   defaultEmail = "",
 }: Props) {
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
+  const [ticketTypeId, setTicketTypeId] = useState(ticketTypes[0]?.id ?? "");
+  const [quantity, setQuantity] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -32,13 +39,22 @@ export default function WaitlistForm({
       setError("Please enter your email.");
       return;
     }
+    if (!ticketTypeId) {
+      setError("Please choose a ticket type.");
+      return;
+    }
 
     setSubmitting(true);
     try {
       const res = await fetch(`/api/events/${eventId}/waitlist`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), email: email.trim() }),
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          ticket_type_id: ticketTypeId,
+          quantity,
+        }),
       });
       const data = await res.json();
 
@@ -106,6 +122,43 @@ export default function WaitlistForm({
           className={inputClass}
           autoComplete="email"
         />
+      </div>
+
+      {ticketTypes.length > 1 && (
+        <div>
+          <label className="block text-xs font-body text-muted-foreground mb-1">
+            Ticket type
+          </label>
+          <select
+            required
+            value={ticketTypeId}
+            onChange={(e) => setTicketTypeId(e.target.value)}
+            className={inputClass}
+          >
+            {ticketTypes.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.title}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div>
+        <label className="block text-xs font-body text-muted-foreground mb-1">
+          Number of tickets
+        </label>
+        <select
+          value={quantity}
+          onChange={(e) => setQuantity(Number(e.target.value))}
+          className={inputClass}
+        >
+          {Array.from({ length: MAX_WAITLIST_QUANTITY }, (_, i) => i + 1).map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
       </div>
 
       {error && (

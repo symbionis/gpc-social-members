@@ -15,7 +15,7 @@ export async function POST(
 ) {
   const { id: eventId } = await params;
 
-  let body: { name?: unknown; email?: unknown };
+  let body: { name?: unknown; email?: unknown; ticket_type_id?: unknown; quantity?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -25,9 +25,19 @@ export async function POST(
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const email =
     typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  const ticketTypeId =
+    typeof body.ticket_type_id === "string" ? body.ticket_type_id : "";
+  const quantity =
+    typeof body.quantity === "number"
+      ? body.quantity
+      : Number.parseInt(String(body.quantity ?? ""), 10);
 
   if (!name) return bad("name is required");
   if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
+  if (!ticketTypeId) return bad("Please choose a ticket type");
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
+    return bad("quantity must be an integer between 1 and 10");
+  }
 
   const supabase = createAdminClient();
 
@@ -96,12 +106,26 @@ export async function POST(
     return bad("Event still has availability");
   }
 
+  // Validate the chosen ticket type belongs to this event and is active.
+  const { data: ticketType } = await supabase
+    .from("event_ticket_types")
+    .select("id")
+    .eq("id", ticketTypeId)
+    .eq("event_id", eventId)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (!ticketType) {
+    return bad("That ticket type is no longer available — please refresh and try again.");
+  }
+
   const { error: insertErr } = await supabase
     .from("event_waitlist")
     .insert({
       event_id: eventId,
       name,
       email,
+      ticket_type_id: ticketTypeId,
+      quantity,
     });
 
   if (insertErr) {

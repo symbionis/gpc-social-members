@@ -231,6 +231,7 @@ export default async function EventDetailPage({
             ) : isFullyBooked ? (
               <EventFullyBookedBlock
                 eventId={event.id}
+                ticketTypes={ticketTypeOptions}
                 defaultName={memberFullName}
                 defaultEmail={member.email ?? ""}
               />

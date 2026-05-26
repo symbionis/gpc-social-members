@@ -323,7 +323,7 @@ export default async function PublicEventDetailPage({
                     Information only — registration is not open for this event.
                   </p>
                 ) : isFullyBooked ? (
-                  <EventFullyBookedBlock eventId={event.id} />
+                  <EventFullyBookedBlock eventId={event.id} ticketTypes={ticketTypeOptions} />
                 ) : (
                   <>
                     <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-1">

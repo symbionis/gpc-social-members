@@ -53,7 +53,7 @@ export async function POST(
   const { adminClient, adminId } = auth;
   const { id: eventId } = await params;
 
-  let body: { waitlistId?: unknown; quantity?: unknown };
+  let body: { waitlistId?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -61,17 +61,14 @@ export async function POST(
   }
 
   const waitlistId = typeof body.waitlistId === "string" ? body.waitlistId : "";
-  const quantity = body.quantity;
   if (!waitlistId) return bad("waitlistId is required");
-  if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
-    return bad("quantity must be an integer between 1 and 10");
-  }
 
   // Load the waitlist entry scoped to BOTH id and the path event — prevents
-  // converting/deleting another event's entry.
+  // converting/deleting another event's entry. The desired ticket type +
+  // quantity were captured at signup; the admin no longer re-enters a quantity.
   const { data: entry, error: entryErr } = await adminClient
     .from("event_waitlist")
-    .select("id, name, email")
+    .select("id, name, email, ticket_type_id, quantity")
     .eq("id", waitlistId)
     .eq("event_id", eventId)
     .limit(1)
@@ -102,28 +99,66 @@ export async function POST(
 
   const referenceCode = generateReferenceCode();
 
-  const { data: inserted, error: insertErr } = await adminClient
-    .from("event_registrations")
-    .insert({
-      event_id: eventId,
-      name,
-      email,
-      quantity,
-      is_member: Boolean(member),
-      member_id: member?.id ?? null,
-      unit_amount_chf: 0,
-      total_amount_chf: 0,
-      status: "free",
-      reference_code: referenceCode,
-      paid_at: new Date().toISOString(),
-      converted_by: adminId,
-    })
-    .select("id")
-    .limit(1)
-    .single();
+  // Resolve the ticket type for the line item. Use the entry's stored type when
+  // present (even if archived — honor the waitlister's intent); otherwise (a
+  // legacy entry, or a type since hard-deleted) fall back to the event's first
+  // active type. Quantity comes from the entry, defaulting to 1 for legacy rows.
+  let ticketTypeId = (entry.ticket_type_id as string | null) ?? null;
+  let titleSnapshot = "Standard";
+  if (ticketTypeId) {
+    const { data: tt } = await adminClient
+      .from("event_ticket_types")
+      .select("id, title")
+      .eq("id", ticketTypeId)
+      .eq("event_id", eventId)
+      .maybeSingle();
+    if (tt) titleSnapshot = tt.title;
+    else ticketTypeId = null; // dangling reference → fall back below
+  }
+  if (!ticketTypeId) {
+    const { data: fallback } = await adminClient
+      .from("event_ticket_types")
+      .select("id, title")
+      .eq("event_id", eventId)
+      .is("archived_at", null)
+      .order("sort_order", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (!fallback) return bad("This event has no ticket type to convert into", 409);
+    ticketTypeId = fallback.id;
+    titleSnapshot = fallback.title;
+  }
+  const qty =
+    Number.isInteger(entry.quantity) && (entry.quantity as number) >= 1
+      ? (entry.quantity as number)
+      : 1;
 
-  if (insertErr || !inserted) {
-    // Race-safe: a concurrent duplicate hits the partial unique index → 23505.
+  // Comped (free) registration + one line item, atomically.
+  const { data: registrationId, error: insertErr } = await adminClient.rpc(
+    "create_event_registration",
+    {
+      p_event_id: eventId,
+      p_name: name,
+      p_email: email,
+      p_is_member: Boolean(member),
+      p_member_id: member?.id ?? null,
+      p_status: "free",
+      p_reference_code: referenceCode,
+      p_paid_at: new Date().toISOString(),
+      p_converted_by: adminId,
+      p_items: [
+        {
+          ticket_type_id: ticketTypeId,
+          title_snapshot: titleSnapshot,
+          quantity: qty,
+          unit_amount_chf: 0,
+          line_total_chf: 0,
+        },
+      ],
+    }
+  );
+
+  if (insertErr || !registrationId) {
     if (insertErr && (insertErr as { code?: string }).code === "23505") {
       return bad("This email is already registered for this event", 409);
     }
@@ -150,10 +185,10 @@ export async function POST(
   // Notify (awaited + reported, so the admin learns if it failed).
   let emailSent = false;
   try {
-    const emailResult = await sendWaitlistConfirmation(inserted.id);
+    const emailResult = await sendWaitlistConfirmation(registrationId);
     emailSent = emailResult.success;
   } catch (err) {
-    console.error("[waitlist-convert] email send threw", { regId: inserted.id, err });
+    console.error("[waitlist-convert] email send threw", { regId: registrationId, err });
   }
 
   let seatsUsed: number | null = null;
