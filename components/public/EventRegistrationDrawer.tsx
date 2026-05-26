@@ -16,6 +16,8 @@ interface Props {
   buttonLabel: string;
   /** Max selectable ticket quantity. Clamped to remaining seats for capped events. */
   maxQuantity?: number;
+  /** Invite code from the URL, forwarded to the register API (members-only invite flow). */
+  code?: string;
 }
 
 export default function EventRegistrationDrawer({
@@ -28,6 +30,7 @@ export default function EventRegistrationDrawer({
   memberOnly = false,
   buttonLabel,
   maxQuantity,
+  code,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -98,6 +101,7 @@ export default function EventRegistrationDrawer({
             memberOnly={memberOnly}
             showMemberRate={false}
             maxQuantity={maxQuantity}
+            code={code}
           />
         </div>
       </div>
