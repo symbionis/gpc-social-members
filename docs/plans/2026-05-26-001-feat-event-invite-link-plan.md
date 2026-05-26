@@ -1,7 +1,7 @@
 ---
 title: "feat: Private invite link for members-only events"
 type: feat
-status: active
+status: completed
 date: 2026-05-26
 deepened: 2026-05-26
 origin: docs/brainstorms/2026-05-26-private-invite-link-requirements.md
