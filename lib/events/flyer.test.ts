@@ -7,6 +7,7 @@ import {
   getMemberEventsUrl,
   shortenDescription,
   isUpcoming,
+  heroImage,
 } from "@/lib/events/flyer";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -120,6 +121,34 @@ describe("isUpcoming", () => {
   });
 });
 
+describe("heroImage", () => {
+  it("uses the first non-empty entry in the images array", () => {
+    expect(heroImage({ images: ["", "https://cdn/a.jpg", "https://cdn/b.jpg"] })).toBe(
+      "https://cdn/a.jpg",
+    );
+  });
+
+  it("falls back to image_url when images is empty or absent", () => {
+    expect(heroImage({ images: [], image_url: "https://cdn/legacy.jpg" })).toBe(
+      "https://cdn/legacy.jpg",
+    );
+    expect(heroImage({ image_url: "https://cdn/legacy.jpg" })).toBe(
+      "https://cdn/legacy.jpg",
+    );
+  });
+
+  it("falls back to image_url_2 when image_url is missing", () => {
+    expect(heroImage({ image_url: null, image_url_2: "https://cdn/second.jpg" })).toBe(
+      "https://cdn/second.jpg",
+    );
+  });
+
+  it("returns null when no image is available", () => {
+    expect(heroImage({ images: [], image_url: null, image_url_2: null })).toBeNull();
+    expect(heroImage({})).toBeNull();
+  });
+});
+
 describe("getFlyerEvents", () => {
   it("returns confirmed+published upcoming events, ordered, typed, and shortened", async () => {
     const eqCalls: Array<[string, unknown]> = [];
@@ -136,8 +165,11 @@ describe("getFlyerEvents", () => {
               start_time: "11:00:00",
               description: "<p>Three days of polo</p>",
               event_type_id: "t1",
+              images: ["https://cdn/tournament.jpg"],
+              image_url: null,
+              image_url_2: null,
             },
-            // future single-day, no type
+            // future single-day, no type, legacy single-image field
             {
               id: "e1",
               title: "Sunset Social",
@@ -146,6 +178,9 @@ describe("getFlyerEvents", () => {
               start_time: "18:30:00",
               description: "<p>Drinks &amp; canapés</p>",
               event_type_id: null,
+              images: [],
+              image_url: "https://cdn/social.jpg",
+              image_url_2: null,
             },
             // past — excluded by isUpcoming
             {
@@ -181,11 +216,13 @@ describe("getFlyerEvents", () => {
       startTime: "11:00:00",
       endDate: "2026-05-30",
       description: "Three days of polo",
+      imageUrl: "https://cdn/tournament.jpg",
     });
     expect(result[1]).toMatchObject({
       id: "e1",
       typeName: null,
       description: "Drinks & canapés",
+      imageUrl: "https://cdn/social.jpg",
     });
   });
 

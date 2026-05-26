@@ -109,6 +109,16 @@ export default function EventsFlyer({
                       </p>
                     )}
                   </div>
+                  {event.imageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={event.imageUrl}
+                      alt=""
+                      width={80}
+                      height={80}
+                      className="shrink-0 h-20 w-20 rounded-md object-cover border border-sky-light"
+                    />
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-3">
                       <h2 className="font-heading text-xl font-semibold text-marine">

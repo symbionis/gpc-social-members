@@ -31,6 +31,24 @@ export interface FlyerEvent {
   startTime: string | null; // "HH:MM[:SS]" Postgres time, wall-clock
   typeName: string | null;
   description: string; // shortened, plain text
+  imageUrl: string | null; // hero/thumbnail image
+}
+
+// Hero image for an event — first non-empty entry in the images array, else the
+// legacy single image fields. Mirrors heroImage() in MemberEventsGrid so the
+// flyer thumbnail matches what members see in the portal.
+export function heroImage(event: {
+  images?: unknown;
+  image_url?: string | null;
+  image_url_2?: string | null;
+}): string | null {
+  if (Array.isArray(event.images)) {
+    const first = event.images.find(
+      (u): u is string => typeof u === "string" && u.length > 0,
+    );
+    if (first) return first;
+  }
+  return event.image_url || event.image_url_2 || null;
 }
 
 // Rich-text (Tiptap HTML) description → short plain-text snippet for the flyer.
@@ -67,6 +85,9 @@ interface EventRow {
   start_time: string | null;
   description: string | null;
   event_type_id: string | null;
+  image_url: string | null;
+  image_url_2: string | null;
+  images: unknown;
 }
 
 // Confirmed + published + upcoming events, chronological, with type names
@@ -78,7 +99,9 @@ export async function getFlyerEvents(): Promise<FlyerEvent[]> {
 
   const { data: rows, error } = await admin
     .from("events")
-    .select("id, title, start_date, end_date, start_time, description, event_type_id")
+    .select(
+      "id, title, start_date, end_date, start_time, description, event_type_id, image_url, image_url_2, images",
+    )
     .eq("is_published", true)
     .eq("is_confirmed", true)
     .order("start_date", { ascending: true });
@@ -112,5 +135,6 @@ export async function getFlyerEvents(): Promise<FlyerEvent[]> {
     startTime: e.start_time,
     typeName: e.event_type_id ? typeNameById.get(e.event_type_id) ?? null : null,
     description: shortenDescription(e.description),
+    imageUrl: heroImage(e),
   }));
 }
