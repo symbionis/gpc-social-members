@@ -1,7 +1,7 @@
 ---
 date: 2026-05-26
 type: feat
-status: active
+status: completed
 title: "feat: Events PDF flyer (printable upcoming-events one-pager)"
 origin: docs/brainstorms/2026-05-26-events-pdf-export-requirements.md
 depth: standard
