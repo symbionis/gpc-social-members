@@ -363,7 +363,7 @@ async function handleImageUpload(file: File) {
 
   return (
     <div className="space-y-6">
-      {/* Current / Past tabs */}
+      {/* Future / Past tabs */}
       <div
         role="tablist"
         aria-label="Event timeframe"
