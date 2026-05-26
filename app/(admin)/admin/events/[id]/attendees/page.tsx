@@ -58,9 +58,28 @@ export default async function ManageEventPage({
       .map((c) => c.registration_id as string)
   );
 
+  // Per-registration line items → a read-only "2× Standard, 2× Kids" breakdown.
+  const regIds = (registrations ?? []).map((r) => r.id);
+  const { data: items } = regIds.length
+    ? await supabase
+        .from("event_registration_items")
+        .select("registration_id, title_snapshot, quantity, created_at")
+        .in("registration_id", regIds)
+        .order("created_at", { ascending: true })
+    : { data: [] as { registration_id: string; title_snapshot: string; quantity: number }[] };
+
+  const breakdownByReg = new Map<string, string>();
+  for (const it of items ?? []) {
+    const line = `${it.quantity}× ${it.title_snapshot}`;
+    const prev = breakdownByReg.get(it.registration_id);
+    breakdownByReg.set(it.registration_id, prev ? `${prev}, ${line}` : line);
+  }
+
   const attendees = (registrations ?? []).map((r) => ({
     ...r,
     checkedIn: checkedInRegIds.has(r.id),
+    // Itemless fallback (legacy / window-promoted rows): "{quantity}× —".
+    breakdown: breakdownByReg.get(r.id) ?? `${r.quantity}× —`,
   }));
 
   const total = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);

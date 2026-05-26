@@ -25,6 +25,8 @@ interface Attendee {
   reference_code: string;
   created_at: string;
   checkedIn: boolean;
+  /** Read-only per-type summary, e.g. "2× Standard, 2× Kids". */
+  breakdown: string;
 }
 
 interface Checkin {
@@ -273,7 +275,7 @@ export default function ManageEventTabs({
                 Export CSV
               </a>
             </div>
-            <AttendeeList attendees={attendees} eventId={eventId} seatCap={seatCap} />
+            <AttendeeList attendees={attendees} />
           </div>
         </div>
       )}

@@ -72,6 +72,22 @@ export async function GET(
     .in("status", ["paid", "free"])
     .order("created_at", { ascending: false });
 
+  // Per-registration line items → "2× Standard, 2× Kids" breakdown column.
+  const regIds = (rows || []).map((r) => r.id);
+  const { data: items } = regIds.length
+    ? await adminClient
+        .from("event_registration_items")
+        .select("registration_id, title_snapshot, quantity, created_at")
+        .in("registration_id", regIds)
+        .order("created_at", { ascending: true })
+    : { data: [] as { registration_id: string; title_snapshot: string; quantity: number }[] };
+  const breakdownByReg = new Map<string, string>();
+  for (const it of items || []) {
+    const line = `${it.quantity}× ${it.title_snapshot}`;
+    const prev = breakdownByReg.get(it.registration_id);
+    breakdownByReg.set(it.registration_id, prev ? `${prev}, ${line}` : line);
+  }
+
   // Arrival is sourced from event_checkins (single source of truth). Rows with a
   // registration_id mark a registrant as arrived; rows without one are walk-up
   // members and invited guests, appended below the registrations.
@@ -92,6 +108,7 @@ export async function GET(
     "type",
     "is_member",
     "quantity",
+    "ticket_types",
     "amount_chf",
     "status",
     "reference_code",
@@ -112,6 +129,7 @@ export async function GET(
         "registration",
         r.is_member ? "yes" : "no",
         r.quantity,
+        csvEscape(breakdownByReg.get(r.id) ?? `${r.quantity}× —`),
         Number(r.total_amount_chf).toFixed(2),
         r.status,
         r.reference_code,
@@ -130,6 +148,7 @@ export async function GET(
         csvEscape(c.email),
         c.kind,
         c.kind === "member" ? "yes" : "no",
+        "",
         "",
         "",
         "",
