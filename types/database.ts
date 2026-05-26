@@ -1314,6 +1314,25 @@ export type Database = {
           seats_used: number
         }[]
       }
+      create_event_registration: {
+        Args: {
+          p_event_id: string
+          p_name: string
+          p_email: string
+          p_is_member: boolean
+          p_member_id: string | null
+          p_status: string
+          p_reference_code: string
+          p_paid_at: string | null
+          p_converted_by: string | null
+          p_items: Json
+        }
+        Returns: string
+      }
+      create_event_with_ticket_types: {
+        Args: { p_event: Json; p_types: Json }
+        Returns: string
+      }
     }
     Enums: {
       admin_role: "super_admin" | "team_admin" | "originator" | "events_admin"
