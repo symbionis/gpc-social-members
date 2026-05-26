@@ -208,6 +208,7 @@ async function handleImageUpload(file: File) {
             title: string;
             price_member: number | null;
             price_non_member: number | null;
+            invite_price: number | null;
             counts_as_seat: boolean;
             archived_at: string | null;
           }[];
@@ -220,6 +221,9 @@ async function handleImageUpload(file: File) {
               title: t.title,
               price_member: t.price_member === null ? "" : String(t.price_member),
               price_non_member: t.price_non_member === null ? "" : String(t.price_non_member),
+              // Carry the guest price through so saving an edit preserves it
+              // (Settings owns editing it; the editor must not null it).
+              invite_price: t.invite_price === null ? "" : String(t.invite_price),
               counts_as_seat: t.counts_as_seat,
             }))
           );
@@ -268,6 +272,9 @@ async function handleImageUpload(file: File) {
       title: t.title.trim(),
       price_member: t.price_member,
       price_non_member: t.price_non_member,
+      // Preserve the existing guest price (edited only in Settings) so a PATCH
+      // from this editor never nulls it.
+      invite_price: t.invite_price,
       counts_as_seat: t.counts_as_seat,
     };
   }

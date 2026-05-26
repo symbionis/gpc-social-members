@@ -11,11 +11,15 @@ export interface TicketTypeDraft {
   title: string;
   price_member: string; // form strings; "" = unset
   price_non_member: string;
+  // Guest (invite) price is NOT edited here — it's owned by Manage Event →
+  // Settings. It rides along as a carry-through so saving an edit preserves it
+  // instead of nulling it on the per-type PATCH.
+  invite_price: string;
   counts_as_seat: boolean;
 }
 
 export function makeStandardDraft(): TicketTypeDraft {
-  return { title: "Standard", price_member: "", price_non_member: "", counts_as_seat: true };
+  return { title: "Standard", price_member: "", price_non_member: "", invite_price: "", counts_as_seat: true };
 }
 
 interface Props {
@@ -40,7 +44,7 @@ export default function TicketTypesEditor({
     onChange(value.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
   }
   function add() {
-    onChange([...value, { title: "", price_member: "", price_non_member: "", counts_as_seat: true }]);
+    onChange([...value, { title: "", price_member: "", price_non_member: "", invite_price: "", counts_as_seat: true }]);
   }
   function remove(i: number) {
     if (value.length <= 1) return; // keep >=1
