@@ -664,13 +664,10 @@ export type Database = {
           image_url_2: string | null
           images: Json
           invite_code: string | null
-          invite_price: number | null
           is_confirmed: boolean
           is_published: boolean
           location: string | null
           notes: string | null
-          price_member: number | null
-          price_non_member: number | null
           registration_enabled: boolean
           reminder_schedule: Json
           season_id: string | null
@@ -692,13 +689,10 @@ export type Database = {
           image_url_2?: string | null
           images?: Json
           invite_code?: string | null
-          invite_price?: number | null
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null
           notes?: string | null
-          price_member?: number | null
-          price_non_member?: number | null
           registration_enabled?: boolean
           reminder_schedule?: Json
           season_id?: string | null
@@ -720,13 +714,10 @@ export type Database = {
           image_url_2?: string | null
           images?: Json
           invite_code?: string | null
-          invite_price?: number | null
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null
           notes?: string | null
-          price_member?: number | null
-          price_non_member?: number | null
           registration_enabled?: boolean
           reminder_schedule?: Json
           season_id?: string | null
