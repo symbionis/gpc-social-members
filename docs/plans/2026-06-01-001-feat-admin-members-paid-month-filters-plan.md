@@ -1,7 +1,7 @@
 ---
 title: "feat: Paid-status and payment-month filters on admin members page"
 type: feat
-status: active
+status: completed
 date: 2026-06-01
 ---
 
