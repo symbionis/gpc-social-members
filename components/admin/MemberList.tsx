@@ -4,7 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isAwaitingPayment } from "@/lib/members/status";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatMonth } from "@/lib/format";
+import {
+  availablePaymentMonths,
+  matchesPaidFilter,
+  matchesMonthFilter,
+  type PaidFilter,
+} from "@/lib/members/payments";
 
 interface Member {
   id: string;
@@ -24,6 +30,8 @@ interface MemberListProps {
   members: Member[];
   tierMap: Record<string, string>;
   originatorMap: Record<string, string>;
+  // member id -> sorted-desc unique "YYYY-MM" months with a paid payment.
+  paidMonthsByMember: Record<string, string[]>;
 }
 
 const statusColors: Record<string, string> = {
@@ -35,11 +43,15 @@ const statusColors: Record<string, string> = {
   declined: "bg-red-50 text-red-600",
 };
 
-export default function MemberList({ members, tierMap, originatorMap }: MemberListProps) {
+export default function MemberList({ members, tierMap, originatorMap, paidMonthsByMember }: MemberListProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [tierFilter, setTierFilter] = useState("all");
+  const [paidFilter, setPaidFilter] = useState<PaidFilter>("all");
+  const [monthFilter, setMonthFilter] = useState("all");
+
+  const monthOptions = availablePaymentMonths(paidMonthsByMember);
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
 
@@ -79,7 +91,9 @@ export default function MemberList({ members, tierMap, originatorMap }: MemberLi
         .includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || m.status === statusFilter;
     const matchesTier = tierFilter === "all" || m.tier_id === tierFilter;
-    return matchesSearch && matchesStatus && matchesTier;
+    const matchesPaid = matchesPaidFilter(paidMonthsByMember[m.id], paidFilter);
+    const matchesMonth = matchesMonthFilter(paidMonthsByMember[m.id], monthFilter);
+    return matchesSearch && matchesStatus && matchesTier && matchesPaid && matchesMonth;
   });
 
   function exportCSV() {
@@ -140,6 +154,27 @@ export default function MemberList({ members, tierMap, originatorMap }: MemberLi
           {uniqueTiers.map((tid) => (
             <option key={tid} value={tid}>
               {tierMap[tid] || tid}
+            </option>
+          ))}
+        </select>
+        <select
+          value={paidFilter}
+          onChange={(e) => setPaidFilter(e.target.value as PaidFilter)}
+          className="px-3 py-2.5 rounded-lg border border-border bg-white text-sm font-body text-marine"
+        >
+          <option value="all">All payments</option>
+          <option value="paid">Paid</option>
+          <option value="unpaid">Not paid</option>
+        </select>
+        <select
+          value={monthFilter}
+          onChange={(e) => setMonthFilter(e.target.value)}
+          className="px-3 py-2.5 rounded-lg border border-border bg-white text-sm font-body text-marine"
+        >
+          <option value="all">All months</option>
+          {monthOptions.map((m) => (
+            <option key={m} value={m}>
+              {formatMonth(m)}
             </option>
           ))}
         </select>
