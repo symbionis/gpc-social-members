@@ -1,10 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isAwaitingPayment } from "@/lib/members/status";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatMonth } from "@/lib/format";
+import {
+  availablePaymentMonths,
+  matchesPaidFilter,
+  matchesMonthFilter,
+  type PaidFilter,
+  type PaidMonthsByMember,
+} from "@/lib/members/payments";
+import { paginate } from "@/lib/pagination";
 
 interface Member {
   id: string;
@@ -24,6 +32,10 @@ interface MemberListProps {
   members: Member[];
   tierMap: Record<string, string>;
   originatorMap: Record<string, string>;
+  paidMonthsByMember: PaidMonthsByMember;
+  // false when the payments fetch errored mid-read, so the paid/month data is
+  // partial and the Paid/Month filters can't be trusted.
+  paymentsComplete: boolean;
 }
 
 const statusColors: Record<string, string> = {
@@ -35,14 +47,26 @@ const statusColors: Record<string, string> = {
   declined: "bg-red-50 text-red-600",
 };
 
-export default function MemberList({ members, tierMap, originatorMap }: MemberListProps) {
+const PAGE_SIZE = 25;
+
+export default function MemberList({ members, tierMap, originatorMap, paidMonthsByMember, paymentsComplete }: MemberListProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [tierFilter, setTierFilter] = useState("all");
+  const [paidFilter, setPaidFilter] = useState<PaidFilter>("all");
+  const [monthFilter, setMonthFilter] = useState("all");
+  const [page, setPage] = useState(1);
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
 
+  // Reset to the first page whenever the active filter set changes, so you're
+  // never stranded on a page index the narrowed result no longer has.
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, tierFilter, paidFilter, monthFilter]);
+
+  const monthOptions = availablePaymentMonths(paidMonthsByMember);
   const expiredCount = members.filter((m) => m.status === "expired").length;
 
   async function handleBulkReactivation() {
@@ -79,7 +103,9 @@ export default function MemberList({ members, tierMap, originatorMap }: MemberLi
         .includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || m.status === statusFilter;
     const matchesTier = tierFilter === "all" || m.tier_id === tierFilter;
-    return matchesSearch && matchesStatus && matchesTier;
+    const matchesPaid = matchesPaidFilter(paidMonthsByMember[m.id], paidFilter);
+    const matchesMonth = matchesMonthFilter(paidMonthsByMember[m.id], monthFilter);
+    return matchesSearch && matchesStatus && matchesTier && matchesPaid && matchesMonth;
   });
 
   function exportCSV() {
@@ -106,6 +132,14 @@ export default function MemberList({ members, tierMap, originatorMap }: MemberLi
   }
 
   const uniqueTiers = [...new Set(members.map((m) => m.tier_id))];
+
+  // Paginate the filtered rows for display. Count and CSV still use the full
+  // `filtered` set, so they reflect every match, not just the current page.
+  const { pageRows, totalPages, currentPage, from, to, total } = paginate(
+    filtered,
+    page,
+    PAGE_SIZE,
+  );
 
   return (
     <div>
@@ -143,6 +177,27 @@ export default function MemberList({ members, tierMap, originatorMap }: MemberLi
             </option>
           ))}
         </select>
+        <select
+          value={paidFilter}
+          onChange={(e) => setPaidFilter(e.target.value as PaidFilter)}
+          className="px-3 py-2.5 rounded-lg border border-border bg-white text-sm font-body text-marine"
+        >
+          <option value="all">All payments</option>
+          <option value="paid">Paid</option>
+          <option value="unpaid">Not paid</option>
+        </select>
+        <select
+          value={monthFilter}
+          onChange={(e) => setMonthFilter(e.target.value)}
+          className="px-3 py-2.5 rounded-lg border border-border bg-white text-sm font-body text-marine"
+        >
+          <option value="all">All months</option>
+          {monthOptions.map((m) => (
+            <option key={m} value={m}>
+              {formatMonth(m)}
+            </option>
+          ))}
+        </select>
         <button
           onClick={exportCSV}
           className="px-4 py-2.5 bg-white border border-border rounded-lg text-sm font-body text-marine hover:bg-cream transition-colors"
@@ -164,8 +219,17 @@ export default function MemberList({ members, tierMap, originatorMap }: MemberLi
         <p className="text-sm font-body text-marine mb-4">{bulkResult}</p>
       )}
 
+      {!paymentsComplete && (
+        <p className="text-sm font-body text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 mb-4">
+          Payment data couldn&apos;t be fully loaded, so the Paid and month
+          filters may be incomplete.
+        </p>
+      )}
+
       <p className="text-sm text-muted-foreground font-body mb-4">
-        {filtered.length} member{filtered.length !== 1 ? "s" : ""}
+        {total === 0
+          ? "0 members"
+          : `Showing ${from}–${to} of ${total} member${total !== 1 ? "s" : ""}`}
       </p>
 
       {/* Table */}
@@ -184,7 +248,7 @@ export default function MemberList({ members, tierMap, originatorMap }: MemberLi
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.map((m) => (
+              {pageRows.map((m) => (
                 <tr key={m.id} className="hover:bg-cream/50 transition-colors">
                   <td className="px-4 py-3">
                     <Link
@@ -234,6 +298,28 @@ export default function MemberList({ members, tierMap, originatorMap }: MemberLi
           </table>
         </div>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <button
+            onClick={() => setPage(Math.max(1, currentPage - 1))}
+            disabled={currentPage <= 1}
+            className="px-4 py-2 bg-white border border-border rounded-lg text-sm font-body text-marine hover:bg-cream transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Previous
+          </button>
+          <span className="text-sm text-muted-foreground font-body">
+            Page {currentPage} of {totalPages}
+          </span>
+          <button
+            onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage >= totalPages}
+            className="px-4 py-2 bg-white border border-border rounded-lg text-sm font-body text-marine hover:bg-cream transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }
