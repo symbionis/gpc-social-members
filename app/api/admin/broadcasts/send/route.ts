@@ -1,10 +1,10 @@
 import { sendBroadcast } from "@/lib/broadcast/send";
 import { parseBroadcastPayload } from "@/lib/broadcast/validate";
-import { requireSuperAdmin } from "@/lib/broadcast/auth";
+import { requireBroadcastAdmin } from "@/lib/broadcast/auth";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function POST(request: NextRequest) {
-  const auth = await requireSuperAdmin();
+  const auth = await requireBroadcastAdmin();
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

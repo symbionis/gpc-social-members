@@ -18,6 +18,7 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
   const pathname = usePathname();
 
   const isSuper = admin.role === "super_admin";
+  const isTeamAdmin = admin.role === "team_admin";
   const isOriginator = admin.role === "originator";
   const isEventsAdmin = admin.role === "events_admin";
 
@@ -53,9 +54,11 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
               },
             ]
           : []),
+        ...(isSuper || isTeamAdmin
+          ? [{ href: "/admin/messages", label: "Messages", icon: "send" }]
+          : []),
         ...(isSuper
           ? [
-              { href: "/admin/messages", label: "Messages", icon: "send" },
               { href: "/admin/tiers", label: "Tiers", icon: "layers" },
               { href: "/admin/users", label: "Users", icon: "shield" },
               { href: "/admin/scheduled-jobs", label: "Scheduled Jobs", icon: "clock" },

@@ -6,11 +6,13 @@ export type RequireSuperAdminResult =
   | { ok: false; status: 401 | 403 };
 
 /**
- * Resolve the current Supabase session and confirm the user is a
- * super_admin in the `admin_users` table. Used by every broadcast admin
- * route (send, preview, drafts) so the check lives in one place.
+ * Resolve the current Supabase session and confirm the user holds one of the
+ * allowed roles in the `admin_users` table. Shared by the strict super-admin
+ * guard and the broadcast guard so the session lookup lives in one place.
  */
-export async function requireSuperAdmin(): Promise<RequireSuperAdminResult> {
+async function requireAdminRole(
+  allowedRoles: readonly string[]
+): Promise<RequireSuperAdminResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -25,8 +27,24 @@ export async function requireSuperAdmin(): Promise<RequireSuperAdminResult> {
     .limit(1);
 
   const admin = admins?.[0];
-  if (!admin || admin.role !== "super_admin") {
+  if (!admin || !allowedRoles.includes(admin.role)) {
     return { ok: false, status: 403 };
   }
   return { ok: true, admin };
+}
+
+/**
+ * Confirm the current user is a super_admin. Reserved for the most sensitive
+ * settings (email settings, email templates) that team admins must not touch.
+ */
+export async function requireSuperAdmin(): Promise<RequireSuperAdminResult> {
+  return requireAdminRole(["super_admin"]);
+}
+
+/**
+ * Confirm the current user may manage member broadcasts. Allows super_admin
+ * and team_admin. Used by every broadcast admin route (send, preview, drafts).
+ */
+export async function requireBroadcastAdmin(): Promise<RequireSuperAdminResult> {
+  return requireAdminRole(["super_admin", "team_admin"]);
 }

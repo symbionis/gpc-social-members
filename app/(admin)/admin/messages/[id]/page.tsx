@@ -26,7 +26,8 @@ export default async function BroadcastDetailPage({
     .eq("email", user.email)
     .limit(1);
 
-  if (admins?.[0]?.role !== "super_admin") redirect("/admin/dashboard");
+  const role = admins?.[0]?.role;
+  if (role !== "super_admin" && role !== "team_admin") redirect("/admin/dashboard");
 
   const { data: broadcast } = await adminClient
     .from("broadcasts")

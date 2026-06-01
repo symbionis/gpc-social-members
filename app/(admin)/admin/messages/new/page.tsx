@@ -18,7 +18,8 @@ export default async function NewBroadcastPage() {
     .eq("email", user.email)
     .limit(1);
 
-  if (admins?.[0]?.role !== "super_admin") redirect("/admin/dashboard");
+  const role = admins?.[0]?.role;
+  if (role !== "super_admin" && role !== "team_admin") redirect("/admin/dashboard");
 
   const { data: tiers } = await adminClient
     .from("membership_tiers")

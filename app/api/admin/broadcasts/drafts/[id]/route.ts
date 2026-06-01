@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireSuperAdmin } from "@/lib/broadcast/auth";
+import { requireBroadcastAdmin } from "@/lib/broadcast/auth";
 import { parseBroadcastPayload } from "@/lib/broadcast/validate";
 import { NextResponse, type NextRequest } from "next/server";
 
@@ -8,7 +8,7 @@ interface Ctx {
 }
 
 export async function GET(_request: NextRequest, ctx: Ctx) {
-  const auth = await requireSuperAdmin();
+  const auth = await requireBroadcastAdmin();
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -38,7 +38,7 @@ export async function GET(_request: NextRequest, ctx: Ctx) {
 }
 
 export async function PATCH(request: NextRequest, ctx: Ctx) {
-  const auth = await requireSuperAdmin();
+  const auth = await requireBroadcastAdmin();
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -85,7 +85,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
 }
 
 export async function DELETE(_request: NextRequest, ctx: Ctx) {
-  const auth = await requireSuperAdmin();
+  const auth = await requireBroadcastAdmin();
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

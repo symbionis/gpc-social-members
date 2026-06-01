@@ -41,7 +41,8 @@ export async function POST(request: NextRequest) {
     .eq("email", user.email)
     .limit(1);
 
-  if (admins?.[0]?.role !== "super_admin") {
+  const role = admins?.[0]?.role;
+  if (role !== "super_admin" && role !== "team_admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
