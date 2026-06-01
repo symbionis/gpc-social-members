@@ -19,10 +19,11 @@ export function paginate<T>(
   pageSize: number,
 ): PageResult<T> {
   const total = items.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const size = Math.max(1, Math.floor(pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / size));
   const currentPage = Math.min(Math.max(1, Math.floor(page)), totalPages);
-  const start = (currentPage - 1) * pageSize;
-  const pageRows = items.slice(start, start + pageSize);
+  const start = (currentPage - 1) * size;
+  const pageRows = items.slice(start, start + size);
   return {
     pageRows,
     totalPages,

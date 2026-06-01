@@ -10,6 +10,7 @@ import {
   matchesPaidFilter,
   matchesMonthFilter,
   type PaidFilter,
+  type PaidMonthsByMember,
 } from "@/lib/members/payments";
 import { paginate } from "@/lib/pagination";
 
@@ -31,8 +32,10 @@ interface MemberListProps {
   members: Member[];
   tierMap: Record<string, string>;
   originatorMap: Record<string, string>;
-  // member id -> sorted-desc unique "YYYY-MM" months with a paid payment.
-  paidMonthsByMember: Record<string, string[]>;
+  paidMonthsByMember: PaidMonthsByMember;
+  // false when the payments fetch errored mid-read, so the paid/month data is
+  // partial and the Paid/Month filters can't be trusted.
+  paymentsComplete: boolean;
 }
 
 const statusColors: Record<string, string> = {
@@ -46,7 +49,7 @@ const statusColors: Record<string, string> = {
 
 const PAGE_SIZE = 25;
 
-export default function MemberList({ members, tierMap, originatorMap, paidMonthsByMember }: MemberListProps) {
+export default function MemberList({ members, tierMap, originatorMap, paidMonthsByMember, paymentsComplete }: MemberListProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -214,6 +217,13 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
 
       {bulkResult && (
         <p className="text-sm font-body text-marine mb-4">{bulkResult}</p>
+      )}
+
+      {!paymentsComplete && (
+        <p className="text-sm font-body text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 mb-4">
+          Payment data couldn&apos;t be fully loaded, so the Paid and month
+          filters may be incomplete.
+        </p>
       )}
 
       <p className="text-sm text-muted-foreground font-body mb-4">

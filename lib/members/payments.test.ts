@@ -21,6 +21,11 @@ describe("zurichMonthKey", () => {
   it("keeps a mid-day instant in its own month", () => {
     expect(zurichMonthKey("2026-05-15T12:00:00Z")).toBe("2026-05");
   });
+
+  it("returns '' for an unparseable timestamp instead of throwing", () => {
+    expect(zurichMonthKey("not-a-date")).toBe("");
+    expect(zurichMonthKey("")).toBe("");
+  });
 });
 
 describe("buildPaidMonthsByMember", () => {
@@ -53,6 +58,25 @@ describe("buildPaidMonthsByMember", () => {
       { member_id: "a", paid_at: "2026-06-10T10:00:00Z", created_at: "2026-04-10T10:00:00Z" },
     ]);
     expect(map).toEqual({ a: ["2026-06"] });
+  });
+
+  it("collapses two rows whose Geneva month matches across the UTC boundary", () => {
+    // 2026-05-31T23:30Z is June in Geneva (CEST); 2026-06-15 is plainly June.
+    const map = buildPaidMonthsByMember([
+      { member_id: "a", paid_at: "2026-05-31T23:30:00Z", created_at: "2026-05-31T23:30:00Z" },
+      { member_id: "a", paid_at: "2026-06-15T10:00:00Z", created_at: "2026-06-15T10:00:00Z" },
+    ]);
+    expect(map).toEqual({ a: ["2026-06"] });
+  });
+
+  it("skips a row with an unparseable timestamp rather than throwing", () => {
+    const map = buildPaidMonthsByMember([
+      { member_id: "a", paid_at: "garbage", created_at: "also-bad" },
+      { member_id: "a", paid_at: "2026-04-10T10:00:00Z", created_at: "2026-04-10T10:00:00Z" },
+      { member_id: "b", paid_at: "nonsense", created_at: "nope" },
+    ]);
+    // 'a' keeps only its valid month; 'b' (all-invalid) drops out entirely.
+    expect(map).toEqual({ a: ["2026-04"] });
   });
 });
 
@@ -97,5 +121,6 @@ describe("matchesMonthFilter", () => {
     expect(matchesMonthFilter(["2026-05", "2026-03"], "2026-05")).toBe(true);
     expect(matchesMonthFilter(["2026-03"], "2026-05")).toBe(false);
     expect(matchesMonthFilter(undefined, "2026-05")).toBe(false);
+    expect(matchesMonthFilter([], "2026-05")).toBe(false);
   });
 });

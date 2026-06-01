@@ -44,6 +44,12 @@ describe("paginate", () => {
     expect(r.total).toBe(0);
   });
 
+  it("guards against a non-positive page size", () => {
+    const r = paginate(list(3), 1, 0);
+    expect(r.pageRows).toEqual([1]);
+    expect(r.totalPages).toBe(3);
+  });
+
   it("handles an exact page boundary", () => {
     const r = paginate(list(50), 2, 25);
     expect(r.pageRows).toEqual(Array.from({ length: 25 }, (_, i) => i + 26));

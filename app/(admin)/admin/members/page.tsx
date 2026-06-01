@@ -4,6 +4,7 @@ import {
   buildPaidMonthsByMember,
   type PaidPaymentRow,
 } from "@/lib/members/payments";
+import { captureServerException } from "@/lib/analytics/server-errors";
 
 const PAYMENTS_PAGE_SIZE = 1000;
 
@@ -14,7 +15,15 @@ export default async function MembersPage() {
   // default response cap (payments accumulate across seasons). No paid_at-null
   // guard: the checkout.session.completed path writes 'paid' without paid_at,
   // and buildPaidMonthsByMember falls back to created_at for those rows.
-  async function fetchPaidRows(): Promise<PaidPaymentRow[]> {
+  //
+  // On a fetch error we keep the pages already read and report `complete: false`
+  // rather than failing the whole page — but a partial map would mislabel paid
+  // members as "Not paid", so the caller surfaces that incompleteness in the UI
+  // instead of presenting it as authoritative.
+  async function fetchPaidRows(): Promise<{
+    rows: PaidPaymentRow[];
+    complete: boolean;
+  }> {
     const rows: PaidPaymentRow[] = [];
     for (let from = 0; ; from += PAYMENTS_PAGE_SIZE) {
       const { data, error } = await supabase
@@ -27,21 +36,21 @@ export default async function MembersPage() {
         .order("id", { ascending: true })
         .range(from, from + PAYMENTS_PAGE_SIZE - 1);
       if (error) {
-        // Don't silently return a partial set — a half-read map would mislabel
-        // paid members as "Not paid" with no signal. Log so the failure is
-        // visible in server logs; the page still renders members.
-        console.error("members page: paid-payments fetch failed", error);
-        break;
+        captureServerException(error, {
+          path: "/admin/members",
+          route_kind: "paid-payments-fetch",
+        });
+        return { rows, complete: false };
       }
       const page = (data ?? []) as PaidPaymentRow[];
       rows.push(...page);
       if (page.length < PAYMENTS_PAGE_SIZE) break;
     }
-    return rows;
+    return { rows, complete: true };
   }
 
   // The four reads are mutually independent — run them concurrently.
-  const [{ data: members }, paidRows, { data: tiers }, { data: originators }] =
+  const [{ data: members }, paid, { data: tiers }, { data: originators }] =
     await Promise.all([
       supabase
         .from("members")
@@ -57,7 +66,7 @@ export default async function MembersPage() {
         .eq("is_originator", true),
     ]);
 
-  const paidMonthsByMember = buildPaidMonthsByMember(paidRows);
+  const paidMonthsByMember = buildPaidMonthsByMember(paid.rows);
 
   const tierMap = Object.fromEntries(
     (tiers || []).map((t: Record<string, unknown>) => [t.id, t.name])
@@ -79,6 +88,7 @@ export default async function MembersPage() {
         tierMap={tierMap}
         originatorMap={originatorMap}
         paidMonthsByMember={paidMonthsByMember}
+        paymentsComplete={paid.complete}
       />
     </div>
   );
