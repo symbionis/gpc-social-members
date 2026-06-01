@@ -88,6 +88,15 @@ export function formatDateWithWeekday(input: string | Date | null | undefined): 
   return `${p.weekday}, ${day} ${month} ${p.year}`;
 }
 
+// "May 2026" from a "YYYY-MM" calendar-month key. Deterministic (no Intl, no
+// timezone math — the key is already a resolved calendar month) so it is
+// SSR-safe in client components, for the same byte-identical-output reason the
+// formatters above avoid toLocale*.
+export function formatMonth(key: string): string {
+  const [year, month] = key.split("-");
+  return `${MONTHS_LONG[parseInt(month, 10) - 1]} ${year}`;
+}
+
 // "Sunday" — for slot-aware reminder copy ("Friday morning").
 export function formatWeekday(input: string | Date | null | undefined): string | null {
   const d = toDate(input);
