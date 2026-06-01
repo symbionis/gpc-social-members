@@ -50,11 +50,10 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
   const [tierFilter, setTierFilter] = useState("all");
   const [paidFilter, setPaidFilter] = useState<PaidFilter>("all");
   const [monthFilter, setMonthFilter] = useState("all");
-
-  const monthOptions = availablePaymentMonths(paidMonthsByMember);
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
 
+  const monthOptions = availablePaymentMonths(paidMonthsByMember);
   const expiredCount = members.filter((m) => m.status === "expired").length;
 
   async function handleBulkReactivation() {
