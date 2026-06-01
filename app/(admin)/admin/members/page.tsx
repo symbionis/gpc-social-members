@@ -21,8 +21,18 @@ export default async function MembersPage() {
         .from("payments")
         .select("member_id, paid_at, created_at")
         .eq("payment_status", "paid")
+        // Stable order by primary key: range() paging without an explicit
+        // ORDER BY can shift row order between page requests and skip/duplicate
+        // rows at page seams, which would misclassify a paid member as unpaid.
+        .order("id", { ascending: true })
         .range(from, from + PAYMENTS_PAGE_SIZE - 1);
-      if (error) break;
+      if (error) {
+        // Don't silently return a partial set — a half-read map would mislabel
+        // paid members as "Not paid" with no signal. Log so the failure is
+        // visible in server logs; the page still renders members.
+        console.error("members page: paid-payments fetch failed", error);
+        break;
+      }
       const page = (data ?? []) as PaidPaymentRow[];
       rows.push(...page);
       if (page.length < PAYMENTS_PAGE_SIZE) break;
