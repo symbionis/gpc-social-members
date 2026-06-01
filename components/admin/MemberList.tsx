@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isAwaitingPayment } from "@/lib/members/status";
@@ -11,6 +11,7 @@ import {
   matchesMonthFilter,
   type PaidFilter,
 } from "@/lib/members/payments";
+import { paginate } from "@/lib/pagination";
 
 interface Member {
   id: string;
@@ -43,6 +44,8 @@ const statusColors: Record<string, string> = {
   declined: "bg-red-50 text-red-600",
 };
 
+const PAGE_SIZE = 25;
+
 export default function MemberList({ members, tierMap, originatorMap, paidMonthsByMember }: MemberListProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -50,8 +53,15 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
   const [tierFilter, setTierFilter] = useState("all");
   const [paidFilter, setPaidFilter] = useState<PaidFilter>("all");
   const [monthFilter, setMonthFilter] = useState("all");
+  const [page, setPage] = useState(1);
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
+
+  // Reset to the first page whenever the active filter set changes, so you're
+  // never stranded on a page index the narrowed result no longer has.
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, tierFilter, paidFilter, monthFilter]);
 
   const monthOptions = availablePaymentMonths(paidMonthsByMember);
   const expiredCount = members.filter((m) => m.status === "expired").length;
@@ -119,6 +129,14 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
   }
 
   const uniqueTiers = [...new Set(members.map((m) => m.tier_id))];
+
+  // Paginate the filtered rows for display. Count and CSV still use the full
+  // `filtered` set, so they reflect every match, not just the current page.
+  const { pageRows, totalPages, currentPage, from, to, total } = paginate(
+    filtered,
+    page,
+    PAGE_SIZE,
+  );
 
   return (
     <div>
@@ -199,7 +217,9 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
       )}
 
       <p className="text-sm text-muted-foreground font-body mb-4">
-        {filtered.length} member{filtered.length !== 1 ? "s" : ""}
+        {total === 0
+          ? "0 members"
+          : `Showing ${from}–${to} of ${total} member${total !== 1 ? "s" : ""}`}
       </p>
 
       {/* Table */}
@@ -218,7 +238,7 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.map((m) => (
+              {pageRows.map((m) => (
                 <tr key={m.id} className="hover:bg-cream/50 transition-colors">
                   <td className="px-4 py-3">
                     <Link
@@ -268,6 +288,28 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
           </table>
         </div>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <button
+            onClick={() => setPage(Math.max(1, currentPage - 1))}
+            disabled={currentPage <= 1}
+            className="px-4 py-2 bg-white border border-border rounded-lg text-sm font-body text-marine hover:bg-cream transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Previous
+          </button>
+          <span className="text-sm text-muted-foreground font-body">
+            Page {currentPage} of {totalPages}
+          </span>
+          <button
+            onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage >= totalPages}
+            className="px-4 py-2 bg-white border border-border rounded-lg text-sm font-body text-marine hover:bg-cream transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }
