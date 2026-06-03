@@ -101,7 +101,11 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
       `${m.first_name} ${m.last_name} ${m.email} ${m.member_number || ""}`
         .toLowerCase()
         .includes(search.toLowerCase());
-    const matchesStatus = statusFilter === "all" || m.status === statusFilter;
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusFilter === "awaiting_payment"
+        ? isAwaitingPayment(m.status)
+        : m.status === statusFilter);
     const matchesTier = tierFilter === "all" || m.tier_id === tierFilter;
     const matchesPaid = matchesPaidFilter(paidMonthsByMember[m.id], paidFilter);
     const matchesMonth = matchesMonthFilter(paidMonthsByMember[m.id], monthFilter);
@@ -161,6 +165,7 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
           <option value="active">Active</option>
           <option value="pending">Pending</option>
           <option value="approved">Approved</option>
+          <option value="awaiting_payment">Awaiting Payment</option>
           <option value="expired">Expired</option>
           <option value="suspended">Suspended</option>
           <option value="declined">Declined</option>
