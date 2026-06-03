@@ -33,6 +33,7 @@ BEGIN
   FROM public.event_registrations r
   WHERE r.id = p_registration_id
     AND r.status IN ('paid', 'free')
+    AND trim(COALESCE(r.name, '')) <> ''
     AND trim(COALESCE(r.email, '')) <> ''
     AND NOT EXISTS (
       SELECT 1 FROM public.event_attendees a

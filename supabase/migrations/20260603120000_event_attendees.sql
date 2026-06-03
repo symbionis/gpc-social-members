@@ -93,6 +93,7 @@ JOIN public.events e ON e.id = r.event_id
 WHERE r.status IN ('paid', 'free')
   AND e.is_published = true
   AND (e.start_date IS NULL OR e.start_date >= CURRENT_DATE)
+  AND trim(COALESCE(r.name, '')) <> ''
   AND trim(COALESCE(r.email, '')) <> ''
   AND NOT EXISTS (
     SELECT 1 FROM public.event_attendees a

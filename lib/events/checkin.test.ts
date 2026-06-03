@@ -32,6 +32,8 @@ function attendeeClient(rows: unknown[], opts: { error?: unknown } = {}) {
 // an update→eq→eq (the guarded flip). The update chain is awaited directly (thenable).
 function recordClient(opts: {
   attendee: QResult;
+  /** Rows returned by the guarded UPDATE...select(); [] simulates a lost race. */
+  updated?: unknown[];
   updateError?: unknown;
   onUpdate?: (update: Record<string, unknown>) => void;
 }) {
@@ -45,8 +47,13 @@ function recordClient(opts: {
         opts.onUpdate?.(update);
         const u: Record<string, unknown> = {};
         u.eq = () => u;
+        u.is = () => u;
+        u.select = () => u;
         (u as { then: unknown }).then = (resolve: (r: QResult) => unknown) =>
-          resolve({ data: null, error: opts.updateError ?? null });
+          resolve({
+            data: opts.updated ?? [{ checked_in_at: "2026-06-06T18:00:00Z" }],
+            error: opts.updateError ?? null,
+          });
         return u;
       };
       return c;
@@ -247,6 +254,30 @@ describe("recordAttendeeCheckin", () => {
       checkedInAt: "2026-06-06T18:30:00Z",
     });
     expect(updated).toBe(false);
+  });
+
+  it("treats a lost concurrent race (zero rows updated) as already checked in", async () => {
+    // Attendee reads as not-yet-arrived, but the guarded UPDATE matches zero rows
+    // because a simultaneous submit won — must report already:true, not overwrite.
+    mockedCreateAdminClient.mockReturnValue(
+      recordClient({
+        attendee: {
+          data: {
+            id: "att-1",
+            waiver_accepted_at: "2026-06-01T09:00:00Z",
+            language: "fr",
+            marketing_consent: false,
+            checked_in_at: null,
+          },
+          error: null,
+        },
+        updated: [],
+      })
+    );
+    expect(await recordAttendeeCheckin(base)).toMatchObject({
+      ok: true,
+      already: true,
+    });
   });
 
   it("throws when the attendee load errors rather than coercing to not_found", async () => {

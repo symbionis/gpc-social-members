@@ -174,12 +174,27 @@ export async function recordAttendeeCheckin(
     update.marketing_consent = input.marketingConsent ?? true;
   }
 
-  const { error: updateError } = await supabase
+  // Guard the flip on checked_in_at IS NULL so a concurrent door double-tap can't
+  // double-stamp the arrival (or re-stamp the waiver). If zero rows update, another
+  // submit won the race — re-read and report idempotently rather than overwriting.
+  const { data: updated, error: updateError } = await supabase
     .from("event_attendees")
     .update(update)
     .eq("id", input.attendeeId)
-    .eq("event_id", input.eventId);
+    .eq("event_id", input.eventId)
+    .is("checked_in_at", null)
+    .select("checked_in_at");
   if (updateError) throw updateError;
+
+  if (!updated || updated.length === 0) {
+    const { data: existing } = await supabase
+      .from("event_attendees")
+      .select("checked_in_at")
+      .eq("id", input.attendeeId)
+      .eq("event_id", input.eventId)
+      .maybeSingle();
+    return { ok: true, already: true, checkedInAt: existing?.checked_in_at ?? now };
+  }
 
   return { ok: true, already: false, checkedInAt: now };
 }

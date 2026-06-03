@@ -65,6 +65,15 @@ BEGIN
       CONTINUE;
     END IF;
 
+    -- Name is required for a claimed row (event_attendees_claimed_named CHECK);
+    -- surface a readable per-row error instead of a raw constraint violation.
+    IF v_name IS NULL THEN
+      v_results := v_results || jsonb_build_object(
+        'index', v_index, 'status', 'error', 'message', 'Name is required'
+      );
+      CONTINUE;
+    END IF;
+
     -- Each row is its own savepoint: a single failure is reported, not fatal.
     BEGIN
       -- Dedupe by phone_e164 OR lower(email) within the event (earliest-created
