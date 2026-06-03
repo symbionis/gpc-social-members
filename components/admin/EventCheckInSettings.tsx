@@ -10,7 +10,6 @@ interface Props {
   baseUrl: string;
   /** Path of the public check-in page, e.g. /public/events/<id>/check-in */
   checkInPath: string;
-  strictCheckin: boolean;
   /** Current ticket cap (events.seat_cap); null = unlimited. */
   seatCap: number | null;
   /** Tickets already taken (paid + free) — used for the overbooked warning. */
@@ -21,7 +20,6 @@ export default function EventCheckInSettings({
   eventId,
   baseUrl,
   checkInPath,
-  strictCheckin,
   seatCap,
   seatsUsed,
 }: Props) {
@@ -37,8 +35,6 @@ export default function EventCheckInSettings({
   }, []);
 
   const [copied, setCopied] = useState(false);
-  const [strict, setStrict] = useState(strictCheckin);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const qrWrapRef = useRef<HTMLDivElement>(null);
 
@@ -101,29 +97,6 @@ export default function EventCheckInSettings({
     link.href = canvas.toDataURL("image/png");
     link.download = "check-in-qr.png";
     link.click();
-  }
-
-  async function toggleStrict() {
-    const next = !strict;
-    setStrict(next);
-    setError(null);
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/admin/events/${eventId}/settings`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ strict_checkin: next }),
-      });
-      if (!res.ok) {
-        setStrict(!next);
-        setError("Could not update strict check-in. Try again.");
-      }
-    } catch {
-      setStrict(!next);
-      setError("Network error. Could not update strict check-in.");
-    } finally {
-      setSaving(false);
-    }
   }
 
   return (
@@ -228,29 +201,6 @@ export default function EventCheckInSettings({
             Download PNG
           </button>
         </div>
-      </section>
-
-      <section>
-        <h3 className="font-heading text-lg font-bold text-marine mb-1">
-          Strict check-in
-        </h3>
-        <p className="font-body text-sm text-muted-foreground mb-3">
-          When on, only people matched to a registration or an active membership
-          can check in. Invited guests are sent to the welcome desk. When off,
-          invited guests check in by naming who invited them.
-        </p>
-        <label className="inline-flex items-center gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={strict}
-            disabled={saving}
-            onChange={toggleStrict}
-            className="h-5 w-5 accent-marine cursor-pointer disabled:opacity-50"
-          />
-          <span className="text-sm font-body text-marine">
-            {strict ? "Strict check-in is ON" : "Strict check-in is OFF"}
-          </span>
-        </label>
       </section>
     </div>
   );

@@ -30,6 +30,13 @@ function client(rowsByTable: Record<string, Row[]>) {
         ins.push([col, vals]);
         return c;
       };
+      // Supports the single `.not(col, "is", null)` shape fetchCheckins uses to
+      // keep only checked-in attendees (checked_in_at IS NOT NULL).
+      const nots: Array<[string, "is", null]> = [];
+      c.not = (col: string, op: "is", val: null) => {
+        nots.push([col, op, val]);
+        return c;
+      };
       c.order = () => c;
       c.range = (f: number, t: number) => {
         rFrom = f;
@@ -40,6 +47,8 @@ function client(rowsByTable: Record<string, Row[]>) {
         let rows = rowsByTable[table] ?? [];
         for (const [col, val] of eqs) rows = rows.filter((r) => r[col] === val);
         for (const [col, vals] of ins) rows = rows.filter((r) => vals.includes(r[col]));
+        // `.not(col, "is", null)` → keep rows whose column is non-null.
+        for (const [col] of nots) rows = rows.filter((r) => r[col] != null);
         return resolve({ data: rows.slice(rFrom, rTo + 1), error: null });
       };
       return c;
@@ -103,11 +112,15 @@ describe("resolveEventAudience — pre-event (registered attendees)", () => {
 });
 
 describe("resolveEventAudience — post-event (checked-in attendees)", () => {
+  // Post-event recipients now come from event_attendees WHERE checked_in_at is
+  // set (event_checkins is frozen). A not-yet-arrived attendee (null
+  // checked_in_at) must be excluded.
   const checkins = {
-    event_checkins: [
-      { email: "yes@x.com", name: "Yes", member_id: "m1", marketing_consent: true, event_id: "e1" },
-      { email: "no@x.com", name: "No", member_id: null, marketing_consent: false, event_id: "e1" },
-      { email: "nullc@x.com", name: "Nullc", member_id: null, marketing_consent: null, event_id: "e1" },
+    event_attendees: [
+      { email: "yes@x.com", name: "Yes", member_id: "m1", marketing_consent: true, checked_in_at: "2026-06-06T10:00:00Z", event_id: "e1" },
+      { email: "no@x.com", name: "No", member_id: null, marketing_consent: false, checked_in_at: "2026-06-06T10:01:00Z", event_id: "e1" },
+      { email: "nullc@x.com", name: "Nullc", member_id: null, marketing_consent: null, checked_in_at: "2026-06-06T10:02:00Z", event_id: "e1" },
+      { email: "noshow@x.com", name: "Noshow", member_id: null, marketing_consent: true, checked_in_at: null, event_id: "e1" },
     ],
   };
 
@@ -133,6 +146,18 @@ describe("resolveEventAudience — post-event (checked-in attendees)", () => {
     expect(recipients.map((r) => r.email)).not.toContain("nullc@x.com");
   });
 
+  // Only arrived attendees (checked_in_at set) are post-event recipients; a
+  // rostered no-show is never messaged even with the consent override on.
+  it("excludes attendees who never checked in (checked_in_at null)", async () => {
+    mockedCreateAdminClient.mockReturnValue(client(checkins));
+    const { recipients } = await resolveEventAudience({
+      event_id: "e1",
+      kind: "event_post",
+      include_non_consented: true,
+    });
+    expect(recipients.map((r) => r.email)).not.toContain("noshow@x.com");
+  });
+
   // AE3: override on → everyone who checked in, override recorded by caller.
   it("includes non-consented check-ins when the override is on", async () => {
     mockedCreateAdminClient.mockReturnValue(client(checkins));
@@ -154,9 +179,9 @@ describe("resolveEventAudience — dedup, pagination, empty", () => {
   it("de-duplicates by lowercased email", async () => {
     mockedCreateAdminClient.mockReturnValue(
       client({
-        event_checkins: [
-          { email: "Dup@X.com", name: "Dup One", member_id: "m1", marketing_consent: true, event_id: "e1" },
-          { email: "dup@x.com", name: "Dup Two", member_id: null, marketing_consent: true, event_id: "e1" },
+        event_attendees: [
+          { email: "Dup@X.com", name: "Dup One", member_id: "m1", marketing_consent: true, checked_in_at: "2026-06-06T10:00:00Z", event_id: "e1" },
+          { email: "dup@x.com", name: "Dup Two", member_id: null, marketing_consent: true, checked_in_at: "2026-06-06T10:01:00Z", event_id: "e1" },
         ],
       })
     );
@@ -171,9 +196,9 @@ describe("resolveEventAudience — dedup, pagination, empty", () => {
   it("does not double-count a skipped email that also appears as included", async () => {
     mockedCreateAdminClient.mockReturnValue(
       client({
-        event_checkins: [
-          { email: "mix@x.com", name: "Mix", member_id: null, marketing_consent: false, event_id: "e1" },
-          { email: "mix@x.com", name: "Mix", member_id: "m1", marketing_consent: true, event_id: "e1" },
+        event_attendees: [
+          { email: "mix@x.com", name: "Mix", member_id: null, marketing_consent: false, checked_in_at: "2026-06-06T10:00:00Z", event_id: "e1" },
+          { email: "mix@x.com", name: "Mix", member_id: "m1", marketing_consent: true, checked_in_at: "2026-06-06T10:01:00Z", event_id: "e1" },
         ],
       })
     );
@@ -204,9 +229,10 @@ describe("resolveEventAudience — dedup, pagination, empty", () => {
       name: `C ${i}`,
       member_id: null,
       marketing_consent: true,
+      checked_in_at: "2026-06-06T10:00:00Z",
       event_id: "e1",
     }));
-    mockedCreateAdminClient.mockReturnValue(client({ event_checkins: many }));
+    mockedCreateAdminClient.mockReturnValue(client({ event_attendees: many }));
     const { recipients } = await resolveEventAudience({ event_id: "e1", kind: "event_post" });
     expect(recipients).toHaveLength(1500);
   });

@@ -16,7 +16,7 @@ export default async function ManageEventPage({
   const { data: event } = await supabase
     .from("events")
     .select(
-      "id, title, start_date, seat_cap, strict_checkin, reminder_schedule, visibility, registration_enabled, invite_code"
+      "id, title, start_date, seat_cap, reminder_schedule, visibility, registration_enabled, invite_code"
     )
     .eq("id", id)
     .single();
@@ -41,46 +41,60 @@ export default async function ManageEventPage({
     .in("status", ["paid", "free"])
     .order("created_at", { ascending: false });
 
-  // event_checkins is the single source of arrival truth. A registration has
-  // arrived iff a row links to it; rows without a registration_id are walk-up
-  // members and invited guests.
-  const { data: checkins } = await supabase
-    .from("event_checkins")
+  // event_attendees is the per-person source of truth for identity, waiver, and
+  // arrival (event_checkins is frozen). The roster is flat — one row per person,
+  // claimed slots only (unclaimed Milestone-2 placeholders have no identity yet).
+  const { data: attendeeRows } = await supabase
+    .from("event_attendees")
     .select(
-      "id, name, email, kind, inviter_name, registration_id, member_id, invited_by_registration_id, created_at"
+      "id, registration_id, member_id, name, email, phone_e164, is_lead, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", id)
+    .eq("slot_status", "claimed")
     .order("created_at", { ascending: true });
 
-  const checkedInRegIds = new Set(
-    (checkins ?? [])
-      .filter((c) => c.registration_id)
-      .map((c) => c.registration_id as string)
-  );
+  type AttendeeRow = {
+    id: string;
+    registration_id: string | null;
+    member_id: string | null;
+    name: string | null;
+    email: string | null;
+    phone_e164: string | null;
+    is_lead: boolean;
+    waiver_accepted_at: string | null;
+    checked_in_at: string | null;
+    created_at: string;
+  };
+  const roster = (attendeeRows ?? []) as AttendeeRow[];
 
-  // Per-registration line items → a read-only "2× Standard, 2× Kids" breakdown.
-  const regIds = (registrations ?? []).map((r) => r.id);
-  const { data: items } = regIds.length
-    ? await supabase
-        .from("event_registration_items")
-        .select("registration_id, title_snapshot, quantity, created_at")
-        .in("registration_id", regIds)
-        .order("created_at", { ascending: true })
-    : { data: [] as { registration_id: string; title_snapshot: string; quantity: number }[] };
-
-  const breakdownByReg = new Map<string, string>();
-  for (const it of items ?? []) {
-    const line = `${it.quantity}× ${it.title_snapshot}`;
-    const prev = breakdownByReg.get(it.registration_id);
-    breakdownByReg.set(it.registration_id, prev ? `${prev}, ${line}` : line);
+  // Lead name per registration → guests can be attributed to their party's lead.
+  const leadNameByReg = new Map<string, string>();
+  for (const a of roster) {
+    if (a.is_lead && a.registration_id && a.name) {
+      leadNameByReg.set(a.registration_id, a.name);
+    }
   }
 
-  const attendees = (registrations ?? []).map((r) => ({
-    ...r,
-    checkedIn: checkedInRegIds.has(r.id),
-    // Itemless fallback (legacy / window-promoted rows): "{quantity}× —".
-    breakdown: breakdownByReg.get(r.id) ?? `${r.quantity}× —`,
+  const attendees = roster.map((a) => ({
+    id: a.id,
+    name: a.name ?? "",
+    email: a.email ?? "",
+    phone_e164: a.phone_e164 ?? "",
+    isMember: a.member_id !== null,
+    isLead: a.is_lead,
+    // The lead's name for this party, when the attendee belongs to a registration
+    // and isn't themselves the lead. Empty otherwise (lead row or no party).
+    leadName:
+      !a.is_lead && a.registration_id
+        ? leadNameByReg.get(a.registration_id) ?? ""
+        : "",
+    waiverSigned: a.waiver_accepted_at !== null,
+    checkedIn: a.checked_in_at !== null,
+    arrivedAt: a.checked_in_at,
+    createdAt: a.created_at,
   }));
+
+  const checkedInCount = attendees.filter((a) => a.checkedIn).length;
 
   const total = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
   const seatCap = event.seat_cap as number | null;
@@ -131,7 +145,7 @@ export default async function ManageEventPage({
       <ManageEventTabs
         eventId={id}
         attendees={attendees}
-        checkins={checkins ?? []}
+        checkedInCount={checkedInCount}
         waitlist={waitlist ?? []}
         hasSeatCap={hasSeatCap}
         total={total}
@@ -140,7 +154,6 @@ export default async function ManageEventPage({
         csvHref={`/api/admin/events/${id}/attendees?format=csv`}
         baseUrl={baseUrl}
         checkInPath={checkInPath}
-        strictCheckin={Boolean(event.strict_checkin)}
         reminders={reminders}
         sentMessages={sentMessages ?? []}
         reminderSchedule={reminderSchedule}

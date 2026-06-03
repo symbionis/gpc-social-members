@@ -25,9 +25,10 @@ async function assertAdmin() {
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
   let str = String(value);
-  // Formula-injection guard: name / inviter_name come from the unauthenticated
-  // public check-in endpoint. A leading =, +, -, @ (or tab/CR) makes spreadsheet
-  // apps execute the cell as a formula, so neutralize it with a leading quote.
+  // Formula-injection guard: name / contact come from unauthenticated public
+  // surfaces (self-registration, door). A leading =, +, -, @ (or tab/CR) makes
+  // spreadsheet apps execute the cell as a formula, so neutralize it with a
+  // leading quote.
   if (/^[=+\-@\t\r]/.test(str)) {
     str = `'${str}`;
   }
@@ -63,100 +64,67 @@ export async function GET(
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
   }
 
-  const { data: rows } = await adminClient
-    .from("event_registrations")
+  // event_attendees is the per-person source of truth (event_checkins is frozen).
+  // One row per claimed attendee; columns mirror the admin roster (AttendeeList).
+  interface AttendeeRow {
+    registration_id: string | null;
+    member_id: string | null;
+    name: string | null;
+    email: string | null;
+    phone_e164: string | null;
+    is_lead: boolean;
+    waiver_accepted_at: string | null;
+    checked_in_at: string | null;
+    created_at: string;
+  }
+  const { data: attendees } = await adminClient
+    .from("event_attendees")
     .select(
-      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, created_at"
+      "registration_id, member_id, name, email, phone_e164, is_lead, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", eventId)
-    .in("status", ["paid", "free"])
-    .order("created_at", { ascending: false });
+    .eq("slot_status", "claimed")
+    .order("created_at", { ascending: true });
 
-  // Per-registration line items → "2× Standard, 2× Kids" breakdown column.
-  const regIds = (rows || []).map((r) => r.id);
-  const { data: items } = regIds.length
-    ? await adminClient
-        .from("event_registration_items")
-        .select("registration_id, title_snapshot, quantity, created_at")
-        .in("registration_id", regIds)
-        .order("created_at", { ascending: true })
-    : { data: [] as { registration_id: string; title_snapshot: string; quantity: number }[] };
-  const breakdownByReg = new Map<string, string>();
-  for (const it of items || []) {
-    const line = `${it.quantity}× ${it.title_snapshot}`;
-    const prev = breakdownByReg.get(it.registration_id);
-    breakdownByReg.set(it.registration_id, prev ? `${prev}, ${line}` : line);
-  }
+  const roster = (attendees || []) as AttendeeRow[];
 
-  // Arrival is sourced from event_checkins (single source of truth). Rows with a
-  // registration_id mark a registrant as arrived; rows without one are walk-up
-  // members and invited guests, appended below the registrations.
-  const { data: checkins } = await adminClient
-    .from("event_checkins")
-    .select("registration_id, name, email, kind, inviter_name, created_at")
-    .eq("event_id", eventId)
-    .order("created_at", { ascending: false });
-
-  const arrivalByReg = new Map<string, string>();
-  for (const c of checkins || []) {
-    if (c.registration_id) arrivalByReg.set(c.registration_id, c.created_at);
+  // Lead name per registration → guests are attributed to their party's lead.
+  const leadNameByReg = new Map<string, string>();
+  for (const a of roster) {
+    if (a.is_lead && a.registration_id && a.name) {
+      leadNameByReg.set(a.registration_id, a.name);
+    }
   }
 
   const headers = [
     "name",
     "email",
-    "type",
+    "phone",
     "is_member",
-    "quantity",
-    "ticket_types",
-    "amount_chf",
-    "status",
-    "reference_code",
-    "registered_at",
-    "invited_by",
+    "party_lead",
+    "waiver",
     "arrived",
     "arrived_at",
   ];
 
   const lines: string[] = [headers.join(",")];
 
-  for (const r of rows || []) {
-    const arrivedAt = arrivalByReg.get(r.id);
+  for (const a of roster) {
+    const partyLead = a.is_lead
+      ? "lead"
+      : a.registration_id
+      ? `guest of ${leadNameByReg.get(a.registration_id) ?? ""}`.trim()
+      : "";
     lines.push(
       [
-        csvEscape(r.name),
-        csvEscape(r.email),
-        "registration",
-        r.is_member ? "yes" : "no",
-        r.quantity,
-        csvEscape(breakdownByReg.get(r.id) ?? `${r.quantity}× —`),
-        Number(r.total_amount_chf).toFixed(2),
-        r.status,
-        r.reference_code,
-        r.created_at,
-        "",
-        arrivedAt ? "yes" : "no",
-        arrivedAt ?? "",
-      ].join(",")
-    );
-  }
-
-  for (const c of (checkins || []).filter((row) => !row.registration_id)) {
-    lines.push(
-      [
-        csvEscape(c.name),
-        csvEscape(c.email),
-        c.kind,
-        c.kind === "member" ? "yes" : "no",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        csvEscape(c.inviter_name),
-        "yes",
-        c.created_at,
+        csvEscape(a.name),
+        csvEscape(a.email),
+        csvEscape(a.phone_e164),
+        a.member_id ? "yes" : "no",
+        csvEscape(partyLead),
+        a.waiver_accepted_at ? "signed" : "unsigned",
+        a.checked_in_at ? "yes" : "no",
+        a.checked_in_at ?? "",
       ].join(",")
     );
   }

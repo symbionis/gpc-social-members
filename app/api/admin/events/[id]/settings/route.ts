@@ -6,10 +6,15 @@ import {
   type ReminderEntry,
 } from "@/lib/events/reminder-schedule";
 
-// Admin endpoint for per-event settings: the strict_checkin toggle, the ticket
-// cap (events.seat_cap), and the extra reminder schedule. All fields are
-// optional — callers PATCH whichever they're changing. assertAdmin mirrors the
-// attendees route.
+// Admin endpoint for per-event settings: the ticket cap (events.seat_cap) and
+// the extra reminder schedule. All fields are optional — callers PATCH whichever
+// they're changing. assertAdmin mirrors the attendees route.
+//
+// NB: strict_checkin is intentionally NOT handled here. Check-in is strict for
+// every event by default (the door is a pure gate against event_attendees); the
+// per-event toggle was removed. A PATCH carrying strict_checkin is a silent
+// no-op — the field is ignored, never errored on — so any stale caller still
+// succeeds. The events.strict_checkin column is retained for history (no drop).
 async function assertAdmin() {
   const supabase = await createClient();
   const {
@@ -43,7 +48,6 @@ export async function PATCH(
   const { id: eventId } = await params;
 
   let body: {
-    strict_checkin?: unknown;
     seat_cap?: unknown;
     reminder_schedule?: unknown;
   };
@@ -55,22 +59,13 @@ export async function PATCH(
 
   // NB: invite_code and invite_price are deliberately absent from this
   // whitelist — they are owned by POST|PATCH /api/admin/events/[id]/invite-code
-  // (single-writer). Do not add them here.
+  // (single-writer). Do not add them here. strict_checkin is also absent: it is
+  // ignored (no-op) rather than rejected, so a stale client PATCHing it still
+  // succeeds.
   const updates: {
-    strict_checkin?: boolean;
     seat_cap?: number | null;
     reminder_schedule?: ReminderEntry[];
   } = {};
-
-  if ("strict_checkin" in body) {
-    if (typeof body.strict_checkin !== "boolean") {
-      return NextResponse.json(
-        { error: "strict_checkin must be a boolean" },
-        { status: 400 }
-      );
-    }
-    updates.strict_checkin = body.strict_checkin;
-  }
 
   if ("seat_cap" in body) {
     const raw = body.seat_cap;
@@ -97,6 +92,11 @@ export async function PATCH(
   }
 
   if (Object.keys(updates).length === 0) {
+    // A PATCH carrying only the retired strict_checkin field is a deliberate
+    // no-op (ignored, not rejected) so stale callers still succeed.
+    if ("strict_checkin" in (body as Record<string, unknown>)) {
+      return NextResponse.json({ success: true });
+    }
     return NextResponse.json(
       { error: "No valid settings to update" },
       { status: 400 }
