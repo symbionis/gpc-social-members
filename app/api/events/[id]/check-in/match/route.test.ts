@@ -3,15 +3,15 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/events/checkin", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/events/checkin")>();
-  return { ...actual, matchEmail: vi.fn() };
+  return { ...actual, matchContact: vi.fn() };
 });
 
 import { POST } from "@/app/api/events/[id]/check-in/match/route";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { matchEmail } from "@/lib/events/checkin";
+import { matchContact } from "@/lib/events/checkin";
 
 const mockedCreateAdminClient = vi.mocked(createAdminClient);
-const mockedMatchEmail = vi.mocked(matchEmail);
+const mockedMatchContact = vi.mocked(matchContact);
 
 function eventClient(event: unknown) {
   const chain: Record<string, unknown> = {};
@@ -31,16 +31,20 @@ function post(body: unknown, eventId = "evt-1") {
   return POST(req as never, { params: Promise.resolve({ id: eventId }) });
 }
 
-const open = { id: "evt-1", is_published: true, strict_checkin: false };
-const strict = { id: "evt-1", is_published: true, strict_checkin: true };
+const published = { id: "evt-1", is_published: true };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockedCreateAdminClient.mockReturnValue(eventClient(open));
+  mockedCreateAdminClient.mockReturnValue(eventClient(published));
 });
 
 describe("POST /api/events/[id]/check-in/match", () => {
-  it("requires a valid email", async () => {
+  it("requires an email or phone", async () => {
+    const res = await post({});
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an invalid email", async () => {
     const res = await post({ email: "nope" });
     expect(res.status).toBe(400);
   });
@@ -51,41 +55,37 @@ describe("POST /api/events/[id]/check-in/match", () => {
     expect(res.status).toBe(404);
   });
 
-  it("returns matched:true for a registration without disclosing the kind (AE3)", async () => {
-    mockedMatchEmail.mockResolvedValue({ kind: "registered", registrationId: "r1" });
+  it("returns only { matched: true } — no names, kind, or strict (privacy)", async () => {
+    mockedMatchContact.mockResolvedValue({ kind: "one", attendeeId: "att-1" });
     const res = await post({ email: "a@b.com" });
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toEqual({ matched: true, strict: false });
+    expect(json).toEqual({ matched: true });
+    expect(json).not.toHaveProperty("strict");
+    expect(json).not.toHaveProperty("attendeeId");
     expect(json).not.toHaveProperty("kind");
-    expect(json).not.toHaveProperty("registrationId");
   });
 
-  it("returns matched:true for a member without disclosing membership (AE3)", async () => {
-    mockedMatchEmail.mockResolvedValue({ kind: "member", memberId: "m1" });
-    const res = await post({ email: "a@b.com" });
+  it("matches by phone", async () => {
+    mockedMatchContact.mockResolvedValue({ kind: "one", attendeeId: "att-1" });
+    const res = await post({ phone: "+41781234567" });
     const json = await res.json();
-    expect(json).toEqual({ matched: true, strict: false });
-    expect(json).not.toHaveProperty("memberId");
+    expect(json).toEqual({ matched: true });
+    expect(mockedMatchContact).toHaveBeenCalledWith(
+      "evt-1",
+      expect.objectContaining({ phone: "+41781234567" })
+    );
   });
 
-  it("returns matched:false for an unknown email", async () => {
-    mockedMatchEmail.mockResolvedValue({ kind: "guest" });
+  it("returns matched:false for an unknown contact", async () => {
+    mockedMatchContact.mockResolvedValue({ kind: "none" });
     const res = await post({ email: "a@b.com" });
     const json = await res.json();
-    expect(json).toEqual({ matched: false, strict: false });
-  });
-
-  it("passes through the strict flag", async () => {
-    mockedCreateAdminClient.mockReturnValue(eventClient(strict));
-    mockedMatchEmail.mockResolvedValue({ kind: "guest" });
-    const res = await post({ email: "a@b.com" });
-    const json = await res.json();
-    expect(json).toEqual({ matched: false, strict: true });
+    expect(json).toEqual({ matched: false });
   });
 
   it("returns 503 when matching throws (fail-closed, not a misleading match)", async () => {
-    mockedMatchEmail.mockRejectedValue(new Error("db down"));
+    mockedMatchContact.mockRejectedValue(new Error("db down"));
     const res = await post({ email: "a@b.com" });
     expect(res.status).toBe(503);
   });

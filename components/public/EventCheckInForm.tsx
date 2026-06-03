@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import PhoneInput from "@/components/common/PhoneInput";
 import { getWaiver, type WaiverLanguage } from "@/lib/events/waiver";
 import { formatDateTime } from "@/lib/format";
 
@@ -10,11 +11,8 @@ interface Props {
   eventDate: string;
 }
 
-type Kind = "registered" | "member" | "guest";
-type Phase = "details" | "inviter" | "waiver" | "blocked";
-type Inviter = { registrationId: string; label: string };
+type Phase = "details" | "waiver";
 type Result = {
-  kind: Kind;
   name: string;
   checkedInAt: string | null;
   already: boolean;
@@ -28,60 +26,48 @@ const STRINGS = {
     chooseLanguage: "Choose your language",
     nameLabel: "Full name",
     emailLabel: "Email",
+    phoneLabel: "Phone",
+    contactHelp: "Enter the email or phone you registered with.",
     continue: "Continue",
     checking: "Checking…",
-    inviterLabel: "Who invited you?",
-    notRecognized:
-      "It looks like you're not on the registration list or a member yet. Who invited you?",
-    inviterHelp:
-      "Start typing their name and pick them from the list. If they're not listed, just type the name.",
     waiverAccept: "I have read and accept the waiver above.",
     commsConsent:
       "I’d like to receive news and invitations from Geneva Polo Social Club. (optional)",
     checkIn: "Check in",
     checkingIn: "Checking in…",
-    blockedTitle: "Please see the welcome desk",
-    blockedBody:
-      "We couldn't find your registration. Our team at the desk will help you check in.",
+    notFoundTitle: "Not registered",
+    notFoundBody: "Please see the welcome desk.",
     networkError: "Something went wrong. Please try again.",
     nameRequired: "Please enter your name.",
-    emailRequired: "Please enter a valid email.",
-    inviterRequired: "Please tell us who invited you.",
+    contactRequired: "Please enter a valid email or phone number.",
     waiverRequired: "Please accept the waiver to check in.",
     welcome: "Welcome",
     checkedInAt: "Checked in at",
     alreadyAt: "You were already checked in at",
-    badge: { registered: "Registered", member: "Member", guest: "Guest" },
   },
   fr: {
     title: "Enregistrement",
     chooseLanguage: "Choisissez votre langue",
     nameLabel: "Nom complet",
     emailLabel: "E-mail",
+    phoneLabel: "Téléphone",
+    contactHelp: "Saisissez l’e-mail ou le téléphone utilisé lors de l’inscription.",
     continue: "Continuer",
     checking: "Vérification…",
-    inviterLabel: "Qui vous a invité ?",
-    notRecognized:
-      "Il semble que vous ne soyez ni sur la liste d'inscription ni membre. Qui vous a invité ?",
-    inviterHelp:
-      "Commencez à taper leur nom et sélectionnez-le dans la liste. S'il n'apparaît pas, saisissez simplement le nom.",
     waiverAccept: "J’ai lu et j’accepte la décharge ci-dessus.",
     commsConsent:
       "Je souhaite recevoir les actualités et invitations du Genève Polo Social Club. (facultatif)",
     checkIn: "S’enregistrer",
     checkingIn: "Enregistrement…",
-    blockedTitle: "Veuillez vous adresser à l’accueil",
-    blockedBody:
-      "Nous n’avons pas trouvé votre inscription. Notre équipe à l’accueil vous aidera à vous enregistrer.",
+    notFoundTitle: "Non inscrit",
+    notFoundBody: "Veuillez vous adresser à l’accueil.",
     networkError: "Une erreur s’est produite. Veuillez réessayer.",
     nameRequired: "Veuillez saisir votre nom.",
-    emailRequired: "Veuillez saisir un e-mail valide.",
-    inviterRequired: "Veuillez indiquer qui vous a invité.",
+    contactRequired: "Veuillez saisir un e-mail ou un téléphone valide.",
     waiverRequired: "Veuillez accepter la décharge pour vous enregistrer.",
     welcome: "Bienvenue",
     checkedInAt: "Enregistré à",
     alreadyAt: "Vous étiez déjà enregistré à",
-    badge: { registered: "Inscrit", member: "Membre", guest: "Invité" },
   },
 } as const;
 
@@ -97,45 +83,14 @@ export default function EventCheckInForm({
   const [phase, setPhase] = useState<Phase>("details");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [inviterQuery, setInviterQuery] = useState("");
-  const [inviterSuggestions, setInviterSuggestions] = useState<Inviter[]>([]);
-  const [selectedInviter, setSelectedInviter] = useState<Inviter | null>(null);
-  const [needsInviter, setNeedsInviter] = useState(false);
+  const [phone, setPhone] = useState<string | null>(null);
   const [waiverAccepted, setWaiverAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(true);
   const [matching, setMatching] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
-
-  // Debounced typeahead over this event's registrations for the inviter picker.
-  useEffect(() => {
-    if (selectedInviter && selectedInviter.label === inviterQuery) return;
-    const q = inviterQuery.trim();
-    if (q.length < 4) {
-      setInviterSuggestions([]);
-      return;
-    }
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/events/${eventId}/check-in/inviters?q=${encodeURIComponent(q)}`,
-          { signal: controller.signal }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          setInviterSuggestions(data.inviters ?? []);
-        }
-      } catch {
-        /* aborted or offline — leave suggestions as-is */
-      }
-    }, 250);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [inviterQuery, eventId, selectedInviter]);
+  const [notFound, setNotFound] = useState(false);
 
   // ---- Screen 1: language selector (and nothing else) ----
   if (!lang) {
@@ -178,9 +133,6 @@ export default function EventCheckInForm({
         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white text-3xl">
           ✓
         </div>
-        <p className="font-body text-sm uppercase tracking-wide text-emerald-700">
-          {t.badge[result.kind]}
-        </p>
         <h2 className="font-heading text-2xl font-bold text-emerald-900 mt-1">
           {t.welcome}, {result.name}
         </h2>
@@ -194,14 +146,14 @@ export default function EventCheckInForm({
     );
   }
 
-  // ---- Strict-mode blocked state ----
-  if (phase === "blocked") {
+  // ---- Not-found state — one uniform screen, no registration path ----
+  if (notFound) {
     return (
       <div className="rounded-sm border border-amber-200 bg-amber-50 p-8 text-center">
         <h2 className="font-heading text-xl font-bold text-amber-900 mb-2">
-          {t.blockedTitle}
+          {t.notFoundTitle}
         </h2>
-        <p className="font-body text-sm text-amber-800">{t.blockedBody}</p>
+        <p className="font-body text-sm text-amber-800">{t.notFoundBody}</p>
       </div>
     );
   }
@@ -210,14 +162,19 @@ export default function EventCheckInForm({
     e.preventDefault();
     setError(null);
     if (!name.trim()) return setError(t.nameRequired);
-    if (!EMAIL_RE.test(email.trim())) return setError(t.emailRequired);
+    const trimmedEmail = email.trim();
+    const hasEmail = EMAIL_RE.test(trimmedEmail);
+    if (!hasEmail && !phone) return setError(t.contactRequired);
 
     setMatching(true);
     try {
       const res = await fetch(`/api/events/${eventId}/check-in/match`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({
+          email: hasEmail ? trimmedEmail : undefined,
+          phone: phone ?? undefined,
+        }),
         signal: AbortSignal.timeout(10000),
       });
       const data = await res.json();
@@ -226,13 +183,10 @@ export default function EventCheckInForm({
         return;
       }
       if (data.matched) {
-        setNeedsInviter(false);
         setPhase("waiver");
-      } else if (data.strict) {
-        setPhase("blocked");
       } else {
-        setNeedsInviter(true);
-        setPhase("inviter");
+        // Strict gate: not on the roster.
+        setNotFound(true);
       }
     } catch {
       setError(t.networkError);
@@ -241,29 +195,13 @@ export default function EventCheckInForm({
     }
   }
 
-  function pickInviter(inviter: Inviter) {
-    setSelectedInviter(inviter);
-    setInviterQuery(inviter.label);
-    setInviterSuggestions([]);
-  }
-
-  function handleInviterContinue(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    const inviterValue = (selectedInviter?.label ?? inviterQuery).trim();
-    if (!inviterValue) return setError(t.inviterRequired);
-    setPhase("waiver");
-  }
-
   async function handleCheckIn(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const inviterValue = (selectedInviter?.label ?? inviterQuery).trim();
-    if (needsInviter && !inviterValue) {
-      setPhase("inviter");
-      return setError(t.inviterRequired);
-    }
     if (!waiverAccepted) return setError(t.waiverRequired);
+
+    const trimmedEmail = email.trim();
+    const hasEmail = EMAIL_RE.test(trimmedEmail);
 
     setSubmitting(true);
     try {
@@ -272,35 +210,26 @@ export default function EventCheckInForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          email: email.trim(),
+          email: hasEmail ? trimmedEmail : undefined,
+          phone: phone ?? undefined,
           language: lang,
-          inviterName: needsInviter ? inviterValue : undefined,
-          invitedByRegistrationId: needsInviter
-            ? selectedInviter?.registrationId
-            : undefined,
           waiverAccepted: true,
           marketingConsent,
         }),
         signal: AbortSignal.timeout(10000),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        // Strict flipped between match and submit -> show the blocked state.
-        if (res.status === 403) {
-          setPhase("blocked");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        // The strict gate re-derived us as not on the roster (e.g. a row changed
+        // mid-flow) — show the uniform not-found screen, no routing.
+        if (res.status === 404 || data.reason === "not_found") {
+          setNotFound(true);
           return;
-        }
-        // The server re-derived us as an unmatched guest (e.g. a registration
-        // was removed mid-flow) and needs an inviter the form hasn't shown yet.
-        if (res.status === 400 && !needsInviter) {
-          setNeedsInviter(true);
-          setPhase("inviter");
         }
         setError(data.error || t.networkError);
         return;
       }
       setResult({
-        kind: data.kind,
         name: data.name,
         checkedInAt: data.checkedInAt ?? null,
         already: Boolean(data.already),
@@ -365,13 +294,19 @@ export default function EventCheckInForm({
             </label>
             <input
               type="email"
-              required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className={inputClass}
               autoComplete="email"
             />
           </div>
+          <div>
+            <label className="block text-xs font-body text-muted-foreground mb-1">
+              {t.phoneLabel}
+            </label>
+            <PhoneInput onChange={setPhone} />
+          </div>
+          <p className="text-xs text-muted-foreground">{t.contactHelp}</p>
           {error && (
             <p className="text-sm font-body text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
               {error}
@@ -383,57 +318,6 @@ export default function EventCheckInForm({
             className="w-full px-4 py-3 bg-marine text-white rounded-lg text-base font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {matching ? t.checking : t.continue}
-          </button>
-        </form>
-      )}
-
-      {phase === "inviter" && (
-        <form onSubmit={handleInviterContinue} className="space-y-4">
-          <p className="font-body text-sm text-marine bg-cream/40 border border-border rounded-lg px-4 py-3">
-            {t.notRecognized}
-          </p>
-          <div>
-            <label className="block text-xs font-body text-muted-foreground mb-1">
-              {t.inviterLabel}
-            </label>
-            <input
-              type="text"
-              value={inviterQuery}
-              onChange={(e) => {
-                setInviterQuery(e.target.value);
-                setSelectedInviter(null);
-              }}
-              className={inputClass}
-              autoComplete="off"
-              autoFocus
-            />
-            {inviterSuggestions.length > 0 && !selectedInviter && (
-              <ul className="mt-1 rounded-lg border border-border bg-white overflow-hidden">
-                {inviterSuggestions.map((s) => (
-                  <li key={s.registrationId}>
-                    <button
-                      type="button"
-                      onClick={() => pickInviter(s)}
-                      className="w-full text-left px-3 py-2 text-sm font-body text-marine hover:bg-cream/60 cursor-pointer"
-                    >
-                      {s.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p className="text-xs text-muted-foreground mt-1">{t.inviterHelp}</p>
-          </div>
-          {error && (
-            <p className="text-sm font-body text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-              {error}
-            </p>
-          )}
-          <button
-            type="submit"
-            className="w-full px-4 py-3 bg-marine text-white rounded-lg text-base font-body font-semibold hover:bg-marine-light transition-colors cursor-pointer"
-          >
-            {t.continue}
           </button>
         </form>
       )}
