@@ -94,7 +94,9 @@ function adminClient(cfg: Cfg) {
       throw new Error(`unexpected table ${table}`);
     },
     rpc: (name: string, args: RpcArgs) => {
-      cfg.capturedRpc = { name, args };
+      // Capture the registration RPC only; seed_lead_attendee (U12) also calls
+      // rpc() on the free/paid confirmation path and must not clobber it.
+      if (name === "create_event_registration") cfg.capturedRpc = { name, args };
       return Promise.resolve({ data: cfg.rpcError ? null : "reg-1", error: cfg.rpcError ?? null });
     },
   } as unknown as ReturnType<typeof createAdminClient>;

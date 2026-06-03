@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import posthog from "posthog-js";
+import PhoneInput from "@/components/common/PhoneInput";
 
 export interface TicketTypeOption {
   id: string;
@@ -40,6 +41,7 @@ export default function EventRegistrationForm({
 
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
+  const [phone, setPhone] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +80,7 @@ export default function EventRegistrationForm({
       const res = await fetch(`/api/events/${eventId}/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), items, ...(code ? { code } : {}) }),
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), ...(phone ? { phone } : {}), items, ...(code ? { code } : {}) }),
       });
       const data = await res.json();
 
@@ -180,6 +182,11 @@ export default function EventRegistrationForm({
       <div>
         <label className="block text-xs font-body text-muted-foreground mb-1">Email</label>
         <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} autoComplete="email" />
+      </div>
+
+      <div>
+        <label className="block text-xs font-body text-muted-foreground mb-1">Phone</label>
+        <PhoneInput id="reg-phone" defaultValue={null} onChange={setPhone} />
       </div>
 
       {/* Per-type quantity grid */}

@@ -2,6 +2,7 @@ import { getStripe } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
+import { seedLeadAttendee } from "@/lib/events/roster";
 import { generateCardNumber } from "@/lib/utils/card";
 import { NextResponse, type NextRequest } from "next/server";
 import Stripe from "stripe";
@@ -268,6 +269,9 @@ export async function POST(request: NextRequest) {
             { status: 500 }
           );
         }
+
+        // Seed the purchaser onto the roster now that payment is confirmed (U12).
+        await seedLeadAttendee(existing.id);
 
         await sendEventRegistrationConfirmation(existing.id).catch((err) =>
           console.error(

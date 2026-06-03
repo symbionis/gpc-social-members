@@ -8,6 +8,7 @@ import {
   generateReferenceCode,
   isValidInviteCode,
 } from "@/lib/events/registration";
+import { seedLeadAttendee } from "@/lib/events/roster";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_TICKETS = 10;
@@ -22,7 +23,13 @@ export async function POST(
 ) {
   const { id: eventId } = await params;
 
-  let body: { name?: unknown; email?: unknown; code?: unknown; items?: unknown };
+  let body: {
+    name?: unknown;
+    email?: unknown;
+    phone?: unknown;
+    code?: unknown;
+    items?: unknown;
+  };
   try {
     body = await request.json();
   } catch {
@@ -33,6 +40,11 @@ export async function POST(
   const email =
     typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const code = typeof body.code === "string" ? body.code.trim() : "";
+  // Optional E.164 phone (the form captures it via PhoneInput; empty is allowed —
+  // email stays the required contact). Reject a malformed value rather than storing
+  // junk that could never match at the door.
+  const rawPhone = typeof body.phone === "string" ? body.phone.trim() : "";
+  const phone = /^\+[1-9]\d{6,14}$/.test(rawPhone) ? rawPhone : "";
 
   if (!name) return bad("name is required");
   if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
@@ -234,8 +246,26 @@ export async function POST(
     return bad("Could not create registration", 500);
   }
 
+  // Persist the captured phone on the registration (U12). The lead-attendee seed
+  // and the door both match on it. Best-effort: phone is optional, never blocks.
+  if (phone) {
+    const { error: phoneErr } = await supabase
+      .from("event_registrations")
+      .update({ phone_e164: phone })
+      .eq("id", registrationId);
+    if (phoneErr) {
+      console.error("[event-register] failed to persist phone_e164", {
+        registrationId,
+        err: phoneErr,
+      });
+    }
+  }
+
   // Free basket: confirm immediately.
   if (isFree) {
+    // Confirmed now → seed the purchaser onto the roster (paid registrations seed
+    // in the Stripe webhook after promotion to 'paid').
+    await seedLeadAttendee(registrationId);
     sendEventRegistrationConfirmation(registrationId).catch((err) =>
       console.error("[event-register] confirmation email failed", err)
     );
