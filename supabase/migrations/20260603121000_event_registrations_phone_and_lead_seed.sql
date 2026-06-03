@@ -20,7 +20,13 @@ COMMENT ON COLUMN public.event_registrations.phone_e164 IS
 -- so it is safe to call from both the free-registration path and the Stripe webhook
 -- (and idempotent against re-delivery). U8 (Milestone 2) supersedes this by seeding
 -- inside create_event_registration's N-slot pre-provisioning.
-CREATE OR REPLACE FUNCTION public.seed_lead_attendee(p_registration_id uuid)
+-- p_phone_e164: optional override the caller supplies in-hand (the free-registration
+-- path passes the captured phone) so a failed best-effort phone UPDATE on the
+-- registration row doesn't lose the number; falls back to the stored r.phone_e164.
+CREATE OR REPLACE FUNCTION public.seed_lead_attendee(
+  p_registration_id uuid,
+  p_phone_e164 text DEFAULT NULL
+)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -29,7 +35,8 @@ AS $$
 BEGIN
   INSERT INTO public.event_attendees
     (event_id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status)
-  SELECT r.event_id, r.id, r.member_id, r.name, lower(trim(r.email)), r.phone_e164, true, 'claimed'
+  SELECT r.event_id, r.id, r.member_id, r.name, lower(trim(r.email)),
+         COALESCE(p_phone_e164, r.phone_e164), true, 'claimed'
   FROM public.event_registrations r
   WHERE r.id = p_registration_id
     AND r.status IN ('paid', 'free')
@@ -42,5 +49,5 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.seed_lead_attendee(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.seed_lead_attendee(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.seed_lead_attendee(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.seed_lead_attendee(uuid, text) TO service_role;

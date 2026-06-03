@@ -75,6 +75,14 @@ CREATE INDEX IF NOT EXISTS event_attendees_registration_idx
 CREATE INDEX IF NOT EXISTS event_attendees_event_arrived_idx
   ON public.event_attendees (event_id) WHERE checked_in_at IS NOT NULL;
 
+-- At most one lead attendee per registration — makes the seed_lead_attendee
+-- NOT EXISTS guard race-safe against a concurrent Stripe webhook re-delivery and
+-- the free-registration path (a second insert raises 23505, which the best-effort
+-- caller swallows; the first already created the single lead row).
+CREATE UNIQUE INDEX IF NOT EXISTS event_attendees_one_lead_per_registration
+  ON public.event_attendees (registration_id)
+  WHERE is_lead = true AND registration_id IS NOT NULL;
+
 -- ---------------------------------------------------------------------------
 -- Backfill (idempotent): one is_lead attendee per paid/free registration on a
 -- published / upcoming event. lower(trim(email)) defends the email-lower CHECK

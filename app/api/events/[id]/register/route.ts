@@ -264,8 +264,9 @@ export async function POST(
   // Free basket: confirm immediately.
   if (isFree) {
     // Confirmed now → seed the purchaser onto the roster (paid registrations seed
-    // in the Stripe webhook after promotion to 'paid').
-    await seedLeadAttendee(registrationId);
+    // in the Stripe webhook after promotion to 'paid'). Pass the phone in-hand so a
+    // failed phone UPDATE above doesn't leave the lead unmatchable by phone.
+    await seedLeadAttendee(registrationId, phone || null);
     sendEventRegistrationConfirmation(registrationId).catch((err) =>
       console.error("[event-register] confirmation email failed", err)
     );

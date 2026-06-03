@@ -37,7 +37,9 @@ DECLARE
   v_name    text;
   v_email   text;
   v_phone   text;
-  v_match   public.event_attendees%ROWTYPE;
+  v_phone_match_id uuid;
+  v_email_match_id uuid;
+  v_match_id uuid;
 BEGIN
   -- Validate the event exists; if not, return a single error marker rather than
   -- raising, so the route can surface it cleanly.
@@ -76,26 +78,48 @@ BEGIN
 
     -- Each row is its own savepoint: a single failure is reported, not fatal.
     BEGIN
-      -- Dedupe by phone_e164 OR lower(email) within the event (earliest-created
-      -- wins, matching the door's deterministic resolution). No name matching.
-      SELECT a.* INTO v_match
-      FROM public.event_attendees a
-      WHERE a.event_id = p_event_id
-        AND (
-          (v_phone IS NOT NULL AND a.phone_e164 = v_phone)
-          OR (v_email IS NOT NULL AND lower(a.email) = v_email)
-        )
-      ORDER BY a.created_at ASC, a.id ASC
-      LIMIT 1;
+      -- Match each channel independently (earliest-created wins per channel, like
+      -- the door). This lets us catch a cross-write: a phone that belongs to one
+      -- attendee and an email that belongs to a DIFFERENT attendee must not
+      -- silently enrich one with the other's contact (split identity).
+      v_phone_match_id := NULL;
+      v_email_match_id := NULL;
 
-      IF FOUND THEN
+      IF v_phone IS NOT NULL THEN
+        SELECT a.id INTO v_phone_match_id
+        FROM public.event_attendees a
+        WHERE a.event_id = p_event_id AND a.phone_e164 = v_phone
+        ORDER BY a.created_at ASC, a.id ASC
+        LIMIT 1;
+      END IF;
+
+      IF v_email IS NOT NULL THEN
+        SELECT a.id INTO v_email_match_id
+        FROM public.event_attendees a
+        WHERE a.event_id = p_event_id AND lower(a.email) = v_email
+        ORDER BY a.created_at ASC, a.id ASC
+        LIMIT 1;
+      END IF;
+
+      IF v_phone_match_id IS NOT NULL AND v_email_match_id IS NOT NULL
+         AND v_phone_match_id <> v_email_match_id THEN
+        v_results := v_results || jsonb_build_object(
+          'index', v_index, 'status', 'error',
+          'message', 'Phone and email match different attendees'
+        );
+        CONTINUE;
+      END IF;
+
+      v_match_id := COALESCE(v_phone_match_id, v_email_match_id);
+
+      IF v_match_id IS NOT NULL THEN
         -- Enrich: only fill a NULL contact from the import. Never overwrite an
         -- existing non-null email/phone, waiver, or arrival.
         UPDATE public.event_attendees
         SET
           email      = COALESCE(email, v_email),
           phone_e164 = COALESCE(phone_e164, v_phone)
-        WHERE id = v_match.id;
+        WHERE id = v_match_id;
 
         v_results := v_results || jsonb_build_object(
           'index', v_index, 'status', 'merged'

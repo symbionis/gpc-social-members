@@ -15,10 +15,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * transient seed error must not fail registration or a Stripe webhook retry. The
  * log line is the signal to reconcile.
  */
-export async function seedLeadAttendee(registrationId: string): Promise<void> {
+export async function seedLeadAttendee(
+  registrationId: string,
+  phoneE164?: string | null,
+): Promise<void> {
   const supabase = createAdminClient();
   const { error } = await supabase.rpc("seed_lead_attendee", {
     p_registration_id: registrationId,
+    // In-hand override (the free-registration path passes the captured phone) so a
+    // failed best-effort phone UPDATE doesn't drop it; null falls back to the row.
+    p_phone_e164: phoneE164 ?? null,
   });
   if (error) {
     console.error("[roster] seed_lead_attendee failed", {
