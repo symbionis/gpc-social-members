@@ -96,6 +96,89 @@ export async function matchEmail(
   return resolveMatch(e, regs ?? [], members ?? []);
 }
 
+// ---------------------------------------------------------------------------
+// Phone-or-email roster matching (U4) — the strict-door identity path.
+//
+// Matches an arrival against event_attendees (the roster) by phone or email,
+// whichever was provided. The phone is expected already in E.164 (the door form
+// captures it through PhoneInput / lib/phone). With phone + email captured at
+// every entry point, a contact rarely maps to more than one attendee; when it
+// does (a shared family number), we resolve deterministically to the earliest-
+// created row — there is no name lookup (KTD10). The advisory match route returns
+// only a boolean, so this never discloses who is on a roster.
+// ---------------------------------------------------------------------------
+
+export type AttendeeMatchRow = {
+  id: string;
+  email: string | null;
+  phone_e164: string | null;
+  created_at: string;
+};
+
+export type ContactInput = { email?: string | null; phone?: string | null };
+
+export type ContactMatch =
+  | { kind: "none" }
+  | { kind: "one"; attendeeId: string };
+
+/**
+ * Pure deterministic resolution over already-fetched candidate attendees. Picks
+ * the earliest-created row on a shared-contact collision; no name disambiguation.
+ */
+export function resolveContactMatch(
+  candidates: AttendeeMatchRow[]
+): ContactMatch {
+  if (candidates.length === 0) return { kind: "none" };
+  let earliest = candidates[0];
+  for (const c of candidates) {
+    if (c.created_at < earliest.created_at) earliest = c;
+  }
+  return { kind: "one", attendeeId: earliest.id };
+}
+
+/**
+ * Match an arrival to a claimed roster row by email and/or phone (E.164). Runs one
+ * indexed lookup per provided channel and unions the candidates by id, so a person
+ * who supplied an email that's on the roster matches even if their phone isn't (and
+ * vice versa). Query errors throw rather than coercing to "none" — a silent miss
+ * would wrongly send a registered attendee to the welcome desk.
+ */
+export async function matchContact(
+  eventId: string,
+  input: ContactInput
+): Promise<ContactMatch> {
+  const supabase = createAdminClient();
+  const email = input.email ? normalizeEmail(input.email) : "";
+  const phone = input.phone ? input.phone.trim() : "";
+  if (!email && !phone) return { kind: "none" };
+
+  const byId = new Map<string, AttendeeMatchRow>();
+
+  if (email) {
+    const { data, error } = await supabase
+      .from("event_attendees")
+      .select("id, email, phone_e164, created_at")
+      .eq("event_id", eventId)
+      .eq("slot_status", "claimed")
+      .ilike("email", escapeLike(email));
+    if (error) throw error;
+    for (const r of (data ?? []) as AttendeeMatchRow[]) byId.set(r.id, r);
+  }
+
+  if (phone) {
+    const { data, error } = await supabase
+      .from("event_attendees")
+      .select("id, email, phone_e164, created_at")
+      .eq("event_id", eventId)
+      .eq("slot_status", "claimed")
+      .eq("phone_e164", phone);
+    if (error) throw error;
+    for (const r of (data ?? []) as AttendeeMatchRow[]) byId.set(r.id, r);
+  }
+
+  return resolveContactMatch([...byId.values()]);
+}
+
 /** Postgres unique-violation SQLSTATE — a repeat check-in for the same email. */
 export function isUniqueViolation(error: { code?: string } | null): boolean {
   return error?.code === "23505";
