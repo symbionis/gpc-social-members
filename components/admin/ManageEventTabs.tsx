@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import AttendeeList from "@/components/admin/AttendeeList";
+import RosterImport from "@/components/admin/RosterImport";
 import EventCheckInSettings from "@/components/admin/EventCheckInSettings";
 import EventInviteLink, { type InviteTicketType } from "@/components/admin/EventInviteLink";
 import EventMessaging, {
@@ -12,7 +13,7 @@ import EventMessaging, {
 import { formatDateTime } from "@/lib/format";
 import type { ReminderEntry } from "@/lib/events/reminder-schedule";
 
-type Tab = "registrations" | "checkins" | "messaging" | "waitlist" | "settings";
+type Tab = "registrations" | "checkins" | "import" | "messaging" | "waitlist" | "settings";
 
 interface Attendee {
   id: string;
@@ -249,6 +250,9 @@ export default function ManageEventTabs({
             Waitlist{visibleWaitlist.length > 0 ? ` (${visibleWaitlist.length})` : ""}
           </button>
         )}
+        <button type="button" className={tabClass(tab === "import")} onClick={() => setTab("import")}>
+          Import
+        </button>
         <button type="button" className={tabClass(tab === "messaging")} onClick={() => setTab("messaging")}>
           Messaging
         </button>
@@ -428,6 +432,8 @@ export default function ManageEventTabs({
           )}
         </div>
       )}
+
+      {tab === "import" && <RosterImport eventId={eventId} />}
 
       {tab === "messaging" && (
         <EventMessaging
