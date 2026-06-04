@@ -212,6 +212,7 @@ export default function ManageEventTabs({
         <EventCheckInPanel
           baseUrl={baseUrl}
           checkInPath={checkInPath}
+          eventId={eventId}
           arrivedCount={checkedInCount}
           // Arrivals are measured against total tickets sold (the true expected
           // headcount), not the roster row count — guests not yet self-registered

@@ -17,6 +17,8 @@ interface Props {
   baseUrl: string;
   /** Path of the public check-in page, e.g. /public/events/<id>/check-in */
   checkInPath: string;
+  /** Event id — used to build the volunteer door-console link (/door/<id>). */
+  eventId: string;
   arrivedCount: number;
   expectedCount: number;
   arrivals: Arrival[];
@@ -28,23 +30,28 @@ interface Props {
 export default function EventCheckInPanel({
   baseUrl,
   checkInPath,
+  eventId,
   arrivedCount,
   expectedCount,
   arrivals,
 }: Props) {
   const router = useRouter();
 
-  // Initial value matches on server and client (env is build-time stable). If no
+  // Initial values match on server and client (env is build-time stable). If no
   // base URL is configured, fall back to the live origin after mount.
+  const doorPath = `/door/${eventId}`;
   const [url, setUrl] = useState(baseUrl ? `${baseUrl}${checkInPath}` : checkInPath);
+  const [doorUrl, setDoorUrl] = useState(baseUrl ? `${baseUrl}${doorPath}` : doorPath);
   useEffect(() => {
-    if (!/^https?:\/\//.test(url) && typeof window !== "undefined") {
-      setUrl(`${window.location.origin}${checkInPath}`);
+    if (typeof window !== "undefined") {
+      if (!/^https?:\/\//.test(url)) setUrl(`${window.location.origin}${checkInPath}`);
+      if (!/^https?:\/\//.test(doorUrl)) setDoorUrl(`${window.location.origin}${doorPath}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const [copied, setCopied] = useState(false);
+  const [doorCopied, setDoorCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const qrWrapRef = useRef<HTMLDivElement>(null);
@@ -60,6 +67,16 @@ export default function EventCheckInPanel({
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError("Could not copy. Select the link and copy manually.");
+    }
+  }
+
+  async function copyDoorUrl() {
+    try {
+      await navigator.clipboard.writeText(doorUrl);
+      setDoorCopied(true);
+      setTimeout(() => setDoorCopied(false), 2000);
     } catch {
       setError("Could not copy. Select the link and copy manually.");
     }
@@ -175,6 +192,32 @@ export default function EventCheckInPanel({
           </button>
         </section>
       </div>
+
+      <section>
+        <h4 className="font-heading text-base font-bold text-marine mb-1">
+          Door staff link
+        </h4>
+        <p className="font-body text-sm text-muted-foreground mb-3">
+          Give this to whoever runs the desk. It opens a simple console to look up
+          a guest&apos;s party, see who&apos;s registered, show a party&apos;s
+          self-registration QR, and watch arrivals — no login, no other admin.
+        </p>
+        <div className="flex gap-2 max-w-xl">
+          <input
+            readOnly
+            value={doorUrl}
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-border bg-cream/40 text-marine font-mono text-xs"
+            onFocus={(e) => e.currentTarget.select()}
+          />
+          <button
+            type="button"
+            onClick={copyDoorUrl}
+            className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors cursor-pointer"
+          >
+            {doorCopied ? "Copied" : "Copy"}
+          </button>
+        </div>
+      </section>
 
       <section>
         <h4 className="font-heading text-base font-bold text-marine mb-3">
