@@ -192,6 +192,7 @@ describe("recordAttendeeCheckin", () => {
         attendee: {
           data: {
             id: "att-1",
+            name: "Jean Dupont",
             waiver_accepted_at: null,
             language: null,
             marketing_consent: null,
@@ -203,7 +204,9 @@ describe("recordAttendeeCheckin", () => {
       })
     );
     const res = await recordAttendeeCheckin(base);
-    expect(res).toMatchObject({ ok: true, already: false });
+    // The roster name is carried back for the confirmation greeting (no name is
+    // collected at the door).
+    expect(res).toMatchObject({ ok: true, already: false, name: "Jean Dupont" });
     expect(captured!.waiver_version).toBe(WAIVER_VERSION);
     expect(captured!.waiver_accepted_at).toBeTruthy();
     expect(captured!.language).toBe("en");
@@ -238,6 +241,7 @@ describe("recordAttendeeCheckin", () => {
         attendee: {
           data: {
             id: "att-1",
+            name: "Jean Dupont",
             waiver_accepted_at: "2026-06-01T09:00:00Z",
             language: "en",
             marketing_consent: true,
@@ -252,6 +256,7 @@ describe("recordAttendeeCheckin", () => {
       ok: true,
       already: true,
       checkedInAt: "2026-06-06T18:30:00Z",
+      name: "Jean Dupont",
     });
     expect(updated).toBe(false);
   });

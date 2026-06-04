@@ -40,7 +40,6 @@ function post(body: unknown, eventId = "evt-1") {
 const published = { id: "evt-1", is_published: true };
 
 const validBody = {
-  name: "Jean Dupont",
   email: "jean@example.com",
   language: "en",
   waiverAccepted: true,
@@ -54,22 +53,13 @@ beforeEach(() => {
     ok: true,
     already: false,
     checkedInAt: "2026-06-06T18:00:00Z",
+    name: "Jean Dupont",
   });
 });
 
 describe("POST /api/events/[id]/check-in — validation", () => {
   it("rejects invalid JSON", async () => {
     const res = await post("not json");
-    expect(res.status).toBe(400);
-  });
-
-  it("requires a name", async () => {
-    const res = await post({ ...validBody, name: "  " });
-    expect(res.status).toBe(400);
-  });
-
-  it("rejects an over-long name", async () => {
-    const res = await post({ ...validBody, name: "a".repeat(201) });
     expect(res.status).toBe(400);
   });
 
@@ -86,7 +76,6 @@ describe("POST /api/events/[id]/check-in — validation", () => {
 
   it("accepts a phone-only arrival (no email)", async () => {
     const res = await post({
-      name: "Jean",
       phone: "+41781234567",
       language: "en",
       waiverAccepted: true,
@@ -125,6 +114,15 @@ describe("POST /api/events/[id]/check-in — strict gate and recording", () => {
     expect(mockedRecordAttendeeCheckin).toHaveBeenCalledOnce();
   });
 
+  it("returns the roster name, never a client-supplied one (no name at the door, KTD10)", async () => {
+    // The door collects no name; even if a client injects one, the confirmation
+    // greets the arrival with the authoritative roster name from the recorder.
+    const res = await post({ ...validBody, name: "Someone Else" });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.name).toBe("Jean Dupont");
+  });
+
   it("returns not_found for an unmatched arrival with no routing data (AE3)", async () => {
     mockedMatchContact.mockResolvedValue({ kind: "none" });
     const res = await post(validBody);
@@ -150,6 +148,7 @@ describe("POST /api/events/[id]/check-in — strict gate and recording", () => {
       ok: true,
       already: true,
       checkedInAt: "2026-06-06T17:30:00Z",
+      name: "Jean Dupont",
     });
     const res = await post(validBody);
     expect(res.status).toBe(200);

@@ -8,11 +8,12 @@ import { type WaiverLanguage } from "@/lib/events/waiver";
 // Matched → check in (signing the waiver now if unsigned); not matched → not-found,
 // "please see the welcome desk" (no routing, no registration path — the kiosk never
 // registers). Idempotent: re-checking-in an already-arrived attendee returns the
-// original arrival time. Uses the service-role client.
+// original arrival time. The arrival is identified by contact only — no name is
+// collected at the door (KTD10); the confirmation greets them with the roster name.
+// Uses the service-role client.
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LANGUAGES = ["fr", "en"] as const;
-const MAX_LEN = 200;
 const MAX_EMAIL_LEN = 254; // RFC 5321
 const MAX_PHONE_LEN = 20; // E.164 max 15 digits + '+'
 
@@ -27,7 +28,6 @@ export async function POST(
   const { id: eventId } = await params;
 
   let body: {
-    name?: unknown;
     email?: unknown;
     phone?: unknown;
     language?: unknown;
@@ -40,7 +40,6 @@ export async function POST(
     return bad("Invalid JSON");
   }
 
-  const name = typeof body.name === "string" ? body.name.trim() : "";
   const email =
     typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const phone = typeof body.phone === "string" ? body.phone.trim() : "";
@@ -50,8 +49,6 @@ export async function POST(
   // other than an explicit `false` is treated as consent given.
   const marketingConsent = body.marketingConsent !== false;
 
-  if (!name) return bad("name is required");
-  if (name.length > MAX_LEN) return bad("name is too long");
   if (email && !EMAIL_RE.test(email)) return bad("a valid email is required");
   if (email.length > MAX_EMAIL_LEN) return bad("email is too long");
   if (phone.length > MAX_PHONE_LEN) return bad("phone is too long");
@@ -107,7 +104,7 @@ export async function POST(
 
     return NextResponse.json({
       ok: true,
-      name,
+      name: result.name,
       checkedInAt: result.checkedInAt,
       already: result.already,
     });

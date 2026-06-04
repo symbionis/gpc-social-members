@@ -18,6 +18,8 @@ interface PhoneInputProps {
   onChange?: (e164: string | null) => void;
   id?: string;
   required?: boolean;
+  /** Larger control for kiosk / field use (bigger text + touch targets). */
+  large?: boolean;
 }
 
 // Region display names are resolved client-side only (in the open dropdown), so the
@@ -34,8 +36,10 @@ function useRegionName() {
   }, []);
 }
 
-const fieldClass =
+const fieldClassBase =
   "px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
+const fieldClassLarge =
+  "px-4 py-4 rounded-xl border-2 border-marine/20 bg-white text-marine font-body text-lg placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
 
 export default function PhoneInput({
   name,
@@ -43,7 +47,9 @@ export default function PhoneInput({
   onChange,
   id = "phone",
   required = false,
+  large = false,
 }: PhoneInputProps) {
+  const fieldClass = large ? fieldClassLarge : fieldClassBase;
   const parsed = parseE164(defaultValue);
   const [country, setCountry] = useState<CountryCode>(parsed?.country ?? DEFAULT_COUNTRY);
   const [national, setNational] = useState(parsed?.national ?? "");
@@ -99,7 +105,7 @@ export default function PhoneInput({
           onClick={() => setOpen((v) => !v)}
           aria-haspopup="listbox"
           aria-expanded={open}
-          className={`${fieldClass} w-28 shrink-0 flex items-center justify-between gap-1`}
+          className={`${fieldClass} ${large ? "w-32" : "w-28"} shrink-0 flex items-center justify-between gap-1`}
         >
           <span>
             {country} {selected?.callingCode}
@@ -116,7 +122,7 @@ export default function PhoneInput({
           placeholder="79 123 45 67"
           aria-invalid={invalid}
           required={required}
-          className={`${fieldClass} flex-1`}
+          className={`${fieldClass} flex-1 min-w-0`}
         />
       </div>
 

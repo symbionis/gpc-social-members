@@ -122,7 +122,7 @@ export type RecordAttendeeCheckinInput = {
 };
 
 export type RecordAttendeeCheckinResult =
-  | { ok: true; already: boolean; checkedInAt: string | null }
+  | { ok: true; already: boolean; checkedInAt: string | null; name: string | null }
   | { ok: false; reason: "not_found" }
   | { ok: false; reason: "needs_waiver" };
 
@@ -145,17 +145,19 @@ export async function recordAttendeeCheckin(
 
   const { data: attendee, error } = await supabase
     .from("event_attendees")
-    .select("id, waiver_accepted_at, language, marketing_consent, checked_in_at")
+    .select("id, name, waiver_accepted_at, language, marketing_consent, checked_in_at")
     .eq("id", input.attendeeId)
     .eq("event_id", input.eventId)
     .maybeSingle();
   if (error) throw error;
   if (!attendee) return { ok: false, reason: "not_found" };
 
+  const name = (attendee.name as string | null) ?? null;
+
   // Already checked in — idempotent, return the original arrival time. No re-prompt,
   // no re-stamp (honors any signed waiver version unchanged).
   if (attendee.checked_in_at) {
-    return { ok: true, already: true, checkedInAt: attendee.checked_in_at };
+    return { ok: true, already: true, checkedInAt: attendee.checked_in_at, name };
   }
 
   const needsWaiver = attendee.waiver_accepted_at == null;
@@ -193,8 +195,8 @@ export async function recordAttendeeCheckin(
       .eq("id", input.attendeeId)
       .eq("event_id", input.eventId)
       .maybeSingle();
-    return { ok: true, already: true, checkedInAt: existing?.checked_in_at ?? now };
+    return { ok: true, already: true, checkedInAt: existing?.checked_in_at ?? now, name };
   }
 
-  return { ok: true, already: false, checkedInAt: now };
+  return { ok: true, already: false, checkedInAt: now, name };
 }

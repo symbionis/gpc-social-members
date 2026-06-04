@@ -13,21 +13,24 @@ interface Props {
 
 type Phase = "details" | "waiver";
 type Result = {
-  name: string;
+  name: string | null;
   checkedInAt: string | null;
   already: boolean;
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Door check-in is designed for on-field, sunny, one-handed use: large type, high
+// contrast, big touch targets, minimal text. No name is collected — matching keys on
+// email or phone only (KTD10); the confirmation greets the arrival with their roster
+// name returned by the server.
 const STRINGS = {
   en: {
     title: "Check-in",
-    chooseLanguage: "Choose your language",
-    nameLabel: "Full name",
+    contactPrompt: "Enter your email or your phone number",
     emailLabel: "Email",
     phoneLabel: "Phone",
-    contactHelp: "Enter the email or phone you registered with.",
+    or: "or",
     continue: "Continue",
     checking: "Checking…",
     waiverAccept: "I have read and accept the waiver above.",
@@ -38,7 +41,6 @@ const STRINGS = {
     notFoundTitle: "Not registered",
     notFoundBody: "Please see the welcome desk.",
     networkError: "Something went wrong. Please try again.",
-    nameRequired: "Please enter your name.",
     contactRequired: "Please enter a valid email or phone number.",
     waiverRequired: "Please accept the waiver to check in.",
     welcome: "Welcome",
@@ -47,11 +49,10 @@ const STRINGS = {
   },
   fr: {
     title: "Enregistrement",
-    chooseLanguage: "Choisissez votre langue",
-    nameLabel: "Nom complet",
+    contactPrompt: "Saisissez votre e-mail ou votre numéro de téléphone",
     emailLabel: "E-mail",
     phoneLabel: "Téléphone",
-    contactHelp: "Saisissez l’e-mail ou le téléphone utilisé lors de l’inscription.",
+    or: "ou",
     continue: "Continuer",
     checking: "Vérification…",
     waiverAccept: "J’ai lu et j’accepte la décharge ci-dessus.",
@@ -62,7 +63,6 @@ const STRINGS = {
     notFoundTitle: "Non inscrit",
     notFoundBody: "Veuillez vous adresser à l’accueil.",
     networkError: "Une erreur s’est produite. Veuillez réessayer.",
-    nameRequired: "Veuillez saisir votre nom.",
     contactRequired: "Veuillez saisir un e-mail ou un téléphone valide.",
     waiverRequired: "Veuillez accepter la décharge pour vous enregistrer.",
     welcome: "Bienvenue",
@@ -72,7 +72,10 @@ const STRINGS = {
 } as const;
 
 const inputClass =
-  "w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-base focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
+  "w-full px-4 py-4 rounded-xl border-2 border-marine/20 bg-white text-marine font-body text-lg focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
+
+const primaryButtonClass =
+  "w-full px-4 py-5 rounded-xl bg-marine text-white font-body font-semibold text-xl hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer";
 
 export default function EventCheckInForm({
   eventId,
@@ -81,7 +84,6 @@ export default function EventCheckInForm({
 }: Props) {
   const [lang, setLang] = useState<WaiverLanguage | null>(null);
   const [phase, setPhase] = useState<Phase>("details");
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState<string | null>(null);
   const [waiverAccepted, setWaiverAccepted] = useState(false);
@@ -95,26 +97,26 @@ export default function EventCheckInForm({
   // ---- Screen 1: language selector (and nothing else) ----
   if (!lang) {
     return (
-      <div className="bg-white rounded-sm border border-border/60 p-6 text-center">
-        <p className="font-accent text-xs tracking-[0.3em] uppercase text-sky-dark mb-2">
+      <div className="bg-white rounded-2xl border border-border/60 shadow-sm p-8 text-center">
+        <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky-dark mb-3">
           Check-in
         </p>
-        <h1 className="font-heading text-xl font-bold text-marine mb-1">
+        <h1 className="font-heading text-2xl font-bold text-marine mb-1">
           {eventTitle}
         </h1>
-        <p className="font-body text-sm text-muted-foreground mb-6">{eventDate}</p>
-        <div className="grid grid-cols-1 gap-3">
+        <p className="font-body text-base text-marine/60 mb-8">{eventDate}</p>
+        <div className="grid grid-cols-1 gap-4">
           <button
             type="button"
             onClick={() => setLang("fr")}
-            className="w-full px-4 py-4 rounded-lg bg-marine text-white font-body font-semibold text-base hover:bg-marine-light transition-colors cursor-pointer"
+            className={primaryButtonClass}
           >
             Français
           </button>
           <button
             type="button"
             onClick={() => setLang("en")}
-            className="w-full px-4 py-4 rounded-lg border border-marine/30 bg-white text-marine font-body font-semibold text-base hover:bg-marine/5 transition-colors cursor-pointer"
+            className="w-full px-4 py-5 rounded-xl border-2 border-marine/30 bg-white text-marine font-body font-semibold text-xl hover:bg-marine/5 transition-colors cursor-pointer"
           >
             English
           </button>
@@ -129,16 +131,16 @@ export default function EventCheckInForm({
   if (result) {
     const time = result.checkedInAt ? formatDateTime(result.checkedInAt) : null;
     return (
-      <div className="rounded-sm border-2 border-emerald-300 bg-emerald-50 p-8 text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white text-3xl">
+      <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-10 text-center shadow-sm">
+        <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-white text-4xl">
           ✓
         </div>
-        <h2 className="font-heading text-2xl font-bold text-emerald-900 mt-1">
-          {t.welcome}, {result.name}
+        <h2 className="font-heading text-3xl font-bold text-emerald-900">
+          {result.name ? `${t.welcome}, ${result.name}` : t.welcome}
         </h2>
-        <p className="font-body text-base text-emerald-800 mt-2">{eventTitle}</p>
+        <p className="font-body text-lg text-emerald-800 mt-3">{eventTitle}</p>
         {time && (
-          <p className="font-body text-sm text-emerald-700 mt-3">
+          <p className="font-body text-base text-emerald-700 mt-4">
             {result.already ? t.alreadyAt : t.checkedInAt} {time}
           </p>
         )}
@@ -149,11 +151,11 @@ export default function EventCheckInForm({
   // ---- Not-found state — one uniform screen, no registration path ----
   if (notFound) {
     return (
-      <div className="rounded-sm border border-amber-200 bg-amber-50 p-8 text-center">
-        <h2 className="font-heading text-xl font-bold text-amber-900 mb-2">
+      <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-10 text-center shadow-sm">
+        <h2 className="font-heading text-2xl font-bold text-amber-900 mb-3">
           {t.notFoundTitle}
         </h2>
-        <p className="font-body text-sm text-amber-800">{t.notFoundBody}</p>
+        <p className="font-body text-lg text-amber-900/80">{t.notFoundBody}</p>
       </div>
     );
   }
@@ -161,7 +163,6 @@ export default function EventCheckInForm({
   async function handleContinue(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!name.trim()) return setError(t.nameRequired);
     const trimmedEmail = email.trim();
     const hasEmail = EMAIL_RE.test(trimmedEmail);
     if (!hasEmail && !phone) return setError(t.contactRequired);
@@ -209,7 +210,6 @@ export default function EventCheckInForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: name.trim(),
           email: hasEmail ? trimmedEmail : undefined,
           phone: phone ?? undefined,
           language: lang,
@@ -230,7 +230,7 @@ export default function EventCheckInForm({
         return;
       }
       setResult({
-        name: data.name,
+        name: data.name ?? null,
         checkedInAt: data.checkedInAt ?? null,
         already: Boolean(data.already),
       });
@@ -244,27 +244,27 @@ export default function EventCheckInForm({
   const waiver = getWaiver(lang);
 
   return (
-    <div className="bg-white rounded-sm border border-border/60 p-6">
-      <div className="flex items-start justify-between gap-3 mb-4">
+    <div className="bg-white rounded-2xl border border-border/60 shadow-sm p-6 sm:p-8">
+      <div className="flex items-start justify-between gap-3 mb-6">
         <div>
-          <p className="font-accent text-xs tracking-[0.3em] uppercase text-sky-dark mb-1">
+          <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky-dark mb-1">
             {t.title}
           </p>
-          <h1 className="font-heading text-xl font-bold text-marine">
+          <h1 className="font-heading text-2xl font-bold text-marine leading-tight">
             {eventTitle}
           </h1>
-          <p className="font-body text-sm text-muted-foreground">{eventDate}</p>
+          <p className="font-body text-base text-marine/60">{eventDate}</p>
         </div>
-        <div className="flex shrink-0 gap-1 text-xs font-body">
+        <div className="flex shrink-0 gap-1 font-body">
           {(["fr", "en"] as WaiverLanguage[]).map((l) => (
             <button
               key={l}
               type="button"
               onClick={() => setLang(l)}
-              className={`px-2 py-1 rounded transition-colors cursor-pointer ${
+              className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${
                 lang === l
                   ? "bg-marine text-white"
-                  : "text-muted-foreground hover:text-marine"
+                  : "text-marine/60 hover:text-marine"
               }`}
             >
               {l.toUpperCase()}
@@ -274,57 +274,53 @@ export default function EventCheckInForm({
       </div>
 
       {phase === "details" && (
-        <form onSubmit={handleContinue} className="space-y-4">
+        <form onSubmit={handleContinue} className="space-y-5">
+          <p className="font-heading text-xl font-bold text-marine">
+            {t.contactPrompt}
+          </p>
           <div>
-            <label className="block text-xs font-body text-muted-foreground mb-1">
-              {t.nameLabel}
-            </label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className={inputClass}
-              autoComplete="name"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-body text-muted-foreground mb-1">
+            <label className="block text-sm font-body font-medium text-marine/70 mb-1.5">
               {t.emailLabel}
             </label>
             <input
               type="email"
+              inputMode="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className={inputClass}
               autoComplete="email"
             />
           </div>
+
+          <div className="flex items-center gap-3" aria-hidden>
+            <span className="h-px flex-1 bg-border" />
+            <span className="font-body text-sm uppercase tracking-wider text-marine/40">
+              {t.or}
+            </span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+
           <div>
-            <label className="block text-xs font-body text-muted-foreground mb-1">
+            <label className="block text-sm font-body font-medium text-marine/70 mb-1.5">
               {t.phoneLabel}
             </label>
-            <PhoneInput onChange={setPhone} />
+            <PhoneInput onChange={setPhone} large />
           </div>
-          <p className="text-xs text-muted-foreground">{t.contactHelp}</p>
+
           {error && (
-            <p className="text-sm font-body text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <p className="text-base font-body text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
               {error}
             </p>
           )}
-          <button
-            type="submit"
-            disabled={matching}
-            className="w-full px-4 py-3 bg-marine text-white rounded-lg text-base font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          >
+          <button type="submit" disabled={matching} className={primaryButtonClass}>
             {matching ? t.checking : t.continue}
           </button>
         </form>
       )}
 
       {phase === "waiver" && (
-        <form onSubmit={handleCheckIn} className="space-y-4">
-          <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-cream/40 p-4 text-sm font-body text-marine">
+        <form onSubmit={handleCheckIn} className="space-y-5">
+          <div className="max-h-72 overflow-y-auto rounded-xl border border-border bg-cream/40 p-4 text-sm font-body text-marine">
             <h2 className="font-heading text-base font-bold text-marine">
               {waiver.title}
             </h2>
@@ -351,39 +347,37 @@ export default function EventCheckInForm({
             </ol>
           </div>
 
-          <label className="flex items-start gap-3 cursor-pointer">
+          <label className="flex items-start gap-4 cursor-pointer rounded-xl border-2 border-marine/20 p-4 has-[:checked]:border-marine has-[:checked]:bg-marine/5 transition-colors">
             <input
               type="checkbox"
               checked={waiverAccepted}
               onChange={(e) => setWaiverAccepted(e.target.checked)}
-              className="mt-1 h-5 w-5 shrink-0 accent-marine cursor-pointer"
+              className="mt-0.5 h-6 w-6 shrink-0 accent-marine cursor-pointer"
             />
-            <span className="text-sm font-body text-marine">{t.waiverAccept}</span>
+            <span className="text-base font-body font-medium text-marine">
+              {t.waiverAccept}
+            </span>
           </label>
 
-          <label className="flex items-start gap-3 cursor-pointer">
+          <label className="flex items-start gap-4 cursor-pointer px-1">
             <input
               type="checkbox"
               checked={marketingConsent}
               onChange={(e) => setMarketingConsent(e.target.checked)}
-              className="mt-1 h-5 w-5 shrink-0 accent-marine cursor-pointer"
+              className="mt-0.5 h-6 w-6 shrink-0 accent-marine cursor-pointer"
             />
-            <span className="text-sm font-body text-muted-foreground">
+            <span className="text-sm font-body text-marine/70">
               {t.commsConsent}
             </span>
           </label>
 
           {error && (
-            <p className="text-sm font-body text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <p className="text-base font-body text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
               {error}
             </p>
           )}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full px-4 py-3 bg-marine text-white rounded-lg text-base font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          >
+          <button type="submit" disabled={submitting} className={primaryButtonClass}>
             {submitting ? t.checkingIn : t.checkIn}
           </button>
         </form>
