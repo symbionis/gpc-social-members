@@ -107,6 +107,34 @@ export type SelfRegistrationClaimResult =
   | { status: "invalid" }
   | { status: "invalid_input"; reason?: string };
 
+// Add name-only children to a party (U13). The adult who self-registers names their
+// kids; each becomes a contactless, waiver-exempt attendee on the party, drawn from
+// the party's children-ticket allotment. The cap + child-type resolution live in the
+// add_self_registration_children RPC (race-safe under the registration row lock).
+export type AddChildrenResult =
+  | { status: "ok"; added: number; remaining: number }
+  | { status: "full"; added: number }
+  | { status: "no_child_tickets"; added: number }
+  | { status: "multiple_child_types"; added: number }
+  | { status: "inactive" }
+  | { status: "invalid" };
+
+export async function addSelfRegistrationChildren(
+  token: string,
+  names: string[]
+): Promise<AddChildrenResult> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.rpc("add_self_registration_children", {
+    p_token: token,
+    p_names: names,
+  });
+  if (error) {
+    console.error("[roster] add_self_registration_children failed", { err: error });
+    throw new Error(error.message || "Could not add children");
+  }
+  return data as AddChildrenResult;
+}
+
 /**
  * Claim a self-registration slot via the RPC. Query errors throw (the route maps
  * them to a 5xx) rather than being coerced into a misleading "invalid".

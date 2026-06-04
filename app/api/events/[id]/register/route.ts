@@ -145,7 +145,7 @@ export async function POST(
   const ids = [...new Set(parsed.map((p) => p.ticket_type_id))];
   const { data: types, error: typesErr } = await supabase
     .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat, archived_at")
+    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat, is_child, archived_at")
     .eq("event_id", eventId)
     .in("id", ids);
 
@@ -168,7 +168,13 @@ export async function POST(
   if (leadType && !ids.includes(leadType)) {
     return bad("Your ticket must be one of the selected tickets", 400);
   }
-  if (!leadType && ids.length === 1) leadType = ids[0];
+  // The buyer's own ticket can't be a children's ticket.
+  if (leadType && typeById.get(leadType)?.is_child) {
+    return bad("Your ticket can't be a children's ticket", 400);
+  }
+  if (!leadType && ids.length === 1 && !typeById.get(ids[0])?.is_child) {
+    leadType = ids[0];
+  }
 
   // Resolve per-line prices. STRICT null check before any coercion — Number(null)
   // === 0 would silently make a line free, so an unset price for the resolved

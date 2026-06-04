@@ -11,11 +11,13 @@ interface Props {
   eventDate: string;
 }
 
-type Phase = "details" | "waiver";
+type Phase = "details" | "waiver" | "children";
+type Child = { id: string; name: string };
 type Result = {
   name: string | null;
   checkedInAt: string | null;
   already: boolean;
+  kidsCheckedIn: number;
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -46,6 +48,12 @@ const STRINGS = {
     welcome: "Welcome",
     checkedInAt: "Checked in at",
     alreadyAt: "You were already checked in at",
+    childrenTitle: "Travelling with children?",
+    childrenPrompt: "Tap each child checking in with you.",
+    checkInWithKids: "Check in",
+    justMe: "Just me",
+    kidsCheckedInBody: (n: number) =>
+      `${n} ${n === 1 ? "child" : "children"} checked in with you.`,
   },
   fr: {
     title: "Enregistrement",
@@ -68,6 +76,12 @@ const STRINGS = {
     welcome: "Bienvenue",
     checkedInAt: "Enregistré à",
     alreadyAt: "Vous étiez déjà enregistré à",
+    childrenTitle: "Avec des enfants ?",
+    childrenPrompt: "Cochez chaque enfant qui entre avec vous.",
+    checkInWithKids: "Enregistrer",
+    justMe: "Moi seulement",
+    kidsCheckedInBody: (n: number) =>
+      `${n} enfant${n === 1 ? "" : "s"} enregistré${n === 1 ? "" : "s"} avec vous.`,
   },
 } as const;
 
@@ -93,6 +107,12 @@ export default function EventCheckInForm({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [notFound, setNotFound] = useState(false);
+  // Children step: shown after the adult checks in if their party has not-yet-arrived
+  // children (no contact → they can't use the kiosk themselves). The adult's check-in
+  // is already recorded; this only stamps the kids' arrival.
+  const [children, setChildren] = useState<Child[]>([]);
+  const [selectedKids, setSelectedKids] = useState<Set<string>>(new Set());
+  const [pendingResult, setPendingResult] = useState<Result | null>(null);
 
   // ---- Screen 1: language selector (and nothing else) ----
   if (!lang) {
@@ -142,6 +162,11 @@ export default function EventCheckInForm({
         {time && (
           <p className="font-body text-base text-emerald-700 mt-4">
             {result.already ? t.alreadyAt : t.checkedInAt} {time}
+          </p>
+        )}
+        {result.kidsCheckedIn > 0 && (
+          <p className="font-body text-base text-emerald-700 mt-2">
+            {t.kidsCheckedInBody(result.kidsCheckedIn)}
           </p>
         )}
       </div>
@@ -229,15 +254,66 @@ export default function EventCheckInForm({
         setError(data.error || t.networkError);
         return;
       }
-      setResult({
+      const adultResult: Result = {
         name: data.name ?? null,
         checkedInAt: data.checkedInAt ?? null,
         already: Boolean(data.already),
-      });
+        kidsCheckedIn: 0,
+      };
+      const kids: Child[] = Array.isArray(data.children) ? data.children : [];
+      if (kids.length > 0) {
+        // Offer to check the party's children in too (default all selected).
+        setChildren(kids);
+        setSelectedKids(new Set(kids.map((k) => k.id)));
+        setPendingResult(adultResult);
+        setPhase("children");
+      } else {
+        setResult(adultResult);
+      }
     } catch {
       setError(t.networkError);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function toggleKid(id: string) {
+    setSelectedKids((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function confirmChildren() {
+    const base = pendingResult ?? {
+      name: null,
+      checkedInAt: null,
+      already: false,
+      kidsCheckedIn: 0,
+    };
+    const ids = [...selectedKids];
+    if (ids.length === 0) {
+      setResult({ ...base, kidsCheckedIn: 0 });
+      return;
+    }
+    setSubmitting(true);
+    let kidsCheckedIn = 0;
+    try {
+      const res = await fetch(`/api/events/${eventId}/check-in/children`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attendeeIds: ids }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) kidsCheckedIn = data.checkedIn ?? 0;
+    } catch {
+      /* the adult is already checked in — show their result regardless */
+    } finally {
+      setSubmitting(false);
+      setResult({ ...base, kidsCheckedIn });
     }
   }
 
@@ -381,6 +457,58 @@ export default function EventCheckInForm({
             {submitting ? t.checkingIn : t.checkIn}
           </button>
         </form>
+      )}
+
+      {phase === "children" && (
+        <div className="space-y-5">
+          <div>
+            <p className="font-heading text-xl font-bold text-marine">
+              {t.childrenTitle}
+            </p>
+            <p className="font-body text-base text-marine/60 mt-1">
+              {t.childrenPrompt}
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {children.map((kid) => {
+              const checked = selectedKids.has(kid.id);
+              return (
+                <label
+                  key={kid.id}
+                  className="flex items-center gap-4 cursor-pointer rounded-xl border-2 border-marine/20 p-4 has-[:checked]:border-marine has-[:checked]:bg-marine/5 transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleKid(kid.id)}
+                    className="h-6 w-6 shrink-0 accent-marine cursor-pointer"
+                  />
+                  <span className="text-lg font-body font-medium text-marine">
+                    {kid.name || "—"}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={confirmChildren}
+            disabled={submitting}
+            className={primaryButtonClass}
+          >
+            {submitting ? t.checkingIn : t.checkInWithKids}
+          </button>
+          <button
+            type="button"
+            onClick={() => setResult(pendingResult)}
+            disabled={submitting}
+            className="w-full px-4 py-3 rounded-xl border-2 border-marine/20 bg-white text-marine/70 font-body font-semibold text-lg hover:bg-marine/5 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {t.justMe}
+          </button>
+        </div>
       )}
     </div>
   );

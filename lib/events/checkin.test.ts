@@ -257,6 +257,7 @@ describe("recordAttendeeCheckin", () => {
       already: true,
       checkedInAt: "2026-06-06T18:30:00Z",
       name: "Jean Dupont",
+      registrationId: null,
     });
     expect(updated).toBe(false);
   });

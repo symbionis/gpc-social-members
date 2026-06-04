@@ -126,10 +126,30 @@ export default async function SelfRegistrationPage({
       });
   }
 
+  // Children's ticket types are offered as an "add children by name" control, not in
+  // the adult selector. Split the purchased types accordingly.
+  const { data: typeRows } = await supabase
+    .from("event_ticket_types")
+    .select("id, is_child")
+    .eq("event_id", registration.event_id);
+  const isChildById = new Map<string, boolean>();
+  for (const t of typeRows ?? []) isChildById.set(t.id as string, Boolean(t.is_child));
+
   const ticketTypes: { id: string; title: string }[] = [];
+  let childRemaining = 0;
+  let childTypeCount = 0;
   for (const [id, { title, qty }] of purchasedByType) {
-    if (qty - (claimedByType.get(id) ?? 0) > 0) ticketTypes.push({ id, title });
+    const left = qty - (claimedByType.get(id) ?? 0);
+    if (isChildById.get(id)) {
+      childTypeCount += 1;
+      if (left > 0) childRemaining += left;
+    } else if (left > 0) {
+      ticketTypes.push({ id, title });
+    }
   }
+  // Only the single-child-type case is supported by the name-only control (the RPC
+  // rejects the rare multi-child-type party); hide it otherwise.
+  if (childTypeCount > 1) childRemaining = 0;
 
   return shell(
     <SelfRegistrationForm
@@ -139,6 +159,7 @@ export default async function SelfRegistrationPage({
       leadName={(registration.name as string | null) ?? ""}
       remaining={remaining}
       ticketTypes={ticketTypes}
+      childRemaining={childRemaining}
     />
   );
 }

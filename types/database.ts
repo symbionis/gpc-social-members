@@ -296,6 +296,7 @@ export type Database = {
           email: string | null
           event_id: string
           id: string
+          is_child: boolean
           is_lead: boolean
           language: string | null
           marketing_consent: boolean | null
@@ -315,6 +316,7 @@ export type Database = {
           email?: string | null
           event_id: string
           id?: string
+          is_child?: boolean
           is_lead?: boolean
           language?: string | null
           marketing_consent?: boolean | null
@@ -334,6 +336,7 @@ export type Database = {
           email?: string | null
           event_id?: string
           id?: string
+          is_child?: boolean
           is_lead?: boolean
           language?: string | null
           marketing_consent?: boolean | null
@@ -661,6 +664,7 @@ export type Database = {
           event_id: string
           id: string
           invite_price: number | null
+          is_child: boolean
           price_member: number | null
           price_non_member: number | null
           sort_order: number
@@ -673,6 +677,7 @@ export type Database = {
           event_id: string
           id?: string
           invite_price?: number | null
+          is_child?: boolean
           price_member?: number | null
           price_non_member?: number | null
           sort_order?: number
@@ -685,6 +690,7 @@ export type Database = {
           event_id?: string
           id?: string
           invite_price?: number | null
+          is_child?: boolean
           price_member?: number | null
           price_non_member?: number | null
           sort_order?: number
@@ -1416,6 +1422,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_self_registration_children: {
+        Args: { p_names: string[]; p_token: string }
+        Returns: Json
+      }
       claim_self_registration: {
         Args: {
           p_email: string

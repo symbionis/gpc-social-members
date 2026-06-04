@@ -75,6 +75,7 @@ export default function DoorConsole({
   const [query, setQuery] = useState("");
   const [shownQr, setShownQr] = useState<Set<string>>(new Set());
   const [removing, setRemoving] = useState<Set<string>>(new Set());
+  const [checkingIn, setCheckingIn] = useState<Set<string>>(new Set());
   const [addingId, setAddingId] = useState<string | null>(null);
   // The party whose inline "add guest" form is open, plus its draft fields.
   const [addOpen, setAddOpen] = useState<string | null>(null);
@@ -124,6 +125,35 @@ export default function DoorConsole({
       setError("Could not remove the guest.");
     } finally {
       setRemoving((prev) => {
+        const next = new Set(prev);
+        next.delete(attendeeId);
+        return next;
+      });
+    }
+  }
+
+  // Staff fallback: mark a not-yet-arrived child present (kids have no contact, so
+  // they can't use the kiosk). Reuses the kiosk child check-in endpoint.
+  async function checkInChild(attendeeId: string) {
+    setError(null);
+    setCheckingIn((prev) => new Set(prev).add(attendeeId));
+    try {
+      const res = await fetch(`/api/events/${eventId}/check-in/children`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attendeeIds: [attendeeId] }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not check in the child.");
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError("Could not check in the child.");
+    } finally {
+      setCheckingIn((prev) => {
         const next = new Set(prev);
         next.delete(attendeeId);
         return next;
@@ -281,20 +311,27 @@ export default function DoorConsole({
                     >
                       <span className="flex items-center gap-2 min-w-0">
                         <span className="text-marine truncate">{g.name || "—"}</span>
+                        {g.isChild && (
+                          <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-purple-100 text-purple-800 whitespace-nowrap">
+                            child
+                          </span>
+                        )}
                         {g.ticketTypeTitle && (
                           <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-sky/10 text-sky-dark whitespace-nowrap">
                             {g.ticketTypeTitle}
                           </span>
                         )}
-                        {g.waiverSigned ? (
-                          <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-emerald-50 text-emerald-700">
-                            waiver
-                          </span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-amber-100 text-amber-800">
-                            no waiver
-                          </span>
-                        )}
+                        {/* Children skip the waiver (the adult/party covers them). */}
+                        {!g.isChild &&
+                          (g.waiverSigned ? (
+                            <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-emerald-50 text-emerald-700">
+                              waiver
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-amber-100 text-amber-800">
+                              no waiver
+                            </span>
+                          ))}
                         {g.checkedIn && (
                           <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-emerald-100 text-emerald-800">
                             arrived
@@ -302,14 +339,26 @@ export default function DoorConsole({
                         )}
                       </span>
                       {!g.checkedIn && (
-                        <button
-                          type="button"
-                          onClick={() => removeGuest(g.id, g.name)}
-                          disabled={removing.has(g.id)}
-                          className="shrink-0 px-3 py-1.5 rounded-lg border border-red-200 text-red-700 text-sm font-body hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
-                        >
-                          {removing.has(g.id) ? "…" : "Remove"}
-                        </button>
+                        <span className="flex shrink-0 items-center gap-2">
+                          {g.isChild && (
+                            <button
+                              type="button"
+                              onClick={() => checkInChild(g.id)}
+                              disabled={checkingIn.has(g.id)}
+                              className="px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-800 text-sm font-body hover:bg-emerald-50 transition-colors disabled:opacity-50 cursor-pointer"
+                            >
+                              {checkingIn.has(g.id) ? "…" : "Arrived"}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeGuest(g.id, g.name)}
+                            disabled={removing.has(g.id)}
+                            className="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 text-sm font-body hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
+                          >
+                            {removing.has(g.id) ? "…" : "Remove"}
+                          </button>
+                        </span>
                       )}
                     </li>
                   ))}

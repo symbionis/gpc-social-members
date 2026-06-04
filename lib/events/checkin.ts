@@ -124,7 +124,14 @@ export type RecordAttendeeCheckinInput = {
 };
 
 export type RecordAttendeeCheckinResult =
-  | { ok: true; already: boolean; checkedInAt: string | null; name: string | null }
+  | {
+      ok: true;
+      already: boolean;
+      checkedInAt: string | null;
+      name: string | null;
+      /** The attendee's party, so the caller can offer to check in its children. */
+      registrationId: string | null;
+    }
   | { ok: false; reason: "not_found" }
   | { ok: false; reason: "needs_waiver" };
 
@@ -147,7 +154,7 @@ export async function recordAttendeeCheckin(
 
   const { data: attendee, error } = await supabase
     .from("event_attendees")
-    .select("id, name, waiver_accepted_at, language, marketing_consent, checked_in_at")
+    .select("id, name, registration_id, waiver_accepted_at, language, marketing_consent, checked_in_at")
     .eq("id", input.attendeeId)
     .eq("event_id", input.eventId)
     .maybeSingle();
@@ -155,11 +162,12 @@ export async function recordAttendeeCheckin(
   if (!attendee) return { ok: false, reason: "not_found" };
 
   const name = (attendee.name as string | null) ?? null;
+  const registrationId = (attendee.registration_id as string | null) ?? null;
 
   // Already checked in — idempotent, return the original arrival time. No re-prompt,
   // no re-stamp (honors any signed waiver version unchanged).
   if (attendee.checked_in_at) {
-    return { ok: true, already: true, checkedInAt: attendee.checked_in_at, name };
+    return { ok: true, already: true, checkedInAt: attendee.checked_in_at, name, registrationId };
   }
 
   const needsWaiver = attendee.waiver_accepted_at == null;
@@ -197,8 +205,57 @@ export async function recordAttendeeCheckin(
       .eq("id", input.attendeeId)
       .eq("event_id", input.eventId)
       .maybeSingle();
-    return { ok: true, already: true, checkedInAt: existing?.checked_in_at ?? now, name };
+    return { ok: true, already: true, checkedInAt: existing?.checked_in_at ?? now, name, registrationId };
   }
 
-  return { ok: true, already: false, checkedInAt: now, name };
+  return { ok: true, already: false, checkedInAt: now, name, registrationId };
+}
+
+/**
+ * The party's children who haven't arrived yet — name-only contactless attendees the
+ * accompanying adult can check in alongside themselves at the kiosk. Read-only.
+ */
+export async function listPartyChildrenToCheckIn(
+  eventId: string,
+  registrationId: string
+): Promise<{ id: string; name: string }[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("event_attendees")
+    .select("id, name")
+    .eq("event_id", eventId)
+    .eq("registration_id", registrationId)
+    .eq("is_child", true)
+    .eq("slot_status", "claimed")
+    .is("released_at", null)
+    .is("checked_in_at", null)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({ id: r.id as string, name: (r.name as string | null) ?? "" }));
+}
+
+/**
+ * Mark the given children arrived (kiosk "checking in with me" / door fallback).
+ * Strictly scoped: only is_child rows in this event that aren't already checked in.
+ * Children skip the waiver, so this only stamps the arrival. Returns the count
+ * actually flipped (a row already arrived or not a child is silently skipped).
+ */
+export async function checkInChildren(
+  eventId: string,
+  attendeeIds: string[]
+): Promise<number> {
+  if (attendeeIds.length === 0) return 0;
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("event_attendees")
+    .update({ checked_in_at: new Date().toISOString() })
+    .in("id", attendeeIds)
+    .eq("event_id", eventId)
+    .eq("is_child", true)
+    .eq("slot_status", "claimed")
+    .is("released_at", null)
+    .is("checked_in_at", null)
+    .select("id");
+  if (error) throw error;
+  return (data ?? []).length;
 }

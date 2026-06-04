@@ -18,6 +18,8 @@ interface Props {
    * server-side, so no UI is needed.
    */
   ticketTypes: { id: string; title: string }[];
+  /** Open children's-ticket slots — drives the "add children by name" control. */
+  childRemaining: number;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -42,6 +44,13 @@ const STRINGS = {
     ticketPlaceholder: "Choose your ticket…",
     ticketRequired: "Please choose your ticket.",
     ticketTaken: "That ticket was just taken. Refreshing the available tickets…",
+    childrenHeading: "Children with you",
+    childrenHelp: (n: number) =>
+      `Add the children coming with you by name (${n} ${n === 1 ? "place" : "places"}). They check in with you at the door.`,
+    childNamePlaceholder: "Child's name",
+    addChild: "+ Add a child",
+    doneKidsBody: (n: number) =>
+      `${n} ${n === 1 ? "child" : "children"} added to your party.`,
     waiverHeading: "Waiver (optional now)",
     waiverHelp: "You can accept it now, or sign at the door when you arrive.",
     waiverAccept: "I have read and accept the waiver above.",
@@ -75,6 +84,13 @@ const STRINGS = {
     ticketPlaceholder: "Choisissez votre billet…",
     ticketRequired: "Veuillez choisir votre billet.",
     ticketTaken: "Ce billet vient d’être pris. Actualisation des billets disponibles…",
+    childrenHeading: "Enfants avec vous",
+    childrenHelp: (n: number) =>
+      `Ajoutez les enfants qui vous accompagnent par leur nom (${n} place${n === 1 ? "" : "s"}). Ils s’enregistrent avec vous à l’entrée.`,
+    childNamePlaceholder: "Nom de l’enfant",
+    addChild: "+ Ajouter un enfant",
+    doneKidsBody: (n: number) =>
+      `${n} enfant${n === 1 ? "" : "s"} ajouté${n === 1 ? "" : "s"} à votre groupe.`,
     waiverHeading: "Décharge (facultatif maintenant)",
     waiverHelp:
       "Vous pouvez l’accepter maintenant ou la signer à l’entrée à votre arrivée.",
@@ -107,6 +123,7 @@ export default function SelfRegistrationForm({
   leadName,
   remaining,
   ticketTypes,
+  childRemaining,
 }: Props) {
   const [lang, setLang] = useState<WaiverLanguage>("fr");
   const [name, setName] = useState("");
@@ -116,12 +133,22 @@ export default function SelfRegistrationForm({
   // is sent implicitly, and none-left falls through with no ticket (rare edge).
   const showTicketChoice = ticketTypes.length > 1;
   const [ticketTypeId, setTicketTypeId] = useState("");
+  // Name-only children travelling with this adult (capped at the open child slots).
+  const [childNames, setChildNames] = useState<string[]>([]);
   const [waiverAccepted, setWaiverAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ signed: boolean } | null>(null);
+  const [done, setDone] = useState<{ signed: boolean; kidsAdded: number } | null>(null);
   const [full, setFull] = useState(remaining <= 0);
+
+  const canAddChild = childRemaining > 0 && childNames.length < childRemaining;
+  function setChildName(i: number, v: string) {
+    setChildNames((prev) => prev.map((n, idx) => (idx === i ? v : n)));
+  }
+  function removeChild(i: number) {
+    setChildNames((prev) => prev.filter((_, idx) => idx !== i));
+  }
 
   const t = STRINGS[lang];
 
@@ -166,6 +193,11 @@ export default function SelfRegistrationForm({
         <p className="font-body text-base text-emerald-700 mt-4">
           {done.signed ? t.doneSignedBody : t.doneUnsignedBody}
         </p>
+        {done.kidsAdded > 0 && (
+          <p className="font-body text-base text-emerald-700 mt-2">
+            {t.doneKidsBody(done.kidsAdded)}
+          </p>
+        )}
       </div>
     );
   }
@@ -230,7 +262,26 @@ export default function SelfRegistrationForm({
         setError(data.error || t.invalidBody);
         return;
       }
-      setDone({ signed: Boolean(data.waiverSigned) });
+
+      // The adult is registered. Add any named children to the party — best-effort:
+      // a children failure never undoes the adult's successful registration.
+      let kidsAdded = 0;
+      const names = childNames.map((n) => n.trim()).filter(Boolean);
+      if (names.length > 0) {
+        try {
+          const cres = await fetch(`/api/public/registrations/${token}/children`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ names }),
+            signal: AbortSignal.timeout(10000),
+          });
+          const cdata = await cres.json().catch(() => ({}));
+          if (cres.ok && cdata.ok) kidsAdded = cdata.added ?? 0;
+        } catch {
+          /* leave kidsAdded at 0 — the adult is still registered */
+        }
+      }
+      setDone({ signed: Boolean(data.waiverSigned), kidsAdded });
     } catch {
       setError(t.invalidBody);
     } finally {
@@ -322,6 +373,50 @@ export default function SelfRegistrationForm({
                 </option>
               ))}
             </select>
+          </div>
+        )}
+
+        {childRemaining > 0 && (
+          <div className="rounded-xl border border-border bg-cream/40 p-4">
+            <h2 className="font-heading text-base font-bold text-marine">
+              {t.childrenHeading}
+            </h2>
+            <p className="font-body text-xs text-marine/60 mb-3">
+              {t.childrenHelp(childRemaining)}
+            </p>
+            {childNames.length > 0 && (
+              <div className="space-y-2 mb-2">
+                {childNames.map((cn, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={cn}
+                      onChange={(e) => setChildName(i, e.target.value)}
+                      placeholder={t.childNamePlaceholder}
+                      className={inputClass}
+                      autoComplete="off"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeChild(i)}
+                      aria-label="Remove child"
+                      className="shrink-0 h-12 w-12 rounded-xl border-2 border-marine/20 text-marine/60 hover:text-red-700 hover:border-red-200 transition-colors cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {canAddChild && (
+              <button
+                type="button"
+                onClick={() => setChildNames((prev) => [...prev, ""])}
+                className="text-sm font-body font-semibold text-marine hover:underline cursor-pointer"
+              >
+                {t.addChild}
+              </button>
+            )}
           </div>
         )}
 

@@ -70,7 +70,7 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
   const { data: attRows } = await supabase
     .from("event_attendees")
     .select(
-      "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, is_child, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", eventId)
     .eq("slot_status", "claimed")

@@ -9,6 +9,8 @@ export interface TicketTypeOption {
   title: string;
   /** Price resolved for THIS viewer's rate class; null = not open yet (not selectable). */
   price: number | null;
+  /** A children's ticket — bought as a guest quantity, never the buyer's own ticket. */
+  is_child: boolean;
 }
 
 interface Props {
@@ -38,13 +40,16 @@ export default function EventRegistrationForm({
 }: Props) {
   const cap = Math.max(1, Math.min(MAX_QUANTITY_HARD_CAP, maxQuantity ?? MAX_QUANTITY_HARD_CAP));
   const selectable = ticketTypes.filter((t) => t.price !== null);
+  // The buyer's own ticket is an adult ticket; children's tickets are only ever
+  // added as guest quantities below.
+  const adultTypes = selectable.filter((t) => !t.is_child);
 
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
   const [phone, setPhone] = useState<string | null>(null);
-  // The buyer's OWN ticket — chosen first; a single open type is preselected.
+  // The buyer's OWN ticket — chosen first; a single open adult type is preselected.
   const [leadTicketTypeId, setLeadTicketTypeId] = useState(
-    selectable.length === 1 ? selectable[0].id : ""
+    adultTypes.length === 1 ? adultTypes[0].id : ""
   );
   // Quantities here are ADDITIONAL guest tickets, on top of the buyer's own.
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -211,7 +216,7 @@ export default function EventRegistrationForm({
           <option value="" disabled>
             Choose your ticket…
           </option>
-          {selectable.map((t) => (
+          {adultTypes.map((t) => (
             <option key={t.id} value={t.id}>
               {t.title} — {priceLabel(t.price as number)}
             </option>

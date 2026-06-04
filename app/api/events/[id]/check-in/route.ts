@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { matchContact, recordAttendeeCheckin } from "@/lib/events/checkin";
+import {
+  matchContact,
+  recordAttendeeCheckin,
+  listPartyChildrenToCheckIn,
+} from "@/lib/events/checkin";
 import { type WaiverLanguage } from "@/lib/events/waiver";
 
 // Public, unauthenticated door check-in submit. The door is a strict gate for every
@@ -102,11 +106,24 @@ export async function POST(
       return NextResponse.json({ ok: false, reason: "not_found" }, { status: 404 });
     }
 
+    // Offer to check in the party's not-yet-arrived children (they have no contact,
+    // so they can't use the kiosk themselves). Best-effort — a lookup failure must
+    // never undo the adult's recorded arrival.
+    let children: { id: string; name: string }[] = [];
+    if (result.registrationId) {
+      try {
+        children = await listPartyChildrenToCheckIn(eventId, result.registrationId);
+      } catch (err) {
+        console.error("[event-checkin] child lookup failed", { eventId, err });
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       name: result.name,
       checkedInAt: result.checkedInAt,
       already: result.already,
+      children,
     });
   } catch (err) {
     console.error("[event-checkin] record failed", { eventId, err });

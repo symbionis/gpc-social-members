@@ -54,6 +54,7 @@ beforeEach(() => {
     already: false,
     checkedInAt: "2026-06-06T18:00:00Z",
     name: "Jean Dupont",
+    registrationId: null,
   });
 });
 
@@ -149,6 +150,7 @@ describe("POST /api/events/[id]/check-in — strict gate and recording", () => {
       already: true,
       checkedInAt: "2026-06-06T17:30:00Z",
       name: "Jean Dupont",
+      registrationId: null,
     });
     const res = await post(validBody);
     expect(res.status).toBe(200);
