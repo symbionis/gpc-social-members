@@ -67,6 +67,7 @@ export default function DoorConsole({
     if (!baseUrl && typeof window !== "undefined") setOrigin(window.location.origin);
   }, [baseUrl]);
 
+  const [tab, setTab] = useState<"registered" | "checkedin">("registered");
   const [query, setQuery] = useState("");
   const [shownQr, setShownQr] = useState<Set<string>>(new Set());
   const [removing, setRemoving] = useState<Set<string>>(new Set());
@@ -123,6 +124,13 @@ export default function DoorConsole({
 
   const pct = expectedCount > 0 ? Math.round((arrivedCount / expectedCount) * 100) : 0;
 
+  const tabClass = (active: boolean) =>
+    `px-5 py-3 text-base font-body transition-colors cursor-pointer ${
+      active
+        ? "text-marine border-b-2 border-marine -mb-px font-semibold"
+        : "text-marine/50 hover:text-marine"
+    }`;
+
   return (
     <div className="space-y-6">
       <div>
@@ -135,14 +143,33 @@ export default function DoorConsole({
         {eventDate && <p className="font-body text-base text-marine/60">{eventDate}</p>}
       </div>
 
-      <input
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search a guest or party"
-        className={inputClass}
-        autoComplete="off"
-      />
+      <div className="flex border-b border-border">
+        <button
+          type="button"
+          onClick={() => setTab("registered")}
+          className={tabClass(tab === "registered")}
+        >
+          Registered{parties.length > 0 ? ` (${parties.length})` : ""}
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("checkedin")}
+          className={tabClass(tab === "checkedin")}
+        >
+          Checked in{arrivedCount > 0 ? ` (${arrivedCount})` : ""}
+        </button>
+      </div>
+
+      {tab === "registered" && (
+        <div className="space-y-4">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search a guest or party"
+            className={inputClass}
+            autoComplete="off"
+          />
 
       {error && (
         <p className="text-base font-body text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
@@ -267,9 +294,11 @@ export default function DoorConsole({
           })
         )}
       </div>
+        </div>
+      )}
 
-      {/* Arrivals overview */}
-      <div className="rounded-xl border border-border bg-white p-5">
+      {tab === "checkedin" && (
+        <div className="rounded-xl border border-border bg-white p-5">
         <div className="flex items-baseline justify-between gap-3 mb-3">
           <p className="font-body text-sm text-marine/70">
             <span className="font-heading text-2xl font-bold text-marine">
@@ -305,6 +334,7 @@ export default function DoorConsole({
           </ul>
         )}
       </div>
+      )}
     </div>
   );
 }
