@@ -12,6 +12,7 @@ import EventMessaging, {
 } from "@/components/admin/EventMessaging";
 import { formatDateTime } from "@/lib/format";
 import type { ReminderEntry } from "@/lib/events/reminder-schedule";
+import type { TicketTypeLine } from "@/lib/events/tickets";
 
 type Tab = "roster" | "import" | "messaging" | "waitlist" | "settings";
 
@@ -25,6 +26,10 @@ interface Attendee {
   isLead: boolean;
   /** The lead's name for this party when the attendee is a guest, else "". */
   leadName: string;
+  /** Tickets purchased for this party — present on the lead row only (null elsewhere). */
+  ticketCount: number | null;
+  /** Per-ticket-type breakdown for the lead's party; empty for guests / no party. */
+  ticketBreakdown: TicketTypeLine[];
   waiverSigned: boolean;
   checkedIn: boolean;
   arrivedAt: string | null;

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { formatDateTime } from "@/lib/format";
+import { formatTicketBreakdown, type TicketTypeLine } from "@/lib/events/tickets";
 
 /** One person on the roster (event_attendees, claimed slots). */
 interface Attendee {
@@ -13,6 +14,10 @@ interface Attendee {
   isLead: boolean;
   /** The lead's name for this party when the attendee is a guest, else "". */
   leadName: string;
+  /** Tickets purchased for this party — present on the lead row only (null elsewhere). */
+  ticketCount: number | null;
+  /** Per-ticket-type breakdown for the lead's party; empty for guests / no party. */
+  ticketBreakdown: TicketTypeLine[];
   waiverSigned: boolean;
   checkedIn: boolean;
   arrivedAt: string | null;
@@ -92,6 +97,7 @@ export default function AttendeeList({ attendees }: Props) {
                   <th className="text-left px-4 py-3 font-semibold">Contact</th>
                   <th className="text-left px-4 py-3 font-semibold">Member</th>
                   <th className="text-left px-4 py-3 font-semibold">Party / Lead</th>
+                  <th className="text-left px-4 py-3 font-semibold">Tickets</th>
                   <th className="text-left px-4 py-3 font-semibold">Waiver</th>
                   <th className="text-left px-4 py-3 font-semibold">Arrived</th>
                 </tr>
@@ -123,6 +129,22 @@ export default function AttendeeList({ attendees }: Props) {
                         <span className="text-xs text-muted-foreground">
                           Guest of {row.leadName}
                         </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {row.ticketCount != null ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-marine font-semibold">
+                            {row.ticketCount}
+                          </span>
+                          {row.ticketBreakdown.length > 0 && (
+                            <span className="text-xs text-muted-foreground">
+                              {formatTicketBreakdown(row.ticketBreakdown)}
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}

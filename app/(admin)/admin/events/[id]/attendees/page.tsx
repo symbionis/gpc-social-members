@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import ManageEventTabs from "@/components/admin/ManageEventTabs";
 import { getEventReminderSummary } from "@/lib/events/reminder-summary";
 import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
+import { rollupTicketItems } from "@/lib/events/tickets";
 
 export default async function ManageEventPage({
   params,
@@ -41,6 +42,32 @@ export default async function ManageEventPage({
     .in("status", ["paid", "free"])
     .order("created_at", { ascending: false });
 
+  // Per-ticket-type breakdown for each party, keyed by registration. The lead row
+  // of a party carries the tickets purchased for it; guest rows show none.
+  const registrationIds = (registrations ?? []).map((r) => r.id);
+  const { data: ticketItemRows } = registrationIds.length
+    ? await supabase
+        .from("event_registration_items")
+        .select("registration_id, title_snapshot, quantity")
+        .in("registration_id", registrationIds)
+        .order("created_at", { ascending: true })
+    : { data: [] };
+
+  const ticketQtyByReg = new Map<string, number>();
+  for (const r of registrations ?? []) ticketQtyByReg.set(r.id, r.quantity);
+
+  type TicketItemRow = {
+    registration_id: string;
+    title_snapshot: string | null;
+    quantity: number | null;
+  };
+  const ticketItemsByReg = new Map<string, TicketItemRow[]>();
+  for (const item of (ticketItemRows ?? []) as TicketItemRow[]) {
+    const list = ticketItemsByReg.get(item.registration_id) ?? [];
+    list.push(item);
+    ticketItemsByReg.set(item.registration_id, list);
+  }
+
   // event_attendees is the per-person source of truth for identity, waiver, and
   // arrival (event_checkins is frozen). The roster is flat — one row per person,
   // claimed slots only (unclaimed Milestone-2 placeholders have no identity yet).
@@ -75,24 +102,32 @@ export default async function ManageEventPage({
     }
   }
 
-  const attendees = roster.map((a) => ({
-    id: a.id,
-    name: a.name ?? "",
-    email: a.email ?? "",
-    phone_e164: a.phone_e164 ?? "",
-    isMember: a.member_id !== null,
-    isLead: a.is_lead,
-    // The lead's name for this party, when the attendee belongs to a registration
-    // and isn't themselves the lead. Empty otherwise (lead row or no party).
-    leadName:
-      !a.is_lead && a.registration_id
-        ? leadNameByReg.get(a.registration_id) ?? ""
-        : "",
-    waiverSigned: a.waiver_accepted_at !== null,
-    checkedIn: a.checked_in_at !== null,
-    arrivedAt: a.checked_in_at,
-    createdAt: a.created_at,
-  }));
+  const attendees = roster.map((a) => {
+    // Tickets are attributed to the party's lead row only (the guests share them).
+    const ticketRegId = a.is_lead ? a.registration_id : null;
+    return {
+      id: a.id,
+      name: a.name ?? "",
+      email: a.email ?? "",
+      phone_e164: a.phone_e164 ?? "",
+      isMember: a.member_id !== null,
+      isLead: a.is_lead,
+      // The lead's name for this party, when the attendee belongs to a registration
+      // and isn't themselves the lead. Empty otherwise (lead row or no party).
+      leadName:
+        !a.is_lead && a.registration_id
+          ? leadNameByReg.get(a.registration_id) ?? ""
+          : "",
+      ticketCount: ticketRegId ? ticketQtyByReg.get(ticketRegId) ?? null : null,
+      ticketBreakdown: ticketRegId
+        ? rollupTicketItems(ticketItemsByReg.get(ticketRegId) ?? [])
+        : [],
+      waiverSigned: a.waiver_accepted_at !== null,
+      checkedIn: a.checked_in_at !== null,
+      arrivedAt: a.checked_in_at,
+      createdAt: a.created_at,
+    };
+  });
 
   const checkedInCount = attendees.filter((a) => a.checkedIn).length;
 

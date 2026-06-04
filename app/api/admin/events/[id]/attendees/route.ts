@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { rollupTicketItems, formatTicketBreakdown } from "@/lib/events/tickets";
 
 async function assertAdmin() {
   const supabase = await createClient();
@@ -96,12 +97,47 @@ export async function GET(
     }
   }
 
+  // Tickets per party — the total on the registration, the breakdown on its items.
+  // Attributed to the lead row only (mirrors the admin roster list).
+  const { data: regRows } = await adminClient
+    .from("event_registrations")
+    .select("id, quantity")
+    .eq("event_id", eventId)
+    .in("status", ["paid", "free"]);
+  const registrationIds = (regRows ?? []).map((r) => r.id as string);
+
+  const { data: itemRows } = registrationIds.length
+    ? await adminClient
+        .from("event_registration_items")
+        .select("registration_id, title_snapshot, quantity")
+        .in("registration_id", registrationIds)
+        .order("created_at", { ascending: true })
+    : { data: [] };
+
+  const ticketQtyByReg = new Map<string, number>();
+  for (const r of regRows ?? []) {
+    ticketQtyByReg.set(r.id as string, r.quantity as number);
+  }
+  type ItemRow = {
+    registration_id: string;
+    title_snapshot: string | null;
+    quantity: number | null;
+  };
+  const ticketItemsByReg = new Map<string, ItemRow[]>();
+  for (const item of (itemRows ?? []) as ItemRow[]) {
+    const list = ticketItemsByReg.get(item.registration_id) ?? [];
+    list.push(item);
+    ticketItemsByReg.set(item.registration_id, list);
+  }
+
   const headers = [
     "name",
     "email",
     "phone",
     "is_member",
     "party_lead",
+    "tickets",
+    "ticket_types",
     "waiver",
     "arrived",
     "arrived_at",
@@ -115,6 +151,12 @@ export async function GET(
       : a.registration_id
       ? `guest of ${leadNameByReg.get(a.registration_id) ?? ""}`.trim()
       : "";
+    // Tickets sit on the lead row only (the guests share the party's tickets).
+    const ticketRegId = a.is_lead ? a.registration_id : null;
+    const ticketCount = ticketRegId ? ticketQtyByReg.get(ticketRegId) ?? "" : "";
+    const ticketTypes = ticketRegId
+      ? formatTicketBreakdown(rollupTicketItems(ticketItemsByReg.get(ticketRegId) ?? []))
+      : "";
     lines.push(
       [
         csvEscape(a.name),
@@ -122,6 +164,8 @@ export async function GET(
         csvEscape(a.phone_e164),
         a.member_id ? "yes" : "no",
         csvEscape(partyLead),
+        csvEscape(ticketCount),
+        csvEscape(ticketTypes),
         a.waiver_accepted_at ? "signed" : "unsigned",
         a.checked_in_at ? "yes" : "no",
         a.checked_in_at ?? "",
