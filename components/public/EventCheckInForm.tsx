@@ -48,7 +48,7 @@ const STRINGS = {
     welcome: "Welcome",
     checkedInAt: "Checked in at",
     alreadyAt: "You were already checked in at",
-    childrenTitle: "Travelling with children?",
+    childrenTitle: "Attending with kids?",
     childrenPrompt: "Tap each child checking in with you.",
     checkInWithKids: "Check in",
     justMe: "Just me",

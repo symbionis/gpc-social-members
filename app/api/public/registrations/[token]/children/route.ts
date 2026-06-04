@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { addSelfRegistrationChildren } from "@/lib/events/roster";
 
 // Public, unauthenticated: add name-only children to a party via its self-reg token
-// (U13). The adult who just self-registered names the kids travelling with them. The
+// (U13). The adult who just self-registered names the kids attending with them. The
 // per-type cap, child-type resolution, and inserts live in the RPC; this route only
 // validates the names. The token is taken from the path, never echoed.
 

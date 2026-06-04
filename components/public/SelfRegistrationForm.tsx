@@ -133,7 +133,7 @@ export default function SelfRegistrationForm({
   // is sent implicitly, and none-left falls through with no ticket (rare edge).
   const showTicketChoice = ticketTypes.length > 1;
   const [ticketTypeId, setTicketTypeId] = useState("");
-  // Name-only children travelling with this adult (capped at the open child slots).
+  // Name-only children attending with this adult (capped at the open child slots).
   const [childNames, setChildNames] = useState<string[]>([]);
   const [waiverAccepted, setWaiverAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(true);
