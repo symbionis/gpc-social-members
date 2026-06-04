@@ -30,7 +30,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // door by the contact they entered.
 const STRINGS = {
   en: {
-    eyebrow: "Guest registration",
+    eyebrow: "Guest pre-registration",
     spotsRemaining: (n: number) =>
       `${n} ${n === 1 ? "spot" : "spots"} remaining for this party`,
     joining: (lead: string) => `You’re joining ${lead}’s party.`,
@@ -69,7 +69,7 @@ const STRINGS = {
     doneUnsignedBody: "See you there! You’ll sign the waiver at the door.",
   },
   fr: {
-    eyebrow: "Inscription invité",
+    eyebrow: "Pré-inscription invité",
     spotsRemaining: (n: number) =>
       `${n} ${n === 1 ? "place" : "places"} restante${n === 1 ? "" : "s"} pour ce groupe`,
     joining: (lead: string) => `Vous rejoignez le groupe de ${lead}.`,

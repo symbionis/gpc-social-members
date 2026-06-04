@@ -354,7 +354,7 @@ function RosterRow({
                 <span
                   className={`text-xs ${party.remaining > 0 ? "text-amber-700" : "text-emerald-700"}`}
                 >
-                  {party.claimedCount}/{party.quantity} registered
+                  {party.claimedCount}/{party.quantity} pre-registered
                 </span>
               )}
               {row.ticketBreakdown.length > 0 && (
@@ -408,7 +408,7 @@ function RosterRow({
             <div className="grid gap-5 sm:grid-cols-[1fr_auto] sm:items-start">
               <div>
                 <p className="text-xs font-body text-muted-foreground mb-1">
-                  Share this link so guests register themselves
+                  Share this link so guests pre-register themselves
                   {party.remaining > 0 ? ` (${party.remaining} open):` : ":"}
                 </p>
                 <div className="flex gap-2 max-w-md">

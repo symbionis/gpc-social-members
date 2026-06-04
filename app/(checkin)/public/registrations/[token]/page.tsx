@@ -41,8 +41,8 @@ export default async function SelfRegistrationPage({
           Link not found
         </h1>
         <p className="font-body text-sm text-marine/70">
-          This registration link isn’t valid. Please ask the person who invited
-          you for the current link.
+          This pre-registration link isn’t valid. Please ask the person who
+          invited you for the current link.
         </p>
       </div>
     );
@@ -55,7 +55,7 @@ export default async function SelfRegistrationPage({
           Not confirmed yet
         </h1>
         <p className="font-body text-sm text-amber-900/80">
-          This registration isn’t confirmed yet. Please try again once the
+          This pre-registration isn’t confirmed yet. Please try again once the
           booking is complete.
         </p>
       </div>

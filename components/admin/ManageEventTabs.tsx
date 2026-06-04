@@ -192,7 +192,7 @@ export default function ManageEventTabs({
           <div>
             <div className="flex items-end justify-between gap-4 flex-wrap mb-3">
               <p className={`text-sm font-body ${overbooked ? "text-red-700 font-semibold" : "text-muted-foreground"}`}>
-                {guestsRegistered} of {total} guest{total === 1 ? "" : "s"} registered
+                {guestsRegistered} of {total} guest{total === 1 ? "" : "s"} pre-registered
                 {" · "}
                 {checkedInCount} arrived
                 {" · "}

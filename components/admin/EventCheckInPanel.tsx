@@ -199,8 +199,9 @@ export default function EventCheckInPanel({
         </h4>
         <p className="font-body text-sm text-muted-foreground mb-3">
           Give this to whoever runs the desk. It opens a simple console to look up
-          a guest&apos;s party, see who&apos;s registered, show a party&apos;s
-          self-registration QR, and watch arrivals — no login, no other admin.
+          a guest&apos;s party, fill in or edit each guest&apos;s details, see
+          who&apos;s pre-registered, show a party&apos;s pre-registration QR, and
+          watch arrivals — no login, no other admin.
         </p>
         <div className="flex gap-2 max-w-xl">
           <input
