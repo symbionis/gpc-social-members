@@ -72,6 +72,7 @@ export default function DoorConsole({
   const [query, setQuery] = useState("");
   const [shownQr, setShownQr] = useState<Set<string>>(new Set());
   const [removing, setRemoving] = useState<Set<string>>(new Set());
+  const [addingId, setAddingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Keep the roster + arrivals current during the event without a manual reload.
@@ -120,6 +121,30 @@ export default function DoorConsole({
         next.delete(attendeeId);
         return next;
       });
+    }
+  }
+
+  async function addGuest(registrationId: string) {
+    const name = window.prompt("Add a guest at the door (e.g. a child). Name:");
+    if (!name || !name.trim()) return;
+    setError(null);
+    setAddingId(registrationId);
+    try {
+      const res = await fetch(`/api/public/door/${eventId}/add-guest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId, name: name.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not add the guest.");
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError("Could not add the guest.");
+    } finally {
+      setAddingId(null);
     }
   }
 
@@ -260,6 +285,15 @@ export default function DoorConsole({
                     </li>
                   ))}
                 </ul>
+
+                <button
+                  type="button"
+                  onClick={() => addGuest(p.registrationId)}
+                  disabled={addingId === p.registrationId}
+                  className="mt-2 text-sm font-body text-marine hover:underline disabled:opacity-50 cursor-pointer"
+                >
+                  {addingId === p.registrationId ? "Adding…" : "+ Add guest (e.g. a child) at the door"}
+                </button>
 
                 {p.remaining === 0 ? (
                   <p className="mt-4 font-body text-sm text-marine/60">
