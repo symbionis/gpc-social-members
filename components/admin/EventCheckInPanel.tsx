@@ -18,7 +18,7 @@ interface Props {
   /** Path of the public check-in page, e.g. /public/events/<id>/check-in */
   checkInPath: string;
   arrivedCount: number;
-  attendeeCount: number;
+  expectedCount: number;
   arrivals: Arrival[];
 }
 
@@ -29,7 +29,7 @@ export default function EventCheckInPanel({
   baseUrl,
   checkInPath,
   arrivedCount,
-  attendeeCount,
+  expectedCount,
   arrivals,
 }: Props) {
   const router = useRouter();
@@ -81,7 +81,7 @@ export default function EventCheckInPanel({
   }
 
   const pct =
-    attendeeCount > 0 ? Math.round((arrivedCount / attendeeCount) * 100) : 0;
+    expectedCount > 0 ? Math.round((arrivedCount / expectedCount) * 100) : 0;
 
   return (
     <div className="space-y-8">
@@ -108,7 +108,7 @@ export default function EventCheckInPanel({
             <span className="font-heading text-2xl font-bold text-marine">
               {arrivedCount}
             </span>{" "}
-            / {attendeeCount} arrived
+            / {expectedCount} arrived
           </p>
           <div className="flex items-center gap-3">
             <span className="font-body text-sm text-muted-foreground">{pct}%</span>
