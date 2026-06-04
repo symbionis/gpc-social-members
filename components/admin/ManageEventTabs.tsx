@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import AttendeeList from "@/components/admin/AttendeeList";
 import RosterImport from "@/components/admin/RosterImport";
+import EventCheckInPanel from "@/components/admin/EventCheckInPanel";
 import EventCheckInSettings from "@/components/admin/EventCheckInSettings";
 import EventInviteLink, { type InviteTicketType } from "@/components/admin/EventInviteLink";
 import EventMessaging, {
@@ -14,7 +15,7 @@ import { formatDateTime } from "@/lib/format";
 import type { ReminderEntry } from "@/lib/events/reminder-schedule";
 import type { TicketTypeLine } from "@/lib/events/tickets";
 
-type Tab = "roster" | "import" | "messaging" | "waitlist" | "settings";
+type Tab = "roster" | "checkin" | "import" | "messaging" | "waitlist" | "settings";
 
 /** One person on the roster (event_attendees, claimed slots). */
 interface Attendee {
@@ -157,6 +158,9 @@ export default function ManageEventTabs({
         <button type="button" className={tabClass(tab === "roster")} onClick={() => setTab("roster")}>
           Attendees{attendees.length > 0 ? ` (${attendees.length})` : ""}
         </button>
+        <button type="button" className={tabClass(tab === "checkin")} onClick={() => setTab("checkin")}>
+          Check-in{checkedInCount > 0 ? ` (${checkedInCount})` : ""}
+        </button>
         {(hasSeatCap || visibleWaitlist.length > 0) && (
           <button type="button" className={tabClass(tab === "waitlist")} onClick={() => setTab("waitlist")}>
             Waitlist{visibleWaitlist.length > 0 ? ` (${visibleWaitlist.length})` : ""}
@@ -196,6 +200,19 @@ export default function ManageEventTabs({
             <AttendeeList attendees={attendees} />
           </div>
         </div>
+      )}
+
+      {tab === "checkin" && (
+        <EventCheckInPanel
+          baseUrl={baseUrl}
+          checkInPath={checkInPath}
+          arrivedCount={checkedInCount}
+          attendeeCount={attendees.length}
+          arrivals={attendees
+            .filter((a) => a.checkedIn)
+            .sort((a, b) => (b.arrivedAt ?? "").localeCompare(a.arrivedAt ?? ""))
+            .map((a) => ({ id: a.id, name: a.name, arrivedAt: a.arrivedAt }))}
+        />
       )}
 
       {tab === "waitlist" && (
@@ -282,8 +299,6 @@ export default function ManageEventTabs({
         <div className="space-y-10">
           <EventCheckInSettings
             eventId={eventId}
-            baseUrl={baseUrl}
-            checkInPath={checkInPath}
             seatCap={seatCap}
             seatsUsed={total}
           />
