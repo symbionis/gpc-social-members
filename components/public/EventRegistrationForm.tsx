@@ -22,7 +22,7 @@ interface Props {
   code?: string;
 }
 
-const MAX_QUANTITY_HARD_CAP = 10;
+const MAX_QUANTITY_HARD_CAP = 20;
 
 function priceLabel(value: number) {
   return value === 0 ? "Free" : `CHF ${value.toFixed(2)}`;

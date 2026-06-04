@@ -12,7 +12,7 @@ import {
 import { seedLeadAttendee } from "@/lib/events/roster";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MAX_TICKETS = 10;
+const MAX_TICKETS = 20;
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
