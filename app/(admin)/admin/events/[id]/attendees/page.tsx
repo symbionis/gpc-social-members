@@ -114,11 +114,13 @@ export default async function ManageEventPage({
   const partyFills = computePartyFills(regsForFill, roster);
   const guestSummary = rosterGuestSummary(regsForFill, roster);
   const selfRegTokenByReg = new Map<string, string | null>();
+  const refByReg = new Map<string, string | null>();
   for (const r of registrations ?? []) {
     selfRegTokenByReg.set(
       r.id,
       (r as { self_reg_token?: string | null }).self_reg_token ?? null
     );
+    refByReg.set(r.id, (r.reference_code as string | null) ?? null);
   }
 
   const attendees = roster.map((a) => {
@@ -129,6 +131,7 @@ export default async function ManageEventPage({
     return {
       id: a.id,
       registrationId: a.registration_id,
+      referenceCode: a.registration_id ? refByReg.get(a.registration_id) ?? null : null,
       name: a.name ?? "",
       email: a.email ?? "",
       phone_e164: a.phone_e164 ?? "",

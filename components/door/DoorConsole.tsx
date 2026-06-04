@@ -8,6 +8,7 @@ import type { PartyGuest } from "@/lib/events/roster-fill";
 
 interface DoorParty {
   registrationId: string;
+  referenceCode: string | null;
   leadName: string;
   leadEmail: string;
   leadPhone: string;
@@ -197,9 +198,14 @@ export default function DoorConsole({
                 className="rounded-2xl border border-border bg-white p-5 shadow-sm"
               >
                 <div className="flex items-baseline justify-between gap-3">
-                  <h2 className="font-heading text-xl font-bold text-marine">
-                    {p.leadName || "—"}
-                  </h2>
+                  <div className="min-w-0">
+                    <h2 className="font-heading text-xl font-bold text-marine">
+                      {p.leadName || "—"}
+                    </h2>
+                    {p.referenceCode && (
+                      <p className="font-mono text-xs text-marine/45">{p.referenceCode}</p>
+                    )}
+                  </div>
                   <span
                     className={`shrink-0 px-3 py-1 rounded-full text-sm font-body font-semibold ${
                       p.remaining > 0

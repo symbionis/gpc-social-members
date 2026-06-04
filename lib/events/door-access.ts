@@ -19,6 +19,7 @@ export interface DoorEvent {
 /** One party as the door console shows it: lead + fill + claimed guests + token. */
 export interface DoorParty {
   registrationId: string;
+  referenceCode: string | null;
   leadName: string;
   leadEmail: string;
   leadPhone: string;
@@ -40,6 +41,7 @@ export interface DoorRoster {
 
 type RegRow = {
   id: string;
+  reference_code: string | null;
   name: string | null;
   email: string | null;
   phone_e164: string | null;
@@ -58,7 +60,7 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
 
   const { data: regRows } = await supabase
     .from("event_registrations")
-    .select("id, name, email, phone_e164, quantity, self_reg_token")
+    .select("id, reference_code, name, email, phone_e164, quantity, self_reg_token")
     .eq("event_id", eventId)
     .in("status", ["paid", "free"]);
   const registrations = (regRows ?? []) as RegRow[];
@@ -82,6 +84,7 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
     const fill = fills.get(reg.id);
     return {
       registrationId: reg.id,
+      referenceCode: reg.reference_code,
       leadName: reg.name ?? "",
       leadEmail: reg.email ?? "",
       leadPhone: reg.phone_e164 ?? "",

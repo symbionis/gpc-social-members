@@ -11,6 +11,7 @@ import type { PartyDetail } from "@/lib/events/roster-fill";
 interface Attendee {
   id: string;
   registrationId: string | null;
+  referenceCode: string | null;
   name: string;
   email: string;
   phone_e164: string;
@@ -331,7 +332,12 @@ function RosterRow({
         </td>
         <td className="px-4 py-3 text-marine">
           {row.isLead ? (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-sky/10 text-sky-dark">Lead</span>
+            <div className="flex flex-col gap-0.5">
+              <span className="px-2 py-0.5 rounded-full text-xs bg-sky/10 text-sky-dark w-fit">Lead</span>
+              {row.referenceCode && (
+                <span className="font-mono text-[11px] text-muted-foreground">{row.referenceCode}</span>
+              )}
+            </div>
           ) : row.leadName ? (
             <span className="text-xs text-muted-foreground">Guest of {row.leadName}</span>
           ) : (

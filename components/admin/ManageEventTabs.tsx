@@ -22,6 +22,7 @@ type Tab = "roster" | "checkin" | "import" | "messaging" | "waitlist" | "setting
 interface Attendee {
   id: string;
   registrationId: string | null;
+  referenceCode: string | null;
   name: string;
   email: string;
   phone_e164: string;
