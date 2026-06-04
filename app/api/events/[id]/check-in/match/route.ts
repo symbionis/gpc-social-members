@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { matchEmail } from "@/lib/events/checkin";
+import { matchContact } from "@/lib/events/checkin";
 
-// Lightweight lookup that drives progressive disclosure on the check-in form:
-// it returns ONLY whether the email is known (matched) plus the event's strict
-// flag — never which table matched — so it can't be used to enumerate who holds
-// an active membership. The authoritative kind is re-derived on submit.
+// Lightweight advisory lookup that drives progressive disclosure on the check-in
+// form: it returns ONLY whether the arrival's contact is on the roster (matched) —
+// never names, the echoed contact, or who is on the roster — so an unauthenticated
+// caller can't enumerate the roster by probing phones/emails. The authoritative
+// check-in is performed on submit. The arrival supplies email and/or phone (E.164).
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -19,7 +20,7 @@ export async function POST(
 ) {
   const { id: eventId } = await params;
 
-  let body: { email?: unknown };
+  let body: { email?: unknown; phone?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -28,12 +29,15 @@ export async function POST(
 
   const email =
     typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-  if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
+  const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+
+  if (email && !EMAIL_RE.test(email)) return bad("valid email is required");
+  if (!email && !phone) return bad("email or phone is required");
 
   const supabase = createAdminClient();
   const { data: event, error: eventError } = await supabase
     .from("events")
-    .select("id, is_published, strict_checkin")
+    .select("id, is_published")
     .eq("id", eventId)
     .limit(1)
     .maybeSingle();
@@ -45,11 +49,11 @@ export async function POST(
   if (!event || !event.is_published) return bad("Event not found", 404);
 
   try {
-    const match = await matchEmail(eventId, email);
-    return NextResponse.json({
-      matched: match.kind !== "guest",
-      strict: Boolean(event.strict_checkin),
+    const match = await matchContact(eventId, {
+      email: email || null,
+      phone: phone || null,
     });
+    return NextResponse.json({ matched: match.kind !== "none" });
   } catch (err) {
     console.error("[event-checkin/match] match failed", { eventId, err });
     return bad("Service temporarily unavailable", 503);

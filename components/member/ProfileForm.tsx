@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { DIAL_CODES } from "@/lib/dial-codes";
+import PhoneInput from "@/components/common/PhoneInput";
 
 interface Address {
   street?: string;
@@ -26,20 +26,6 @@ interface ProfileFormProps {
     profile_photo_url: string | null;
     marketing_consent: boolean;
   };
-}
-
-// Split an existing phone value like "+41791234567" into dial code + local number
-function parsePhone(phone: string | null): { dialCode: string; local: string } {
-  if (!phone) return { dialCode: "+41", local: "" };
-  // Try longest dial codes first to avoid +1 matching +1868
-  const sorted = [...DIAL_CODES].sort((a, b) => b.code.length - a.code.length);
-  for (const { code } of sorted) {
-    if (phone.startsWith(code)) {
-      return { dialCode: code, local: phone.slice(code.length).trim() };
-    }
-  }
-  // No match — return raw value as local, default dial code
-  return { dialCode: "+41", local: phone };
 }
 
 const COUNTRIES = [
@@ -69,9 +55,7 @@ export default function ProfileForm({ member }: ProfileFormProps) {
   const [photoUrl, setPhotoUrl] = useState<string | null>(member.profile_photo_url);
   const address = member.address as Address | null;
 
-  const parsedPhone = parsePhone(member.phone);
-  const [dialCode, setDialCode] = useState(parsedPhone.dialCode);
-  const [localPhone, setLocalPhone] = useState(parsedPhone.local);
+  const [phoneE164, setPhoneE164] = useState<string | null>(member.phone);
   const [marketingConsent, setMarketingConsent] = useState(member.marketing_consent);
 
   async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -123,7 +107,7 @@ export default function ProfileForm({ member }: ProfileFormProps) {
       body: JSON.stringify({
         first_name: form.get("first_name"),
         last_name: form.get("last_name"),
-        phone: localPhone ? `${dialCode}${localPhone.replace(/^0/, "")}` : null,
+        phone: phoneE164,
         company_name: form.get("company_name") || null,
         company_role: form.get("company_role") || null,
         address: {
@@ -209,25 +193,7 @@ export default function ProfileForm({ member }: ProfileFormProps) {
           </div>
           <div className="mt-4">
             <label htmlFor="phone" className="block text-sm font-body font-medium text-marine mb-1.5">Phone</label>
-            <div className="flex gap-2">
-              <select
-                value={dialCode}
-                onChange={(e) => setDialCode(e.target.value)}
-                className="w-36 shrink-0 px-3 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50"
-              >
-                {DIAL_CODES.map(({ code, label }) => (
-                  <option key={code} value={code}>{label}</option>
-                ))}
-              </select>
-              <input
-                id="phone"
-                type="tel"
-                value={localPhone}
-                onChange={(e) => setLocalPhone(e.target.value)}
-                placeholder="79 123 45 67"
-                className="flex-1 px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50"
-              />
-            </div>
+            <PhoneInput id="phone" defaultValue={member.phone} onChange={setPhoneE164} />
           </div>
         </div>
 

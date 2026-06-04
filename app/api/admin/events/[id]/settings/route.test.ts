@@ -48,19 +48,14 @@ beforeEach(() => {
 describe("PATCH /api/admin/events/[id]/settings", () => {
   it("401s an unauthenticated caller", async () => {
     mockedCreateClient.mockResolvedValue(sessionClient(null));
-    const res = await patch({ strict_checkin: true });
+    const res = await patch({ seat_cap: 10 });
     expect(res.status).toBe(401);
   });
 
   it("403s a signed-in non-admin", async () => {
     mockedCreateAdminClient.mockReturnValue(adminClient([]));
-    const res = await patch({ strict_checkin: true });
+    const res = await patch({ seat_cap: 10 });
     expect(res.status).toBe(403);
-  });
-
-  it("400s a non-boolean strict_checkin", async () => {
-    const res = await patch({ strict_checkin: "yes" });
-    expect(res.status).toBe(400);
   });
 
   it("400s invalid JSON", async () => {
@@ -68,8 +63,8 @@ describe("PATCH /api/admin/events/[id]/settings", () => {
     expect(res.status).toBe(400);
   });
 
-  it("persists a valid boolean for an admin", async () => {
-    const res = await patch({ strict_checkin: true });
+  it("persists a valid seat_cap for an admin", async () => {
+    const res = await patch({ seat_cap: 25 });
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toMatchObject({ success: true });
@@ -77,7 +72,63 @@ describe("PATCH /api/admin/events/[id]/settings", () => {
 
   it("500s when the update fails", async () => {
     mockedCreateAdminClient.mockReturnValue(adminClient(superAdmin, { message: "db error" }));
-    const res = await patch({ strict_checkin: false });
+    const res = await patch({ seat_cap: 5 });
     expect(res.status).toBe(500);
+  });
+
+  // The per-event strict toggle was removed (check-in is strict for every event).
+  // A PATCH carrying strict_checkin must be ignored: succeed without touching the
+  // events table, never error, and never write the field.
+  it("ignores strict_checkin as a no-op (does not error, does not write it)", async () => {
+    const updateSpy = vi.fn();
+    mockedCreateAdminClient.mockReturnValue({
+      from: (table: string) => {
+        const c: Record<string, unknown> = {};
+        for (const m of ["select", "eq", "limit"]) c[m] = () => c;
+        c.update = (payload: unknown) => {
+          updateSpy(payload);
+          return c;
+        };
+        (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
+          resolve(
+            table === "events"
+              ? { data: null, error: null }
+              : { data: superAdmin, error: null }
+          );
+        return c;
+      },
+    } as unknown as ReturnType<typeof createAdminClient>);
+
+    const res = await patch({ strict_checkin: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ success: true });
+    // No events.update fired — the field is dropped, not persisted.
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("ignores strict_checkin but still applies a co-submitted seat_cap", async () => {
+    const updateSpy = vi.fn();
+    mockedCreateAdminClient.mockReturnValue({
+      from: (table: string) => {
+        const c: Record<string, unknown> = {};
+        for (const m of ["select", "eq", "limit"]) c[m] = () => c;
+        c.update = (payload: unknown) => {
+          updateSpy(payload);
+          return c;
+        };
+        (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
+          resolve(
+            table === "events"
+              ? { data: null, error: null }
+              : { data: superAdmin, error: null }
+          );
+        return c;
+      },
+    } as unknown as ReturnType<typeof createAdminClient>);
+
+    const res = await patch({ strict_checkin: false, seat_cap: 12 });
+    expect(res.status).toBe(200);
+    // seat_cap persisted; strict_checkin not present in the update payload.
+    expect(updateSpy).toHaveBeenCalledWith({ seat_cap: 12 });
   });
 });

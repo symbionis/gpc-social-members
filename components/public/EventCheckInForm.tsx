@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import PhoneInput from "@/components/common/PhoneInput";
 import { getWaiver, type WaiverLanguage } from "@/lib/events/waiver";
 import { formatDateTime } from "@/lib/format";
 
@@ -10,83 +11,89 @@ interface Props {
   eventDate: string;
 }
 
-type Kind = "registered" | "member" | "guest";
-type Phase = "details" | "inviter" | "waiver" | "blocked";
-type Inviter = { registrationId: string; label: string };
+type Phase = "details" | "waiver" | "children";
+type Child = { id: string; name: string; ticketType: string };
 type Result = {
-  kind: Kind;
-  name: string;
+  name: string | null;
   checkedInAt: string | null;
   already: boolean;
+  kidsCheckedIn: number;
+  /** The attendee's ticket type — shown prominently for the bracelet handoff. */
+  ticketType: string | null;
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Door check-in is designed for on-field, sunny, one-handed use: large type, high
+// contrast, big touch targets, minimal text. No name is collected — matching keys on
+// email or phone only (KTD10); the confirmation greets the arrival with their roster
+// name returned by the server.
 const STRINGS = {
   en: {
     title: "Check-in",
-    chooseLanguage: "Choose your language",
-    nameLabel: "Full name",
+    contactPrompt: "Enter your email or your phone number",
     emailLabel: "Email",
+    phoneLabel: "Phone",
+    or: "or",
     continue: "Continue",
     checking: "Checking…",
-    inviterLabel: "Who invited you?",
-    notRecognized:
-      "It looks like you're not on the registration list or a member yet. Who invited you?",
-    inviterHelp:
-      "Start typing their name and pick them from the list. If they're not listed, just type the name.",
     waiverAccept: "I have read and accept the waiver above.",
     commsConsent:
       "I’d like to receive news and invitations from Geneva Polo Social Club. (optional)",
     checkIn: "Check in",
     checkingIn: "Checking in…",
-    blockedTitle: "Please see the welcome desk",
-    blockedBody:
-      "We couldn't find your registration. Our team at the desk will help you check in.",
+    notFoundTitle: "Not registered",
+    notFoundBody: "Please see the welcome desk.",
     networkError: "Something went wrong. Please try again.",
-    nameRequired: "Please enter your name.",
-    emailRequired: "Please enter a valid email.",
-    inviterRequired: "Please tell us who invited you.",
+    contactRequired: "Please enter a valid email or phone number.",
     waiverRequired: "Please accept the waiver to check in.",
     welcome: "Welcome",
+    ticketLabel: "Ticket",
     checkedInAt: "Checked in at",
     alreadyAt: "You were already checked in at",
-    badge: { registered: "Registered", member: "Member", guest: "Guest" },
+    childrenTitle: "Attending with kids?",
+    childrenPrompt: "Tap each child checking in with you.",
+    checkInWithKids: "Check in",
+    justMe: "Just me",
+    kidsCheckedInBody: (n: number) =>
+      `${n} ${n === 1 ? "child" : "children"} checked in with you.`,
   },
   fr: {
     title: "Enregistrement",
-    chooseLanguage: "Choisissez votre langue",
-    nameLabel: "Nom complet",
+    contactPrompt: "Saisissez votre e-mail ou votre numéro de téléphone",
     emailLabel: "E-mail",
+    phoneLabel: "Téléphone",
+    or: "ou",
     continue: "Continuer",
     checking: "Vérification…",
-    inviterLabel: "Qui vous a invité ?",
-    notRecognized:
-      "Il semble que vous ne soyez ni sur la liste d'inscription ni membre. Qui vous a invité ?",
-    inviterHelp:
-      "Commencez à taper leur nom et sélectionnez-le dans la liste. S'il n'apparaît pas, saisissez simplement le nom.",
     waiverAccept: "J’ai lu et j’accepte la décharge ci-dessus.",
     commsConsent:
       "Je souhaite recevoir les actualités et invitations du Genève Polo Social Club. (facultatif)",
     checkIn: "S’enregistrer",
     checkingIn: "Enregistrement…",
-    blockedTitle: "Veuillez vous adresser à l’accueil",
-    blockedBody:
-      "Nous n’avons pas trouvé votre inscription. Notre équipe à l’accueil vous aidera à vous enregistrer.",
+    notFoundTitle: "Non inscrit",
+    notFoundBody: "Veuillez vous adresser à l’accueil.",
     networkError: "Une erreur s’est produite. Veuillez réessayer.",
-    nameRequired: "Veuillez saisir votre nom.",
-    emailRequired: "Veuillez saisir un e-mail valide.",
-    inviterRequired: "Veuillez indiquer qui vous a invité.",
+    contactRequired: "Veuillez saisir un e-mail ou un téléphone valide.",
     waiverRequired: "Veuillez accepter la décharge pour vous enregistrer.",
     welcome: "Bienvenue",
+    ticketLabel: "Billet",
     checkedInAt: "Enregistré à",
     alreadyAt: "Vous étiez déjà enregistré à",
-    badge: { registered: "Inscrit", member: "Membre", guest: "Invité" },
+    childrenTitle: "Avec des enfants ?",
+    childrenPrompt: "Cochez chaque enfant qui entre avec vous.",
+    checkInWithKids: "Enregistrer",
+    justMe: "Moi seulement",
+    kidsCheckedInBody: (n: number) =>
+      `${n} enfant${n === 1 ? "" : "s"} enregistré${n === 1 ? "" : "s"} avec vous.`,
   },
 } as const;
 
 const inputClass =
-  "w-full px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-base focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
+  "w-full px-4 py-4 rounded-xl border-2 border-marine/20 bg-white text-marine font-body text-lg focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
+
+const primaryButtonClass =
+  "w-full px-4 py-5 rounded-xl bg-marine text-white font-body font-semibold text-xl hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer";
 
 export default function EventCheckInForm({
   eventId,
@@ -95,71 +102,45 @@ export default function EventCheckInForm({
 }: Props) {
   const [lang, setLang] = useState<WaiverLanguage | null>(null);
   const [phase, setPhase] = useState<Phase>("details");
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [inviterQuery, setInviterQuery] = useState("");
-  const [inviterSuggestions, setInviterSuggestions] = useState<Inviter[]>([]);
-  const [selectedInviter, setSelectedInviter] = useState<Inviter | null>(null);
-  const [needsInviter, setNeedsInviter] = useState(false);
+  const [phone, setPhone] = useState<string | null>(null);
   const [waiverAccepted, setWaiverAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(true);
   const [matching, setMatching] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
-
-  // Debounced typeahead over this event's registrations for the inviter picker.
-  useEffect(() => {
-    if (selectedInviter && selectedInviter.label === inviterQuery) return;
-    const q = inviterQuery.trim();
-    if (q.length < 4) {
-      setInviterSuggestions([]);
-      return;
-    }
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/events/${eventId}/check-in/inviters?q=${encodeURIComponent(q)}`,
-          { signal: controller.signal }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          setInviterSuggestions(data.inviters ?? []);
-        }
-      } catch {
-        /* aborted or offline — leave suggestions as-is */
-      }
-    }, 250);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [inviterQuery, eventId, selectedInviter]);
+  const [notFound, setNotFound] = useState(false);
+  // Children step: shown after the adult checks in if their party has not-yet-arrived
+  // children (no contact → they can't use the kiosk themselves). The adult's check-in
+  // is already recorded; this only stamps the kids' arrival.
+  const [children, setChildren] = useState<Child[]>([]);
+  const [selectedKids, setSelectedKids] = useState<Set<string>>(new Set());
+  const [pendingResult, setPendingResult] = useState<Result | null>(null);
 
   // ---- Screen 1: language selector (and nothing else) ----
   if (!lang) {
     return (
-      <div className="bg-white rounded-sm border border-border/60 p-6 text-center">
-        <p className="font-accent text-xs tracking-[0.3em] uppercase text-sky-dark mb-2">
+      <div className="bg-white rounded-2xl border border-border/60 shadow-sm p-8 text-center">
+        <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky-dark mb-3">
           Check-in
         </p>
-        <h1 className="font-heading text-xl font-bold text-marine mb-1">
+        <h1 className="font-heading text-2xl font-bold text-marine mb-1">
           {eventTitle}
         </h1>
-        <p className="font-body text-sm text-muted-foreground mb-6">{eventDate}</p>
-        <div className="grid grid-cols-1 gap-3">
+        <p className="font-body text-base text-marine/60 mb-8">{eventDate}</p>
+        <div className="grid grid-cols-1 gap-4">
           <button
             type="button"
             onClick={() => setLang("fr")}
-            className="w-full px-4 py-4 rounded-lg bg-marine text-white font-body font-semibold text-base hover:bg-marine-light transition-colors cursor-pointer"
+            className={primaryButtonClass}
           >
             Français
           </button>
           <button
             type="button"
             onClick={() => setLang("en")}
-            className="w-full px-4 py-4 rounded-lg border border-marine/30 bg-white text-marine font-body font-semibold text-base hover:bg-marine/5 transition-colors cursor-pointer"
+            className="w-full px-4 py-5 rounded-xl border-2 border-marine/30 bg-white text-marine font-body font-semibold text-xl hover:bg-marine/5 transition-colors cursor-pointer"
           >
             English
           </button>
@@ -174,34 +155,46 @@ export default function EventCheckInForm({
   if (result) {
     const time = result.checkedInAt ? formatDateTime(result.checkedInAt) : null;
     return (
-      <div className="rounded-sm border-2 border-emerald-300 bg-emerald-50 p-8 text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white text-3xl">
+      <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-10 text-center shadow-sm">
+        <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-white text-4xl">
           ✓
         </div>
-        <p className="font-body text-sm uppercase tracking-wide text-emerald-700">
-          {t.badge[result.kind]}
-        </p>
-        <h2 className="font-heading text-2xl font-bold text-emerald-900 mt-1">
-          {t.welcome}, {result.name}
+        <h2 className="font-heading text-3xl font-bold text-emerald-900">
+          {result.name ? `${t.welcome}, ${result.name}` : t.welcome}
         </h2>
-        <p className="font-body text-base text-emerald-800 mt-2">{eventTitle}</p>
+        {result.ticketType && (
+          <div className="mx-auto mt-4 inline-block rounded-xl border-2 border-emerald-400 bg-white px-5 py-3">
+            <p className="font-accent text-xs tracking-[0.2em] uppercase text-emerald-700/70">
+              {t.ticketLabel}
+            </p>
+            <p className="font-heading text-2xl font-bold text-emerald-900">
+              {result.ticketType}
+            </p>
+          </div>
+        )}
+        <p className="font-body text-lg text-emerald-800 mt-3">{eventTitle}</p>
         {time && (
-          <p className="font-body text-sm text-emerald-700 mt-3">
+          <p className="font-body text-base text-emerald-700 mt-4">
             {result.already ? t.alreadyAt : t.checkedInAt} {time}
+          </p>
+        )}
+        {result.kidsCheckedIn > 0 && (
+          <p className="font-body text-base text-emerald-700 mt-2">
+            {t.kidsCheckedInBody(result.kidsCheckedIn)}
           </p>
         )}
       </div>
     );
   }
 
-  // ---- Strict-mode blocked state ----
-  if (phase === "blocked") {
+  // ---- Not-found state — one uniform screen, no registration path ----
+  if (notFound) {
     return (
-      <div className="rounded-sm border border-amber-200 bg-amber-50 p-8 text-center">
-        <h2 className="font-heading text-xl font-bold text-amber-900 mb-2">
-          {t.blockedTitle}
+      <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-10 text-center shadow-sm">
+        <h2 className="font-heading text-2xl font-bold text-amber-900 mb-3">
+          {t.notFoundTitle}
         </h2>
-        <p className="font-body text-sm text-amber-800">{t.blockedBody}</p>
+        <p className="font-body text-lg text-amber-900/80">{t.notFoundBody}</p>
       </div>
     );
   }
@@ -209,15 +202,19 @@ export default function EventCheckInForm({
   async function handleContinue(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!name.trim()) return setError(t.nameRequired);
-    if (!EMAIL_RE.test(email.trim())) return setError(t.emailRequired);
+    const trimmedEmail = email.trim();
+    const hasEmail = EMAIL_RE.test(trimmedEmail);
+    if (!hasEmail && !phone) return setError(t.contactRequired);
 
     setMatching(true);
     try {
       const res = await fetch(`/api/events/${eventId}/check-in/match`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({
+          email: hasEmail ? trimmedEmail : undefined,
+          phone: phone ?? undefined,
+        }),
         signal: AbortSignal.timeout(10000),
       });
       const data = await res.json();
@@ -226,13 +223,13 @@ export default function EventCheckInForm({
         return;
       }
       if (data.matched) {
-        setNeedsInviter(false);
-        setPhase("waiver");
-      } else if (data.strict) {
-        setPhase("blocked");
+        // Attempt the check-in straight away. A pre-signed arrival (e.g. they signed
+        // at self-registration) is checked in with no waiver step; otherwise the
+        // server reports needs_waiver and runCheckIn surfaces the waiver screen.
+        await runCheckIn(false);
       } else {
-        setNeedsInviter(true);
-        setPhase("inviter");
+        // Strict gate: not on the roster.
+        setNotFound(true);
       }
     } catch {
       setError(t.networkError);
@@ -241,29 +238,15 @@ export default function EventCheckInForm({
     }
   }
 
-  function pickInviter(inviter: Inviter) {
-    setSelectedInviter(inviter);
-    setInviterQuery(inviter.label);
-    setInviterSuggestions([]);
-  }
-
-  function handleInviterContinue(e: React.FormEvent) {
-    e.preventDefault();
+  // Submit the check-in. `accepted` is whether the arrival is accepting the waiver in
+  // this submission. The server requires it ONLY for an attendee who hasn't signed —
+  // a self-registration signature is honored as-is, so a pre-signed arrival is checked
+  // in straight away (no waiver step). When the server reports the waiver is still
+  // needed, we surface the waiver screen.
+  async function runCheckIn(accepted: boolean) {
     setError(null);
-    const inviterValue = (selectedInviter?.label ?? inviterQuery).trim();
-    if (!inviterValue) return setError(t.inviterRequired);
-    setPhase("waiver");
-  }
-
-  async function handleCheckIn(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    const inviterValue = (selectedInviter?.label ?? inviterQuery).trim();
-    if (needsInviter && !inviterValue) {
-      setPhase("inviter");
-      return setError(t.inviterRequired);
-    }
-    if (!waiverAccepted) return setError(t.waiverRequired);
+    const trimmedEmail = email.trim();
+    const hasEmail = EMAIL_RE.test(trimmedEmail);
 
     setSubmitting(true);
     try {
@@ -271,40 +254,47 @@ export default function EventCheckInForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim(),
+          email: hasEmail ? trimmedEmail : undefined,
+          phone: phone ?? undefined,
           language: lang,
-          inviterName: needsInviter ? inviterValue : undefined,
-          invitedByRegistrationId: needsInviter
-            ? selectedInviter?.registrationId
-            : undefined,
-          waiverAccepted: true,
+          waiverAccepted: accepted,
           marketingConsent,
         }),
         signal: AbortSignal.timeout(10000),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        // Strict flipped between match and submit -> show the blocked state.
-        if (res.status === 403) {
-          setPhase("blocked");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        // Not signed yet → show the waiver screen (only when the server says so).
+        if (data.reason === "needs_waiver") {
+          setPhase("waiver");
           return;
         }
-        // The server re-derived us as an unmatched guest (e.g. a registration
-        // was removed mid-flow) and needs an inviter the form hasn't shown yet.
-        if (res.status === 400 && !needsInviter) {
-          setNeedsInviter(true);
-          setPhase("inviter");
+        // The strict gate re-derived us as not on the roster (e.g. a row changed
+        // mid-flow) — show the uniform not-found screen, no routing.
+        if (res.status === 404 || data.reason === "not_found") {
+          setNotFound(true);
+          return;
         }
         setError(data.error || t.networkError);
         return;
       }
-      setResult({
-        kind: data.kind,
-        name: data.name,
+      const adultResult: Result = {
+        name: data.name ?? null,
         checkedInAt: data.checkedInAt ?? null,
         already: Boolean(data.already),
-      });
+        kidsCheckedIn: 0,
+        ticketType: data.ticketType ?? null,
+      };
+      const kids: Child[] = Array.isArray(data.children) ? data.children : [];
+      if (kids.length > 0) {
+        // Offer to check the party's children in too (default all selected).
+        setChildren(kids);
+        setSelectedKids(new Set(kids.map((k) => k.id)));
+        setPendingResult(adultResult);
+        setPhase("children");
+      } else {
+        setResult(adultResult);
+      }
     } catch {
       setError(t.networkError);
     } finally {
@@ -312,30 +302,77 @@ export default function EventCheckInForm({
     }
   }
 
+  async function handleCheckIn(e: React.FormEvent) {
+    e.preventDefault();
+    if (!waiverAccepted) return setError(t.waiverRequired);
+    await runCheckIn(true);
+  }
+
+  function toggleKid(id: string) {
+    setSelectedKids((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function confirmChildren() {
+    const base = pendingResult ?? {
+      name: null,
+      checkedInAt: null,
+      already: false,
+      kidsCheckedIn: 0,
+      ticketType: null,
+    };
+    const ids = [...selectedKids];
+    if (ids.length === 0) {
+      setResult({ ...base, kidsCheckedIn: 0 });
+      return;
+    }
+    setSubmitting(true);
+    let kidsCheckedIn = 0;
+    try {
+      const res = await fetch(`/api/events/${eventId}/check-in/children`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attendeeIds: ids }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) kidsCheckedIn = data.checkedIn ?? 0;
+    } catch {
+      /* the adult is already checked in — show their result regardless */
+    } finally {
+      setSubmitting(false);
+      setResult({ ...base, kidsCheckedIn });
+    }
+  }
+
   const waiver = getWaiver(lang);
 
   return (
-    <div className="bg-white rounded-sm border border-border/60 p-6">
-      <div className="flex items-start justify-between gap-3 mb-4">
+    <div className="bg-white rounded-2xl border border-border/60 shadow-sm p-6 sm:p-8">
+      <div className="flex items-start justify-between gap-3 mb-6">
         <div>
-          <p className="font-accent text-xs tracking-[0.3em] uppercase text-sky-dark mb-1">
+          <p className="font-accent text-sm tracking-[0.3em] uppercase text-sky-dark mb-1">
             {t.title}
           </p>
-          <h1 className="font-heading text-xl font-bold text-marine">
+          <h1 className="font-heading text-2xl font-bold text-marine leading-tight">
             {eventTitle}
           </h1>
-          <p className="font-body text-sm text-muted-foreground">{eventDate}</p>
+          <p className="font-body text-base text-marine/60">{eventDate}</p>
         </div>
-        <div className="flex shrink-0 gap-1 text-xs font-body">
+        <div className="flex shrink-0 gap-1 font-body">
           {(["fr", "en"] as WaiverLanguage[]).map((l) => (
             <button
               key={l}
               type="button"
               onClick={() => setLang(l)}
-              className={`px-2 py-1 rounded transition-colors cursor-pointer ${
+              className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${
                 lang === l
                   ? "bg-marine text-white"
-                  : "text-muted-foreground hover:text-marine"
+                  : "text-marine/60 hover:text-marine"
               }`}
             >
               {l.toUpperCase()}
@@ -345,102 +382,53 @@ export default function EventCheckInForm({
       </div>
 
       {phase === "details" && (
-        <form onSubmit={handleContinue} className="space-y-4">
+        <form onSubmit={handleContinue} className="space-y-5">
+          <p className="font-heading text-xl font-bold text-marine">
+            {t.contactPrompt}
+          </p>
           <div>
-            <label className="block text-xs font-body text-muted-foreground mb-1">
-              {t.nameLabel}
-            </label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className={inputClass}
-              autoComplete="name"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-body text-muted-foreground mb-1">
+            <label className="block text-sm font-body font-medium text-marine/70 mb-1.5">
               {t.emailLabel}
             </label>
             <input
               type="email"
-              required
+              inputMode="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className={inputClass}
               autoComplete="email"
             />
           </div>
+
+          <div className="flex items-center gap-3" aria-hidden>
+            <span className="h-px flex-1 bg-border" />
+            <span className="font-body text-sm uppercase tracking-wider text-marine/40">
+              {t.or}
+            </span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+
+          <div>
+            <label className="block text-sm font-body font-medium text-marine/70 mb-1.5">
+              {t.phoneLabel}
+            </label>
+            <PhoneInput onChange={setPhone} large />
+          </div>
+
           {error && (
-            <p className="text-sm font-body text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <p className="text-base font-body text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
               {error}
             </p>
           )}
-          <button
-            type="submit"
-            disabled={matching}
-            className="w-full px-4 py-3 bg-marine text-white rounded-lg text-base font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          >
+          <button type="submit" disabled={matching} className={primaryButtonClass}>
             {matching ? t.checking : t.continue}
           </button>
         </form>
       )}
 
-      {phase === "inviter" && (
-        <form onSubmit={handleInviterContinue} className="space-y-4">
-          <p className="font-body text-sm text-marine bg-cream/40 border border-border rounded-lg px-4 py-3">
-            {t.notRecognized}
-          </p>
-          <div>
-            <label className="block text-xs font-body text-muted-foreground mb-1">
-              {t.inviterLabel}
-            </label>
-            <input
-              type="text"
-              value={inviterQuery}
-              onChange={(e) => {
-                setInviterQuery(e.target.value);
-                setSelectedInviter(null);
-              }}
-              className={inputClass}
-              autoComplete="off"
-              autoFocus
-            />
-            {inviterSuggestions.length > 0 && !selectedInviter && (
-              <ul className="mt-1 rounded-lg border border-border bg-white overflow-hidden">
-                {inviterSuggestions.map((s) => (
-                  <li key={s.registrationId}>
-                    <button
-                      type="button"
-                      onClick={() => pickInviter(s)}
-                      className="w-full text-left px-3 py-2 text-sm font-body text-marine hover:bg-cream/60 cursor-pointer"
-                    >
-                      {s.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p className="text-xs text-muted-foreground mt-1">{t.inviterHelp}</p>
-          </div>
-          {error && (
-            <p className="text-sm font-body text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-              {error}
-            </p>
-          )}
-          <button
-            type="submit"
-            className="w-full px-4 py-3 bg-marine text-white rounded-lg text-base font-body font-semibold hover:bg-marine-light transition-colors cursor-pointer"
-          >
-            {t.continue}
-          </button>
-        </form>
-      )}
-
       {phase === "waiver" && (
-        <form onSubmit={handleCheckIn} className="space-y-4">
-          <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-cream/40 p-4 text-sm font-body text-marine">
+        <form onSubmit={handleCheckIn} className="space-y-5">
+          <div className="max-h-72 overflow-y-auto rounded-xl border border-border bg-cream/40 p-4 text-sm font-body text-marine">
             <h2 className="font-heading text-base font-bold text-marine">
               {waiver.title}
             </h2>
@@ -467,42 +455,99 @@ export default function EventCheckInForm({
             </ol>
           </div>
 
-          <label className="flex items-start gap-3 cursor-pointer">
+          <label className="flex items-start gap-4 cursor-pointer rounded-xl border-2 border-marine/20 p-4 has-[:checked]:border-marine has-[:checked]:bg-marine/5 transition-colors">
             <input
               type="checkbox"
               checked={waiverAccepted}
               onChange={(e) => setWaiverAccepted(e.target.checked)}
-              className="mt-1 h-5 w-5 shrink-0 accent-marine cursor-pointer"
+              className="mt-0.5 h-6 w-6 shrink-0 accent-marine cursor-pointer"
             />
-            <span className="text-sm font-body text-marine">{t.waiverAccept}</span>
+            <span className="text-base font-body font-medium text-marine">
+              {t.waiverAccept}
+            </span>
           </label>
 
-          <label className="flex items-start gap-3 cursor-pointer">
+          <label className="flex items-start gap-4 cursor-pointer px-1">
             <input
               type="checkbox"
               checked={marketingConsent}
               onChange={(e) => setMarketingConsent(e.target.checked)}
-              className="mt-1 h-5 w-5 shrink-0 accent-marine cursor-pointer"
+              className="mt-0.5 h-6 w-6 shrink-0 accent-marine cursor-pointer"
             />
-            <span className="text-sm font-body text-muted-foreground">
+            <span className="text-sm font-body text-marine/70">
               {t.commsConsent}
             </span>
           </label>
 
           {error && (
-            <p className="text-sm font-body text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <p className="text-base font-body text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
               {error}
             </p>
           )}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full px-4 py-3 bg-marine text-white rounded-lg text-base font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          >
+          <button type="submit" disabled={submitting} className={primaryButtonClass}>
             {submitting ? t.checkingIn : t.checkIn}
           </button>
         </form>
+      )}
+
+      {phase === "children" && (
+        <div className="space-y-5">
+          <div>
+            <p className="font-heading text-xl font-bold text-marine">
+              {t.childrenTitle}
+            </p>
+            <p className="font-body text-base text-marine/60 mt-1">
+              {t.childrenPrompt}
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {children.map((kid) => {
+              const checked = selectedKids.has(kid.id);
+              return (
+                <label
+                  key={kid.id}
+                  className="flex items-center gap-4 cursor-pointer rounded-xl border-2 border-marine/20 p-4 has-[:checked]:border-marine has-[:checked]:bg-marine/5 transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleKid(kid.id)}
+                    className="h-6 w-6 shrink-0 accent-marine cursor-pointer"
+                  />
+                  <span className="flex flex-1 items-center justify-between gap-2">
+                    <span className="text-lg font-body font-medium text-marine">
+                      {kid.name || "—"}
+                    </span>
+                    {kid.ticketType && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-body bg-sky/10 text-sky-dark whitespace-nowrap">
+                        {kid.ticketType}
+                      </span>
+                    )}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={confirmChildren}
+            disabled={submitting}
+            className={primaryButtonClass}
+          >
+            {submitting ? t.checkingIn : t.checkInWithKids}
+          </button>
+          <button
+            type="button"
+            onClick={() => setResult(pendingResult)}
+            disabled={submitting}
+            className="w-full px-4 py-3 rounded-xl border-2 border-marine/20 bg-white text-marine/70 font-body font-semibold text-lg hover:bg-marine/5 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {t.justMe}
+          </button>
+        </div>
       )}
     </div>
   );

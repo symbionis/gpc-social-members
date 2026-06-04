@@ -5,20 +5,18 @@ vi.mock("@/lib/events/checkin", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/events/checkin")>();
   return {
     ...actual,
-    matchEmail: vi.fn(),
-    recordCheckin: vi.fn(),
-    findExistingCheckin: vi.fn(),
+    matchContact: vi.fn(),
+    recordAttendeeCheckin: vi.fn(),
   };
 });
 
 import { POST } from "@/app/api/events/[id]/check-in/route";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { matchEmail, recordCheckin, findExistingCheckin } from "@/lib/events/checkin";
+import { matchContact, recordAttendeeCheckin } from "@/lib/events/checkin";
 
 const mockedCreateAdminClient = vi.mocked(createAdminClient);
-const mockedMatchEmail = vi.mocked(matchEmail);
-const mockedRecordCheckin = vi.mocked(recordCheckin);
-const mockedFindExistingCheckin = vi.mocked(findExistingCheckin);
+const mockedMatchContact = vi.mocked(matchContact);
+const mockedRecordAttendeeCheckin = vi.mocked(recordAttendeeCheckin);
 
 // Minimal fake client whose only used path is the events lookup chain.
 function eventClient(event: unknown) {
@@ -39,11 +37,9 @@ function post(body: unknown, eventId = "evt-1") {
   return POST(req as never, { params: Promise.resolve({ id: eventId }) });
 }
 
-const publishedOpen = { id: "evt-1", is_published: true, strict_checkin: false };
-const publishedStrict = { id: "evt-1", is_published: true, strict_checkin: true };
+const published = { id: "evt-1", is_published: true };
 
 const validBody = {
-  name: "Jean Dupont",
   email: "jean@example.com",
   language: "en",
   waiverAccepted: true,
@@ -51,13 +47,16 @@ const validBody = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockedCreateAdminClient.mockReturnValue(eventClient(publishedOpen));
-  mockedMatchEmail.mockResolvedValue({ kind: "registered", registrationId: "reg-1" });
-  mockedRecordCheckin.mockResolvedValue({
+  mockedCreateAdminClient.mockReturnValue(eventClient(published));
+  mockedMatchContact.mockResolvedValue({ kind: "one", attendeeId: "att-1" });
+  mockedRecordAttendeeCheckin.mockResolvedValue({
+    ok: true,
     already: false,
-    checkedInAt: "2026-05-22T10:00:00Z",
+    checkedInAt: "2026-06-06T18:00:00Z",
+    name: "Jean Dupont",
+    registrationId: null,
+    ticketTypeId: null,
   });
-  mockedFindExistingCheckin.mockResolvedValue(null);
 });
 
 describe("POST /api/events/[id]/check-in — validation", () => {
@@ -66,40 +65,33 @@ describe("POST /api/events/[id]/check-in — validation", () => {
     expect(res.status).toBe(400);
   });
 
-  it("requires a name", async () => {
-    const res = await post({ ...validBody, name: "  " });
-    expect(res.status).toBe(400);
-  });
-
-  it("rejects an over-long name", async () => {
-    const res = await post({ ...validBody, name: "a".repeat(201) });
-    expect(res.status).toBe(400);
-  });
-
-  it("requires a valid email", async () => {
+  it("rejects an invalid email", async () => {
     const res = await post({ ...validBody, email: "not-an-email" });
     expect(res.status).toBe(400);
   });
 
-  it("rejects an over-long email", async () => {
-    const res = await post({ ...validBody, email: `${"a".repeat(250)}@b.com` });
+  it("requires at least an email or a phone", async () => {
+    const res = await post({ ...validBody, email: "", phone: "" });
     expect(res.status).toBe(400);
+    expect(mockedMatchContact).not.toHaveBeenCalled();
+  });
+
+  it("accepts a phone-only arrival (no email)", async () => {
+    const res = await post({
+      phone: "+41781234567",
+      language: "en",
+      waiverAccepted: true,
+    });
+    expect(res.status).toBe(200);
+    expect(mockedMatchContact).toHaveBeenCalledWith(
+      "evt-1",
+      expect.objectContaining({ phone: "+41781234567" })
+    );
   });
 
   it("requires language to be fr or en", async () => {
     const res = await post({ ...validBody, language: "de" });
     expect(res.status).toBe(400);
-  });
-
-  it("rejects an over-long inviter name", async () => {
-    const res = await post({ ...validBody, inviterName: "a".repeat(201) });
-    expect(res.status).toBe(400);
-  });
-
-  it("requires the waiver to be accepted", async () => {
-    const res = await post({ ...validBody, waiverAccepted: false });
-    expect(res.status).toBe(400);
-    expect(mockedRecordCheckin).not.toHaveBeenCalled();
   });
 
   it("404s an unpublished/unknown event", async () => {
@@ -109,80 +101,100 @@ describe("POST /api/events/[id]/check-in — validation", () => {
   });
 });
 
-describe("POST /api/events/[id]/check-in — gating and recording", () => {
-  it("records a matched registration and returns kind=registered (AE1)", async () => {
+describe("POST /api/events/[id]/check-in — strict gate and recording", () => {
+  it("records a matched attendee and returns ok with the arrival time (AE1)", async () => {
     const res = await post(validBody);
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toMatchObject({ ok: true, kind: "registered", already: false });
-    expect(mockedRecordCheckin).toHaveBeenCalledOnce();
+    expect(json).toMatchObject({
+      ok: true,
+      name: "Jean Dupont",
+      already: false,
+      checkedInAt: "2026-06-06T18:00:00Z",
+    });
+    expect(json).not.toHaveProperty("kind");
+    expect(mockedRecordAttendeeCheckin).toHaveBeenCalledOnce();
   });
 
-  it("blocks an unmatched guest under strict mode with 403 (AE5)", async () => {
-    mockedCreateAdminClient.mockReturnValue(eventClient(publishedStrict));
-    mockedMatchEmail.mockResolvedValue({ kind: "guest" });
-    const res = await post(validBody);
-    expect(res.status).toBe(403);
-    expect(mockedRecordCheckin).not.toHaveBeenCalled();
-  });
-
-  it("lets an already-checked-in guest through under strict mode (idempotency)", async () => {
-    mockedCreateAdminClient.mockReturnValue(eventClient(publishedStrict));
-    mockedMatchEmail.mockResolvedValue({ kind: "guest" });
-    mockedFindExistingCheckin.mockResolvedValue({ checkedInAt: "2026-05-22T09:00:00Z" });
-    const res = await post(validBody);
+  it("returns the roster name, never a client-supplied one (no name at the door, KTD10)", async () => {
+    // The door collects no name; even if a client injects one, the confirmation
+    // greets the arrival with the authoritative roster name from the recorder.
+    const res = await post({ ...validBody, name: "Someone Else" });
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toMatchObject({ ok: true, already: true });
-    expect(mockedRecordCheckin).not.toHaveBeenCalled();
+    expect(json.name).toBe("Jean Dupont");
   });
 
-  it("requires an inviter for an unmatched guest when not strict (AE2)", async () => {
-    mockedMatchEmail.mockResolvedValue({ kind: "guest" });
-    const res = await post(validBody); // no inviterName
+  it("returns not_found for an unmatched arrival with no routing data (AE3)", async () => {
+    mockedMatchContact.mockResolvedValue({ kind: "none" });
+    const res = await post(validBody);
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json).toEqual({ ok: false, reason: "not_found" });
+    expect(mockedRecordAttendeeCheckin).not.toHaveBeenCalled();
+  });
+
+  it("returns needs_waiver when a matched attendee is unsigned and didn't accept (AE2)", async () => {
+    mockedRecordAttendeeCheckin.mockResolvedValue({
+      ok: false,
+      reason: "needs_waiver",
+    });
+    const res = await post({ ...validBody, waiverAccepted: false });
     expect(res.status).toBe(400);
-    expect(mockedRecordCheckin).not.toHaveBeenCalled();
-  });
-
-  it("records an invited guest with an inviter when not strict (AE2)", async () => {
-    mockedMatchEmail.mockResolvedValue({ kind: "guest" });
-    const res = await post({ ...validBody, inviterName: "Marie Curie" });
-    expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toMatchObject({ ok: true, kind: "guest" });
+    expect(json).toEqual({ ok: false, reason: "needs_waiver" });
   });
 
-  it("treats a repeat check-in as success with already=true (AE4)", async () => {
-    mockedRecordCheckin.mockResolvedValue({
+  it("returns the original arrival time on a repeat check-in (idempotent, R24)", async () => {
+    mockedRecordAttendeeCheckin.mockResolvedValue({
+      ok: true,
       already: true,
-      checkedInAt: "2026-05-22T09:30:00Z",
+      checkedInAt: "2026-06-06T17:30:00Z",
+      name: "Jean Dupont",
+      registrationId: null,
+    ticketTypeId: null,
     });
     const res = await post(validBody);
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toMatchObject({ ok: true, already: true });
+    expect(json).toMatchObject({
+      ok: true,
+      already: true,
+      checkedInAt: "2026-06-06T17:30:00Z",
+    });
+  });
+
+  it("returns not_found when the row vanishes between match and record", async () => {
+    mockedRecordAttendeeCheckin.mockResolvedValue({
+      ok: false,
+      reason: "not_found",
+    });
+    const res = await post(validBody);
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json).toEqual({ ok: false, reason: "not_found" });
   });
 });
 
 describe("POST /api/events/[id]/check-in — communication consent", () => {
   it("defaults consent to true when the field is absent (ticked by default)", async () => {
     await post(validBody);
-    expect(mockedRecordCheckin).toHaveBeenCalledWith(
-      expect.objectContaining({ marketingConsent: true })
-    );
-  });
-
-  it("records consent=true when explicitly checked", async () => {
-    await post({ ...validBody, marketingConsent: true });
-    expect(mockedRecordCheckin).toHaveBeenCalledWith(
+    expect(mockedRecordAttendeeCheckin).toHaveBeenCalledWith(
       expect.objectContaining({ marketingConsent: true })
     );
   });
 
   it("records consent=false when the box is unchecked", async () => {
     await post({ ...validBody, marketingConsent: false });
-    expect(mockedRecordCheckin).toHaveBeenCalledWith(
+    expect(mockedRecordAttendeeCheckin).toHaveBeenCalledWith(
       expect.objectContaining({ marketingConsent: false })
+    );
+  });
+
+  it("forwards the accepted waiver flag to the recorder", async () => {
+    await post(validBody);
+    expect(mockedRecordAttendeeCheckin).toHaveBeenCalledWith(
+      expect.objectContaining({ waiverAccepted: true })
     );
   });
 });

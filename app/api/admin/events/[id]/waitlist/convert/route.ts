@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   generateReferenceCode,
+  generateSelfRegToken,
   findActiveMemberByEmail,
   hasExistingRegistration,
 } from "@/lib/events/registration";
@@ -164,6 +165,19 @@ export async function POST(
     }
     console.error("[waitlist-convert] insert failed", { eventId, email, err: insertErr });
     return bad("Could not create registration", 500);
+  }
+
+  // Give the comped party a self-registration token (U9) so its guests can self-
+  // register too. Best-effort: a failure only leaves this party without a link.
+  const { error: tokenErr } = await adminClient
+    .from("event_registrations")
+    .update({ self_reg_token: generateSelfRegToken() })
+    .eq("id", registrationId);
+  if (tokenErr) {
+    console.error("[waitlist-convert] failed to persist self_reg_token", {
+      registrationId,
+      err: tokenErr,
+    });
   }
 
   // Delete the waitlist entry (scoped). If this fails, the registration is the

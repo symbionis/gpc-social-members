@@ -6,11 +6,13 @@ import { sendEventRegistrationConfirmation } from "@/lib/email/event-registratio
 import { getSeatsUsed } from "@/lib/events/seat-usage";
 import {
   generateReferenceCode,
+  generateSelfRegToken,
   isValidInviteCode,
 } from "@/lib/events/registration";
+import { seedLeadAttendee } from "@/lib/events/roster";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MAX_TICKETS = 10;
+const MAX_TICKETS = 20;
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -22,7 +24,14 @@ export async function POST(
 ) {
   const { id: eventId } = await params;
 
-  let body: { name?: unknown; email?: unknown; code?: unknown; items?: unknown };
+  let body: {
+    name?: unknown;
+    email?: unknown;
+    phone?: unknown;
+    code?: unknown;
+    items?: unknown;
+    leadTicketTypeId?: unknown;
+  };
   try {
     body = await request.json();
   } catch {
@@ -33,6 +42,16 @@ export async function POST(
   const email =
     typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const code = typeof body.code === "string" ? body.code.trim() : "";
+  // Optional E.164 phone (the form captures it via PhoneInput; empty is allowed —
+  // email stays the required contact). Reject a malformed value rather than storing
+  // junk that could never match at the door.
+  const rawPhone = typeof body.phone === "string" ? body.phone.trim() : "";
+  const phone = /^\+[1-9]\d{6,14}$/.test(rawPhone) ? rawPhone : "";
+
+  // The purchaser's own ticket (their meal). Validated below to be one of the basket
+  // types; recorded on the registration so the seeded lead carries a ticket type.
+  const leadTicketTypeId =
+    typeof body.leadTicketTypeId === "string" ? body.leadTicketTypeId.trim() : "";
 
   if (!name) return bad("name is required");
   if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
@@ -126,7 +145,7 @@ export async function POST(
   const ids = [...new Set(parsed.map((p) => p.ticket_type_id))];
   const { data: types, error: typesErr } = await supabase
     .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat, archived_at")
+    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat, is_child, archived_at")
     .eq("event_id", eventId)
     .in("id", ids);
 
@@ -141,6 +160,21 @@ export async function POST(
     return bad("A selected ticket type is no longer available", 400);
   }
   const typeById = new Map(types.map((t) => [t.id, t]));
+
+  // The lead's own ticket must be one of the basket's types (the form adds +1 to it).
+  // When absent, a single-type basket implies it; a multi-type basket leaves the lead
+  // untyped rather than guessing.
+  let leadType: string | null = leadTicketTypeId || null;
+  if (leadType && !ids.includes(leadType)) {
+    return bad("Your ticket must be one of the selected tickets", 400);
+  }
+  // The buyer's own ticket can't be a children's ticket.
+  if (leadType && typeById.get(leadType)?.is_child) {
+    return bad("Your ticket can't be a children's ticket", 400);
+  }
+  if (!leadType && ids.length === 1 && !typeById.get(ids[0])?.is_child) {
+    leadType = ids[0];
+  }
 
   // Resolve per-line prices. STRICT null check before any coercion — Number(null)
   // === 0 would silently make a line free, so an unset price for the resolved
@@ -234,8 +268,37 @@ export async function POST(
     return bad("Could not create registration", 500);
   }
 
+  // Persist the captured phone (U12) and a self-registration token (U9) on the
+  // registration. The phone is matched at the door; the token scopes the party's
+  // self-registration link (sent in the confirmation email, U10). Best-effort:
+  // both are non-blocking — a failure here never fails an already-created
+  // registration, it only leaves that party without phone / a shareable link.
+  const regPatch: {
+    phone_e164?: string;
+    self_reg_token: string;
+    lead_ticket_type_id?: string;
+  } = {
+    self_reg_token: generateSelfRegToken(),
+  };
+  if (phone) regPatch.phone_e164 = phone;
+  if (leadType) regPatch.lead_ticket_type_id = leadType;
+  const { error: patchErr } = await supabase
+    .from("event_registrations")
+    .update(regPatch)
+    .eq("id", registrationId);
+  if (patchErr) {
+    console.error("[event-register] failed to persist phone/self_reg_token", {
+      registrationId,
+      err: patchErr,
+    });
+  }
+
   // Free basket: confirm immediately.
   if (isFree) {
+    // Confirmed now → seed the purchaser onto the roster (paid registrations seed
+    // in the Stripe webhook after promotion to 'paid'). Pass the phone in-hand so a
+    // failed phone UPDATE above doesn't leave the lead unmatchable by phone.
+    await seedLeadAttendee(registrationId, phone || null);
     sendEventRegistrationConfirmation(registrationId).catch((err) =>
       console.error("[event-register] confirmation email failed", err)
     );

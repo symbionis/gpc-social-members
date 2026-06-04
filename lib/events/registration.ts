@@ -43,6 +43,24 @@ export function generateInviteCode(): string {
 }
 
 /**
+ * A per-registration self-registration link secret (U9). 24 CSPRNG bytes encoded
+ * base64url (≈192 bits, 32 chars) — far beyond guessing, and URL-safe so it rides
+ * in the link path. Unlike the human-typed invite code this is never read aloud,
+ * so base64url (not REF_ALPHABET) is fine. Stored on event_registrations; the
+ * self-reg page and claim RPC look the registration up by it.
+ */
+export function generateSelfRegToken(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/**
  * Whether a supplied invite code matches an event's stored code.
  *
  * Shared by the register API (app/api/events/[id]/register/route.ts) and the

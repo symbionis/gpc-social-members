@@ -16,10 +16,12 @@ export interface TicketTypeDraft {
   // instead of nulling it on the per-type PATCH.
   invite_price: string;
   counts_as_seat: boolean;
+  /** A children's ticket — self-registered by name only, no contact, no waiver. */
+  is_child: boolean;
 }
 
 export function makeStandardDraft(): TicketTypeDraft {
-  return { title: "Standard", price_member: "", price_non_member: "", invite_price: "", counts_as_seat: true };
+  return { title: "Standard", price_member: "", price_non_member: "", invite_price: "", counts_as_seat: true, is_child: false };
 }
 
 interface Props {
@@ -44,7 +46,7 @@ export default function TicketTypesEditor({
     onChange(value.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
   }
   function add() {
-    onChange([...value, { title: "", price_member: "", price_non_member: "", invite_price: "", counts_as_seat: true }]);
+    onChange([...value, { title: "", price_member: "", price_non_member: "", invite_price: "", counts_as_seat: true, is_child: false }]);
   }
   function remove(i: number) {
     if (value.length <= 1) return; // keep >=1
@@ -142,6 +144,14 @@ export default function TicketTypesEditor({
                   onChange={(e) => update(i, { counts_as_seat: e.target.checked })}
                 />
                 Counts toward capacity
+              </label>
+              <label className="flex items-center gap-2 text-xs font-body text-marine sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={row.is_child}
+                  onChange={(e) => update(i, { is_child: e.target.checked })}
+                />
+                Children&apos;s ticket (name only, no contact or waiver)
               </label>
             </div>
 

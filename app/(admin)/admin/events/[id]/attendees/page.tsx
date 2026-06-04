@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import ManageEventTabs from "@/components/admin/ManageEventTabs";
 import { getEventReminderSummary } from "@/lib/events/reminder-summary";
 import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
+import { rollupTicketItems } from "@/lib/events/tickets";
+import { computePartyFills, rosterGuestSummary } from "@/lib/events/roster-fill";
 
 export default async function ManageEventPage({
   params,
@@ -16,7 +18,7 @@ export default async function ManageEventPage({
   const { data: event } = await supabase
     .from("events")
     .select(
-      "id, title, start_date, seat_cap, strict_checkin, reminder_schedule, visibility, registration_enabled, invite_code"
+      "id, title, start_date, seat_cap, reminder_schedule, visibility, registration_enabled, invite_code"
     )
     .eq("id", id)
     .single();
@@ -35,52 +37,145 @@ export default async function ManageEventPage({
   const { data: registrations } = await supabase
     .from("event_registrations")
     .select(
-      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, created_at"
+      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, self_reg_token, created_at"
     )
     .eq("event_id", id)
     .in("status", ["paid", "free"])
     .order("created_at", { ascending: false });
 
-  // event_checkins is the single source of arrival truth. A registration has
-  // arrived iff a row links to it; rows without a registration_id are walk-up
-  // members and invited guests.
-  const { data: checkins } = await supabase
-    .from("event_checkins")
-    .select(
-      "id, name, email, kind, inviter_name, registration_id, member_id, invited_by_registration_id, created_at"
-    )
-    .eq("event_id", id)
-    .order("created_at", { ascending: true });
-
-  const checkedInRegIds = new Set(
-    (checkins ?? [])
-      .filter((c) => c.registration_id)
-      .map((c) => c.registration_id as string)
-  );
-
-  // Per-registration line items → a read-only "2× Standard, 2× Kids" breakdown.
-  const regIds = (registrations ?? []).map((r) => r.id);
-  const { data: items } = regIds.length
+  // Per-ticket-type breakdown for each party, keyed by registration. The lead row
+  // of a party carries the tickets purchased for it; guest rows show none.
+  const registrationIds = (registrations ?? []).map((r) => r.id);
+  const { data: ticketItemRows } = registrationIds.length
     ? await supabase
         .from("event_registration_items")
-        .select("registration_id, title_snapshot, quantity, created_at")
-        .in("registration_id", regIds)
+        .select("registration_id, title_snapshot, quantity")
+        .in("registration_id", registrationIds)
         .order("created_at", { ascending: true })
-    : { data: [] as { registration_id: string; title_snapshot: string; quantity: number }[] };
+    : { data: [] };
 
-  const breakdownByReg = new Map<string, string>();
-  for (const it of items ?? []) {
-    const line = `${it.quantity}× ${it.title_snapshot}`;
-    const prev = breakdownByReg.get(it.registration_id);
-    breakdownByReg.set(it.registration_id, prev ? `${prev}, ${line}` : line);
+  const ticketQtyByReg = new Map<string, number>();
+  for (const r of registrations ?? []) ticketQtyByReg.set(r.id, r.quantity);
+
+  type TicketItemRow = {
+    registration_id: string;
+    title_snapshot: string | null;
+    quantity: number | null;
+  };
+  const ticketItemsByReg = new Map<string, TicketItemRow[]>();
+  for (const item of (ticketItemRows ?? []) as TicketItemRow[]) {
+    const list = ticketItemsByReg.get(item.registration_id) ?? [];
+    list.push(item);
+    ticketItemsByReg.set(item.registration_id, list);
   }
 
-  const attendees = (registrations ?? []).map((r) => ({
-    ...r,
-    checkedIn: checkedInRegIds.has(r.id),
-    // Itemless fallback (legacy / window-promoted rows): "{quantity}× —".
-    breakdown: breakdownByReg.get(r.id) ?? `${r.quantity}× —`,
+  // event_attendees is the per-person source of truth for identity, waiver, and
+  // arrival (event_checkins is frozen). The roster is flat — one row per person,
+  // claimed slots only (unclaimed Milestone-2 placeholders have no identity yet).
+  const { data: attendeeRows } = await supabase
+    .from("event_attendees")
+    .select(
+      "id, registration_id, member_id, name, email, phone_e164, is_lead, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
+    )
+    .eq("event_id", id)
+    .eq("slot_status", "claimed")
+    .is("released_at", null)
+    .order("created_at", { ascending: true });
+
+  type AttendeeRow = {
+    id: string;
+    registration_id: string | null;
+    member_id: string | null;
+    name: string | null;
+    email: string | null;
+    phone_e164: string | null;
+    is_lead: boolean;
+    ticket_type_id: string | null;
+    waiver_accepted_at: string | null;
+    checked_in_at: string | null;
+    created_at: string;
+  };
+  const roster = (attendeeRows ?? []) as AttendeeRow[];
+
+  // Resolve each person's ticket-type id to a title (asado meal). Built from the
+  // event's active types loaded above; an attendee holding an archived type just
+  // shows no label.
+  const ticketTitleById = new Map<string, string>();
+  for (const tt of ticketTypes) {
+    ticketTitleById.set(tt.id as string, (tt.title as string | null) ?? "");
+  }
+
+  // Lead name per registration, from the party's lead attendee row → guests show
+  // "Guest of <lead>". Each booking has a real lead (the first-listed person when
+  // the purchaser booked on behalf of a group), so this always resolves.
+  const leadNameByReg = new Map<string, string>();
+  for (const a of roster) {
+    if (a.is_lead && a.registration_id && a.name) {
+      leadNameByReg.set(a.registration_id, a.name);
+    }
+  }
+
+  // Per-party self-registration fill (claimed of purchased + the claimed guests),
+  // attached to each lead row so it can expand into a party drawer. Fill is derived
+  // (quantity − claimed count); approach B has no placeholder rows.
+  const regsForFill = (registrations ?? []).map((r) => ({
+    id: r.id as string,
+    quantity: (r.quantity as number) ?? 0,
   }));
+  const partyFills = computePartyFills(regsForFill, roster);
+  const guestSummary = rosterGuestSummary(regsForFill, roster);
+  const selfRegTokenByReg = new Map<string, string | null>();
+  const refByReg = new Map<string, string | null>();
+  for (const r of registrations ?? []) {
+    selfRegTokenByReg.set(
+      r.id,
+      (r as { self_reg_token?: string | null }).self_reg_token ?? null
+    );
+    refByReg.set(r.id, (r.reference_code as string | null) ?? null);
+  }
+
+  const attendees = roster.map((a) => {
+    // Tickets and party fill are attributed to the party's lead row only (the
+    // guests share them).
+    const ticketRegId = a.is_lead ? a.registration_id : null;
+    const fill = ticketRegId ? partyFills.get(ticketRegId) ?? null : null;
+    return {
+      id: a.id,
+      registrationId: a.registration_id,
+      referenceCode: a.registration_id ? refByReg.get(a.registration_id) ?? null : null,
+      name: a.name ?? "",
+      email: a.email ?? "",
+      phone_e164: a.phone_e164 ?? "",
+      isMember: a.member_id !== null,
+      isLead: a.is_lead,
+      // The lead's name for this party, when the attendee belongs to a registration
+      // and isn't themselves the lead. Empty otherwise (lead row or no party).
+      leadName:
+        !a.is_lead && a.registration_id
+          ? leadNameByReg.get(a.registration_id) ?? ""
+          : "",
+      ticketCount: ticketRegId ? ticketQtyByReg.get(ticketRegId) ?? null : null,
+      ticketBreakdown: ticketRegId
+        ? rollupTicketItems(ticketItemsByReg.get(ticketRegId) ?? [])
+        : [],
+      // The individual's ticket type (asado meal) — shown on guest rows; lead rows
+      // show the whole party's breakdown instead.
+      ticketTypeTitle: a.ticket_type_id
+        ? ticketTitleById.get(a.ticket_type_id) ?? ""
+        : "",
+      // Party self-reg detail for the expandable lead drawer (null on guest rows).
+      party:
+        fill && ticketRegId
+          ? { ...fill, selfRegToken: selfRegTokenByReg.get(ticketRegId) ?? null }
+          : null,
+      waiverSigned: a.waiver_accepted_at !== null,
+      checkedIn: a.checked_in_at !== null,
+      arrivedAt: a.checked_in_at,
+      createdAt: a.created_at,
+    };
+  });
+
+  const checkedInCount = attendees.filter((a) => a.checkedIn).length;
 
   const total = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
   const seatCap = event.seat_cap as number | null;
@@ -131,7 +226,8 @@ export default async function ManageEventPage({
       <ManageEventTabs
         eventId={id}
         attendees={attendees}
-        checkins={checkins ?? []}
+        checkedInCount={checkedInCount}
+        guestsRegistered={guestSummary.registered}
         waitlist={waitlist ?? []}
         hasSeatCap={hasSeatCap}
         total={total}
@@ -140,7 +236,6 @@ export default async function ManageEventPage({
         csvHref={`/api/admin/events/${id}/attendees?format=csv`}
         baseUrl={baseUrl}
         checkInPath={checkInPath}
-        strictCheckin={Boolean(event.strict_checkin)}
         reminders={reminders}
         sentMessages={sentMessages ?? []}
         reminderSchedule={reminderSchedule}

@@ -27,6 +27,11 @@ Tickets:
 {{/each}}
 Total:        {{amount_label}}
 
+{{#self_registration_url}}
+Bringing guests? Share this link so each person pre-registers their own details before the event:
+{{.}}
+{{/self_registration_url}}
+
 {{#event_url}}
 View event details:
 {{.}}

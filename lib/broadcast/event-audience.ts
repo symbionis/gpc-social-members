@@ -126,6 +126,12 @@ async function fetchRegistrations(
   return out;
 }
 
+/** Post-event recipients are the checked-in attendees on the roster
+ *  (`event_attendees.checked_in_at IS NOT NULL`) — event_checkins is frozen and
+ *  no longer written, so reading it here would resolve to zero post-cutover.
+ *  Marketing-consent and dedupe semantics are unchanged: the consent filter and
+ *  the lowercased-email dedupe both run in `resolveEventAudience`/`dedupe`, and
+ *  rows without an email are dropped there (no email = no destination). */
 async function fetchCheckins(
   supabase: AdminClient,
   eventId: string
@@ -134,9 +140,10 @@ async function fetchCheckins(
   let from = 0;
   while (true) {
     const { data, error } = await supabase
-      .from("event_checkins")
+      .from("event_attendees")
       .select("email, name, member_id, marketing_consent")
       .eq("event_id", eventId)
+      .not("checked_in_at", "is", null)
       .order("created_at", { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
     if (error) throw new Error(`Failed to resolve check-ins: ${error.message}`);

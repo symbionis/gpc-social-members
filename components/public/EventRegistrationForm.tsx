@@ -2,12 +2,15 @@
 
 import { useState } from "react";
 import posthog from "posthog-js";
+import PhoneInput from "@/components/common/PhoneInput";
 
 export interface TicketTypeOption {
   id: string;
   title: string;
   /** Price resolved for THIS viewer's rate class; null = not open yet (not selectable). */
   price: number | null;
+  /** A children's ticket — bought as a guest quantity, never the buyer's own ticket. */
+  is_child: boolean;
 }
 
 interface Props {
@@ -21,7 +24,7 @@ interface Props {
   code?: string;
 }
 
-const MAX_QUANTITY_HARD_CAP = 10;
+const MAX_QUANTITY_HARD_CAP = 20;
 
 function priceLabel(value: number) {
   return value === 0 ? "Free" : `CHF ${value.toFixed(2)}`;
@@ -37,23 +40,34 @@ export default function EventRegistrationForm({
 }: Props) {
   const cap = Math.max(1, Math.min(MAX_QUANTITY_HARD_CAP, maxQuantity ?? MAX_QUANTITY_HARD_CAP));
   const selectable = ticketTypes.filter((t) => t.price !== null);
+  // The buyer's own ticket is an adult ticket; children's tickets are only ever
+  // added as guest quantities below.
+  const adultTypes = selectable.filter((t) => !t.is_child);
 
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
+  const [phone, setPhone] = useState<string | null>(null);
+  // The buyer's OWN ticket — chosen first; a single open adult type is preselected.
+  const [leadTicketTypeId, setLeadTicketTypeId] = useState(
+    adultTypes.length === 1 ? adultTypes[0].id : ""
+  );
+  // Quantities here are ADDITIONAL guest tickets, on top of the buyer's own.
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ referenceCode: string } | null>(null);
   const [soldOut, setSoldOut] = useState(false);
 
-  const totalQuantity = Object.values(quantities).reduce((a, b) => a + b, 0);
+  const leadTicket = selectable.find((t) => t.id === leadTicketTypeId) ?? null;
+  const guestTotal = Object.values(quantities).reduce((a, b) => a + b, 0);
+  // The buyer's own ticket counts as one; guests add on top.
+  const totalQuantity = guestTotal + (leadTicket ? 1 : 0);
   // Sum over selectable (priced) types only — keeps the "a null price never
   // counts as free" invariant local rather than relying on null-priced rows
-  // never accruing a quantity.
-  const totalAmount = selectable.reduce(
-    (sum, t) => sum + (t.price as number) * (quantities[t.id] ?? 0),
-    0
-  );
+  // never accruing a quantity. Includes the buyer's own ticket.
+  const totalAmount =
+    selectable.reduce((sum, t) => sum + (t.price as number) * (quantities[t.id] ?? 0), 0) +
+    (leadTicket ? (leadTicket.price as number) : 0);
   const atCap = totalQuantity >= cap;
   const allFree = selectable.length > 0 && selectable.every((t) => t.price === 0);
 
@@ -66,19 +80,22 @@ export default function EventRegistrationForm({
     setError(null);
     if (!name.trim()) return setError("Please enter your name.");
     if (!email.trim()) return setError("Please enter your email.");
-    if (totalQuantity < 1) return setError("Please select at least one ticket.");
+    if (!leadTicketTypeId) return setError("Please select your ticket.");
     if (totalQuantity > cap) return setError(`A maximum of ${cap} tickets can be booked at once.`);
 
+    // Merge the buyer's own ticket (+1 of their chosen type) into the guest basket.
+    const merged: Record<string, number> = { ...quantities };
+    merged[leadTicketTypeId] = (merged[leadTicketTypeId] ?? 0) + 1;
     const items = ticketTypes
-      .filter((t) => (quantities[t.id] ?? 0) > 0)
-      .map((t) => ({ ticket_type_id: t.id, quantity: quantities[t.id] }));
+      .filter((t) => (merged[t.id] ?? 0) > 0)
+      .map((t) => ({ ticket_type_id: t.id, quantity: merged[t.id] }));
 
     setSubmitting(true);
     try {
       const res = await fetch(`/api/events/${eventId}/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), items, ...(code ? { code } : {}) }),
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), ...(phone ? { phone } : {}), items, leadTicketTypeId, ...(code ? { code } : {}) }),
       });
       const data = await res.json();
 
@@ -182,9 +199,36 @@ export default function EventRegistrationForm({
         <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} autoComplete="email" />
       </div>
 
-      {/* Per-type quantity grid */}
+      <div>
+        <label className="block text-xs font-body text-muted-foreground mb-1">Phone</label>
+        <PhoneInput id="reg-phone" defaultValue={null} onChange={setPhone} />
+      </div>
+
+      {/* The buyer's own ticket — chosen first. */}
+      <div>
+        <label className="block text-xs font-body text-muted-foreground mb-1">Your ticket</label>
+        <select
+          required
+          value={leadTicketTypeId}
+          onChange={(e) => setLeadTicketTypeId(e.target.value)}
+          className={`${inputClass} cursor-pointer`}
+        >
+          <option value="" disabled>
+            Choose your ticket…
+          </option>
+          {adultTypes.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.title} — {priceLabel(t.price as number)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Additional guest tickets, on top of the buyer's own. */}
       <div className="space-y-2">
-        <label className="block text-xs font-body text-muted-foreground">Tickets</label>
+        <label className="block text-xs font-body text-muted-foreground">
+          Additional guest tickets
+        </label>
         {ticketTypes.map((t) => {
           const qty = quantities[t.id] ?? 0;
           const notOpen = t.price === null;
@@ -249,7 +293,7 @@ export default function EventRegistrationForm({
 
       <button
         type="submit"
-        disabled={submitting || totalQuantity < 1}
+        disabled={submitting || !leadTicketTypeId}
         className="w-full px-4 py-3 bg-marine text-white rounded-lg text-sm font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
       >
         {submitting ? "Processing…" : allFree ? "Confirm registration" : "Reserve your spot"}

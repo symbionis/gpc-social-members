@@ -50,6 +50,7 @@ const baseReg = {
   reference_code: "EV-ABCD1234",
   status: "paid",
   event_id: "evt-1",
+  self_reg_token: "selfregtoken-abc",
 };
 const baseEvent = { id: "evt-1", title: "Polo Brunch", start_date: "2026-06-15", start_time: "12:00:00", location: "GPC", visibility: "public" };
 
@@ -109,5 +110,41 @@ describe("sendEventRegistrationConfirmation — ticket_lines breakdown", () => {
     expect(model.is_free).toBe(true);
     expect(model.amount_label).toBe("Free");
     expect((model.ticket_lines as { line_label: string }[])[0].line_label).toBe("Free");
+  });
+});
+
+describe("sendEventRegistrationConfirmation — self-registration link (U10)", () => {
+  it("includes the self_registration_url for a multi-ticket party with a token", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ registration: baseReg, event: baseEvent, items: [] })
+    );
+    await sendEventRegistrationConfirmation("reg-1");
+    expect(lastModel().self_registration_url).toBe(
+      "http://localhost:3000/public/registrations/selfregtoken-abc"
+    );
+  });
+
+  it("is null for a solo (quantity 1) booking — no guests to invite", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        registration: { ...baseReg, quantity: 1 },
+        event: baseEvent,
+        items: [],
+      })
+    );
+    await sendEventRegistrationConfirmation("reg-1");
+    expect(lastModel().self_registration_url).toBeNull();
+  });
+
+  it("is null (never empty string) when the registration has no token", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        registration: { ...baseReg, self_reg_token: null },
+        event: baseEvent,
+        items: [],
+      })
+    );
+    await sendEventRegistrationConfirmation("reg-1");
+    expect(lastModel().self_registration_url).toBeNull();
   });
 });
