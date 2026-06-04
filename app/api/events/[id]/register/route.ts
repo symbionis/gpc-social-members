@@ -30,6 +30,7 @@ export async function POST(
     phone?: unknown;
     code?: unknown;
     items?: unknown;
+    leadTicketTypeId?: unknown;
   };
   try {
     body = await request.json();
@@ -46,6 +47,11 @@ export async function POST(
   // junk that could never match at the door.
   const rawPhone = typeof body.phone === "string" ? body.phone.trim() : "";
   const phone = /^\+[1-9]\d{6,14}$/.test(rawPhone) ? rawPhone : "";
+
+  // The purchaser's own ticket (their meal). Validated below to be one of the basket
+  // types; recorded on the registration so the seeded lead carries a ticket type.
+  const leadTicketTypeId =
+    typeof body.leadTicketTypeId === "string" ? body.leadTicketTypeId.trim() : "";
 
   if (!name) return bad("name is required");
   if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
@@ -155,6 +161,15 @@ export async function POST(
   }
   const typeById = new Map(types.map((t) => [t.id, t]));
 
+  // The lead's own ticket must be one of the basket's types (the form adds +1 to it).
+  // When absent, a single-type basket implies it; a multi-type basket leaves the lead
+  // untyped rather than guessing.
+  let leadType: string | null = leadTicketTypeId || null;
+  if (leadType && !ids.includes(leadType)) {
+    return bad("Your ticket must be one of the selected tickets", 400);
+  }
+  if (!leadType && ids.length === 1) leadType = ids[0];
+
   // Resolve per-line prices. STRICT null check before any coercion — Number(null)
   // === 0 would silently make a line free, so an unset price for the resolved
   // class fails loud rather than under-charging.
@@ -252,10 +267,15 @@ export async function POST(
   // self-registration link (sent in the confirmation email, U10). Best-effort:
   // both are non-blocking — a failure here never fails an already-created
   // registration, it only leaves that party without phone / a shareable link.
-  const regPatch: { phone_e164?: string; self_reg_token: string } = {
+  const regPatch: {
+    phone_e164?: string;
+    self_reg_token: string;
+    lead_ticket_type_id?: string;
+  } = {
     self_reg_token: generateSelfRegToken(),
   };
   if (phone) regPatch.phone_e164 = phone;
+  if (leadType) regPatch.lead_ticket_type_id = leadType;
   const { error: patchErr } = await supabase
     .from("event_registrations")
     .update(regPatch)

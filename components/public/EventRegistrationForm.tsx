@@ -42,20 +42,27 @@ export default function EventRegistrationForm({
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
   const [phone, setPhone] = useState<string | null>(null);
+  // The buyer's OWN ticket — chosen first; a single open type is preselected.
+  const [leadTicketTypeId, setLeadTicketTypeId] = useState(
+    selectable.length === 1 ? selectable[0].id : ""
+  );
+  // Quantities here are ADDITIONAL guest tickets, on top of the buyer's own.
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ referenceCode: string } | null>(null);
   const [soldOut, setSoldOut] = useState(false);
 
-  const totalQuantity = Object.values(quantities).reduce((a, b) => a + b, 0);
+  const leadTicket = selectable.find((t) => t.id === leadTicketTypeId) ?? null;
+  const guestTotal = Object.values(quantities).reduce((a, b) => a + b, 0);
+  // The buyer's own ticket counts as one; guests add on top.
+  const totalQuantity = guestTotal + (leadTicket ? 1 : 0);
   // Sum over selectable (priced) types only — keeps the "a null price never
   // counts as free" invariant local rather than relying on null-priced rows
-  // never accruing a quantity.
-  const totalAmount = selectable.reduce(
-    (sum, t) => sum + (t.price as number) * (quantities[t.id] ?? 0),
-    0
-  );
+  // never accruing a quantity. Includes the buyer's own ticket.
+  const totalAmount =
+    selectable.reduce((sum, t) => sum + (t.price as number) * (quantities[t.id] ?? 0), 0) +
+    (leadTicket ? (leadTicket.price as number) : 0);
   const atCap = totalQuantity >= cap;
   const allFree = selectable.length > 0 && selectable.every((t) => t.price === 0);
 
@@ -68,19 +75,22 @@ export default function EventRegistrationForm({
     setError(null);
     if (!name.trim()) return setError("Please enter your name.");
     if (!email.trim()) return setError("Please enter your email.");
-    if (totalQuantity < 1) return setError("Please select at least one ticket.");
+    if (!leadTicketTypeId) return setError("Please select your ticket.");
     if (totalQuantity > cap) return setError(`A maximum of ${cap} tickets can be booked at once.`);
 
+    // Merge the buyer's own ticket (+1 of their chosen type) into the guest basket.
+    const merged: Record<string, number> = { ...quantities };
+    merged[leadTicketTypeId] = (merged[leadTicketTypeId] ?? 0) + 1;
     const items = ticketTypes
-      .filter((t) => (quantities[t.id] ?? 0) > 0)
-      .map((t) => ({ ticket_type_id: t.id, quantity: quantities[t.id] }));
+      .filter((t) => (merged[t.id] ?? 0) > 0)
+      .map((t) => ({ ticket_type_id: t.id, quantity: merged[t.id] }));
 
     setSubmitting(true);
     try {
       const res = await fetch(`/api/events/${eventId}/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), ...(phone ? { phone } : {}), items, ...(code ? { code } : {}) }),
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), ...(phone ? { phone } : {}), items, leadTicketTypeId, ...(code ? { code } : {}) }),
       });
       const data = await res.json();
 
@@ -189,9 +199,31 @@ export default function EventRegistrationForm({
         <PhoneInput id="reg-phone" defaultValue={null} onChange={setPhone} />
       </div>
 
-      {/* Per-type quantity grid */}
+      {/* The buyer's own ticket — chosen first. */}
+      <div>
+        <label className="block text-xs font-body text-muted-foreground mb-1">Your ticket</label>
+        <select
+          required
+          value={leadTicketTypeId}
+          onChange={(e) => setLeadTicketTypeId(e.target.value)}
+          className={`${inputClass} cursor-pointer`}
+        >
+          <option value="" disabled>
+            Choose your ticket…
+          </option>
+          {selectable.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.title} — {priceLabel(t.price as number)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Additional guest tickets, on top of the buyer's own. */}
       <div className="space-y-2">
-        <label className="block text-xs font-body text-muted-foreground">Tickets</label>
+        <label className="block text-xs font-body text-muted-foreground">
+          Additional guest tickets
+        </label>
         {ticketTypes.map((t) => {
           const qty = quantities[t.id] ?? 0;
           const notOpen = t.price === null;
@@ -256,7 +288,7 @@ export default function EventRegistrationForm({
 
       <button
         type="submit"
-        disabled={submitting || totalQuantity < 1}
+        disabled={submitting || !leadTicketTypeId}
         className="w-full px-4 py-3 bg-marine text-white rounded-lg text-sm font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
       >
         {submitting ? "Processing…" : allFree ? "Confirm registration" : "Reserve your spot"}

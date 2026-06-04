@@ -524,6 +524,7 @@ export type Database = {
           event_id: string
           id: string
           is_member: boolean
+          lead_ticket_type_id: string | null
           member_id: string | null
           name: string
           paid_at: string | null
@@ -544,6 +545,7 @@ export type Database = {
           event_id: string
           id?: string
           is_member: boolean
+          lead_ticket_type_id?: string | null
           member_id?: string | null
           name: string
           paid_at?: string | null
@@ -564,6 +566,7 @@ export type Database = {
           event_id?: string
           id?: string
           is_member?: boolean
+          lead_ticket_type_id?: string | null
           member_id?: string | null
           name?: string
           paid_at?: string | null
@@ -590,6 +593,13 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registrations_lead_ticket_type_id_fkey"
+            columns: ["lead_ticket_type_id"]
+            isOneToOne: false
+            referencedRelation: "event_ticket_types"
             referencedColumns: ["id"]
           },
           {

@@ -236,6 +236,10 @@ describe("basket validation + IDOR / archived guards", () => {
   it("400s a total over the 20-ticket cap", async () => {
     expect((await post({ ...guest, items: [{ ticket_type_id: "t1", quantity: 21 }] })).status).toBe(400);
   });
+  it("400s a lead ticket type that is not in the basket", async () => {
+    const res = await post({ ...guest, code: INVITE, leadTicketTypeId: "tX" });
+    expect(res.status).toBe(400);
+  });
   it("400s a ticket type that does not belong to the event (IDOR)", async () => {
     // valid code clears the members-only gate; then requested 't1'+'tX' but only
     // 't1' is returned (event-scoped) → fewer than requested → 400.
