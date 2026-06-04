@@ -96,12 +96,12 @@ export default async function ManageEventPage({
   };
   const roster = (attendeeRows ?? []) as AttendeeRow[];
 
-  // Lead name per registration → guests can be attributed to their party's lead.
+  // Party name per registration = the purchaser/booker (event_registrations.name),
+  // so guests group under the booker (e.g. Rohaya) even when the purchaser isn't
+  // attending that party and their lead attendee row was released.
   const leadNameByReg = new Map<string, string>();
-  for (const a of roster) {
-    if (a.is_lead && a.registration_id && a.name) {
-      leadNameByReg.set(a.registration_id, a.name);
-    }
+  for (const r of registrations ?? []) {
+    if (r.name) leadNameByReg.set(r.id, r.name as string);
   }
 
   // Per-party self-registration fill (claimed of purchased + the claimed guests),
