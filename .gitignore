@@ -37,6 +37,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# agent / tool exhaust (local only, not source)
+/.context/
+/.playwright-mcp/
+/supabase/.temp/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
