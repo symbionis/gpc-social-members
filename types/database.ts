@@ -289,6 +289,82 @@ export type Database = {
           },
         ]
       }
+      event_attendees: {
+        Row: {
+          checked_in_at: string | null
+          created_at: string
+          email: string | null
+          event_id: string
+          id: string
+          is_lead: boolean
+          language: string | null
+          marketing_consent: boolean | null
+          member_id: string | null
+          name: string | null
+          phone_e164: string | null
+          registration_id: string | null
+          slot_status: string
+          waiver_accepted_at: string | null
+          waiver_version: string | null
+        }
+        Insert: {
+          checked_in_at?: string | null
+          created_at?: string
+          email?: string | null
+          event_id: string
+          id?: string
+          is_lead?: boolean
+          language?: string | null
+          marketing_consent?: boolean | null
+          member_id?: string | null
+          name?: string | null
+          phone_e164?: string | null
+          registration_id?: string | null
+          slot_status?: string
+          waiver_accepted_at?: string | null
+          waiver_version?: string | null
+        }
+        Update: {
+          checked_in_at?: string | null
+          created_at?: string
+          email?: string | null
+          event_id?: string
+          id?: string
+          is_lead?: boolean
+          language?: string | null
+          marketing_consent?: boolean | null
+          member_id?: string | null
+          name?: string | null
+          phone_e164?: string | null
+          registration_id?: string | null
+          slot_status?: string
+          waiver_accepted_at?: string | null
+          waiver_version?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_attendees_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_attendees_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_attendees_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_checkins: {
         Row: {
           created_at: string
@@ -350,6 +426,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "event_checkins_invited_by_member_id_fkey"
+            columns: ["invited_by_member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_checkins_invited_by_registration_id_fkey"
+            columns: ["invited_by_registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "event_checkins_member_id_fkey"
             columns: ["member_id"]
             isOneToOne: false
@@ -365,6 +455,54 @@ export type Database = {
           },
         ]
       }
+      event_registration_items: {
+        Row: {
+          created_at: string
+          id: string
+          line_total_chf: number
+          quantity: number
+          registration_id: string
+          ticket_type_id: string
+          title_snapshot: string
+          unit_amount_chf: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          line_total_chf: number
+          quantity: number
+          registration_id: string
+          ticket_type_id: string
+          title_snapshot: string
+          unit_amount_chf: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          line_total_chf?: number
+          quantity?: number
+          registration_id?: string
+          ticket_type_id?: string
+          title_snapshot?: string
+          unit_amount_chf?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_registration_items_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registration_items_ticket_type_id_fkey"
+            columns: ["ticket_type_id"]
+            isOneToOne: false
+            referencedRelation: "event_ticket_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_registrations: {
         Row: {
           converted_by: string | null
@@ -376,8 +514,10 @@ export type Database = {
           member_id: string | null
           name: string
           paid_at: string | null
+          phone_e164: string | null
           quantity: number
           reference_code: string
+          self_reg_token: string | null
           status: string
           stripe_checkout_session_id: string | null
           stripe_payment_intent_id: string | null
@@ -394,8 +534,10 @@ export type Database = {
           member_id?: string | null
           name: string
           paid_at?: string | null
+          phone_e164?: string | null
           quantity: number
           reference_code: string
+          self_reg_token?: string | null
           status?: string
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
@@ -412,8 +554,10 @@ export type Database = {
           member_id?: string | null
           name?: string
           paid_at?: string | null
+          phone_e164?: string | null
           quantity?: number
           reference_code?: string
+          self_reg_token?: string | null
           status?: string
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
@@ -421,6 +565,13 @@ export type Database = {
           unit_amount_chf?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "event_registrations_converted_by_fkey"
+            columns: ["converted_by"]
+            isOneToOne: false
+            referencedRelation: "admin_users"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "event_registrations_event_id_fkey"
             columns: ["event_id"]
@@ -433,13 +584,6 @@ export type Database = {
             columns: ["member_id"]
             isOneToOne: false
             referencedRelation: "members"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_registrations_converted_by_fkey"
-            columns: ["converted_by"]
-            isOneToOne: false
-            referencedRelation: "admin_users"
             referencedColumns: ["id"]
           },
         ]
@@ -482,6 +626,53 @@ export type Database = {
             columns: ["registration_id"]
             isOneToOne: false
             referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_ticket_types: {
+        Row: {
+          archived_at: string | null
+          counts_as_seat: boolean
+          created_at: string
+          event_id: string
+          id: string
+          invite_price: number | null
+          price_member: number | null
+          price_non_member: number | null
+          sort_order: number
+          title: string
+        }
+        Insert: {
+          archived_at?: string | null
+          counts_as_seat?: boolean
+          created_at?: string
+          event_id: string
+          id?: string
+          invite_price?: number | null
+          price_member?: number | null
+          price_non_member?: number | null
+          sort_order?: number
+          title: string
+        }
+        Update: {
+          archived_at?: string | null
+          counts_as_seat?: boolean
+          created_at?: string
+          event_id?: string
+          id?: string
+          invite_price?: number | null
+          price_member?: number | null
+          price_non_member?: number | null
+          sort_order?: number
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_ticket_types_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
@@ -551,101 +742,6 @@ export type Database = {
           },
           {
             foreignKeyName: "event_waitlist_ticket_type_id_fkey"
-            columns: ["ticket_type_id"]
-            isOneToOne: false
-            referencedRelation: "event_ticket_types"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      event_ticket_types: {
-        Row: {
-          archived_at: string | null
-          counts_as_seat: boolean
-          created_at: string
-          event_id: string
-          id: string
-          invite_price: number | null
-          price_member: number | null
-          price_non_member: number | null
-          sort_order: number
-          title: string
-        }
-        Insert: {
-          archived_at?: string | null
-          counts_as_seat?: boolean
-          created_at?: string
-          event_id: string
-          id?: string
-          invite_price?: number | null
-          price_member?: number | null
-          price_non_member?: number | null
-          sort_order?: number
-          title: string
-        }
-        Update: {
-          archived_at?: string | null
-          counts_as_seat?: boolean
-          created_at?: string
-          event_id?: string
-          id?: string
-          invite_price?: number | null
-          price_member?: number | null
-          price_non_member?: number | null
-          sort_order?: number
-          title?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "event_ticket_types_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      event_registration_items: {
-        Row: {
-          created_at: string
-          id: string
-          line_total_chf: number
-          quantity: number
-          registration_id: string
-          ticket_type_id: string
-          title_snapshot: string
-          unit_amount_chf: number
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          line_total_chf: number
-          quantity: number
-          registration_id: string
-          ticket_type_id: string
-          title_snapshot: string
-          unit_amount_chf: number
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          line_total_chf?: number
-          quantity?: number
-          registration_id?: string
-          ticket_type_id?: string
-          title_snapshot?: string
-          unit_amount_chf?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "event_registration_items_registration_id_fkey"
-            columns: ["registration_id"]
-            isOneToOne: false
-            referencedRelation: "event_registrations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_registration_items_ticket_type_id_fkey"
             columns: ["ticket_type_id"]
             isOneToOne: false
             referencedRelation: "event_ticket_types"
@@ -1297,6 +1393,42 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_self_registration: {
+        Args: {
+          p_email: string
+          p_language: string
+          p_marketing_consent: boolean
+          p_name: string
+          p_phone_e164: string
+          p_token: string
+          p_waiver_accepted: boolean
+          p_waiver_version: string
+        }
+        Returns: Json
+      }
+      create_event_registration: {
+        Args: {
+          p_converted_by: string
+          p_email: string
+          p_event_id: string
+          p_is_member: boolean
+          p_items: Json
+          p_member_id: string
+          p_name: string
+          p_paid_at: string
+          p_reference_code: string
+          p_status: string
+        }
+        Returns: string
+      }
+      create_event_with_ticket_types: {
+        Args: { p_event: Json; p_types: Json }
+        Returns: string
+      }
+      import_event_attendees: {
+        Args: { p_event_id: string; p_rows: Json }
+        Returns: Json
+      }
       seats_used: { Args: { eid: string }; Returns: number }
       seats_used_by_events: {
         Args: { ids: string[] }
@@ -1305,28 +1437,9 @@ export type Database = {
           seats_used: number
         }[]
       }
-      // HAND-AUTHORED nullable RPC args (re-apply after every `supabase gen
-      // types` — the generator types these non-null, which breaks the
-      // anonymous-registration / not-converted call sites that pass null).
-      // Same re-append discipline as the manual aliases at the file end.
-      create_event_registration: {
-        Args: {
-          p_event_id: string
-          p_name: string
-          p_email: string
-          p_is_member: boolean
-          p_member_id: string | null
-          p_status: string
-          p_reference_code: string
-          p_paid_at: string | null
-          p_converted_by: string | null
-          p_items: Json
-        }
-        Returns: string
-      }
-      create_event_with_ticket_types: {
-        Args: { p_event: Json; p_types: Json }
-        Returns: string
+      seed_lead_attendee: {
+        Args: { p_phone_e164?: string; p_registration_id: string }
+        Returns: undefined
       }
     }
     Enums: {
@@ -1501,6 +1614,7 @@ export const Constants = {
   },
 } as const
 
-// --- Manual aliases (re-append after every Supabase regen) ---
+// Hand-written aliases — Supabase type regen DROPS these; re-append after every regen.
+// See memory feedback_db_types_aliases.
 export type MemberStatus = Database["public"]["Enums"]["member_status"]
 export type PaymentCaptureStatus = Database["public"]["Enums"]["payment_capture_status"]
