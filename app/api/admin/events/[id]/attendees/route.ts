@@ -74,6 +74,7 @@ export async function GET(
     email: string | null;
     phone_e164: string | null;
     is_lead: boolean;
+    ticket_type_id: string | null;
     waiver_accepted_at: string | null;
     checked_in_at: string | null;
     created_at: string;
@@ -81,7 +82,7 @@ export async function GET(
   const { data: attendees } = await adminClient
     .from("event_attendees")
     .select(
-      "registration_id, member_id, name, email, phone_e164, is_lead, waiver_accepted_at, checked_in_at, created_at"
+      "registration_id, member_id, name, email, phone_e164, is_lead, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", eventId)
     .eq("slot_status", "claimed")
@@ -89,6 +90,16 @@ export async function GET(
     .order("created_at", { ascending: true });
 
   const roster = (attendees || []) as AttendeeRow[];
+
+  // Each person's own ticket type (asado meal) → a per-person column for catering.
+  const { data: typeRows } = await adminClient
+    .from("event_ticket_types")
+    .select("id, title")
+    .eq("event_id", eventId);
+  const ticketTitleById = new Map<string, string>();
+  for (const t of typeRows ?? []) {
+    ticketTitleById.set(t.id as string, (t.title as string | null) ?? "");
+  }
 
   // Lead name per registration → guests are attributed to their party's lead.
   const leadNameByReg = new Map<string, string>();
@@ -139,6 +150,7 @@ export async function GET(
     "party_lead",
     "tickets",
     "ticket_types",
+    "ticket_type",
     "waiver",
     "arrived",
     "arrived_at",
@@ -158,6 +170,10 @@ export async function GET(
     const ticketTypes = ticketRegId
       ? formatTicketBreakdown(rollupTicketItems(ticketItemsByReg.get(ticketRegId) ?? []))
       : "";
+    // This person's own ticket type (asado meal), for the per-person catering split.
+    const ticketType = a.ticket_type_id
+      ? ticketTitleById.get(a.ticket_type_id) ?? ""
+      : "";
     lines.push(
       [
         csvEscape(a.name),
@@ -167,6 +183,7 @@ export async function GET(
         csvEscape(partyLead),
         csvEscape(ticketCount),
         csvEscape(ticketTypes),
+        csvEscape(ticketType),
         a.waiver_accepted_at ? "signed" : "unsigned",
         a.checked_in_at ? "yes" : "no",
         a.checked_in_at ?? "",

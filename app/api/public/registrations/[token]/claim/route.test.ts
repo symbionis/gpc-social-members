@@ -68,6 +68,22 @@ describe("POST /api/public/registrations/[token]/claim — validation", () => {
     expect(res.status).toBe(400);
     expect(mockedClaim).not.toHaveBeenCalled();
   });
+
+  it("passes a valid ticketTypeId through to the claim", async () => {
+    const id = "11111111-2222-3333-4444-555555555555";
+    await post({ ...validBody, ticketTypeId: id });
+    expect(mockedClaim).toHaveBeenCalledWith(
+      expect.objectContaining({ ticketTypeId: id })
+    );
+  });
+
+  it("drops a malformed ticketTypeId (sends null, never rejects)", async () => {
+    const res = await post({ ...validBody, ticketTypeId: "not-a-uuid" });
+    expect(res.status).toBe(200);
+    expect(mockedClaim).toHaveBeenCalledWith(
+      expect.objectContaining({ ticketTypeId: null })
+    );
+  });
 });
 
 describe("POST /api/public/registrations/[token]/claim — claim outcomes", () => {

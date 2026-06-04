@@ -14,6 +14,8 @@ export interface RosterAttendeeInput {
   is_lead: boolean;
   waiver_accepted_at: string | null;
   checked_in_at: string | null;
+  /** The event_ticket_types row this person holds (resolved to a title for display). */
+  ticket_type_id?: string | null;
 }
 
 /** One registration's purchased quantity. */
@@ -31,6 +33,8 @@ export interface PartyGuest {
   waiverSigned: boolean;
   checkedIn: boolean;
   arrivedAt: string | null;
+  /** The guest's ticket-type title (asado meal), or "" when none/unknown. */
+  ticketTypeTitle: string;
 }
 
 /** Per-party fill: tickets bought, how many claimed, how many still open, guests. */
@@ -48,7 +52,10 @@ export interface PartyFill {
 /** A lead row's party fill plus the registration's self-reg token (for link/QR). */
 export type PartyDetail = PartyFill & { selfRegToken: string | null };
 
-function toGuest(a: RosterAttendeeInput): PartyGuest {
+function toGuest(
+  a: RosterAttendeeInput,
+  ticketTitleById?: Map<string, string>
+): PartyGuest {
   return {
     id: a.id,
     name: a.name ?? "",
@@ -57,6 +64,9 @@ function toGuest(a: RosterAttendeeInput): PartyGuest {
     waiverSigned: a.waiver_accepted_at !== null,
     checkedIn: a.checked_in_at !== null,
     arrivedAt: a.checked_in_at,
+    ticketTypeTitle: a.ticket_type_id
+      ? ticketTitleById?.get(a.ticket_type_id) ?? ""
+      : "",
   };
 }
 
@@ -68,7 +78,9 @@ function toGuest(a: RosterAttendeeInput): PartyGuest {
  */
 export function computePartyFills(
   registrations: RegistrationInput[],
-  attendees: RosterAttendeeInput[]
+  attendees: RosterAttendeeInput[],
+  /** event_ticket_types id → title, to resolve each guest's ticket-type label. */
+  ticketTitleById?: Map<string, string>
 ): Map<string, PartyFill> {
   const claimedByReg = new Map<string, RosterAttendeeInput[]>();
   for (const a of attendees) {
@@ -88,7 +100,7 @@ export function computePartyFills(
       claimedCount,
       remaining: Math.max(0, quantity - claimedCount),
       complete: claimedCount >= quantity,
-      guests: claimed.filter((a) => !a.is_lead).map(toGuest),
+      guests: claimed.filter((a) => !a.is_lead).map((a) => toGuest(a, ticketTitleById)),
     });
   }
   return fills;

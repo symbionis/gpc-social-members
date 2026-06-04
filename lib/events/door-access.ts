@@ -37,6 +37,8 @@ export interface DoorRoster {
   arrivals: { id: string; name: string; arrivedAt: string }[];
   /** Total tickets sold = expected headcount. */
   expected: number;
+  /** The event's active ticket types — options for the "add guest" ticket selector. */
+  ticketTypes: { id: string; title: string }[];
 }
 
 type RegRow = {
@@ -68,16 +70,31 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
   const { data: attRows } = await supabase
     .from("event_attendees")
     .select(
-      "id, registration_id, name, email, phone_e164, is_lead, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", eventId)
     .eq("slot_status", "claimed")
     .is("released_at", null);
   const attendees = (attRows ?? []) as (RosterAttendeeInput & { created_at: string })[];
 
+  // The event's active ticket types: titles for each guest's chosen ticket, and the
+  // option list for the door "add guest" selector.
+  const { data: ttRows } = await supabase
+    .from("event_ticket_types")
+    .select("id, title, sort_order")
+    .eq("event_id", eventId)
+    .is("archived_at", null)
+    .order("sort_order", { ascending: true });
+  const ticketTypes = (ttRows ?? []).map((t) => ({
+    id: t.id as string,
+    title: (t.title as string | null) ?? "",
+  }));
+  const ticketTitleById = new Map(ticketTypes.map((t) => [t.id, t.title]));
+
   const fills = computePartyFills(
     registrations.map((r) => ({ id: r.id, quantity: r.quantity ?? 0 })),
-    attendees
+    attendees,
+    ticketTitleById
   );
 
   // Party header = the lead ATTENDEE's name (the first-listed person when a member
@@ -117,7 +134,7 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
 
   const expected = registrations.reduce((sum, r) => sum + (r.quantity ?? 0), 0);
 
-  return { parties, arrivals, expected };
+  return { parties, arrivals, expected, ticketTypes };
 }
 
 /**

@@ -94,6 +94,24 @@ export default async function SelfRegistrationPage({
   const quantity = (registration.quantity as number) ?? 0;
   const remaining = Math.max(0, quantity - (claimed?.length ?? 0));
 
+  // The ticket types this party actually purchased (e.g. asado meal options) — the
+  // guest picks theirs. We offer only what was bought so catering stays coherent;
+  // a single-type party needs no selector (the claim RPC auto-assigns it).
+  const { data: ticketItems } = await supabase
+    .from("event_registration_items")
+    .select("ticket_type_id, title_snapshot, created_at")
+    .eq("registration_id", registration.id)
+    .order("created_at", { ascending: true });
+
+  const ticketTypes: { id: string; title: string }[] = [];
+  const seenTypes = new Set<string>();
+  for (const item of ticketItems ?? []) {
+    const id = item.ticket_type_id as string | null;
+    if (!id || seenTypes.has(id)) continue;
+    seenTypes.add(id);
+    ticketTypes.push({ id, title: (item.title_snapshot as string | null)?.trim() || "Ticket" });
+  }
+
   return shell(
     <SelfRegistrationForm
       token={token}
@@ -101,6 +119,7 @@ export default async function SelfRegistrationPage({
       eventDate={formatDate(event.start_date as string)}
       leadName={(registration.name as string | null) ?? ""}
       remaining={remaining}
+      ticketTypes={ticketTypes}
     />
   );
 }

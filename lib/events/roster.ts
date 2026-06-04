@@ -91,6 +91,12 @@ export interface SelfRegistrationClaimInput {
   waiverVersion: string | null;
   waiverAccepted: boolean;
   marketingConsent: boolean;
+  /**
+   * The event_ticket_types row the guest selected (their meal/ticket for an asado).
+   * null lets the RPC auto-assign the party's sole purchased type, or leave it open
+   * for a mixed booking. A non-event id is ignored server-side.
+   */
+  ticketTypeId: string | null;
 }
 
 export type SelfRegistrationClaimResult =
@@ -117,6 +123,7 @@ export async function claimSelfRegistration(
     p_waiver_version: input.waiverVersion,
     p_waiver_accepted: input.waiverAccepted,
     p_marketing_consent: input.marketingConsent,
+    p_ticket_type_id: input.ticketTypeId,
   });
   if (error) {
     console.error("[roster] claim_self_registration failed", { err: error });

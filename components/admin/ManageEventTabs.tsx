@@ -34,6 +34,8 @@ interface Attendee {
   ticketCount: number | null;
   /** Per-ticket-type breakdown for the lead's party; empty for guests / no party. */
   ticketBreakdown: TicketTypeLine[];
+  /** This person's own ticket-type title (asado meal); "" when none. Shown on guests. */
+  ticketTypeTitle: string;
   /** Party self-reg detail (fill + claimed guests + token) on lead rows; null otherwise. */
   party: PartyDetail | null;
   waiverSigned: boolean;

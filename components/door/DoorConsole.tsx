@@ -35,6 +35,8 @@ interface Props {
   arrivals: Arrival[];
   arrivedCount: number;
   expectedCount: number;
+  /** The event's active ticket types — the "add guest" ticket selector options. */
+  ticketTypes: { id: string; title: string }[];
 }
 
 const inputClass =
@@ -60,6 +62,7 @@ export default function DoorConsole({
   arrivals,
   arrivedCount,
   expectedCount,
+  ticketTypes,
 }: Props) {
   const router = useRouter();
 
@@ -73,6 +76,10 @@ export default function DoorConsole({
   const [shownQr, setShownQr] = useState<Set<string>>(new Set());
   const [removing, setRemoving] = useState<Set<string>>(new Set());
   const [addingId, setAddingId] = useState<string | null>(null);
+  // The party whose inline "add guest" form is open, plus its draft fields.
+  const [addOpen, setAddOpen] = useState<string | null>(null);
+  const [addName, setAddName] = useState("");
+  const [addTicket, setAddTicket] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   // Keep the roster + arrivals current during the event without a manual reload.
@@ -124,22 +131,37 @@ export default function DoorConsole({
     }
   }
 
-  async function addGuest(registrationId: string) {
-    const name = window.prompt("Add a guest at the door (e.g. a child). Name:");
-    if (!name || !name.trim()) return;
+  function openAddGuest(registrationId: string) {
+    setError(null);
+    setAddName("");
+    setAddTicket("");
+    setAddOpen((cur) => (cur === registrationId ? null : registrationId));
+  }
+
+  async function submitAddGuest(registrationId: string) {
+    const name = addName.trim();
+    if (!name) return;
     setError(null);
     setAddingId(registrationId);
     try {
       const res = await fetch(`/api/public/door/${eventId}/add-guest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ registrationId, name: name.trim() }),
+        body: JSON.stringify({
+          registrationId,
+          name,
+          ticketTypeId: addTicket || undefined,
+        }),
+        signal: AbortSignal.timeout(10000),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error || "Could not add the guest.");
         return;
       }
+      setAddOpen(null);
+      setAddName("");
+      setAddTicket("");
       router.refresh();
     } catch {
       setError("Could not add the guest.");
@@ -259,6 +281,11 @@ export default function DoorConsole({
                     >
                       <span className="flex items-center gap-2 min-w-0">
                         <span className="text-marine truncate">{g.name || "—"}</span>
+                        {g.ticketTypeTitle && (
+                          <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-sky/10 text-sky-dark whitespace-nowrap">
+                            {g.ticketTypeTitle}
+                          </span>
+                        )}
                         {g.waiverSigned ? (
                           <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-emerald-50 text-emerald-700">
                             waiver
@@ -288,14 +315,57 @@ export default function DoorConsole({
                   ))}
                 </ul>
 
-                <button
-                  type="button"
-                  onClick={() => addGuest(p.registrationId)}
-                  disabled={addingId === p.registrationId}
-                  className="mt-2 text-sm font-body text-marine hover:underline disabled:opacity-50 cursor-pointer"
-                >
-                  {addingId === p.registrationId ? "Adding…" : "+ Add guest (e.g. a child) at the door"}
-                </button>
+                {addOpen === p.registrationId ? (
+                  <div className="mt-3 rounded-xl border border-border bg-cream/40 p-3 space-y-2">
+                    <input
+                      type="text"
+                      value={addName}
+                      onChange={(e) => setAddName(e.target.value)}
+                      placeholder="Guest name (e.g. a child)"
+                      autoFocus
+                      className="w-full px-3 py-2.5 rounded-lg border-2 border-marine/20 bg-white text-marine font-body text-base focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
+                    />
+                    {ticketTypes.length > 0 && (
+                      <select
+                        value={addTicket}
+                        onChange={(e) => setAddTicket(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-lg border-2 border-marine/20 bg-white text-marine font-body text-base focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky cursor-pointer"
+                      >
+                        <option value="">Ticket type (optional)…</option>
+                        {ticketTypes.map((tt) => (
+                          <option key={tt.id} value={tt.id}>
+                            {tt.title}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => submitAddGuest(p.registrationId)}
+                        disabled={addingId === p.registrationId || !addName.trim()}
+                        className="flex-1 px-3 py-2.5 rounded-lg bg-marine text-white font-body font-semibold text-base hover:bg-marine-light transition-colors disabled:opacity-50 cursor-pointer"
+                      >
+                        {addingId === p.registrationId ? "Adding…" : "Add guest"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAddOpen(null)}
+                        className="px-3 py-2.5 rounded-lg border border-border text-marine font-body text-base hover:bg-white transition-colors cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => openAddGuest(p.registrationId)}
+                    className="mt-2 text-sm font-body text-marine hover:underline cursor-pointer"
+                  >
+                    + Add guest (e.g. a child) at the door
+                  </button>
+                )}
 
                 {p.remaining === 0 ? (
                   <p className="mt-4 font-body text-sm text-marine/60">

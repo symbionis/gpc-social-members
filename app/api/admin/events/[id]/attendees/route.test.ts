@@ -29,6 +29,7 @@ function adminClient(opts: {
   attendees: Row[];
   registrations?: Row[];
   items?: Row[];
+  ticketTypes?: Row[];
 }) {
   return {
     from: (table: string) => {
@@ -56,6 +57,9 @@ function adminClient(opts: {
         }
         if (table === "event_registration_items") {
           return resolve({ data: opts.items ?? [], error: null });
+        }
+        if (table === "event_ticket_types") {
+          return resolve({ data: opts.ticketTypes ?? [], error: null });
         }
         return resolve({ data: [], error: null });
       };
@@ -133,6 +137,7 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
             phone_e164: null,
             is_lead: false,
             slot_status: "claimed",
+            ticket_type_id: "tt-veg",
             waiver_accepted_at: null,
             checked_in_at: null,
             created_at: "2026-06-01T08:05:00Z",
@@ -143,6 +148,7 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
           { registration_id: "r1", title_snapshot: "Asado Standard", quantity: 4 },
           { registration_id: "r1", title_snapshot: "Asado Vegetarian", quantity: 1 },
         ],
+        ticketTypes: [{ id: "tt-veg", title: "Asado Vegetarian" }],
       })
     );
     const res = await get();
@@ -154,17 +160,19 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
     const csv = await res.text();
     const [header, ...rows] = csv.split("\n");
     expect(header).toBe(
-      "name,email,phone,is_member,party_lead,tickets,ticket_types,waiver,arrived,arrived_at"
+      "name,email,phone,is_member,party_lead,tickets,ticket_types,ticket_type,waiver,arrived,arrived_at"
     );
-    // Lead: member, signed waiver, arrived; tickets + breakdown attributed here.
-    // The E.164 phone's leading + is neutralized by the formula-injection guard
-    // (leading '); the comma-bearing breakdown is quote-wrapped.
+    // Lead: member, signed waiver, arrived; party tickets + breakdown attributed here.
+    // The lead has no per-person ticket type yet → empty ticket_type cell. The E.164
+    // phone's leading + is neutralized (leading '); the comma-bearing breakdown is
+    // quote-wrapped.
     expect(rows[0]).toBe(
-      'Ann Lead,ann@x.com,\'+41781234567,yes,lead,5,"4 × Asado Standard, 1 × Asado Vegetarian",signed,yes,2026-06-06T10:00:00Z'
+      'Ann Lead,ann@x.com,\'+41781234567,yes,lead,5,"4 × Asado Standard, 1 × Asado Vegetarian",,signed,yes,2026-06-06T10:00:00Z'
     );
-    // Guest attributed to the lead; no tickets (the lead carries the party's); unsigned.
+    // Guest attributed to the lead; no party tickets (the lead carries those) but the
+    // guest's own ticket type (asado meal) fills the per-person ticket_type column.
     expect(rows[1]).toBe(
-      "Bo Guest,bo@x.com,,no,guest of Ann Lead,,,unsigned,no,"
+      "Bo Guest,bo@x.com,,no,guest of Ann Lead,,,Asado Vegetarian,unsigned,no,"
     );
   });
 
@@ -195,7 +203,7 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
     const rows = csv.split("\n").slice(1);
     // E.164 phone's leading + is quote-neutralized; no party → empty ticket cells;
     // the row is not dropped.
-    expect(rows[0]).toBe("Phone Only,,'+390612345678,no,,,,unsigned,no,");
+    expect(rows[0]).toBe("Phone Only,,'+390612345678,no,,,,,unsigned,no,");
   });
 
   it("neutralizes a formula-injection name (leading =)", async () => {

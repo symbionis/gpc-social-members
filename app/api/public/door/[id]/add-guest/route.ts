@@ -10,6 +10,8 @@ import { resolveDoorEvent } from "@/lib/events/door-access";
 // already full (over-capacity → welcome desk, as agreed).
 
 const MAX_LEN = 200;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -24,7 +26,7 @@ export async function POST(
   const event = await resolveDoorEvent(eventId);
   if (!event) return bad("Not available", 404);
 
-  let body: { registrationId?: unknown; name?: unknown };
+  let body: { registrationId?: unknown; name?: unknown; ticketTypeId?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -33,6 +35,12 @@ export async function POST(
   const registrationId =
     typeof body.registrationId === "string" ? body.registrationId.trim() : "";
   const name = typeof body.name === "string" ? body.name.trim() : "";
+  // Optional ticket type (e.g. "Asado Kids" for a child). Malformed → dropped; the
+  // id is re-validated against the event below before it's stored.
+  const rawTicketTypeId =
+    typeof body.ticketTypeId === "string" && UUID_RE.test(body.ticketTypeId.trim())
+      ? body.ticketTypeId.trim()
+      : null;
   if (!registrationId) return bad("registrationId is required");
   if (!name) return bad("a name is required");
   if (name.length > MAX_LEN) return bad("name is too long");
@@ -68,6 +76,20 @@ export async function POST(
     return bad("This party is full — please see the welcome desk", 409);
   }
 
+  // Honour a ticket-type choice only when it's a real type for this event; a stray
+  // id is dropped rather than rejected so a slow add never fails on it.
+  let ticketTypeId: string | null = null;
+  if (rawTicketTypeId) {
+    const { data: tt } = await supabase
+      .from("event_ticket_types")
+      .select("id")
+      .eq("id", rawTicketTypeId)
+      .eq("event_id", eventId)
+      .limit(1)
+      .maybeSingle();
+    ticketTypeId = tt ? rawTicketTypeId : null;
+  }
+
   const { data: inserted, error: insErr } = await supabase
     .from("event_attendees")
     .insert({
@@ -76,6 +98,7 @@ export async function POST(
       name,
       is_lead: false,
       slot_status: "claimed",
+      ticket_type_id: ticketTypeId,
       checked_in_at: new Date().toISOString(),
     })
     .select("id")

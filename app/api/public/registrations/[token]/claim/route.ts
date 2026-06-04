@@ -10,6 +10,8 @@ import { WAIVER_VERSION, type WaiverLanguage } from "@/lib/events/waiver";
 // status to HTTP. The token is taken from the path, never echoed back.
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LANGUAGES = ["fr", "en"] as const;
 const MAX_LEN = 200;
 const MAX_EMAIL_LEN = 254; // RFC 5321
@@ -33,6 +35,7 @@ export async function POST(
     language?: unknown;
     waiverAccepted?: unknown;
     marketingConsent?: unknown;
+    ticketTypeId?: unknown;
   };
   try {
     body = await request.json();
@@ -49,6 +52,12 @@ export async function POST(
   // Optional communication consent — ticked by default in the form, so anything
   // other than an explicit `false` is treated as consent given.
   const marketingConsent = body.marketingConsent !== false;
+  // Optional ticket-type selection (asado meal). A malformed value is dropped, not
+  // rejected — the RPC also re-validates it against the event and ignores a stray id.
+  const ticketTypeId =
+    typeof body.ticketTypeId === "string" && UUID_RE.test(body.ticketTypeId.trim())
+      ? body.ticketTypeId.trim()
+      : null;
 
   if (!name) return bad("name is required");
   if (name.length > MAX_LEN) return bad("name is too long");
@@ -74,6 +83,7 @@ export async function POST(
       waiverVersion: waiverAccepted ? WAIVER_VERSION : null,
       waiverAccepted,
       marketingConsent,
+      ticketTypeId,
     });
   } catch (err) {
     console.error("[self-reg-claim] claim failed", { err });

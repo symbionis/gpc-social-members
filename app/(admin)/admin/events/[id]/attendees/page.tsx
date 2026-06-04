@@ -75,7 +75,7 @@ export default async function ManageEventPage({
   const { data: attendeeRows } = await supabase
     .from("event_attendees")
     .select(
-      "id, registration_id, member_id, name, email, phone_e164, is_lead, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, member_id, name, email, phone_e164, is_lead, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", id)
     .eq("slot_status", "claimed")
@@ -90,11 +90,20 @@ export default async function ManageEventPage({
     email: string | null;
     phone_e164: string | null;
     is_lead: boolean;
+    ticket_type_id: string | null;
     waiver_accepted_at: string | null;
     checked_in_at: string | null;
     created_at: string;
   };
   const roster = (attendeeRows ?? []) as AttendeeRow[];
+
+  // Resolve each person's ticket-type id to a title (asado meal). Built from the
+  // event's active types loaded above; an attendee holding an archived type just
+  // shows no label.
+  const ticketTitleById = new Map<string, string>();
+  for (const tt of ticketTypes) {
+    ticketTitleById.set(tt.id as string, (tt.title as string | null) ?? "");
+  }
 
   // Lead name per registration, from the party's lead attendee row → guests show
   // "Guest of <lead>". Each booking has a real lead (the first-listed person when
@@ -149,6 +158,11 @@ export default async function ManageEventPage({
       ticketBreakdown: ticketRegId
         ? rollupTicketItems(ticketItemsByReg.get(ticketRegId) ?? [])
         : [],
+      // The individual's ticket type (asado meal) — shown on guest rows; lead rows
+      // show the whole party's breakdown instead.
+      ticketTypeTitle: a.ticket_type_id
+        ? ticketTitleById.get(a.ticket_type_id) ?? ""
+        : "",
       // Party self-reg detail for the expandable lead drawer (null on guest rows).
       party:
         fill && ticketRegId

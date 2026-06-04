@@ -23,6 +23,8 @@ interface Attendee {
   ticketCount: number | null;
   /** Per-ticket-type breakdown for the lead's party; empty for guests / no party. */
   ticketBreakdown: TicketTypeLine[];
+  /** This person's own ticket-type title (asado meal); "" when none. Shown on guests. */
+  ticketTypeTitle: string;
   /** Party self-reg detail (fill + token) on lead rows; null otherwise. */
   party: PartyDetail | null;
   waiverSigned: boolean;
@@ -361,6 +363,8 @@ function RosterRow({
                 </span>
               )}
             </div>
+          ) : row.ticketTypeTitle ? (
+            <span className="text-xs text-marine">{row.ticketTypeTitle}</span>
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
           )}

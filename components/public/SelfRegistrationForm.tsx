@@ -12,6 +12,12 @@ interface Props {
   leadName: string;
   /** Slots left at page load (display only; the server re-checks on submit). */
   remaining: number;
+  /**
+   * Ticket types this party purchased (e.g. asado meal options). A selector is
+   * shown only when there's a real choice (>1); a single-type party is auto-assigned
+   * server-side, so no UI is needed.
+   */
+  ticketTypes: { id: string; title: string }[];
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -32,6 +38,9 @@ const STRINGS = {
     phoneLabel: "Phone",
     or: "or",
     contactHelp: "Enter your email or phone so we can find you at the door.",
+    ticketLabel: "Ticket",
+    ticketPlaceholder: "Choose your ticket…",
+    ticketRequired: "Please choose your ticket.",
     waiverHeading: "Waiver (optional now)",
     waiverHelp: "You can accept it now, or sign at the door when you arrive.",
     waiverAccept: "I have read and accept the waiver above.",
@@ -61,6 +70,9 @@ const STRINGS = {
     or: "ou",
     contactHelp:
       "Saisissez votre e-mail ou téléphone pour qu’on vous retrouve à l’entrée.",
+    ticketLabel: "Billet",
+    ticketPlaceholder: "Choisissez votre billet…",
+    ticketRequired: "Veuillez choisir votre billet.",
     waiverHeading: "Décharge (facultatif maintenant)",
     waiverHelp:
       "Vous pouvez l’accepter maintenant ou la signer à l’entrée à votre arrivée.",
@@ -92,11 +104,15 @@ export default function SelfRegistrationForm({
   eventDate,
   leadName,
   remaining,
+  ticketTypes,
 }: Props) {
   const [lang, setLang] = useState<WaiverLanguage>("fr");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState<string | null>(null);
+  // Only a real choice (>1 purchased type) needs a selector; one type is implicit.
+  const showTicketChoice = ticketTypes.length > 1;
+  const [ticketTypeId, setTicketTypeId] = useState("");
   const [waiverAccepted, setWaiverAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -172,6 +188,7 @@ export default function SelfRegistrationForm({
     const trimmedEmail = email.trim();
     const hasEmail = EMAIL_RE.test(trimmedEmail);
     if (!hasEmail && !phone) return setError(t.contactRequired);
+    if (showTicketChoice && !ticketTypeId) return setError(t.ticketRequired);
 
     setSubmitting(true);
     try {
@@ -185,6 +202,7 @@ export default function SelfRegistrationForm({
           language: lang,
           waiverAccepted,
           marketingConsent,
+          ticketTypeId: ticketTypeId || undefined,
         }),
         signal: AbortSignal.timeout(10000),
       });
@@ -268,6 +286,29 @@ export default function SelfRegistrationForm({
           <PhoneInput onChange={setPhone} large />
           <p className="mt-2 text-xs font-body text-marine/50">{t.contactHelp}</p>
         </div>
+
+        {showTicketChoice && (
+          <div>
+            <label className="block text-sm font-body font-medium text-marine/70 mb-1.5">
+              {t.ticketLabel}
+            </label>
+            <select
+              required
+              value={ticketTypeId}
+              onChange={(e) => setTicketTypeId(e.target.value)}
+              className={`${inputClass} cursor-pointer`}
+            >
+              <option value="" disabled>
+                {t.ticketPlaceholder}
+              </option>
+              {ticketTypes.map((tt) => (
+                <option key={tt.id} value={tt.id}>
+                  {tt.title}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="rounded-xl border border-border bg-cream/40 p-4">
           <h2 className="font-heading text-base font-bold text-marine">

@@ -303,7 +303,9 @@ export type Database = {
           name: string | null
           phone_e164: string | null
           registration_id: string | null
+          released_at: string | null
           slot_status: string
+          ticket_type_id: string | null
           waiver_accepted_at: string | null
           waiver_version: string | null
         }
@@ -320,7 +322,9 @@ export type Database = {
           name?: string | null
           phone_e164?: string | null
           registration_id?: string | null
+          released_at?: string | null
           slot_status?: string
+          ticket_type_id?: string | null
           waiver_accepted_at?: string | null
           waiver_version?: string | null
         }
@@ -337,7 +341,9 @@ export type Database = {
           name?: string | null
           phone_e164?: string | null
           registration_id?: string | null
+          released_at?: string | null
           slot_status?: string
+          ticket_type_id?: string | null
           waiver_accepted_at?: string | null
           waiver_version?: string | null
         }
@@ -361,6 +367,13 @@ export type Database = {
             columns: ["registration_id"]
             isOneToOne: false
             referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_attendees_ticket_type_id_fkey"
+            columns: ["ticket_type_id"]
+            isOneToOne: false
+            referencedRelation: "event_ticket_types"
             referencedColumns: ["id"]
           },
         ]
@@ -1400,6 +1413,7 @@ export type Database = {
           p_marketing_consent: boolean
           p_name: string
           p_phone_e164: string
+          p_ticket_type_id?: string
           p_token: string
           p_waiver_accepted: boolean
           p_waiver_version: string

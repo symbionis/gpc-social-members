@@ -233,8 +233,8 @@ describe("basket validation + IDOR / archived guards", () => {
     const res = await post({ ...guest, items: [{ ticket_type_id: "t1", quantity: 11 }, { ticket_type_id: "t1", quantity: -1 }] });
     expect(res.status).toBe(400);
   });
-  it("400s a total over the 10-ticket cap", async () => {
-    expect((await post({ ...guest, items: [{ ticket_type_id: "t1", quantity: 11 }] })).status).toBe(400);
+  it("400s a total over the 20-ticket cap", async () => {
+    expect((await post({ ...guest, items: [{ ticket_type_id: "t1", quantity: 21 }] })).status).toBe(400);
   });
   it("400s a ticket type that does not belong to the event (IDOR)", async () => {
     // valid code clears the members-only gate; then requested 't1'+'tX' but only
