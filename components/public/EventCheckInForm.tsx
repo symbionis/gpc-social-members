@@ -223,7 +223,10 @@ export default function EventCheckInForm({
         return;
       }
       if (data.matched) {
-        setPhase("waiver");
+        // Attempt the check-in straight away. A pre-signed arrival (e.g. they signed
+        // at self-registration) is checked in with no waiver step; otherwise the
+        // server reports needs_waiver and runCheckIn surfaces the waiver screen.
+        await runCheckIn(false);
       } else {
         // Strict gate: not on the roster.
         setNotFound(true);
@@ -235,11 +238,13 @@ export default function EventCheckInForm({
     }
   }
 
-  async function handleCheckIn(e: React.FormEvent) {
-    e.preventDefault();
+  // Submit the check-in. `accepted` is whether the arrival is accepting the waiver in
+  // this submission. The server requires it ONLY for an attendee who hasn't signed —
+  // a self-registration signature is honored as-is, so a pre-signed arrival is checked
+  // in straight away (no waiver step). When the server reports the waiver is still
+  // needed, we surface the waiver screen.
+  async function runCheckIn(accepted: boolean) {
     setError(null);
-    if (!waiverAccepted) return setError(t.waiverRequired);
-
     const trimmedEmail = email.trim();
     const hasEmail = EMAIL_RE.test(trimmedEmail);
 
@@ -252,13 +257,18 @@ export default function EventCheckInForm({
           email: hasEmail ? trimmedEmail : undefined,
           phone: phone ?? undefined,
           language: lang,
-          waiverAccepted: true,
+          waiverAccepted: accepted,
           marketingConsent,
         }),
         signal: AbortSignal.timeout(10000),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.ok === false) {
+        // Not signed yet → show the waiver screen (only when the server says so).
+        if (data.reason === "needs_waiver") {
+          setPhase("waiver");
+          return;
+        }
         // The strict gate re-derived us as not on the roster (e.g. a row changed
         // mid-flow) — show the uniform not-found screen, no routing.
         if (res.status === 404 || data.reason === "not_found") {
@@ -290,6 +300,12 @@ export default function EventCheckInForm({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleCheckIn(e: React.FormEvent) {
+    e.preventDefault();
+    if (!waiverAccepted) return setError(t.waiverRequired);
+    await runCheckIn(true);
   }
 
   function toggleKid(id: string) {
