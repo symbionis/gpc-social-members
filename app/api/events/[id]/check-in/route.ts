@@ -106,10 +106,22 @@ export async function POST(
       return NextResponse.json({ ok: false, reason: "not_found" }, { status: 404 });
     }
 
+    // Resolve the attendee's ticket type so the confirmation shows it for the
+    // bracelet handoff. Best-effort — a lookup failure just omits the label.
+    let ticketType: string | null = null;
+    if (result.ticketTypeId) {
+      const { data: tt } = await supabase
+        .from("event_ticket_types")
+        .select("title")
+        .eq("id", result.ticketTypeId)
+        .maybeSingle();
+      ticketType = (tt?.title as string | null) ?? null;
+    }
+
     // Offer to check in the party's not-yet-arrived children (they have no contact,
     // so they can't use the kiosk themselves). Best-effort — a lookup failure must
     // never undo the adult's recorded arrival.
-    let children: { id: string; name: string }[] = [];
+    let children: { id: string; name: string; ticketType: string }[] = [];
     if (result.registrationId) {
       try {
         children = await listPartyChildrenToCheckIn(eventId, result.registrationId);
@@ -123,6 +135,7 @@ export async function POST(
       name: result.name,
       checkedInAt: result.checkedInAt,
       already: result.already,
+      ticketType,
       children,
     });
   } catch (err) {

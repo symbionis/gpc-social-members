@@ -131,6 +131,8 @@ export type RecordAttendeeCheckinResult =
       name: string | null;
       /** The attendee's party, so the caller can offer to check in its children. */
       registrationId: string | null;
+      /** The attendee's ticket type id, resolved to a title for the bracelet handoff. */
+      ticketTypeId: string | null;
     }
   | { ok: false; reason: "not_found" }
   | { ok: false; reason: "needs_waiver" };
@@ -154,7 +156,7 @@ export async function recordAttendeeCheckin(
 
   const { data: attendee, error } = await supabase
     .from("event_attendees")
-    .select("id, name, registration_id, waiver_accepted_at, language, marketing_consent, checked_in_at")
+    .select("id, name, registration_id, ticket_type_id, waiver_accepted_at, language, marketing_consent, checked_in_at")
     .eq("id", input.attendeeId)
     .eq("event_id", input.eventId)
     .maybeSingle();
@@ -163,11 +165,12 @@ export async function recordAttendeeCheckin(
 
   const name = (attendee.name as string | null) ?? null;
   const registrationId = (attendee.registration_id as string | null) ?? null;
+  const ticketTypeId = (attendee.ticket_type_id as string | null) ?? null;
 
   // Already checked in — idempotent, return the original arrival time. No re-prompt,
   // no re-stamp (honors any signed waiver version unchanged).
   if (attendee.checked_in_at) {
-    return { ok: true, already: true, checkedInAt: attendee.checked_in_at, name, registrationId };
+    return { ok: true, already: true, checkedInAt: attendee.checked_in_at, name, registrationId, ticketTypeId };
   }
 
   const needsWaiver = attendee.waiver_accepted_at == null;
@@ -205,10 +208,10 @@ export async function recordAttendeeCheckin(
       .eq("id", input.attendeeId)
       .eq("event_id", input.eventId)
       .maybeSingle();
-    return { ok: true, already: true, checkedInAt: existing?.checked_in_at ?? now, name, registrationId };
+    return { ok: true, already: true, checkedInAt: existing?.checked_in_at ?? now, name, registrationId, ticketTypeId };
   }
 
-  return { ok: true, already: false, checkedInAt: now, name, registrationId };
+  return { ok: true, already: false, checkedInAt: now, name, registrationId, ticketTypeId };
 }
 
 /**
@@ -218,11 +221,11 @@ export async function recordAttendeeCheckin(
 export async function listPartyChildrenToCheckIn(
   eventId: string,
   registrationId: string
-): Promise<{ id: string; name: string }[]> {
+): Promise<{ id: string; name: string; ticketType: string }[]> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("event_attendees")
-    .select("id, name")
+    .select("id, name, event_ticket_types(title)")
     .eq("event_id", eventId)
     .eq("registration_id", registrationId)
     .eq("is_child", true)
@@ -231,7 +234,16 @@ export async function listPartyChildrenToCheckIn(
     .is("checked_in_at", null)
     .order("created_at", { ascending: true });
   if (error) throw error;
-  return (data ?? []).map((r) => ({ id: r.id as string, name: (r.name as string | null) ?? "" }));
+  return (data ?? []).map((r) => {
+    // PostgREST returns a to-one embed as an object, but tolerate an array too.
+    const raw = (r as { event_ticket_types?: unknown }).event_ticket_types;
+    const tt = (Array.isArray(raw) ? raw[0] : raw) as { title?: string | null } | null | undefined;
+    return {
+      id: r.id as string,
+      name: (r.name as string | null) ?? "",
+      ticketType: tt?.title ?? "",
+    };
+  });
 }
 
 /**

@@ -12,12 +12,14 @@ interface Props {
 }
 
 type Phase = "details" | "waiver" | "children";
-type Child = { id: string; name: string };
+type Child = { id: string; name: string; ticketType: string };
 type Result = {
   name: string | null;
   checkedInAt: string | null;
   already: boolean;
   kidsCheckedIn: number;
+  /** The attendee's ticket type — shown prominently for the bracelet handoff. */
+  ticketType: string | null;
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -46,6 +48,7 @@ const STRINGS = {
     contactRequired: "Please enter a valid email or phone number.",
     waiverRequired: "Please accept the waiver to check in.",
     welcome: "Welcome",
+    ticketLabel: "Ticket",
     checkedInAt: "Checked in at",
     alreadyAt: "You were already checked in at",
     childrenTitle: "Attending with kids?",
@@ -74,6 +77,7 @@ const STRINGS = {
     contactRequired: "Veuillez saisir un e-mail ou un téléphone valide.",
     waiverRequired: "Veuillez accepter la décharge pour vous enregistrer.",
     welcome: "Bienvenue",
+    ticketLabel: "Billet",
     checkedInAt: "Enregistré à",
     alreadyAt: "Vous étiez déjà enregistré à",
     childrenTitle: "Avec des enfants ?",
@@ -158,6 +162,16 @@ export default function EventCheckInForm({
         <h2 className="font-heading text-3xl font-bold text-emerald-900">
           {result.name ? `${t.welcome}, ${result.name}` : t.welcome}
         </h2>
+        {result.ticketType && (
+          <div className="mx-auto mt-4 inline-block rounded-xl border-2 border-emerald-400 bg-white px-5 py-3">
+            <p className="font-accent text-xs tracking-[0.2em] uppercase text-emerald-700/70">
+              {t.ticketLabel}
+            </p>
+            <p className="font-heading text-2xl font-bold text-emerald-900">
+              {result.ticketType}
+            </p>
+          </div>
+        )}
         <p className="font-body text-lg text-emerald-800 mt-3">{eventTitle}</p>
         {time && (
           <p className="font-body text-base text-emerald-700 mt-4">
@@ -259,6 +273,7 @@ export default function EventCheckInForm({
         checkedInAt: data.checkedInAt ?? null,
         already: Boolean(data.already),
         kidsCheckedIn: 0,
+        ticketType: data.ticketType ?? null,
       };
       const kids: Child[] = Array.isArray(data.children) ? data.children : [];
       if (kids.length > 0) {
@@ -292,6 +307,7 @@ export default function EventCheckInForm({
       checkedInAt: null,
       already: false,
       kidsCheckedIn: 0,
+      ticketType: null,
     };
     const ids = [...selectedKids];
     if (ids.length === 0) {
@@ -484,8 +500,15 @@ export default function EventCheckInForm({
                     onChange={() => toggleKid(kid.id)}
                     className="h-6 w-6 shrink-0 accent-marine cursor-pointer"
                   />
-                  <span className="text-lg font-body font-medium text-marine">
-                    {kid.name || "—"}
+                  <span className="flex flex-1 items-center justify-between gap-2">
+                    <span className="text-lg font-body font-medium text-marine">
+                      {kid.name || "—"}
+                    </span>
+                    {kid.ticketType && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-body bg-sky/10 text-sky-dark whitespace-nowrap">
+                        {kid.ticketType}
+                      </span>
+                    )}
                   </span>
                 </label>
               );
