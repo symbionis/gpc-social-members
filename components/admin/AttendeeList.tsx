@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
 import { formatDateTime } from "@/lib/format";
 import { formatTicketBreakdown, type TicketTypeLine } from "@/lib/events/tickets";
@@ -9,6 +10,7 @@ import type { PartyDetail } from "@/lib/events/roster-fill";
 /** One person on the roster (event_attendees, claimed slots). */
 interface Attendee {
   id: string;
+  registrationId: string | null;
   name: string;
   email: string;
   phone_e164: string;
@@ -20,7 +22,7 @@ interface Attendee {
   ticketCount: number | null;
   /** Per-ticket-type breakdown for the lead's party; empty for guests / no party. */
   ticketBreakdown: TicketTypeLine[];
-  /** Party self-reg detail (fill + claimed guests + token) on lead rows; null otherwise. */
+  /** Party self-reg detail (fill + token) on lead rows; null otherwise. */
   party: PartyDetail | null;
   waiverSigned: boolean;
   checkedIn: boolean;
@@ -32,33 +34,74 @@ interface Props {
   attendees: Attendee[];
   /** Absolute base URL (NEXT_PUBLIC_APP_URL); falls back to window origin. */
   baseUrl: string;
+  eventId: string;
 }
 
 type MemberFilter = "all" | "members" | "non_members";
 type PartyFilter = "all" | "incomplete";
 
-const COLSPAN = 7;
+const COLSPAN = 8;
 
-export default function AttendeeList({ attendees, baseUrl }: Props) {
+export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [memberFilter, setMemberFilter] = useState<MemberFilter>("all");
   const [partyFilter, setPartyFilter] = useState<PartyFilter>("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
 
-  // Self-reg URLs are built from NEXT_PUBLIC_APP_URL; fall back to the live origin.
   const [origin, setOrigin] = useState(baseUrl);
   useEffect(() => {
     if (!baseUrl && typeof window !== "undefined") setOrigin(window.location.origin);
   }, [baseUrl]);
 
+  // Registrations whose party still has open slots — drives the "unfilled" filter
+  // for both the lead and its guest rows.
+  const incompleteRegs = useMemo(() => {
+    const s = new Set<string>();
+    for (const a of attendees) {
+      if (a.isLead && a.registrationId && a.party && a.party.remaining > 0) {
+        s.add(a.registrationId);
+      }
+    }
+    return s;
+  }, [attendees]);
+
+  // Order rows as lead-then-its-guests per party, then registration-less rows —
+  // so guests render as sub-rows under their lead.
+  const ordered = useMemo(() => {
+    const leads: Attendee[] = [];
+    const guestsByReg = new Map<string, Attendee[]>();
+    const standalone: Attendee[] = [];
+    for (const a of attendees) {
+      if (a.isLead && a.registrationId) leads.push(a);
+      else if (a.registrationId) {
+        const list = guestsByReg.get(a.registrationId) ?? [];
+        list.push(a);
+        guestsByReg.set(a.registrationId, list);
+      } else standalone.push(a);
+    }
+    const out: Attendee[] = [];
+    for (const lead of leads) {
+      out.push(lead);
+      out.push(...(guestsByReg.get(lead.registrationId as string) ?? []));
+    }
+    // Guests whose lead row is missing (lead not seeded) still surface, grouped.
+    for (const [reg, guests] of guestsByReg) {
+      if (!leads.some((l) => l.registrationId === reg)) out.push(...guests);
+    }
+    return [...out, ...standalone];
+  }, [attendees]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return attendees.filter((a) => {
+    return ordered.filter((a) => {
       if (memberFilter === "members" && !a.isMember) return false;
       if (memberFilter === "non_members" && a.isMember) return false;
-      // Incomplete = lead rows whose party still has open slots — the parties to chase.
-      if (partyFilter === "incomplete" && !(a.party && a.party.remaining > 0)) return false;
+      if (partyFilter === "incomplete" && !(a.registrationId && incompleteRegs.has(a.registrationId)))
+        return false;
       if (!q) return true;
       return (
         a.name.toLowerCase().includes(q) ||
@@ -66,7 +109,7 @@ export default function AttendeeList({ attendees, baseUrl }: Props) {
         a.phone_e164.toLowerCase().includes(q)
       );
     });
-  }, [attendees, query, memberFilter, partyFilter]);
+  }, [ordered, query, memberFilter, partyFilter, incompleteRegs]);
 
   const isFiltering =
     query.trim() !== "" || memberFilter !== "all" || partyFilter !== "all";
@@ -87,6 +130,33 @@ export default function AttendeeList({ attendees, baseUrl }: Props) {
       setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 2000);
     } catch {
       /* clipboard blocked — the link is still selectable in the field */
+    }
+  }
+
+  async function removeGuest(id: string, name: string) {
+    if (!window.confirm(`Remove ${name || "this guest"} and free their slot?`)) return;
+    setError(null);
+    setRemoving((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch(`/api/public/door/${eventId}/free-slot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attendeeId: id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not remove the guest.");
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError("Could not remove the guest.");
+    } finally {
+      setRemoving((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   }
 
@@ -132,6 +202,12 @@ export default function AttendeeList({ attendees, baseUrl }: Props) {
         </p>
       )}
 
+      {error && (
+        <p className="text-sm font-body text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          {error}
+        </p>
+      )}
+
       {filtered.length === 0 ? (
         <div className="bg-white rounded-xl border border-border p-8 text-center text-muted-foreground font-body text-sm">
           {attendees.length === 0
@@ -153,22 +229,30 @@ export default function AttendeeList({ attendees, baseUrl }: Props) {
                   <th className="text-left px-4 py-3 font-semibold">Tickets</th>
                   <th className="text-left px-4 py-3 font-semibold">Waiver</th>
                   <th className="text-left px-4 py-3 font-semibold">Arrived</th>
+                  <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((row) => {
+                  const isGuest = !row.isLead && !!row.registrationId;
                   const isOpen = expanded.has(row.id);
-                  const canExpand = row.party !== null;
+                  const party = row.party;
+                  const selfRegUrl =
+                    party?.selfRegToken
+                      ? `${origin}/public/registrations/${party.selfRegToken}`
+                      : "";
                   return (
-                    <FragmentRow
+                    <RosterRow
                       key={row.id}
                       row={row}
+                      isGuest={isGuest}
                       isOpen={isOpen}
-                      canExpand={canExpand}
-                      origin={origin}
+                      selfRegUrl={selfRegUrl}
                       copiedId={copiedId}
+                      removing={removing.has(row.id)}
                       onToggle={() => toggle(row.id)}
                       onCopy={copyLink}
+                      onRemove={removeGuest}
                     />
                   );
                 })}
@@ -181,31 +265,34 @@ export default function AttendeeList({ attendees, baseUrl }: Props) {
   );
 }
 
-function FragmentRow({
+function RosterRow({
   row,
+  isGuest,
   isOpen,
-  canExpand,
-  origin,
+  selfRegUrl,
   copiedId,
+  removing,
   onToggle,
   onCopy,
+  onRemove,
 }: {
   row: Attendee;
+  isGuest: boolean;
   isOpen: boolean;
-  canExpand: boolean;
-  origin: string;
+  selfRegUrl: string;
   copiedId: string | null;
+  removing: boolean;
   onToggle: () => void;
   onCopy: (id: string, url: string) => void;
+  onRemove: (id: string, name: string) => void;
 }) {
   const party = row.party;
-  const selfRegUrl =
-    party?.selfRegToken ? `${origin}/public/registrations/${party.selfRegToken}` : "";
+  const canExpand = party !== null && !!selfRegUrl && party.remaining > 0;
 
   return (
     <>
-      <tr className="border-t border-border">
-        <td className="px-4 py-3 text-marine">
+      <tr className={`border-t border-border ${isGuest ? "bg-cream/20" : ""}`}>
+        <td className={`px-4 py-3 text-marine ${isGuest ? "pl-10" : ""}`}>
           {canExpand ? (
             <button
               type="button"
@@ -222,7 +309,10 @@ function FragmentRow({
               <span>{row.name || "—"}</span>
             </button>
           ) : (
-            row.name || "—"
+            <span className="flex items-center gap-2">
+              {isGuest && <span aria-hidden className="text-muted-foreground">↳</span>}
+              {row.name || "—"}
+            </span>
           )}
         </td>
         <td className="px-4 py-3 text-muted-foreground">
@@ -288,77 +378,48 @@ function FragmentRow({
             <span className="text-xs text-muted-foreground">—</span>
           )}
         </td>
+        <td className="px-4 py-3 text-right">
+          {isGuest && !row.checkedIn && (
+            <button
+              type="button"
+              onClick={() => onRemove(row.id, row.name)}
+              disabled={removing}
+              className="px-2.5 py-1 rounded-lg border border-red-200 text-red-700 text-xs font-body hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {removing ? "…" : "Remove"}
+            </button>
+          )}
+        </td>
       </tr>
 
-      {isOpen && party && (
+      {isOpen && party && selfRegUrl && (
         <tr className="bg-cream/30 border-t border-border">
           <td colSpan={COLSPAN} className="px-4 py-4">
             <div className="grid gap-5 sm:grid-cols-[1fr_auto] sm:items-start">
               <div>
-                <p className="font-body text-sm font-semibold text-marine mb-2">
-                  {party.claimedCount} of {party.quantity} registered
-                  {party.remaining > 0 ? ` · ${party.remaining} still to come` : " · party full"}
+                <p className="text-xs font-body text-muted-foreground mb-1">
+                  Share this link so guests register themselves
+                  {party.remaining > 0 ? ` (${party.remaining} open):` : ":"}
                 </p>
-                {party.guests.length > 0 ? (
-                  <ul className="space-y-1">
-                    {party.guests.map((g) => (
-                      <li key={g.id} className="flex items-center gap-2 text-sm font-body">
-                        <span className="text-marine">{g.name || "—"}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {g.email || g.phone_e164 || ""}
-                        </span>
-                        {g.waiverSigned ? (
-                          <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-50 text-emerald-700">
-                            waiver
-                          </span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800">
-                            no waiver
-                          </span>
-                        )}
-                        {g.checkedIn && (
-                          <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-100 text-emerald-800">
-                            arrived
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm font-body text-muted-foreground">
-                    No guests have self-registered yet.
-                  </p>
-                )}
-
-                {selfRegUrl && party.remaining > 0 && (
-                  <div className="mt-3">
-                    <p className="text-xs font-body text-muted-foreground mb-1">
-                      Share this link so guests register themselves:
-                    </p>
-                    <div className="flex gap-2 max-w-md">
-                      <input
-                        readOnly
-                        value={selfRegUrl}
-                        onFocus={(e) => e.currentTarget.select()}
-                        className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-border bg-white text-marine font-mono text-xs"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => onCopy(row.id, selfRegUrl)}
-                        className="px-3 py-2 bg-marine text-white rounded-lg text-xs font-body font-medium hover:bg-marine-light transition-colors cursor-pointer"
-                      >
-                        {copiedId === row.id ? "Copied" : "Copy"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {selfRegUrl && party.remaining > 0 && (
-                <div className="bg-white p-3 rounded-lg border border-border w-fit">
-                  <QRCodeCanvas value={selfRegUrl} size={120} marginSize={2} />
+                <div className="flex gap-2 max-w-md">
+                  <input
+                    readOnly
+                    value={selfRegUrl}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-border bg-white text-marine font-mono text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onCopy(row.id, selfRegUrl)}
+                    className="px-3 py-2 bg-marine text-white rounded-lg text-xs font-body font-medium hover:bg-marine-light transition-colors cursor-pointer"
+                  >
+                    {copiedId === row.id ? "Copied" : "Copy"}
+                  </button>
                 </div>
-              )}
+              </div>
+              <div className="bg-white p-3 rounded-lg border border-border w-fit">
+                <QRCodeCanvas value={selfRegUrl} size={120} marginSize={2} />
+              </div>
             </div>
           </td>
         </tr>

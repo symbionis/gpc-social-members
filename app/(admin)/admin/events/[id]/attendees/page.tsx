@@ -79,6 +79,7 @@ export default async function ManageEventPage({
     )
     .eq("event_id", id)
     .eq("slot_status", "claimed")
+    .is("released_at", null)
     .order("created_at", { ascending: true });
 
   type AttendeeRow = {
@@ -127,6 +128,7 @@ export default async function ManageEventPage({
     const fill = ticketRegId ? partyFills.get(ticketRegId) ?? null : null;
     return {
       id: a.id,
+      registrationId: a.registration_id,
       name: a.name ?? "",
       email: a.email ?? "",
       phone_e164: a.phone_e164 ?? "",

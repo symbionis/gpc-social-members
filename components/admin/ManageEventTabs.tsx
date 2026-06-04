@@ -21,6 +21,7 @@ type Tab = "roster" | "checkin" | "import" | "messaging" | "waitlist" | "setting
 /** One person on the roster (event_attendees, claimed slots). */
 interface Attendee {
   id: string;
+  registrationId: string | null;
   name: string;
   email: string;
   phone_e164: string;
@@ -203,7 +204,7 @@ export default function ManageEventTabs({
                 Export CSV
               </a>
             </div>
-            <AttendeeList attendees={attendees} baseUrl={baseUrl} />
+            <AttendeeList attendees={attendees} baseUrl={baseUrl} eventId={eventId} />
           </div>
         </div>
       )}

@@ -85,6 +85,7 @@ export async function GET(
     )
     .eq("event_id", eventId)
     .eq("slot_status", "claimed")
+    .is("released_at", null)
     .order("created_at", { ascending: true });
 
   const roster = (attendees || []) as AttendeeRow[];

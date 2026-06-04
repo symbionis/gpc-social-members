@@ -40,6 +40,7 @@ function adminClient(opts: {
         return c;
       };
       c.in = () => c;
+      c.is = () => c;
       c.limit = () => c;
       c.order = () => c;
       c.single = async () => ({ data: opts.event, error: opts.event ? null : { message: "not found" } });

@@ -92,6 +92,7 @@ export async function matchContact(
       .select("id, email, phone_e164, created_at")
       .eq("event_id", eventId)
       .eq("slot_status", "claimed")
+      .is("released_at", null)
       .ilike("email", escapeLike(email));
     if (error) throw error;
     for (const r of (data ?? []) as AttendeeMatchRow[]) byId.set(r.id, r);
@@ -103,6 +104,7 @@ export async function matchContact(
       .select("id, email, phone_e164, created_at")
       .eq("event_id", eventId)
       .eq("slot_status", "claimed")
+      .is("released_at", null)
       .eq("phone_e164", phone);
     if (error) throw error;
     for (const r of (data ?? []) as AttendeeMatchRow[]) byId.set(r.id, r);
