@@ -175,7 +175,9 @@ export default function DoorConsole({
           onClick={() => setTab("registered")}
           className={tabClass(tab === "registered")}
         >
-          Registered{parties.length > 0 ? ` (${parties.length})` : ""}
+          Registered{parties.reduce((s, p) => s + p.claimedCount, 0) > 0
+            ? ` (${parties.reduce((s, p) => s + p.claimedCount, 0)})`
+            : ""}
         </button>
         <button
           type="button"

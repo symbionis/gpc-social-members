@@ -80,12 +80,21 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
     attendees
   );
 
+  // Party header = the lead ATTENDEE's name (the first-listed person when a member
+  // booked for a group), falling back to the purchaser when no lead row exists.
+  const leadNameByReg = new Map<string, string>();
+  for (const a of attendees) {
+    if (a.is_lead && a.registration_id && a.name) {
+      leadNameByReg.set(a.registration_id, a.name);
+    }
+  }
+
   const parties: DoorParty[] = registrations.map((reg) => {
     const fill = fills.get(reg.id);
     return {
       registrationId: reg.id,
       referenceCode: reg.reference_code,
-      leadName: reg.name ?? "",
+      leadName: leadNameByReg.get(reg.id) ?? reg.name ?? "",
       leadEmail: reg.email ?? "",
       leadPhone: reg.phone_e164 ?? "",
       quantity: fill?.quantity ?? reg.quantity ?? 0,
