@@ -207,7 +207,10 @@ export default function ManageEventTabs({
           baseUrl={baseUrl}
           checkInPath={checkInPath}
           arrivedCount={checkedInCount}
-          attendeeCount={attendees.length}
+          // Arrivals are measured against total tickets sold (the true expected
+          // headcount), not the roster row count — guests not yet self-registered
+          // still count toward who's expected at the door.
+          expectedCount={total}
           arrivals={attendees
             .filter((a) => a.checkedIn)
             .sort((a, b) => (b.arrivedAt ?? "").localeCompare(a.arrivedAt ?? ""))
