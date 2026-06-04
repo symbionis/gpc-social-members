@@ -5,6 +5,7 @@ import ManageEventTabs from "@/components/admin/ManageEventTabs";
 import { getEventReminderSummary } from "@/lib/events/reminder-summary";
 import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
 import { rollupTicketItems } from "@/lib/events/tickets";
+import { computePartyFills, rosterGuestSummary } from "@/lib/events/roster-fill";
 
 export default async function ManageEventPage({
   params,
@@ -36,7 +37,7 @@ export default async function ManageEventPage({
   const { data: registrations } = await supabase
     .from("event_registrations")
     .select(
-      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, created_at"
+      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, self_reg_token, created_at"
     )
     .eq("event_id", id)
     .in("status", ["paid", "free"])
@@ -102,9 +103,28 @@ export default async function ManageEventPage({
     }
   }
 
+  // Per-party self-registration fill (claimed of purchased + the claimed guests),
+  // attached to each lead row so it can expand into a party drawer. Fill is derived
+  // (quantity − claimed count); approach B has no placeholder rows.
+  const regsForFill = (registrations ?? []).map((r) => ({
+    id: r.id as string,
+    quantity: (r.quantity as number) ?? 0,
+  }));
+  const partyFills = computePartyFills(regsForFill, roster);
+  const guestSummary = rosterGuestSummary(regsForFill, roster);
+  const selfRegTokenByReg = new Map<string, string | null>();
+  for (const r of registrations ?? []) {
+    selfRegTokenByReg.set(
+      r.id,
+      (r as { self_reg_token?: string | null }).self_reg_token ?? null
+    );
+  }
+
   const attendees = roster.map((a) => {
-    // Tickets are attributed to the party's lead row only (the guests share them).
+    // Tickets and party fill are attributed to the party's lead row only (the
+    // guests share them).
     const ticketRegId = a.is_lead ? a.registration_id : null;
+    const fill = ticketRegId ? partyFills.get(ticketRegId) ?? null : null;
     return {
       id: a.id,
       name: a.name ?? "",
@@ -122,6 +142,11 @@ export default async function ManageEventPage({
       ticketBreakdown: ticketRegId
         ? rollupTicketItems(ticketItemsByReg.get(ticketRegId) ?? [])
         : [],
+      // Party self-reg detail for the expandable lead drawer (null on guest rows).
+      party:
+        fill && ticketRegId
+          ? { ...fill, selfRegToken: selfRegTokenByReg.get(ticketRegId) ?? null }
+          : null,
       waiverSigned: a.waiver_accepted_at !== null,
       checkedIn: a.checked_in_at !== null,
       arrivedAt: a.checked_in_at,
@@ -181,6 +206,7 @@ export default async function ManageEventPage({
         eventId={id}
         attendees={attendees}
         checkedInCount={checkedInCount}
+        guestsRegistered={guestSummary.registered}
         waitlist={waitlist ?? []}
         hasSeatCap={hasSeatCap}
         total={total}

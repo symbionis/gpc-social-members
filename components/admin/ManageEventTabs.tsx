@@ -14,6 +14,7 @@ import EventMessaging, {
 import { formatDateTime } from "@/lib/format";
 import type { ReminderEntry } from "@/lib/events/reminder-schedule";
 import type { TicketTypeLine } from "@/lib/events/tickets";
+import type { PartyDetail } from "@/lib/events/roster-fill";
 
 type Tab = "roster" | "checkin" | "import" | "messaging" | "waitlist" | "settings";
 
@@ -31,6 +32,8 @@ interface Attendee {
   ticketCount: number | null;
   /** Per-ticket-type breakdown for the lead's party; empty for guests / no party. */
   ticketBreakdown: TicketTypeLine[];
+  /** Party self-reg detail (fill + claimed guests + token) on lead rows; null otherwise. */
+  party: PartyDetail | null;
   waiverSigned: boolean;
   checkedIn: boolean;
   arrivedAt: string | null;
@@ -48,6 +51,8 @@ interface Props {
   eventId: string;
   attendees: Attendee[];
   checkedInCount: number;
+  /** Claimed attendees on the roster (for the "X of Y guests registered" summary). */
+  guestsRegistered: number;
   waitlist: Waitlist[];
   hasSeatCap: boolean;
   total: number;
@@ -69,6 +74,7 @@ export default function ManageEventTabs({
   eventId,
   attendees,
   checkedInCount,
+  guestsRegistered,
   waitlist,
   hasSeatCap,
   total,
@@ -182,7 +188,7 @@ export default function ManageEventTabs({
           <div>
             <div className="flex items-end justify-between gap-4 flex-wrap mb-3">
               <p className={`text-sm font-body ${overbooked ? "text-red-700 font-semibold" : "text-muted-foreground"}`}>
-                {attendees.length} attendee{attendees.length === 1 ? "" : "s"}
+                {guestsRegistered} of {total} guest{total === 1 ? "" : "s"} registered
                 {" · "}
                 {checkedInCount} arrived
                 {" · "}
@@ -197,7 +203,7 @@ export default function ManageEventTabs({
                 Export CSV
               </a>
             </div>
-            <AttendeeList attendees={attendees} />
+            <AttendeeList attendees={attendees} baseUrl={baseUrl} />
           </div>
         </div>
       )}
