@@ -41,6 +41,7 @@ const STRINGS = {
     ticketLabel: "Ticket",
     ticketPlaceholder: "Choose your ticket…",
     ticketRequired: "Please choose your ticket.",
+    ticketTaken: "That ticket was just taken. Refreshing the available tickets…",
     waiverHeading: "Waiver (optional now)",
     waiverHelp: "You can accept it now, or sign at the door when you arrive.",
     waiverAccept: "I have read and accept the waiver above.",
@@ -73,6 +74,7 @@ const STRINGS = {
     ticketLabel: "Billet",
     ticketPlaceholder: "Choisissez votre billet…",
     ticketRequired: "Veuillez choisir votre billet.",
+    ticketTaken: "Ce billet vient d’être pris. Actualisation des billets disponibles…",
     waiverHeading: "Décharge (facultatif maintenant)",
     waiverHelp:
       "Vous pouvez l’accepter maintenant ou la signer à l’entrée à votre arrivée.",
@@ -110,7 +112,8 @@ export default function SelfRegistrationForm({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState<string | null>(null);
-  // Only a real choice (>1 purchased type) needs a selector; one type is implicit.
+  // Only a real choice (>1 available type) needs a selector; a single remaining type
+  // is sent implicitly, and none-left falls through with no ticket (rare edge).
   const showTicketChoice = ticketTypes.length > 1;
   const [ticketTypeId, setTicketTypeId] = useState("");
   const [waiverAccepted, setWaiverAccepted] = useState(false);
@@ -190,6 +193,11 @@ export default function SelfRegistrationForm({
     if (!hasEmail && !phone) return setError(t.contactRequired);
     if (showTicketChoice && !ticketTypeId) return setError(t.ticketRequired);
 
+    // A single available type is implicit (no selector); >1 uses the picked one.
+    const effectiveTicketTypeId = showTicketChoice
+      ? ticketTypeId
+      : ticketTypes[0]?.id ?? "";
+
     setSubmitting(true);
     try {
       const res = await fetch(`/api/public/registrations/${token}/claim`, {
@@ -202,7 +210,7 @@ export default function SelfRegistrationForm({
           language: lang,
           waiverAccepted,
           marketingConsent,
-          ticketTypeId: ticketTypeId || undefined,
+          ticketTypeId: effectiveTicketTypeId || undefined,
         }),
         signal: AbortSignal.timeout(10000),
       });
@@ -210,6 +218,13 @@ export default function SelfRegistrationForm({
       if (!res.ok || data.ok === false) {
         if (data.reason === "full") {
           setFull(true);
+          return;
+        }
+        if (data.reason === "type_full") {
+          // Lost a race for the last of this type — reload so the ticket list
+          // reflects what's actually still available.
+          setError(t.ticketTaken);
+          setTimeout(() => window.location.reload(), 1500);
           return;
         }
         setError(data.error || t.invalidBody);

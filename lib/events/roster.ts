@@ -102,6 +102,7 @@ export interface SelfRegistrationClaimInput {
 export type SelfRegistrationClaimResult =
   | { status: "claimed"; attendeeId: string; name: string | null; already: boolean }
   | { status: "full" }
+  | { status: "type_full" }
   | { status: "inactive" }
   | { status: "invalid" }
   | { status: "invalid_input"; reason?: string };

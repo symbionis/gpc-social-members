@@ -87,29 +87,48 @@ export default async function SelfRegistrationPage({
   // for display; a race that fills the last slot is reported at submit time.
   const { data: claimed } = await supabase
     .from("event_attendees")
-    .select("id")
+    .select("id, ticket_type_id")
     .eq("registration_id", registration.id)
-    .eq("slot_status", "claimed");
+    .eq("slot_status", "claimed")
+    .is("released_at", null);
 
   const quantity = (registration.quantity as number) ?? 0;
   const remaining = Math.max(0, quantity - (claimed?.length ?? 0));
 
-  // The ticket types this party actually purchased (e.g. asado meal options) — the
-  // guest picks theirs. We offer only what was bought so catering stays coherent;
-  // a single-type party needs no selector (the claim RPC auto-assigns it).
+  // The ticket types this party purchased, MINUS any whose allotment is already
+  // claimed — so a taken type (e.g. the last "Without Asado") is no longer offered.
+  // Per-type remaining = purchased(type) − claimed-attendees-holding(type). We offer
+  // only what's both bought and still open; the claim RPC enforces the same cap.
   const { data: ticketItems } = await supabase
     .from("event_registration_items")
-    .select("ticket_type_id, title_snapshot, created_at")
+    .select("ticket_type_id, title_snapshot, quantity, created_at")
     .eq("registration_id", registration.id)
     .order("created_at", { ascending: true });
 
-  const ticketTypes: { id: string; title: string }[] = [];
-  const seenTypes = new Set<string>();
+  const claimedByType = new Map<string, number>();
+  for (const a of claimed ?? []) {
+    const tid = a.ticket_type_id as string | null;
+    if (tid) claimedByType.set(tid, (claimedByType.get(tid) ?? 0) + 1);
+  }
+
+  // Purchased quantity + first-seen title per type (insertion order = purchase order).
+  const purchasedByType = new Map<string, { title: string; qty: number }>();
   for (const item of ticketItems ?? []) {
     const id = item.ticket_type_id as string | null;
-    if (!id || seenTypes.has(id)) continue;
-    seenTypes.add(id);
-    ticketTypes.push({ id, title: (item.title_snapshot as string | null)?.trim() || "Ticket" });
+    if (!id) continue;
+    const prev = purchasedByType.get(id);
+    const qty = (item.quantity as number | null) ?? 0;
+    if (prev) prev.qty += qty;
+    else
+      purchasedByType.set(id, {
+        title: (item.title_snapshot as string | null)?.trim() || "Ticket",
+        qty,
+      });
+  }
+
+  const ticketTypes: { id: string; title: string }[] = [];
+  for (const [id, { title, qty }] of purchasedByType) {
+    if (qty - (claimedByType.get(id) ?? 0) > 0) ticketTypes.push({ id, title });
   }
 
   return shell(

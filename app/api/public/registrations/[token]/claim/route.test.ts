@@ -107,6 +107,13 @@ describe("POST /api/public/registrations/[token]/claim — claim outcomes", () =
     );
   });
 
+  it("reports a full ticket type (type_full → 409)", async () => {
+    mockedClaim.mockResolvedValue({ status: "type_full" });
+    const res = await post(validBody);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ ok: false, reason: "type_full" });
+  });
+
   it("reports a double-submit idempotently (already=true)", async () => {
     mockedClaim.mockResolvedValue({
       status: "claimed",

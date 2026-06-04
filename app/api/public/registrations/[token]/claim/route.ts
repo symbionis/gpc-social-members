@@ -100,6 +100,10 @@ export async function POST(
       });
     case "full":
       return NextResponse.json({ ok: false, reason: "full" }, { status: 409 });
+    case "type_full":
+      // The chosen ticket type's allotment filled (likely a concurrent claim). The
+      // page hides full types on load, so this is the race backstop.
+      return NextResponse.json({ ok: false, reason: "type_full" }, { status: 409 });
     case "inactive":
       // The link's registration isn't confirmed (e.g. an unpaid checkout).
       return NextResponse.json({ ok: false, reason: "inactive" }, { status: 409 });
