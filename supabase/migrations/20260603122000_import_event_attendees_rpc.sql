@@ -147,5 +147,8 @@ $$;
 
 -- Writes the RLS-protected event_attendees table and bypasses RLS — restrict to the
 -- service_role the app uses. Never callable by anon/authenticated.
-REVOKE ALL ON FUNCTION public.import_event_attendees(uuid, jsonb) FROM PUBLIC;
+-- FROM PUBLIC alone is NOT enough on Supabase — default privileges also grant
+-- EXECUTE to anon/authenticated. Revoke those explicitly (service_role-only).
+-- See docs/solutions/security/supabase-securitydefiner-anon-execute-grant-2026-06-04.md
+REVOKE ALL ON FUNCTION public.import_event_attendees(uuid, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.import_event_attendees(uuid, jsonb) TO service_role;

@@ -49,5 +49,8 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.seed_lead_attendee(uuid, text) FROM PUBLIC;
+-- FROM PUBLIC alone is NOT enough on Supabase — default privileges also grant
+-- EXECUTE to anon/authenticated. Revoke those explicitly (service_role-only).
+-- See docs/solutions/security/supabase-securitydefiner-anon-execute-grant-2026-06-04.md
+REVOKE ALL ON FUNCTION public.seed_lead_attendee(uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.seed_lead_attendee(uuid, text) TO service_role;
