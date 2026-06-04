@@ -6,6 +6,7 @@ import { sendEventRegistrationConfirmation } from "@/lib/email/event-registratio
 import { getSeatsUsed } from "@/lib/events/seat-usage";
 import {
   generateReferenceCode,
+  generateSelfRegToken,
   isValidInviteCode,
 } from "@/lib/events/registration";
 import { seedLeadAttendee } from "@/lib/events/roster";
@@ -246,19 +247,24 @@ export async function POST(
     return bad("Could not create registration", 500);
   }
 
-  // Persist the captured phone on the registration (U12). The lead-attendee seed
-  // and the door both match on it. Best-effort: phone is optional, never blocks.
-  if (phone) {
-    const { error: phoneErr } = await supabase
-      .from("event_registrations")
-      .update({ phone_e164: phone })
-      .eq("id", registrationId);
-    if (phoneErr) {
-      console.error("[event-register] failed to persist phone_e164", {
-        registrationId,
-        err: phoneErr,
-      });
-    }
+  // Persist the captured phone (U12) and a self-registration token (U9) on the
+  // registration. The phone is matched at the door; the token scopes the party's
+  // self-registration link (sent in the confirmation email, U10). Best-effort:
+  // both are non-blocking — a failure here never fails an already-created
+  // registration, it only leaves that party without phone / a shareable link.
+  const regPatch: { phone_e164?: string; self_reg_token: string } = {
+    self_reg_token: generateSelfRegToken(),
+  };
+  if (phone) regPatch.phone_e164 = phone;
+  const { error: patchErr } = await supabase
+    .from("event_registrations")
+    .update(regPatch)
+    .eq("id", registrationId);
+  if (patchErr) {
+    console.error("[event-register] failed to persist phone/self_reg_token", {
+      registrationId,
+      err: patchErr,
+    });
   }
 
   // Free basket: confirm immediately.

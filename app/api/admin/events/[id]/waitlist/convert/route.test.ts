@@ -4,6 +4,7 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/events/registration", () => ({
   generateReferenceCode: vi.fn(() => "EV-TEST1234"),
+  generateSelfRegToken: vi.fn(() => "selfregtoken-test"),
   findActiveMemberByEmail: vi.fn(),
   hasExistingRegistration: vi.fn(),
 }));
@@ -51,7 +52,7 @@ function adminClient(opts: {
     from: (table: string) => {
       let isDelete = false;
       const c: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "in", "limit", "ilike", "order", "is"]) c[m] = () => c;
+      for (const m of ["select", "eq", "in", "limit", "ilike", "order", "is", "update"]) c[m] = () => c;
       c.delete = () => {
         isDelete = true;
         return c;

@@ -292,6 +292,8 @@ Milestone 1 (U1–U7, U12) is the June 6 critical path. Milestone 2 (U8–U11) i
 
 ### Milestone 2 — Self-registration-link era
 
+> **UPDATE 2026-06-04 — approach B (approved deviation from KTD6).** U9 is implemented WITHOUT pre-provisioning. The cap is enforced in the new `claim_self_registration` RPC by locking the registration row (`SELECT … FOR UPDATE`) and counting the party's claimed attendees under that lock — race-safe without placeholder rows. KTD6's stated reason for pre-provisioning (a supabase-js 1000-row read truncation) does not apply to `count()` inside an RPC. Consequences: **U8 is effectively folded into U9** (no `create_event_registration` change, no confirmation/webhook seed change — the money path is untouched, which also de-risks deploying near the June 6 event); no orphan `unclaimed` rows from abandoned checkouts; `seed_lead_attendee` stays as-is for the lead. The `self_reg_token` is generated in app (`generateSelfRegToken`) and stored best-effort on both registration on-ramps (register route + waitlist-convert). Migration `20260604120000_self_registration_token_and_claim.sql` is ADDITIVE and, as of this note, **not yet applied to prod** (gated pending a coordinated apply, ideally post-June-6 or via a Supabase branch). U10/U11 still pending.
+
 ### U8. Pre-provision attendee slots on purchase
 
 - **Goal:** Create N attendee slots atomically with a registration so the cap is structural.

@@ -5,6 +5,7 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 import {
   generateReferenceCode,
   generateInviteCode,
+  generateSelfRegToken,
   isValidInviteCode,
   findActiveMemberByEmail,
   hasExistingRegistration,
@@ -47,6 +48,17 @@ describe("generateInviteCode", () => {
   it("produces different codes across calls", () => {
     const codes = new Set(Array.from({ length: 20 }, () => generateInviteCode()));
     expect(codes.size).toBe(20);
+  });
+});
+
+describe("generateSelfRegToken", () => {
+  it("returns a URL-safe base64url token (no +, /, or = padding)", () => {
+    expect(generateSelfRegToken()).toMatch(/^[A-Za-z0-9_-]{32}$/);
+  });
+
+  it("produces different tokens across calls", () => {
+    const tokens = new Set(Array.from({ length: 20 }, () => generateSelfRegToken()));
+    expect(tokens.size).toBe(20);
   });
 });
 

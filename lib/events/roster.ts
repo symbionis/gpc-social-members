@@ -76,3 +76,51 @@ export async function importAttendees(
   }
   return (data ?? []) as ImportRowResult[];
 }
+
+// Self-registration claim (U9). The guest opens a per-registration link and adds
+// themselves to the party's roster. Inputs are already validated/normalized by the
+// claim route; the work (token lookup, row lock, cap, idempotency, optional waiver)
+// lives in the claim_self_registration RPC so the cap is race-safe at the DB level.
+export interface SelfRegistrationClaimInput {
+  token: string;
+  name: string;
+  email: string | null;
+  phone_e164: string | null;
+  language: string | null;
+  /** Server-sourced waiver version (WAIVER_VERSION); null leaves the waiver unsigned. */
+  waiverVersion: string | null;
+  waiverAccepted: boolean;
+  marketingConsent: boolean;
+}
+
+export type SelfRegistrationClaimResult =
+  | { status: "claimed"; attendeeId: string; name: string | null; already: boolean }
+  | { status: "full" }
+  | { status: "inactive" }
+  | { status: "invalid" }
+  | { status: "invalid_input"; reason?: string };
+
+/**
+ * Claim a self-registration slot via the RPC. Query errors throw (the route maps
+ * them to a 5xx) rather than being coerced into a misleading "invalid".
+ */
+export async function claimSelfRegistration(
+  input: SelfRegistrationClaimInput
+): Promise<SelfRegistrationClaimResult> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.rpc("claim_self_registration", {
+    p_token: input.token,
+    p_name: input.name,
+    p_email: input.email,
+    p_phone_e164: input.phone_e164,
+    p_language: input.language,
+    p_waiver_version: input.waiverVersion,
+    p_waiver_accepted: input.waiverAccepted,
+    p_marketing_consent: input.marketingConsent,
+  });
+  if (error) {
+    console.error("[roster] claim_self_registration failed", { err: error });
+    throw new Error(error.message || "Claim failed");
+  }
+  return data as SelfRegistrationClaimResult;
+}
