@@ -28,7 +28,7 @@ export default async function ManageEventPage({
   // Active ticket types — the Settings tab edits per-type guest (invite) prices.
   const { data: rawTicketTypes } = await supabase
     .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat")
+    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat, is_child")
     .eq("event_id", id)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
@@ -49,7 +49,7 @@ export default async function ManageEventPage({
   const { data: ticketItemRows } = registrationIds.length
     ? await supabase
         .from("event_registration_items")
-        .select("registration_id, title_snapshot, quantity")
+        .select("registration_id, ticket_type_id, title_snapshot, quantity")
         .in("registration_id", registrationIds)
         .order("created_at", { ascending: true })
     : { data: [] };
@@ -59,6 +59,7 @@ export default async function ManageEventPage({
 
   type TicketItemRow = {
     registration_id: string;
+    ticket_type_id: string | null;
     title_snapshot: string | null;
     quantity: number | null;
   };
@@ -177,6 +178,34 @@ export default async function ManageEventPage({
 
   const checkedInCount = attendees.filter((a) => a.checkedIn).length;
 
+  // Per-ticket-type breakdown for the roster header. `sold` is the tickets
+  // purchased of each type (event_registration_items.quantity by ticket_type_id);
+  // `claimed`/`arrived` come from the per-person roster. Older events created
+  // before per-type tracking have no ticket_type_id on their items, so `sold`
+  // stays 0 for them — the type still renders with its pre-registered count.
+  const soldByTicketType = new Map<string, number>();
+  for (const item of (ticketItemRows ?? []) as TicketItemRow[]) {
+    if (!item.ticket_type_id) continue;
+    soldByTicketType.set(
+      item.ticket_type_id,
+      (soldByTicketType.get(item.ticket_type_id) ?? 0) + (item.quantity ?? 0)
+    );
+  }
+  const ticketTypeSummary = ticketTypes.map((tt) => {
+    const typeId = tt.id as string;
+    const claimed = roster.filter((a) => a.ticket_type_id === typeId).length;
+    return {
+      id: typeId,
+      title: (tt.title as string | null) ?? "",
+      priceMember: (tt.price_member as number | null) ?? null,
+      priceNonMember: (tt.price_non_member as number | null) ?? null,
+      countsAsSeat: Boolean(tt.counts_as_seat),
+      isChild: Boolean(tt.is_child),
+      sold: soldByTicketType.get(typeId) ?? 0,
+      claimed,
+    };
+  });
+
   const total = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
   const seatCap = event.seat_cap as number | null;
   const hasSeatCap = seatCap !== null && seatCap !== undefined;
@@ -228,6 +257,7 @@ export default async function ManageEventPage({
         attendees={attendees}
         checkedInCount={checkedInCount}
         guestsRegistered={guestSummary.registered}
+        ticketTypeSummary={ticketTypeSummary}
         waitlist={waitlist ?? []}
         hasSeatCap={hasSeatCap}
         total={total}

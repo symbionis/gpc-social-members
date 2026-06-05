@@ -51,7 +51,7 @@ interface Props {
 const searchInputClass =
   "w-full px-4 py-4 rounded-xl border-2 border-marine/20 bg-white text-marine font-body text-lg focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
 const fieldClass =
-  "w-full px-3 py-2.5 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
+  "w-full px-3 py-2.5 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky disabled:bg-cream disabled:text-marine/60 disabled:cursor-not-allowed disabled:border-border";
 
 function partyMatches(p: DoorParty, q: string): boolean {
   if (!q) return true;
@@ -304,8 +304,11 @@ function SlotRow({
   const [saving, setSaving] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // New open slots are editable immediately; claimed (live) rows start locked.
+  const [editing, setEditing] = useState(slot.attendeeId === null);
 
   const isOpen = slot.attendeeId === null;
+  const locked = !editing;
   const dirty = isOpen
     ? name.trim() !== ""
     : name !== slot.name || email !== slot.email || (phone ?? "") !== slot.phone;
@@ -337,6 +340,7 @@ function SlotRow({
         return;
       }
       onSaved();
+      if (!isOpen) setEditing(false);
     } catch {
       setError("Could not save.");
     } finally {
@@ -416,6 +420,7 @@ function SlotRow({
           placeholder={slot.isChild ? "Child's name" : "Full name"}
           className={fieldClass}
           autoComplete="off"
+          disabled={locked}
         />
         {!slot.isChild && (
           <>
@@ -427,8 +432,14 @@ function SlotRow({
               placeholder="Email"
               className={fieldClass}
               autoComplete="off"
+              disabled={locked}
             />
-            <PhoneInput defaultValue={slot.phone || null} onChange={setPhone} />
+            <PhoneInput
+              key={editing ? "edit" : "view"}
+              defaultValue={slot.phone || null}
+              onChange={setPhone}
+              disabled={locked}
+            />
           </>
         )}
       </div>
@@ -439,15 +450,42 @@ function SlotRow({
         </p>
       )}
 
-      {dirty && (
+      {locked ? (
         <button
           type="button"
-          onClick={save}
-          disabled={saving}
-          className="mt-2 w-full px-3 py-2.5 rounded-lg bg-marine text-white font-body font-semibold text-sm hover:bg-marine-light transition-colors disabled:opacity-50 cursor-pointer"
+          onClick={() => setEditing(true)}
+          className="mt-2 w-full px-3 py-2.5 rounded-lg border border-marine/30 text-marine font-body font-semibold text-sm hover:bg-marine/5 transition-colors cursor-pointer"
         >
-          {saving ? "Saving…" : isOpen ? "Save guest" : "Save changes"}
+          Edit details
         </button>
+      ) : (
+        <div className="mt-2 flex gap-2">
+          {dirty && (
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="flex-1 px-3 py-2.5 rounded-lg bg-marine text-white font-body font-semibold text-sm hover:bg-marine-light transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {saving ? "Saving…" : isOpen ? "Save guest" : "Save changes"}
+            </button>
+          )}
+          {!isOpen && (
+            <button
+              type="button"
+              onClick={() => {
+                setName(slot.name);
+                setEmail(slot.email);
+                setPhone(slot.phone || null);
+                setError(null);
+                setEditing(false);
+              }}
+              className="flex-1 px-3 py-2.5 rounded-lg border border-marine/30 text-marine font-body font-semibold text-sm hover:bg-marine/5 transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
