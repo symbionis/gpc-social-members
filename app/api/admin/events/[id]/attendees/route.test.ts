@@ -143,7 +143,7 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
             created_at: "2026-06-01T08:05:00Z",
           },
         ],
-        registrations: [{ id: "r1", quantity: 5 }],
+        registrations: [{ id: "r1", quantity: 5, reference_code: "EV-AB12" }],
         items: [
           { registration_id: "r1", title_snapshot: "Asado Standard", quantity: 4 },
           { registration_id: "r1", title_snapshot: "Asado Vegetarian", quantity: 1 },
@@ -160,19 +160,21 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
     const csv = await res.text();
     const [header, ...rows] = csv.split("\n");
     expect(header).toBe(
-      "name,email,phone,is_member,party_lead,tickets,ticket_types,ticket_type,waiver,arrived,arrived_at"
+      "booking_ref,name,email,phone,is_member,party_lead,tickets,party_registered,party_remaining,ticket_types,ticket_type,waiver,arrived,arrived_at"
     );
-    // Lead: member, signed waiver, arrived; party tickets + breakdown attributed here.
-    // The lead has no per-person ticket type yet → empty ticket_type cell. The E.164
-    // phone's leading + is neutralized (leading '); the comma-bearing breakdown is
-    // quote-wrapped.
+    // Lead: booking ref, member, signed waiver, arrived; party tickets + breakdown
+    // attributed here. 2 of the 5 tickets are pre-registered (lead + 1 guest), so 3
+    // remain. The lead has no per-person ticket type yet → empty ticket_type cell. The
+    // E.164 phone's leading + is neutralized (leading '); the comma-bearing breakdown
+    // is quote-wrapped.
     expect(rows[0]).toBe(
-      'Ann Lead,ann@x.com,\'+41781234567,yes,lead,5,"4 × Asado Standard, 1 × Asado Vegetarian",,signed,yes,2026-06-06T10:00:00Z'
+      'EV-AB12,Ann Lead,ann@x.com,\'+41781234567,yes,lead,5,2 of 5,3,"4 × Asado Standard, 1 × Asado Vegetarian",,signed,yes,2026-06-06T10:00:00Z'
     );
-    // Guest attributed to the lead; no party tickets (the lead carries those) but the
-    // guest's own ticket type (asado meal) fills the per-person ticket_type column.
+    // Guest attributed to the lead; shares the party's booking ref. No party tickets
+    // or fill counts (the lead carries those) but the guest's own ticket type (asado
+    // meal) fills the per-person ticket_type column.
     expect(rows[1]).toBe(
-      "Bo Guest,bo@x.com,,no,guest of Ann Lead,,,Asado Vegetarian,unsigned,no,"
+      "EV-AB12,Bo Guest,bo@x.com,,no,guest of Ann Lead,,,,,Asado Vegetarian,unsigned,no,"
     );
   });
 
@@ -201,9 +203,9 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
     const res = await get();
     const csv = await res.text();
     const rows = csv.split("\n").slice(1);
-    // E.164 phone's leading + is quote-neutralized; no party → empty ticket cells;
-    // the row is not dropped.
-    expect(rows[0]).toBe("Phone Only,,'+390612345678,no,,,,,unsigned,no,");
+    // E.164 phone's leading + is quote-neutralized; no party → empty booking ref,
+    // ticket, and fill cells; the row is not dropped.
+    expect(rows[0]).toBe(",Phone Only,,'+390612345678,no,,,,,,,unsigned,no,");
   });
 
   it("neutralizes a formula-injection name (leading =)", async () => {
@@ -231,7 +233,8 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
     const res = await get();
     const csv = await res.text();
     const rows = csv.split("\n").slice(1);
-    // Leading = is neutralized with a leading ' (no comma, so no quote-wrapping).
-    expect(rows[0].startsWith(`'=SUM(A1:A9),`)).toBe(true);
+    // No party → empty booking_ref leads the row; the name's leading = is then
+    // neutralized with a leading ' (no comma, so no quote-wrapping).
+    expect(rows[0].startsWith(`,'=SUM(A1:A9),`)).toBe(true);
   });
 });
