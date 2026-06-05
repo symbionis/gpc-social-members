@@ -40,6 +40,17 @@ function csvEscape(value: unknown): string {
   return str;
 }
 
+// Heuristic split of a single "Full name" string for non-members: the last
+// whitespace-separated token is the last name, everything before it the first
+// name(s). One token → all first name. Members use their authoritative split.
+function splitFullName(name: string | null): { first: string; last: string } {
+  const trimmed = (name ?? "").trim().replace(/\s+/g, " ");
+  if (!trimmed) return { first: "", last: "" };
+  const parts = trimmed.split(" ");
+  if (parts.length === 1) return { first: parts[0], last: "" };
+  return { first: parts.slice(0, -1).join(" "), last: parts[parts.length - 1] };
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -101,6 +112,24 @@ export async function GET(
   const ticketTitleById = new Map<string, string>();
   for (const t of typeRows ?? []) {
     ticketTitleById.set(t.id as string, (t.title as string | null) ?? "");
+  }
+
+  // Structured first/last name for members (the roster only stores a single `name`
+  // string; the members table is the authoritative split). Non-members and guests
+  // entered a single "Full name" field, so theirs is split heuristically below.
+  const memberIds = [...new Set(roster.map((a) => a.member_id).filter((m): m is string => !!m))];
+  const memberNameById = new Map<string, { first: string; last: string }>();
+  if (memberIds.length) {
+    const { data: memberRows } = await adminClient
+      .from("members")
+      .select("id, first_name, last_name")
+      .in("id", memberIds);
+    for (const m of memberRows ?? []) {
+      memberNameById.set(m.id as string, {
+        first: (m.first_name as string | null) ?? "",
+        last: (m.last_name as string | null) ?? "",
+      });
+    }
   }
 
   // Lead name per registration → guests are attributed to their party's lead.
@@ -177,9 +206,25 @@ export async function GET(
     return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0;
   });
 
+  // Event-wide totals block (top of the sheet): total tickets sold + a count per
+  // ticket type, computed from what was PURCHASED (registration items), so the
+  // catering numbers are right even before every guest has pre-registered.
+  const totalTickets = (regRows ?? []).reduce(
+    (sum, r) => sum + ((r.quantity as number) ?? 0),
+    0
+  );
+  const typeTotals = rollupTicketItems((itemRows ?? []) as ItemRow[]);
+  const totalsBlock = [
+    "TOTALS",
+    `Total tickets,${totalTickets}`,
+    ...typeTotals.map((l) => `${csvEscape(l.title)},${l.qty}`),
+    "",
+  ];
+
   const headers = [
     "booking_ref",
-    "name",
+    "last_name",
+    "first_name",
     "email",
     "phone",
     "is_member",
@@ -194,7 +239,7 @@ export async function GET(
     "arrived_at",
   ];
 
-  const lines: string[] = [headers.join(",")];
+  const lines: string[] = [...totalsBlock, headers.join(",")];
 
   for (const a of sorted) {
     const partyLead = a.is_lead
@@ -218,10 +263,13 @@ export async function GET(
     const ticketType = a.ticket_type_id
       ? ticketTitleById.get(a.ticket_type_id) ?? ""
       : "";
+    // Members carry an authoritative first/last; everyone else is split heuristically.
+    const { first, last } = (a.member_id && memberNameById.get(a.member_id)) || splitFullName(a.name);
     lines.push(
       [
         csvEscape(bookingRef),
-        csvEscape(a.name),
+        csvEscape(last),
+        csvEscape(first),
         csvEscape(a.email),
         csvEscape(a.phone_e164),
         a.member_id ? "yes" : "no",

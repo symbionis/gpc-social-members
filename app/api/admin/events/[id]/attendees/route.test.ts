@@ -30,6 +30,7 @@ function adminClient(opts: {
   registrations?: Row[];
   items?: Row[];
   ticketTypes?: Row[];
+  members?: Row[];
 }) {
   return {
     from: (table: string) => {
@@ -61,11 +62,28 @@ function adminClient(opts: {
         if (table === "event_ticket_types") {
           return resolve({ data: opts.ticketTypes ?? [], error: null });
         }
+        if (table === "members") {
+          return resolve({ data: opts.members ?? [], error: null });
+        }
         return resolve({ data: [], error: null });
       };
       return c;
     },
   } as unknown as ReturnType<typeof createAdminClient>;
+}
+
+/**
+ * Split the CSV into its top TOTALS block and the roster below. The two sections
+ * are separated by a single blank line: [TOTALS, ...totals, "", header, ...rows].
+ */
+function sections(csv: string) {
+  const all = csv.split("\n");
+  const blank = all.indexOf("");
+  return {
+    totals: all.slice(0, blank),
+    header: all[blank + 1],
+    rows: all.slice(blank + 2),
+  };
 }
 
 function get(eventId = "evt-1", format = "csv") {
@@ -149,6 +167,9 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
           { registration_id: "r1", title_snapshot: "Asado Vegetarian", quantity: 1 },
         ],
         ticketTypes: [{ id: "tt-veg", title: "Asado Vegetarian" }],
+        // The lead is member m1 → authoritative last name "Leader" (not the heuristic
+        // "Lead" the single `name` string would yield), proving the members join wins.
+        members: [{ id: "m1", first_name: "Ann", last_name: "Leader" }],
       })
     );
     const res = await get();
@@ -157,24 +178,31 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
     expect(res.headers.get("Content-Disposition")).toContain(
       "attendees-summer-polo-"
     );
-    const csv = await res.text();
-    const [header, ...rows] = csv.split("\n");
+    const { totals, header, rows } = sections(await res.text());
+    // Top-of-sheet totals: total tickets sold + a count per ticket type, from the
+    // purchased registration items (right even before everyone has pre-registered).
+    expect(totals).toEqual([
+      "TOTALS",
+      "Total tickets,5",
+      "Asado Standard,4",
+      "Asado Vegetarian,1",
+    ]);
     expect(header).toBe(
-      "booking_ref,name,email,phone,is_member,party_lead,tickets,party_registered,party_remaining,ticket_types,ticket_type,waiver,arrived,arrived_at"
+      "booking_ref,last_name,first_name,email,phone,is_member,party_lead,tickets,party_registered,party_remaining,ticket_types,ticket_type,waiver,arrived,arrived_at"
     );
-    // Lead: booking ref, member, signed waiver, arrived; party tickets + breakdown
-    // attributed here. 2 of the 5 tickets are pre-registered (lead + 1 guest), so 3
-    // remain. The lead has no per-person ticket type yet → empty ticket_type cell. The
-    // E.164 phone's leading + is neutralized (leading '); the comma-bearing breakdown
-    // is quote-wrapped.
+    // Lead: booking ref, member's authoritative last/first, signed waiver, arrived;
+    // party tickets + breakdown attributed here. 2 of the 5 tickets are pre-registered
+    // (lead + 1 guest), so 3 remain. The lead has no per-person ticket type yet → empty
+    // ticket_type cell. The E.164 phone's leading + is neutralized (leading '); the
+    // comma-bearing breakdown is quote-wrapped.
     expect(rows[0]).toBe(
-      'EV-AB12,Ann Lead,ann@x.com,\'+41781234567,yes,lead,5,2 of 5,3,"4 × Asado Standard, 1 × Asado Vegetarian",,signed,yes,2026-06-06T10:00:00Z'
+      'EV-AB12,Leader,Ann,ann@x.com,\'+41781234567,yes,lead,5,2 of 5,3,"4 × Asado Standard, 1 × Asado Vegetarian",,signed,yes,2026-06-06T10:00:00Z'
     );
-    // Guest attributed to the lead; shares the party's booking ref. No party tickets
-    // or fill counts (the lead carries those) but the guest's own ticket type (asado
-    // meal) fills the per-person ticket_type column.
+    // Guest (non-member) → single "Full name" split heuristically: last token = last
+    // name. Shares the party's booking ref; no party tickets or fill counts (the lead
+    // carries those) but the guest's own ticket type fills the per-person column.
     expect(rows[1]).toBe(
-      "EV-AB12,Bo Guest,bo@x.com,,no,guest of Ann Lead,,,,,Asado Vegetarian,unsigned,no,"
+      "EV-AB12,Guest,Bo,bo@x.com,,no,guest of Ann Lead,,,,,Asado Vegetarian,unsigned,no,"
     );
   });
 
@@ -201,11 +229,10 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
       })
     );
     const res = await get();
-    const csv = await res.text();
-    const rows = csv.split("\n").slice(1);
-    // E.164 phone's leading + is quote-neutralized; no party → empty booking ref,
-    // ticket, and fill cells; the row is not dropped.
-    expect(rows[0]).toBe(",Phone Only,,'+390612345678,no,,,,,,,unsigned,no,");
+    const { rows } = sections(await res.text());
+    // E.164 phone's leading + is quote-neutralized; "Phone Only" splits to last/first
+    // (Only/Phone); no party → empty booking ref, ticket, and fill cells; not dropped.
+    expect(rows[0]).toBe(",Only,Phone,,'+390612345678,no,,,,,,,unsigned,no,");
   });
 
   it("neutralizes a formula-injection name (leading =)", async () => {
@@ -231,10 +258,10 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
       })
     );
     const res = await get();
-    const csv = await res.text();
-    const rows = csv.split("\n").slice(1);
-    // No party → empty booking_ref leads the row; the name's leading = is then
+    const { rows } = sections(await res.text());
+    // Single-token name → all first name, empty last name. Empty booking_ref and
+    // last_name lead the row (two commas); the first_name's leading = is then
     // neutralized with a leading ' (no comma, so no quote-wrapping).
-    expect(rows[0].startsWith(`,'=SUM(A1:A9),`)).toBe(true);
+    expect(rows[0].startsWith(`,,'=SUM(A1:A9),`)).toBe(true);
   });
 });
