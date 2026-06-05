@@ -212,7 +212,7 @@ export default function DoorConsole({
                         <button
                           type="button"
                           onClick={() => toggleQr(p.registrationId)}
-                          className="w-full px-4 py-4 rounded-xl border-2 border-marine/30 bg-white text-marine font-body font-semibold text-lg hover:bg-marine/5 transition-colors cursor-pointer"
+                          className="w-full px-4 py-4 rounded-xl bg-marine text-white font-body font-semibold text-lg hover:bg-marine-light transition-colors cursor-pointer"
                         >
                           {showQr
                             ? "Hide QR"
@@ -380,7 +380,7 @@ function SlotRow({
       <div className="flex items-center justify-between gap-2 mb-2">
         <span className="flex items-center gap-2 min-w-0 flex-wrap">
           {slot.ticketTypeTitle && (
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-sky/10 text-sky-dark whitespace-nowrap">
+            <span className="font-body text-base font-semibold text-marine">
               {slot.ticketTypeTitle}
             </span>
           )}
