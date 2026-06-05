@@ -7,6 +7,9 @@ import RosterImport from "@/components/admin/RosterImport";
 import EventCheckInPanel from "@/components/admin/EventCheckInPanel";
 import EventCheckInSettings from "@/components/admin/EventCheckInSettings";
 import EventInviteLink, { type InviteTicketType } from "@/components/admin/EventInviteLink";
+import EventRosterSummary, {
+  type TicketTypeSummaryRow,
+} from "@/components/admin/EventRosterSummary";
 import EventMessaging, {
   type ReminderSummaryRow,
   type SentMessageRow,
@@ -57,6 +60,8 @@ interface Props {
   checkedInCount: number;
   /** Claimed attendees on the roster (for the "X of Y guests registered" summary). */
   guestsRegistered: number;
+  /** Per-ticket-type breakdown shown at the top of the roster tab. */
+  ticketTypeSummary: TicketTypeSummaryRow[];
   waitlist: Waitlist[];
   hasSeatCap: boolean;
   total: number;
@@ -79,6 +84,7 @@ export default function ManageEventTabs({
   attendees,
   checkedInCount,
   guestsRegistered,
+  ticketTypeSummary,
   waitlist,
   hasSeatCap,
   total,
@@ -190,19 +196,18 @@ export default function ManageEventTabs({
       {tab === "roster" && (
         <div className="space-y-10">
           <div>
-            <div className="flex items-end justify-between gap-4 flex-wrap mb-3">
-              <p className={`text-sm font-body ${overbooked ? "text-red-700 font-semibold" : "text-muted-foreground"}`}>
-                {guestsRegistered} of {total} guest{total === 1 ? "" : "s"} pre-registered
-                {" · "}
-                {checkedInCount} arrived
-                {" · "}
-                {hasSeatCap
-                  ? `${total} / ${seatCap} tickets${overbooked ? " — overbooked" : ""}`
-                  : `${total} ticket${total === 1 ? "" : "s"} · uncapped`}
-              </p>
+            <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+              <EventRosterSummary
+                guestsRegistered={guestsRegistered}
+                total={total}
+                hasSeatCap={hasSeatCap}
+                seatCap={seatCap}
+                overbooked={overbooked}
+                ticketTypeSummary={ticketTypeSummary}
+              />
               <a
                 href={csvHref}
-                className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors"
+                className="shrink-0 px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors"
               >
                 Export CSV
               </a>

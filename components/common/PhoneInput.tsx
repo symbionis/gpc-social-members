@@ -20,6 +20,8 @@ interface PhoneInputProps {
   required?: boolean;
   /** Larger control for kiosk / field use (bigger text + touch targets). */
   large?: boolean;
+  /** Lock the control read-only (greyed, no dropdown). */
+  disabled?: boolean;
 }
 
 // Region display names are resolved client-side only (in the open dropdown), so the
@@ -37,9 +39,9 @@ function useRegionName() {
 }
 
 const fieldClassBase =
-  "px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
+  "px-4 py-3 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky disabled:bg-cream disabled:text-marine/60 disabled:cursor-not-allowed disabled:border-border";
 const fieldClassLarge =
-  "px-4 py-4 rounded-xl border-2 border-marine/20 bg-white text-marine font-body text-lg placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
+  "px-4 py-4 rounded-xl border-2 border-marine/20 bg-white text-marine font-body text-lg placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky disabled:bg-cream disabled:text-marine/60 disabled:cursor-not-allowed disabled:border-border";
 
 export default function PhoneInput({
   name,
@@ -48,6 +50,7 @@ export default function PhoneInput({
   id = "phone",
   required = false,
   large = false,
+  disabled = false,
 }: PhoneInputProps) {
   const fieldClass = large ? fieldClassLarge : fieldClassBase;
   const parsed = parseE164(defaultValue);
@@ -102,7 +105,8 @@ export default function PhoneInput({
       <div className="flex gap-2">
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => { if (!disabled) setOpen((v) => !v); }}
+          disabled={disabled}
           aria-haspopup="listbox"
           aria-expanded={open}
           className={`${fieldClass} ${large ? "w-32" : "w-28"} shrink-0 flex items-center justify-between gap-1`}
@@ -122,6 +126,7 @@ export default function PhoneInput({
           placeholder="79 123 45 67"
           aria-invalid={invalid}
           required={required}
+          disabled={disabled}
           className={`${fieldClass} flex-1 min-w-0`}
         />
       </div>
