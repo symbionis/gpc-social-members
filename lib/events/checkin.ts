@@ -223,27 +223,41 @@ export async function listPartyChildrenToCheckIn(
   registrationId: string
 ): Promise<{ id: string; name: string; ticketType: string }[]> {
   const supabase = createAdminClient();
+  // An attendee counts as a child if EITHER its own is_child flag OR its ticket
+  // type's is_child is set. The row flag is a point-in-time copy taken when the slot
+  // was claimed, so it goes stale if the type was flagged a child type afterward
+  // (or temporarily un-flagged by an edit) — keying off the live type as well keeps
+  // the kids prompt working through that drift. We therefore can't filter is_child
+  // in the query; pull the party's outstanding rows and decide in code.
   const { data, error } = await supabase
     .from("event_attendees")
-    .select("id, name, event_ticket_types(title)")
+    .select("id, name, is_child, event_ticket_types(title, is_child)")
     .eq("event_id", eventId)
     .eq("registration_id", registrationId)
-    .eq("is_child", true)
     .eq("slot_status", "claimed")
     .is("released_at", null)
     .is("checked_in_at", null)
     .order("created_at", { ascending: true });
   if (error) throw error;
-  return (data ?? []).map((r) => {
-    // PostgREST returns a to-one embed as an object, but tolerate an array too.
-    const raw = (r as { event_ticket_types?: unknown }).event_ticket_types;
-    const tt = (Array.isArray(raw) ? raw[0] : raw) as { title?: string | null } | null | undefined;
-    return {
-      id: r.id as string,
-      name: (r.name as string | null) ?? "",
-      ticketType: tt?.title ?? "",
-    };
-  });
+  return (data ?? [])
+    .map((r) => {
+      // PostgREST returns a to-one embed as an object, but tolerate an array too.
+      const raw = (r as { event_ticket_types?: unknown }).event_ticket_types;
+      const tt = (Array.isArray(raw) ? raw[0] : raw) as
+        | { title?: string | null; is_child?: boolean | null }
+        | null
+        | undefined;
+      const isChild =
+        Boolean((r as { is_child?: boolean | null }).is_child) || Boolean(tt?.is_child);
+      return {
+        id: r.id as string,
+        name: (r.name as string | null) ?? "",
+        ticketType: tt?.title ?? "",
+        isChild,
+      };
+    })
+    .filter((r) => r.isChild)
+    .map(({ id, name, ticketType }) => ({ id, name, ticketType }));
 }
 
 /**
@@ -258,14 +272,35 @@ export async function checkInChildren(
 ): Promise<number> {
   if (attendeeIds.length === 0) return 0;
   const supabase = createAdminClient();
+  // Resolve which of the requested ids are genuinely children before flipping them,
+  // by the attendee's own is_child flag OR its ticket type's (the row flag can be
+  // stale — see listPartyChildrenToCheckIn). This keeps the "children only" safety
+  // scope while tolerating that drift; an adult id passed in is still rejected.
+  const { data: rows, error: selError } = await supabase
+    .from("event_attendees")
+    .select("id, is_child, event_ticket_types(is_child)")
+    .in("id", attendeeIds)
+    .eq("event_id", eventId)
+    .eq("slot_status", "claimed")
+    .is("released_at", null)
+    .is("checked_in_at", null);
+  if (selError) throw selError;
+  const childIds = (rows ?? [])
+    .filter((r) => {
+      const raw = (r as { event_ticket_types?: unknown }).event_ticket_types;
+      const tt = (Array.isArray(raw) ? raw[0] : raw) as { is_child?: boolean | null } | null | undefined;
+      return Boolean((r as { is_child?: boolean | null }).is_child) || Boolean(tt?.is_child);
+    })
+    .map((r) => r.id as string);
+  if (childIds.length === 0) return 0;
+
+  // Flip only the resolved child ids. The checked_in_at IS NULL guard keeps a
+  // concurrent double-tap from double-stamping the arrival.
   const { data, error } = await supabase
     .from("event_attendees")
     .update({ checked_in_at: new Date().toISOString() })
-    .in("id", attendeeIds)
+    .in("id", childIds)
     .eq("event_id", eventId)
-    .eq("is_child", true)
-    .eq("slot_status", "claimed")
-    .is("released_at", null)
     .is("checked_in_at", null)
     .select("id");
   if (error) throw error;

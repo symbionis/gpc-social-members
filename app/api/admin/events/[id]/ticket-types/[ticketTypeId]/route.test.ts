@@ -19,8 +19,20 @@ function sessionClient(user: { email: string } | null) {
 
 type Cfg = {
   admins?: { id: string; role: string }[];
-  // event_ticket_types row returned by the scoped existence check (null = 404)
-  existing?: { id: string; archived_at: string | null } | null;
+  // event_ticket_types row returned by the scoped existence check (null = 404). PATCH
+  // now loads the stored values too, so a partial body can merge over them.
+  existing?:
+    | {
+        id: string;
+        archived_at: string | null;
+        title?: string;
+        price_member?: number | null;
+        price_non_member?: number | null;
+        invite_price?: number | null;
+        counts_as_seat?: boolean;
+        is_child?: boolean;
+      }
+    | null;
   event?: { visibility: string } | null;
   activeCount?: number; // active types for the last-active guard
   itemRefs?: number; // event_registration_items referencing the type
@@ -164,5 +176,37 @@ describe("PATCH ticket type — IDOR + update", () => {
     mockedAdmin.mockReturnValue(adminClient({ admins: [], existing: { id: "tt-1", archived_at: null } }));
     const res = await patch({ title: "Standard", price_member: 80 });
     expect(res.status).toBe(403);
+  });
+
+  it("preserves is_child (and counts_as_seat) when a partial body omits them", async () => {
+    // The Settings tab saves only the guest price — title/prices/counts_as_seat/
+    // invite_price, with no is_child. A child ticket type must stay flagged, or
+    // check-in stops offering the party's kids.
+    const cfg: Cfg = {
+      admins: superAdmin,
+      event: { visibility: "members_only" },
+      existing: {
+        id: "tt-1",
+        archived_at: null,
+        title: "Asado Kids",
+        price_member: 25,
+        price_non_member: null,
+        invite_price: null,
+        counts_as_seat: true,
+        is_child: true,
+      },
+    };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+    const res = await patch({
+      title: "Asado Kids",
+      price_member: 25,
+      price_non_member: null,
+      counts_as_seat: true,
+      invite_price: 30,
+    });
+    expect(res.status).toBe(200);
+    // The omitted is_child is taken from the stored row, not reset to false.
+    expect(cfg.capture?.updated?.is_child).toBe(true);
+    expect(cfg.capture?.updated?.invite_price).toBe(30);
   });
 });

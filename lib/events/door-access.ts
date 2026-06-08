@@ -144,7 +144,11 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
     phone: a.phone_e164 ?? "",
     ticketTypeId: a.ticket_type_id,
     ticketTypeTitle: a.ticket_type_id ? ticketTitleById.get(a.ticket_type_id) ?? "" : "",
-    isChild: a.is_child ?? false,
+    // Child if the row flag OR the live ticket type says so — the row flag is a
+    // point-in-time copy that can go stale (see listPartyChildrenToCheckIn).
+    isChild:
+      (a.is_child ?? false) ||
+      (a.ticket_type_id ? ticketIsChildById.get(a.ticket_type_id) ?? false : false),
     isLead: a.is_lead,
     checkedIn: a.checked_in_at !== null,
     arrivedAt: a.checked_in_at,
