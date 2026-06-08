@@ -5,7 +5,15 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# --ignore-scripts skips lifecycle scripts that fetch CLI binaries over the
+# network (@posthog/cli, supabase) which (a) aren't used during `next build`
+# and (b) intermittently 504 from GitHub releases and fail the whole build.
+# Native deps (sharp, unrs-resolver) ship prebuilt binaries as optional
+# dependency packages, so they still work without their verify scripts.
+# NOTE: if sourcemap upload to PostHog is ever enabled in this image (by
+# passing POSTHOG_PERSONAL_API_KEY + POSTHOG_ENV_ID as build args), the
+# @posthog/cli binary will need to be present — drop --ignore-scripts then.
+RUN npm ci --ignore-scripts
 
 # Build
 FROM base AS builder
