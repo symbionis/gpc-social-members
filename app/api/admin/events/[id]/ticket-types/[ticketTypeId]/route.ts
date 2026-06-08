@@ -48,10 +48,14 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // Event-scoped existence check (IDOR guard) + visibility for null rules.
+  // Event-scoped existence check (IDOR guard). Load the current values too: this is
+  // a PATCH, so any field the caller omits must keep its stored value rather than be
+  // reset to normalizeTicketType's default. (Without this, saving only the guest
+  // price — as the Settings tab does — silently cleared is_child / counts_as_seat,
+  // un-flagging children's tickets so check-in stopped offering the party's kids.)
   const { data: existing } = await adminClient
     .from("event_ticket_types")
-    .select("id")
+    .select("title, price_member, price_non_member, invite_price, counts_as_seat, is_child")
     .eq("id", ticketTypeId)
     .eq("event_id", eventId)
     .maybeSingle();
@@ -68,7 +72,10 @@ export async function PATCH(
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
   }
 
-  const result = normalizeTicketType(body, event.visibility);
+  // Merge the caller's fields over the stored row before validating, so an omitted
+  // field is preserved instead of defaulted away.
+  const patch = typeof body === "object" && body !== null ? body : {};
+  const result = normalizeTicketType({ ...existing, ...patch }, event.visibility);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
