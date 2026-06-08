@@ -67,6 +67,20 @@ export async function GET(
     return NextResponse.json({ error: "format=csv required" }, { status: 400 });
   }
 
+  // A failed load must never be exported as an empty/zeroed sheet — that would put
+  // a confident-but-wrong roster (and catering totals) in front of staff. Fail loud.
+  const failLoad = (scope: string, error: unknown) => {
+    console.error("[admin/events/attendees-csv] query failed", {
+      eventId,
+      scope,
+      err: error,
+    });
+    return NextResponse.json(
+      { error: "Could not load attendees for export" },
+      { status: 500 }
+    );
+  };
+
   const { data: event } = await adminClient
     .from("events")
     .select("id, title, start_date")
@@ -92,7 +106,7 @@ export async function GET(
     checked_in_at: string | null;
     created_at: string;
   }
-  const { data: attendees } = await adminClient
+  const { data: attendees, error: attendeesError } = await adminClient
     .from("event_attendees")
     .select(
       "id, registration_id, member_id, name, email, phone_e164, is_lead, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
@@ -101,14 +115,16 @@ export async function GET(
     .eq("slot_status", "claimed")
     .is("released_at", null)
     .order("created_at", { ascending: true });
+  if (attendeesError) return failLoad("event_attendees", attendeesError);
 
   const roster = (attendees || []) as AttendeeRow[];
 
   // Each person's own ticket type (asado meal) → a per-person column for catering.
-  const { data: typeRows } = await adminClient
+  const { data: typeRows, error: typeRowsError } = await adminClient
     .from("event_ticket_types")
     .select("id, title")
     .eq("event_id", eventId);
+  if (typeRowsError) return failLoad("event_ticket_types", typeRowsError);
   const ticketTitleById = new Map<string, string>();
   for (const t of typeRows ?? []) {
     ticketTitleById.set(t.id as string, (t.title as string | null) ?? "");
@@ -120,10 +136,11 @@ export async function GET(
   const memberIds = [...new Set(roster.map((a) => a.member_id).filter((m): m is string => !!m))];
   const memberNameById = new Map<string, { first: string; last: string }>();
   if (memberIds.length) {
-    const { data: memberRows } = await adminClient
+    const { data: memberRows, error: memberRowsError } = await adminClient
       .from("members")
       .select("id, first_name, last_name")
       .in("id", memberIds);
+    if (memberRowsError) return failLoad("members", memberRowsError);
     for (const m of memberRows ?? []) {
       memberNameById.set(m.id as string, {
         first: (m.first_name as string | null) ?? "",
@@ -142,11 +159,12 @@ export async function GET(
 
   // Tickets per party — the total on the registration, the breakdown on its items.
   // Attributed to the lead row only (mirrors the admin roster list).
-  const { data: regRows } = await adminClient
+  const { data: regRows, error: regRowsError } = await adminClient
     .from("event_registrations")
     .select("id, quantity, reference_code")
     .eq("event_id", eventId)
     .in("status", ["paid", "free"]);
+  if (regRowsError) return failLoad("event_registrations", regRowsError);
   const registrationIds = (regRows ?? []).map((r) => r.id as string);
 
   // Booking reference (EV-XXXX) per registration → grouping/sort key in the sheet.
@@ -163,13 +181,14 @@ export async function GET(
     roster
   );
 
-  const { data: itemRows } = registrationIds.length
+  const { data: itemRows, error: itemRowsError } = registrationIds.length
     ? await adminClient
         .from("event_registration_items")
         .select("registration_id, title_snapshot, quantity")
         .in("registration_id", registrationIds)
         .order("created_at", { ascending: true })
-    : { data: [] };
+    : { data: [], error: null };
+  if (itemRowsError) return failLoad("event_registration_items", itemRowsError);
 
   const ticketQtyByReg = new Map<string, number>();
   for (const r of regRows ?? []) {

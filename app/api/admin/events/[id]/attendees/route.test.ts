@@ -264,4 +264,106 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
     // neutralized with a leading ' (no comma, so no quote-wrapping).
     expect(rows[0].startsWith(`,,'=SUM(A1:A9),`)).toBe(true);
   });
+
+  it("groups parties by their lead's creation time regardless of input order", async () => {
+    // Two parties whose rows arrive interleaved and out of order. Party A's guest
+    // (Amy, 09:00) is created AFTER party B entirely (lead Ben 08:30, guest Bea
+    // 08:45), so a naive per-row created_at sort would scatter Amy away from Ann.
+    // The anchor sort keeps each guest with its lead: A (anchor 08:00) before B
+    // (anchor 08:30), lead-first within each party → Ann, Amy, Ben, Bea.
+    mockedCreateAdminClient.mockReturnValue(
+      adminClient({
+        admins: superAdmin,
+        event,
+        attendees: [
+          {
+            event_id: "evt-1",
+            registration_id: "rA",
+            member_id: null,
+            name: "Amy Apple",
+            email: "amy@x.com",
+            phone_e164: null,
+            is_lead: false,
+            slot_status: "claimed",
+            waiver_accepted_at: null,
+            checked_in_at: null,
+            created_at: "2026-06-01T09:00:00Z",
+          },
+          {
+            event_id: "evt-1",
+            registration_id: "rB",
+            member_id: null,
+            name: "Bea Bee",
+            email: "bea@x.com",
+            phone_e164: null,
+            is_lead: false,
+            slot_status: "claimed",
+            waiver_accepted_at: null,
+            checked_in_at: null,
+            created_at: "2026-06-01T08:45:00Z",
+          },
+          {
+            event_id: "evt-1",
+            registration_id: "rB",
+            member_id: null,
+            name: "Ben Boss",
+            email: "ben@x.com",
+            phone_e164: null,
+            is_lead: true,
+            slot_status: "claimed",
+            waiver_accepted_at: null,
+            checked_in_at: null,
+            created_at: "2026-06-01T08:30:00Z",
+          },
+          {
+            event_id: "evt-1",
+            registration_id: "rA",
+            member_id: null,
+            name: "Ann Ace",
+            email: "ann@x.com",
+            phone_e164: null,
+            is_lead: true,
+            slot_status: "claimed",
+            waiver_accepted_at: null,
+            checked_in_at: null,
+            created_at: "2026-06-01T08:00:00Z",
+          },
+        ],
+        registrations: [
+          { id: "rA", quantity: 2, reference_code: "EV-AAAA" },
+          { id: "rB", quantity: 2, reference_code: "EV-BBBB" },
+        ],
+      })
+    );
+    const res = await get();
+    const { rows } = sections(await res.text());
+    const cells = rows.filter(Boolean).map((r) => r.split(","));
+    // first_name (col 2) in output order — proves the grouping comparator, not the
+    // input order, drives the sheet.
+    expect(cells.map((c) => c[2])).toEqual(["Ann", "Amy", "Ben", "Bea"]);
+    // booking_ref (col 0) confirms guests stay clustered under their own party.
+    expect(cells.map((c) => c[0])).toEqual([
+      "EV-AAAA",
+      "EV-AAAA",
+      "EV-BBBB",
+      "EV-BBBB",
+    ]);
+  });
+
+  it("exports a well-formed sheet for an event with no registrations", async () => {
+    // Export-day-zero: catering pulls the sheet before anyone has registered. The
+    // TOTALS block must still render (Total tickets,0 with no per-type lines), the
+    // header must be present, and there must be no data rows.
+    mockedCreateAdminClient.mockReturnValue(
+      adminClient({ admins: superAdmin, event, attendees: [] })
+    );
+    const res = await get();
+    expect(res.status).toBe(200);
+    const { totals, header, rows } = sections(await res.text());
+    expect(totals).toEqual(["TOTALS", "Total tickets,0"]);
+    expect(header).toBe(
+      "booking_ref,last_name,first_name,email,phone,is_member,party_lead,tickets,party_registered,party_remaining,ticket_types,ticket_type,waiver,arrived,arrived_at"
+    );
+    expect(rows.filter(Boolean)).toEqual([]);
+  });
 });

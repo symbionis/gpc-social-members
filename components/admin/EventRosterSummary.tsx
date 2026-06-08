@@ -17,8 +17,6 @@ export interface TicketTypeSummaryRow {
   isChild: boolean;
   /** Tickets purchased of this type (event_registration_items by ticket_type_id). */
   sold: number;
-  /** Pre-registered people on the roster holding this type. */
-  claimed: number;
 }
 
 interface Props {
