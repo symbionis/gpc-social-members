@@ -88,7 +88,7 @@ export async function matchContact(
 
   if (email) {
     const { data, error } = await supabase
-      .from("event_attendees")
+      .from("tickets")
       .select("id, email, phone_e164, created_at")
       .eq("event_id", eventId)
       .eq("slot_status", "claimed")
@@ -100,7 +100,7 @@ export async function matchContact(
 
   if (phone) {
     const { data, error } = await supabase
-      .from("event_attendees")
+      .from("tickets")
       .select("id, email, phone_e164, created_at")
       .eq("event_id", eventId)
       .eq("slot_status", "claimed")
@@ -155,7 +155,7 @@ export async function recordAttendeeCheckin(
   const supabase = createAdminClient();
 
   const { data: attendee, error } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .select("id, name, registration_id, ticket_type_id, waiver_accepted_at, language, marketing_consent, checked_in_at")
     .eq("id", input.attendeeId)
     .eq("event_id", input.eventId)
@@ -193,7 +193,7 @@ export async function recordAttendeeCheckin(
   // double-stamp the arrival (or re-stamp the waiver). If zero rows update, another
   // submit won the race — re-read and report idempotently rather than overwriting.
   const { data: updated, error: updateError } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .update(update)
     .eq("id", input.attendeeId)
     .eq("event_id", input.eventId)
@@ -203,7 +203,7 @@ export async function recordAttendeeCheckin(
 
   if (!updated || updated.length === 0) {
     const { data: existing } = await supabase
-      .from("event_attendees")
+      .from("tickets")
       .select("checked_in_at")
       .eq("id", input.attendeeId)
       .eq("event_id", input.eventId)
@@ -230,7 +230,7 @@ export async function listPartyChildrenToCheckIn(
   // the kids prompt working through that drift. We therefore can't filter is_child
   // in the query; pull the party's outstanding rows and decide in code.
   const { data, error } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .select("id, name, is_child, event_ticket_types(title, is_child)")
     .eq("event_id", eventId)
     .eq("registration_id", registrationId)
@@ -277,7 +277,7 @@ export async function checkInChildren(
   // stale — see listPartyChildrenToCheckIn). This keeps the "children only" safety
   // scope while tolerating that drift; an adult id passed in is still rejected.
   const { data: rows, error: selError } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .select("id, is_child, event_ticket_types(is_child)")
     .in("id", attendeeIds)
     .eq("event_id", eventId)
@@ -297,7 +297,7 @@ export async function checkInChildren(
   // Flip only the resolved child ids. The checked_in_at IS NULL guard keeps a
   // concurrent double-tap from double-stamping the arrival.
   const { data, error } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .update({ checked_in_at: new Date().toISOString() })
     .in("id", childIds)
     .eq("event_id", eventId)

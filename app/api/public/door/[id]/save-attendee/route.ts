@@ -61,7 +61,7 @@ export async function POST(
   // ----- Edit an existing slot -----
   if (attendeeId) {
     const { data: existing, error: exErr } = await supabase
-      .from("event_attendees")
+      .from("tickets")
       .select("id, is_child, checked_in_at")
       .eq("id", attendeeId)
       .eq("event_id", eventId)
@@ -83,7 +83,7 @@ export async function POST(
     }
 
     const { error: upErr } = await supabase
-      .from("event_attendees")
+      .from("tickets")
       .update({ name, email: email || null, phone_e164: phone || null })
       .eq("id", attendeeId)
       .eq("event_id", eventId);
@@ -153,7 +153,7 @@ export async function POST(
   const purchased = (items ?? []).reduce((sum, r) => sum + ((r.quantity as number | null) ?? 0), 0);
 
   const { count, error: countErr } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .select("id", { count: "exact", head: true })
     .eq("registration_id", registrationId)
     .eq("ticket_type_id", ticketTypeId)
@@ -168,7 +168,7 @@ export async function POST(
   }
 
   const { data: inserted, error: insErr } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .insert({
       event_id: eventId,
       registration_id: registrationId,

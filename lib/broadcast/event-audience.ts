@@ -140,7 +140,7 @@ async function fetchCheckins(
   let from = 0;
   while (true) {
     const { data, error } = await supabase
-      .from("event_attendees")
+      .from("tickets")
       .select("email, name, member_id, marketing_consent")
       .eq("event_id", eventId)
       .not("checked_in_at", "is", null)

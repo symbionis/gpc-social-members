@@ -86,7 +86,7 @@ export default async function SelfRegistrationPage({
   // counts). The claim RPC re-derives this under a row lock, so this read is only
   // for display; a race that fills the last slot is reported at submit time.
   const { data: claimed } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .select("id, ticket_type_id")
     .eq("registration_id", registration.id)
     .eq("slot_status", "claimed")

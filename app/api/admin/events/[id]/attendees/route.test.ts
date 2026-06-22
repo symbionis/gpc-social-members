@@ -48,7 +48,7 @@ function adminClient(opts: {
       c.single = async () => ({ data: opts.event, error: opts.event ? null : { message: "not found" } });
       (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) => {
         if (table === "admin_users") return resolve({ data: opts.admins, error: null });
-        if (table === "event_attendees") {
+        if (table === "tickets") {
           let rows = opts.attendees;
           for (const [col, val] of eqs) rows = rows.filter((r) => r[col] === val);
           return resolve({ data: rows, error: null });

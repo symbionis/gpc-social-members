@@ -84,7 +84,7 @@ export default async function ManageEventPage({
   // arrival (event_checkins is frozen). The roster is flat — one row per person,
   // claimed slots only (unclaimed Milestone-2 placeholders have no identity yet).
   const { data: attendeeRows, error: attendeeRowsError } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .select(
       "id, registration_id, member_id, name, email, phone_e164, is_lead, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
     )

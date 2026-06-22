@@ -107,7 +107,7 @@ export async function GET(
     created_at: string;
   }
   const { data: attendees, error: attendeesError } = await adminClient
-    .from("event_attendees")
+    .from("tickets")
     .select(
       "id, registration_id, member_id, name, email, phone_e164, is_lead, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
     )

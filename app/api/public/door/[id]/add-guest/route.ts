@@ -63,7 +63,7 @@ export async function POST(
   if (!reg) return bad("Party not found", 404);
 
   const { count, error: countErr } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .select("id", { count: "exact", head: true })
     .eq("registration_id", registrationId)
     .eq("slot_status", "claimed")
@@ -91,7 +91,7 @@ export async function POST(
   }
 
   const { data: inserted, error: insErr } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .insert({
       event_id: eventId,
       registration_id: registrationId,

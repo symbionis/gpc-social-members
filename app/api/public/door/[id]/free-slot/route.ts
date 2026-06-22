@@ -42,7 +42,7 @@ export async function POST(
   const supabase = createAdminClient();
 
   const { data: attendee, error: loadErr } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .select("id, is_lead, checked_in_at, released_at")
     .eq("id", attendeeId)
     .eq("event_id", eventId)
@@ -67,7 +67,7 @@ export async function POST(
   // erased by a release that raced it.
   const now = new Date().toISOString();
   const { data: updated, error: updErr } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .update({ released_at: now })
     .eq("id", attendeeId)
     .eq("event_id", eventId)

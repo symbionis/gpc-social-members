@@ -32,7 +32,7 @@ function adminClient(opts: {
       c.insert = () => c;
       c.update = () => c;
       c.maybeSingle = async () => {
-        if (table === "event_attendees") return { data: opts.existing ?? null, error: null };
+        if (table === "tickets") return { data: opts.existing ?? null, error: null };
         if (table === "event_registrations") return { data: opts.reg ?? null, error: null };
         if (table === "event_ticket_types") return { data: opts.type ?? null, error: null };
         return { data: null, error: null };

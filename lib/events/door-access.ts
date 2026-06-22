@@ -88,7 +88,7 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
   const registrations = (regRows ?? []) as RegRow[];
 
   const { data: attRows } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .select(
       "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, is_child, checked_in_at, created_at"
     )
