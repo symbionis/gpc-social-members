@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
 import BookingManager, { type BookingTicket } from "@/components/public/BookingManager";
 import { credentialUrl } from "@/lib/events/credential";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatCurrency } from "@/lib/format";
 
 // Don't leak the secret manage_token to outbound links / analytics via Referer.
 export const metadata: Metadata = { referrer: "no-referrer" };
@@ -49,7 +49,7 @@ export default async function BookingPage({
 
   const { data: registration } = await supabase
     .from("event_registrations")
-    .select("id, event_id, name, quantity, status, reference_code")
+    .select("id, event_id, name, quantity, status, reference_code, is_member")
     .eq("manage_token", token)
     .limit(1)
     .maybeSingle();
@@ -95,7 +95,7 @@ export default async function BookingPage({
 
   const { data: typeRows } = await supabase
     .from("event_ticket_types")
-    .select("id, title, is_child, sort_order")
+    .select("id, title, is_child, sort_order, price_member, price_non_member, archived_at")
     .eq("event_id", registration.event_id);
   const titleById = new Map<string, string>();
   const isChildById = new Map<string, boolean>();
@@ -105,6 +105,26 @@ export default async function BookingPage({
     isChildById.set(t.id as string, Boolean(t.is_child));
     sortById.set(t.id as string, (t.sort_order as number | null) ?? 0);
   }
+
+  // Ticket types the lead can buy more of: active types, priced at the booking's rate.
+  const buyableTypes = (typeRows ?? [])
+    .filter((t) => !t.archived_at)
+    .sort((a, b) => ((a.sort_order as number) ?? 0) - ((b.sort_order as number) ?? 0))
+    .map((t) => {
+      const unit = registration.is_member ? t.price_member : t.price_non_member;
+      const amount = unit === null ? null : Number(unit);
+      return {
+        id: t.id as string,
+        title: (t.title as string | null) ?? "Ticket",
+        priceLabel:
+          amount === null || !Number.isFinite(amount)
+            ? "—"
+            : amount === 0
+              ? "Free"
+              : formatCurrency(amount),
+      };
+    })
+    .filter((t) => t.priceLabel !== "—");
 
   const tickets: BookingTicket[] = (ticketRows ?? [])
     .slice()
@@ -140,6 +160,8 @@ export default async function BookingPage({
       tickets={tickets}
       fillEndpoint={`/api/public/bookings/${token}/fill`}
       forwardEndpoint={`/api/public/bookings/${token}/forward`}
+      topupEndpoint={`/api/public/bookings/${token}/topup`}
+      buyableTypes={buyableTypes}
       variant="booking"
     />
   );

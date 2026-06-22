@@ -447,6 +447,41 @@ export type Database = {
           },
         ]
       }
+      event_registration_topups: {
+        Row: {
+          applied_at: string | null
+          created_at: string
+          id: string
+          items: Json
+          registration_id: string
+          status: string
+        }
+        Insert: {
+          applied_at?: string | null
+          created_at?: string
+          id?: string
+          items: Json
+          registration_id: string
+          status?: string
+        }
+        Update: {
+          applied_at?: string | null
+          created_at?: string
+          id?: string
+          items?: Json
+          registration_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_registration_topups_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_registrations: {
         Row: {
           converted_by: string | null
@@ -1549,6 +1584,7 @@ export type Database = {
         Args: { p_names: string[]; p_token: string }
         Returns: Json
       }
+      apply_registration_topup: { Args: { p_topup_id: string }; Returns: Json }
       claim_self_registration: {
         Args: {
           p_email: string

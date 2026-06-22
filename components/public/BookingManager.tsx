@@ -27,6 +27,10 @@ interface Props {
   variant?: "booking" | "batch";
   /** When set, show the "forward a batch" panel posting to this endpoint (lead only). */
   forwardEndpoint?: string;
+  /** When set, show the "buy more tickets" panel posting to this endpoint (lead only). */
+  topupEndpoint?: string;
+  /** Ticket types the lead can buy more of (with a display price label). */
+  buyableTypes?: { id: string; title: string; priceLabel: string }[];
 }
 
 export default function BookingManager({
@@ -38,6 +42,8 @@ export default function BookingManager({
   fillEndpoint,
   variant = "booking",
   forwardEndpoint,
+  topupEndpoint,
+  buyableTypes,
 }: Props) {
   const [tickets, setTickets] = useState<BookingTicket[]>(initialTickets);
   const namedCount = useMemo(
@@ -70,6 +76,10 @@ export default function BookingManager({
           endpoint={forwardEndpoint}
           tickets={tickets.filter((t) => !t.checkedIn)}
         />
+      )}
+
+      {topupEndpoint && buyableTypes && buyableTypes.length > 0 && (
+        <BuyMorePanel endpoint={topupEndpoint} types={buyableTypes} />
       )}
 
       <div className="flex items-center justify-between rounded-xl border border-border/60 bg-white px-4 py-3 text-sm font-body">
@@ -194,6 +204,112 @@ function ForwardPanel({
             className="rounded-lg bg-marine px-4 py-2 text-sm font-body font-semibold text-white disabled:opacity-50"
           >
             {sending ? "Sending…" : `Forward ${selected.size || ""} ticket${selected.size === 1 ? "" : "s"}`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BuyMorePanel({
+  endpoint,
+  types,
+}: {
+  endpoint: string;
+  types: { id: string; title: string; priceLabel: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [qty, setQty] = useState<Record<string, number>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const totalSelected = Object.values(qty).reduce((s, n) => s + (n || 0), 0);
+  const set = (id: string, n: number) =>
+    setQty((prev) => ({ ...prev, [id]: Math.max(0, n) }));
+
+  const submit = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const items = Object.entries(qty)
+        .filter(([, n]) => n > 0)
+        .map(([ticketTypeId, quantity]) => ({ ticketTypeId, quantity }));
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        checkoutUrl?: string;
+        redirectUrl?: string;
+      };
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? "Could not start the top-up.");
+        return;
+      }
+      const next = data.checkoutUrl ?? data.redirectUrl;
+      if (next) window.location.href = next;
+    } catch {
+      setError("Could not start the top-up.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-border/60 bg-white p-4 shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <span className="font-heading text-sm font-bold text-marine">Buy more tickets</span>
+        <span className="font-body text-xs text-marine/60">{open ? "Hide" : "Open"}</span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3">
+          <p className="font-body text-xs text-marine/70">
+            Add tickets to this booking. After payment they appear here with their own QR
+            codes, ready to name or forward.
+          </p>
+          <ul className="space-y-2">
+            {types.map((t) => (
+              <li key={t.id} className="flex items-center justify-between gap-3">
+                <span className="font-body text-sm text-marine">
+                  {t.title} <span className="text-marine/60">· {t.priceLabel}</span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => set(t.id, (qty[t.id] || 0) - 1)}
+                    className="h-7 w-7 rounded-lg border border-border/60 font-body text-marine"
+                  >
+                    −
+                  </button>
+                  <span className="w-6 text-center font-body text-sm text-marine">
+                    {qty[t.id] || 0}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => set(t.id, (qty[t.id] || 0) + 1)}
+                    className="h-7 w-7 rounded-lg border border-border/60 font-body text-marine"
+                  >
+                    +
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {error && <p className="text-xs font-body text-red-600">{error}</p>}
+          <button
+            type="button"
+            onClick={submit}
+            disabled={submitting || totalSelected === 0}
+            className="rounded-lg bg-marine px-4 py-2 text-sm font-body font-semibold text-white disabled:opacity-50"
+          >
+            {submitting ? "Starting…" : `Add ${totalSelected || ""} ticket${totalSelected === 1 ? "" : "s"}`}
           </button>
         </div>
       )}

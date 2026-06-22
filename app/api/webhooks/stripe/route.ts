@@ -176,6 +176,36 @@ export async function POST(request: NextRequest) {
       // webhook may race the post-create update.
       const eventRegistrationId = session.metadata?.event_registration_id;
       if (eventRegistrationId) {
+        // TOP-UP branch (U6) — MUST run before the paid short-circuit below. A top-up
+        // checkout carries the existing (already-'paid') registration id; without this
+        // branch the short-circuit would ack it and mint nothing, charging for tickets
+        // that never appear. apply_registration_topup is idempotent (keyed on the
+        // top-up id), and mint is idempotent, so a webhook replay is safe.
+        const topupId =
+          session.metadata?.topup === "true" ? session.metadata?.topup_id : undefined;
+        if (topupId) {
+          const { data: applied, error: applyErr } = await supabase.rpc(
+            "apply_registration_topup",
+            { p_topup_id: topupId }
+          );
+          if (applyErr) {
+            console.error("[webhook] apply_registration_topup failed — 500 for retry", {
+              topupId,
+              err: applyErr,
+            });
+            return NextResponse.json({ error: "Top-up apply failed" }, { status: 500 });
+          }
+          const topupStatus = (applied as { status?: string } | null)?.status;
+          if (topupStatus === "not_found") {
+            // Metadata names a top-up that doesn't exist; not retryable.
+            console.error("[webhook] top-up id in metadata not found", { topupId });
+            return NextResponse.json({ received: true });
+          }
+          // Mint the newly-purchased slots (idempotent — only the shortfall is minted).
+          await mintRegistrationTickets(eventRegistrationId);
+          return NextResponse.json({ received: true, topup: topupStatus });
+        }
+
         const { data: existing, error: lookupErr } = await supabase
           .from("event_registrations")
           .select("id, status")
