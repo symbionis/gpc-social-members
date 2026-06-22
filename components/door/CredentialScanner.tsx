@@ -10,9 +10,12 @@ import jsQR from "jsqr";
 export default function CredentialScanner({
   active,
   onDecode,
+  videoClassName = "h-64 w-full object-cover",
 }: {
   active: boolean;
   onDecode: (value: string) => void;
+  /** Sizing for the camera preview — the door scan modal passes a taller, full-bleed class. */
+  videoClassName?: string;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -95,7 +98,7 @@ export default function CredentialScanner({
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-marine/20 bg-black">
-      <video ref={videoRef} playsInline muted className="h-64 w-full object-cover" />
+      <video ref={videoRef} playsInline muted className={videoClassName} />
       <canvas ref={canvasRef} className="hidden" />
       {active && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

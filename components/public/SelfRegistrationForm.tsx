@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import PhoneInput from "@/components/common/PhoneInput";
-import { getWaiver, type WaiverLanguage } from "@/lib/events/waiver";
+import { type WaiverLanguage } from "@/lib/events/waiver";
+import WaiverText from "@/components/events/WaiverText";
 
 interface Props {
   token: string;
@@ -289,8 +290,6 @@ export default function SelfRegistrationForm({
     }
   }
 
-  const waiver = getWaiver(lang);
-
   return (
     <div className="bg-white rounded-2xl border border-border/60 shadow-sm p-6 sm:p-8">
       {header}
@@ -425,32 +424,7 @@ export default function SelfRegistrationForm({
             {t.waiverHeading}
           </h2>
           <p className="font-body text-xs text-marine/60 mb-3">{t.waiverHelp}</p>
-          <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-white p-3 text-sm font-body text-marine">
-            <h3 className="font-heading text-sm font-bold text-marine">
-              {waiver.title}
-            </h3>
-            <p className="mb-3">{waiver.intro}</p>
-            <ol className="space-y-3 list-decimal pl-4">
-              {waiver.clauses.map((clause, i) => (
-                <li key={i}>
-                  <span className="font-semibold">{clause.heading}</span>
-                  {clause.paragraphs.map((p, j) => (
-                    <p key={j} className="mt-1">
-                      {p}
-                    </p>
-                  ))}
-                  {clause.bullets && (
-                    <ul className="list-disc pl-5 mt-1">
-                      {clause.bullets.map((b, k) => (
-                        <li key={k}>{b}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {clause.closing && <p className="mt-1">{clause.closing}</p>}
-                </li>
-              ))}
-            </ol>
-          </div>
+          <WaiverText lang={lang} />
 
           <label className="mt-3 flex items-start gap-3 cursor-pointer">
             <input
