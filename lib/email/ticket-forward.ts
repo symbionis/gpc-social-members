@@ -14,6 +14,10 @@ interface ForwardEmailInput {
   ticketCount: number;
   senderName: string | null;
   batchUrl: string;
+  /** The forwarded tickets, each with a hosted QR image (qrcode.react can't run in
+   *  email). Mustachio section {{#tickets}} {{label}} {{name}} <img src="{{qr_url}}">
+   *  {{/tickets}}; name is null (not "") for an unnamed ticket. */
+  tickets: { label: string; name: string | null; qr_url: string }[];
 }
 
 const TEMPLATE_ALIAS = "event-ticket-forward";
@@ -29,6 +33,7 @@ export async function sendTicketForwardEmail(input: ForwardEmailInput) {
       // null (not "") so the Mustachio block is omitted when the lead has no name.
       sender_name: input.senderName || null,
       batch_url: input.batchUrl,
+      tickets: input.tickets,
       preheader: `You've been sent ${input.ticketCount} ticket${
         input.ticketCount === 1 ? "" : "s"
       } for ${input.eventTitle}.`,

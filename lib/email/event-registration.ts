@@ -42,7 +42,7 @@ export async function sendEventRegistrationConfirmation(
   const { data: registration, error: regErr } = await supabase
     .from("event_registrations")
     .select(
-      "id, name, email, quantity, total_amount_chf, reference_code, status, event_id, self_reg_token"
+      "id, name, email, quantity, total_amount_chf, reference_code, status, event_id, self_reg_token, manage_token"
     )
     .eq("id", registrationId)
     .limit(1)
@@ -123,6 +123,30 @@ export async function sendEventRegistrationConfirmation(
       ? `${appUrl}/public/registrations/${registration.self_reg_token}`
       : null;
 
+  // Lead "My Booking" page (FEAT-41): name/forward tickets, see every QR, buy more.
+  // null (never "") so the Mustachio block is omitted when there's no token.
+  const manageUrl = registration.manage_token
+    ? `${appUrl}/public/bookings/${registration.manage_token}`
+    : null;
+
+  // Per-ticket QR block: each live ticket's bearer credential as a hosted QR image
+  // (qrcode.react can't run in email). Mustachio section {{#tickets}} {{label}}
+  // {{name}} <img src="{{qr_url}}"> {{/tickets}}; name is null (not "") for unnamed.
+  const { data: ticketRows } = await supabase
+    .from("tickets")
+    .select("credential_token, name")
+    .eq("registration_id", registrationId)
+    .in("slot_status", ["issued", "claimed"])
+    .is("released_at", null)
+    .order("created_at", { ascending: true });
+  const tickets = (ticketRows ?? [])
+    .filter((t) => t.credential_token)
+    .map((t, i) => ({
+      label: `Ticket ${i + 1}`,
+      name: (t.name as string | null)?.trim() || null,
+      qr_url: `${appUrl}/api/qr/${t.credential_token as string}`,
+    }));
+
   const result = await sendEmail({
     to: registration.email,
     templateAlias: TEMPLATE_ALIAS,
@@ -141,6 +165,11 @@ export async function sendEventRegistrationConfirmation(
       // Lead shares this so the rest of their party self-registers (null = solo
       // booking / no token → the template's share block is omitted).
       self_registration_url: selfRegUrl,
+      // Lead booking page: name tickets, share each QR, forward batches, buy more.
+      manage_url: manageUrl,
+      // Per-ticket QR codes (FEAT-41). Empty array → the {{#tickets}} block renders
+      // nothing (the lead can still reach every QR via manage_url).
+      tickets,
       preheader: `You're registered for ${event.title}. Reference ${registration.reference_code}.`,
     },
   });

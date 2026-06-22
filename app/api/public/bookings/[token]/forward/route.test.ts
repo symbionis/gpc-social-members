@@ -18,11 +18,16 @@ function adminClient(fwd: Record<string, unknown> | null) {
       const c: Record<string, unknown> = {};
       c.select = () => c;
       c.eq = () => c;
+      c.is = () => c;
+      c.order = () => c;
       c.limit = () => c;
       c.maybeSingle = async () =>
         table === "event_registrations"
           ? { data: { name: "Lead", event_id: "evt" }, error: null }
           : { data: { title: "Asado", start_date: "2026-07-01" }, error: null };
+      // The forwarded-tickets read (for the email QRs) is awaited directly.
+      (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
+        resolve({ data: [{ credential_token: "credZZZ", name: null }], error: null });
       return c;
     },
   } as unknown as ReturnType<typeof createAdminClient>;

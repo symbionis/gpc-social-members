@@ -83,6 +83,22 @@ export async function POST(
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const batchUrl = `${appUrl}/public/batches/${fwd.batch_token}`;
 
+  // The forwarded tickets' QRs go in the email (hosted images — qrcode.react can't
+  // run in email). Best-effort: a read failure still sends the batch link.
+  const { data: batchTickets } = await supabase
+    .from("tickets")
+    .select("credential_token, name")
+    .eq("batch_token", fwd.batch_token)
+    .is("released_at", null)
+    .order("created_at", { ascending: true });
+  const tickets = (batchTickets ?? [])
+    .filter((t) => t.credential_token)
+    .map((t, i) => ({
+      label: `Ticket ${i + 1}`,
+      name: (t.name as string | null)?.trim() || null,
+      qr_url: `${appUrl}/api/qr/${t.credential_token as string}`,
+    }));
+
   await sendTicketForwardEmail({
     to: email,
     eventTitle,
@@ -90,6 +106,7 @@ export async function POST(
     ticketCount: fwd.count ?? ticketIds.length,
     senderName: (reg?.name as string | null) ?? null,
     batchUrl,
+    tickets,
   });
 
   return NextResponse.json({ ok: true, count: fwd.count, batchUrl });

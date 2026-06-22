@@ -203,6 +203,13 @@ export async function POST(request: NextRequest) {
           }
           // Mint the newly-purchased slots (idempotent — only the shortfall is minted).
           await mintRegistrationTickets(eventRegistrationId);
+          // Send an updated confirmation (carries manage_url + every ticket's QR, now
+          // including the new ones) so the lead can name/forward them. Best-effort.
+          if (topupStatus === "applied") {
+            await sendEventRegistrationConfirmation(eventRegistrationId).catch((err) =>
+              console.error("[webhook] top-up confirmation email failed", err)
+            );
+          }
           return NextResponse.json({ received: true, topup: topupStatus });
         }
 
