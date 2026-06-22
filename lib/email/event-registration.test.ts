@@ -16,7 +16,7 @@ function adminClient(opts: {
   registration: Record<string, unknown>;
   event: Record<string, unknown>;
   items: Item[] | null;
-  tickets?: { credential_token: string | null; name: string | null }[];
+  tickets?: { credential_token: string | null; name: string | null; is_lead?: boolean }[];
 }) {
   return {
     from: (table: string) => {
@@ -125,27 +125,37 @@ describe("sendEventRegistrationConfirmation — ticket_lines breakdown", () => {
   });
 });
 
-describe("sendEventRegistrationConfirmation — booking link + per-ticket QRs (FEAT-41)", () => {
-  it("includes manage_url and a hosted QR per live ticket (name null when unnamed)", async () => {
+describe("sendEventRegistrationConfirmation — booking link + lead QR (FEAT-41)", () => {
+  it("includes manage_url and ONLY the lead's own QR (the code they show at the door)", async () => {
+    // The DB query filters is_lead=true, so the row set is the lead's ticket only;
+    // guests' QRs are reached via the booking page (manage_url), not the email.
     mockedAdmin.mockReturnValue(
       adminClient({
         registration: { ...baseReg, manage_token: "mtok-xyz" },
         event: baseEvent,
         items: [],
-        tickets: [
-          { credential_token: "credAAA", name: "Jean" },
-          { credential_token: "credBBB", name: null },
-          { credential_token: null, name: "skip-me" },
-        ],
+        tickets: [{ credential_token: "credAAA", name: "Jean", is_lead: true }],
       })
     );
     await sendEventRegistrationConfirmation("reg-1");
     const model = lastModel();
     expect(model.manage_url).toBe("http://localhost:3000/public/bookings/mtok-xyz");
     expect(model.tickets).toEqual([
-      { label: "Ticket 1", name: "Jean", qr_url: "http://localhost:3000/api/qr/credAAA" },
-      { label: "Ticket 2", name: null, qr_url: "http://localhost:3000/api/qr/credBBB" },
+      { label: "Your ticket", name: "Jean", qr_url: "http://localhost:3000/api/qr/credAAA" },
     ]);
+  });
+
+  it("drops a lead ticket with no credential token (QR still reachable via manage_url)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        registration: { ...baseReg, manage_token: "mtok-xyz" },
+        event: baseEvent,
+        items: [],
+        tickets: [{ credential_token: null, name: "Jean", is_lead: true }],
+      })
+    );
+    await sendEventRegistrationConfirmation("reg-1");
+    expect(lastModel().tickets).toEqual([]);
   });
 
   it("manage_url is null (never empty) when the registration has no token", async () => {
