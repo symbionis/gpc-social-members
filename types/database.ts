@@ -1350,6 +1350,7 @@ export type Database = {
       }
       tickets: {
         Row: {
+          batch_token: string | null
           checked_in_at: string | null
           created_at: string
           credential_token: string | null
@@ -1371,6 +1372,7 @@ export type Database = {
           waiver_version: string | null
         }
         Insert: {
+          batch_token?: string | null
           checked_in_at?: string | null
           created_at?: string
           credential_token?: string | null
@@ -1392,6 +1394,7 @@ export type Database = {
           waiver_version?: string | null
         }
         Update: {
+          batch_token?: string | null
           checked_in_at?: string | null
           created_at?: string
           credential_token?: string | null
@@ -1593,6 +1596,20 @@ export type Database = {
         Args: { p_event: Json; p_types: Json }
         Returns: string
       }
+      fill_batch_ticket: {
+        Args: {
+          p_batch_token: string
+          p_email: string
+          p_language: string
+          p_marketing_consent: boolean
+          p_name: string
+          p_phone_e164: string
+          p_ticket_id: string
+          p_waiver_accepted: boolean
+          p_waiver_version: string
+        }
+        Returns: Json
+      }
       fill_ticket: {
         Args: {
           p_email: string
@@ -1605,6 +1622,10 @@ export type Database = {
           p_waiver_accepted: boolean
           p_waiver_version: string
         }
+        Returns: Json
+      }
+      forward_ticket_batch: {
+        Args: { p_manage_token: string; p_ticket_ids: string[] }
         Returns: Json
       }
       import_event_attendees: {

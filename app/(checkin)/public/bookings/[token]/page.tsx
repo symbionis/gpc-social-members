@@ -133,13 +133,14 @@ export default async function BookingPage({
 
   return shell(
     <BookingManager
-      token={token}
       eventTitle={event.title as string}
       eventDate={formatDate(event.start_date as string)}
-      leadName={(registration.name as string | null) ?? ""}
       referenceCode={(registration.reference_code as string | null) ?? ""}
       quantity={(registration.quantity as number) ?? tickets.length}
       tickets={tickets}
+      fillEndpoint={`/api/public/bookings/${token}/fill`}
+      forwardEndpoint={`/api/public/bookings/${token}/forward`}
+      variant="booking"
     />
   );
 }
