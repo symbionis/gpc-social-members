@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export interface BookingTicket {
   id: string;
   name: string;
@@ -13,7 +15,7 @@ export interface BookingTicket {
   status: string; // 'issued' | 'claimed'
   checkedIn: boolean;
   credentialUrl: string;
-  /** This is the lead booker's own ticket — it stays with them (no forwarding). */
+  /** This is the lead booker's own ticket — it stays with them, read-only. */
   isLead: boolean;
   /** Already handed to a guest via forwarding — shown read-only with an indicator. */
   forwarded: boolean;
@@ -29,7 +31,7 @@ interface Props {
   fillEndpoint: string;
   /** Heading/intro variant: the lead's whole booking vs a delegate's forwarded batch. */
   variant?: "booking" | "batch";
-  /** When set, each non-lead ticket gets a "Forward" action posting to this endpoint (lead only). */
+  /** When set, enable forwarding (per-ticket "Save & forward" + multi-select panel). Lead only. */
   forwardEndpoint?: string;
   /** When set, show the "buy more tickets" panel posting to this endpoint (lead only). */
   topupEndpoint?: string;
@@ -58,8 +60,13 @@ export default function BookingManager({
   const onSaved = (updated: BookingTicket) =>
     setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
 
-  const onForwarded = (id: string) =>
-    setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, forwarded: true } : t)));
+  const onForwarded = (ids: string[]) => {
+    const set = new Set(ids);
+    setTickets((prev) => prev.map((t) => (set.has(t.id) ? { ...t, forwarded: true } : t)));
+  };
+
+  // Tickets the lead may forward: not their own, not already forwarded, not checked in.
+  const forwardable = tickets.filter((t) => !t.isLead && !t.forwarded && !t.checkedIn);
 
   return (
     <div className="space-y-7">
@@ -72,7 +79,7 @@ export default function BookingManager({
         <h2 className="font-heading text-lg font-bold text-marine mb-1.5">Your tickets</h2>
         <p className="font-body text-base leading-relaxed text-marine/90">
           Tickets are nominative — a name must be added to each ticket for it to be valid.
-          Add a name to every ticket, then share its QR code with that guest. Each code
+          Name each ticket, or forward it to your guest so they can name it. Each QR code
           admits one person at the entrance.
         </p>
       </div>
@@ -87,6 +94,14 @@ export default function BookingManager({
         </span>
       </div>
 
+      {forwardEndpoint && forwardable.length > 1 && (
+        <ForwardManyPanel
+          endpoint={forwardEndpoint}
+          tickets={forwardable}
+          onForwarded={onForwarded}
+        />
+      )}
+
       <ul className="space-y-4">
         {tickets.map((t, i) => (
           <TicketCard
@@ -96,13 +111,132 @@ export default function BookingManager({
             index={i + 1}
             ticket={t}
             onSaved={onSaved}
-            onForwarded={onForwarded}
+            onForwarded={(id) => onForwarded([id])}
           />
         ))}
       </ul>
 
       {topupEndpoint && buyableTypes && buyableTypes.length > 0 && (
         <BuyMorePanel endpoint={topupEndpoint} types={buyableTypes} />
+      )}
+    </div>
+  );
+}
+
+/** Multi-select: forward several tickets to one person (e.g. a family's lead). */
+function ForwardManyPanel({
+  endpoint,
+  tickets,
+  onForwarded,
+}: {
+  endpoint: string;
+  tickets: BookingTicket[];
+  onForwarded: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [email, setEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sentCount, setSentCount] = useState<number | null>(null);
+
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const send = async () => {
+    if (!EMAIL_RE.test(email.trim())) {
+      setError("Enter a valid recipient email.");
+      return;
+    }
+    setSending(true);
+    setError(null);
+    try {
+      const ids = [...selected];
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ticketIds: ids, email: email.trim() }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string; count?: number };
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? "Could not forward. Please try again.");
+        return;
+      }
+      setSentCount(data.count ?? ids.length);
+      onForwarded(ids);
+      setSelected(new Set());
+      setEmail("");
+    } catch {
+      setError("Could not forward. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-border/70 bg-white p-5 shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <span className="font-heading text-base font-bold text-marine">
+          Forward several tickets to one person
+        </span>
+        <span className="font-body text-sm text-marine/70">{open ? "Hide" : "Open"}</span>
+      </button>
+
+      {open && (
+        <div className="mt-4 space-y-3 rounded-xl bg-marine/5 p-4">
+          {sentCount !== null && (
+            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-body text-emerald-800">
+              Sent {sentCount} ticket{sentCount === 1 ? "" : "s"}. They’ll get an email with the
+              QR codes and can name each one.
+            </p>
+          )}
+          <p className="font-body text-sm text-marine/80">
+            Tick the tickets to send, then enter one recipient’s email — handy for sending a
+            whole family’s tickets to that family’s lead.
+          </p>
+          <ul className="max-h-56 space-y-1 overflow-auto">
+            {tickets.map((t, i) => (
+              <li key={t.id}>
+                <label className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-base font-body text-marine">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(t.id)}
+                    onChange={() => toggle(t.id)}
+                  />
+                  <span>
+                    Ticket {i + 1} · {t.typeTitle || "Ticket"}
+                    {t.name ? ` · ${t.name}` : " · unnamed"}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Recipient email"
+            inputMode="email"
+            className="w-full rounded-lg border border-marine/20 bg-white px-3 py-2.5 text-base font-body"
+          />
+          {error && <p className="text-sm font-body text-red-600">{error}</p>}
+          <button
+            type="button"
+            onClick={send}
+            disabled={sending || selected.size === 0 || !email.trim()}
+            className="w-full rounded-lg bg-marine px-4 py-3 text-base font-body font-semibold text-white disabled:opacity-50"
+          >
+            {sending ? "Sending…" : `Forward ${selected.size || ""} ticket${selected.size === 1 ? "" : "s"}`}
+          </button>
+        </div>
       )}
     </div>
   );
@@ -232,45 +366,90 @@ function TicketCard({
   onForwarded: (id: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [forwarding, setForwarding] = useState(false);
   const [name, setName] = useState(ticket.name);
   const [email, setEmail] = useState(ticket.email);
   const [phone, setPhone] = useState(ticket.phone);
-  const [consent, setConsent] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState<null | "save" | "forward">(null);
   const [error, setError] = useState<string | null>(null);
 
   const named = ticket.name.trim().length > 0;
-  // The lead's own ticket stays with them; forwarded tickets are now the guest's to manage.
-  const canForward = Boolean(forwardEndpoint) && !ticket.isLead && !ticket.forwarded && !ticket.checkedIn;
-  const canEdit = !ticket.checkedIn && !ticket.forwarded;
+  // The lead's own ticket stays with them; forwarded/checked-in tickets are read-only.
+  const editable = !ticket.isLead && !ticket.forwarded && !ticket.checkedIn;
+  // Per-ticket forward needs the guest's email field, which is hidden for children —
+  // children are bundled to a guardian via the multi-select panel instead.
+  const canForward = editable && Boolean(forwardEndpoint) && !ticket.isChild;
+
+  // Record the name/contact on the ticket. marketingConsent is always false here: the
+  // lead must not opt a guest into news on their behalf — each guest opts in themselves.
+  const fill = async () => {
+    const res = await fetch(fillEndpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ticketId: ticket.id,
+        name,
+        email: ticket.isChild ? "" : email,
+        phone: ticket.isChild ? "" : phone,
+        marketingConsent: false,
+      }),
+    });
+    const data = (await res.json()) as { ok?: boolean; error?: string };
+    if (!res.ok || !data.ok) throw new Error(data.error ?? "Could not save. Please try again.");
+  };
 
   const save = async () => {
-    setSaving(true);
+    if (!name.trim()) {
+      setError("Enter a name for this ticket.");
+      return;
+    }
+    // Adults need a way to be reached (RPC rule). If the lead doesn't have the guest's
+    // contact, they should forward the ticket and let the guest fill it in themselves.
+    if (!ticket.isChild && !email.trim() && !phone.trim()) {
+      setError(
+        canForward
+          ? "Add an email or phone — or use Save & forward to send this ticket to the guest."
+          : "Add an email or phone for this guest."
+      );
+      return;
+    }
+    setBusy("save");
     setError(null);
     try {
-      const res = await fetch(fillEndpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ticketId: ticket.id,
-          name,
-          email: ticket.isChild ? "" : email,
-          phone: ticket.isChild ? "" : phone,
-          marketingConsent: consent,
-        }),
-      });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) {
-        setError(data.error ?? "Could not save. Please try again.");
-        return;
-      }
+      await fill();
       onSaved({ ...ticket, name: name.trim(), email, phone, status: "claimed" });
       setEditing(false);
-    } catch {
-      setError("Could not save. Please try again.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save. Please try again.");
     } finally {
-      setSaving(false);
+      setBusy(null);
+    }
+  };
+
+  // Save & forward: email is required (it's where the QR is sent). The name is optional —
+  // the guest can add it themselves on the page they receive.
+  const saveAndForward = async () => {
+    if (!forwardEndpoint) return;
+    if (!EMAIL_RE.test(email.trim())) {
+      setError("Add the guest’s email to forward this ticket.");
+      return;
+    }
+    setBusy("forward");
+    setError(null);
+    try {
+      if (name.trim()) await fill();
+      const res = await fetch(forwardEndpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ticketIds: [ticket.id], email: email.trim() }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Could not forward. Please try again.");
+      onForwarded(ticket.id);
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not forward. Please try again.");
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -309,181 +488,95 @@ function TicketCard({
               <span className="text-marine/60">Unnamed — add a name to make this ticket valid</span>
             )}
           </p>
-          {(canEdit || canForward) && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {canEdit && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditing((v) => !v);
-                    setForwarding(false);
-                  }}
-                  className="rounded-lg border border-marine bg-marine px-4 py-2 text-sm font-body font-semibold text-white"
-                >
-                  {named ? "Edit name" : "Add name"}
-                </button>
-              )}
-              {canForward && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setForwarding((v) => !v);
-                    setEditing(false);
-                  }}
-                  className="rounded-lg border border-marine px-4 py-2 text-sm font-body font-semibold text-marine"
-                >
-                  Forward
-                </button>
-              )}
+          {editable && (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setEditing((v) => !v)}
+                className="rounded-lg border border-marine bg-marine px-4 py-2 text-sm font-body font-semibold text-white"
+              >
+                {named ? "Edit name" : "Add name"}
+              </button>
             </div>
           )}
           {ticket.forwarded && (
             <p className="mt-2 font-body text-sm text-marine/70">
-              Sent to a guest — they can name it and show it at the entrance.
+              Sent to your guest — they can name it and show its QR at the entrance.
+            </p>
+          )}
+          {ticket.isLead && (
+            <p className="mt-2 font-body text-sm text-marine/70">
+              This is your own entry QR — also in your confirmation email.
             </p>
           )}
         </div>
       </div>
 
-      {editing && canEdit && (
-        <div className="mt-4 space-y-3 border-t border-border/60 pt-4">
+      {editing && editable && (
+        <div className="mt-4 space-y-3 rounded-xl border border-marine/15 bg-marine/5 p-4">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Guest name"
-            className="w-full rounded-lg border border-border/70 px-3 py-2.5 text-base font-body"
+            className="w-full rounded-lg border border-marine/20 bg-white px-3 py-2.5 text-base font-body"
           />
           {!ticket.isChild && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <input
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Email"
+                placeholder={canForward ? "Email (needed to forward)" : "Email"}
                 inputMode="email"
-                className="w-full rounded-lg border border-border/70 px-3 py-2.5 text-base font-body"
+                className="w-full rounded-lg border border-marine/20 bg-white px-3 py-2.5 text-base font-body"
               />
               <input
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="Phone (+41…)"
                 inputMode="tel"
-                className="w-full rounded-lg border border-border/70 px-3 py-2.5 text-base font-body"
+                className="w-full rounded-lg border border-marine/20 bg-white px-3 py-2.5 text-base font-body"
               />
             </div>
           )}
-          {!ticket.isChild && (
-            <label className="flex items-center gap-2 text-sm font-body text-marine/80">
-              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-              Keep me posted about club news
-            </label>
-          )}
           {error && <p className="text-sm font-body text-red-600">{error}</p>}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={save}
-              disabled={saving}
+              disabled={busy !== null}
               className="rounded-lg bg-marine px-4 py-2.5 text-base font-body font-semibold text-white disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Save"}
+              {busy === "save" ? "Saving…" : "Save"}
             </button>
+            {canForward && (
+              <button
+                type="button"
+                onClick={saveAndForward}
+                disabled={busy !== null}
+                className="rounded-lg border border-marine px-4 py-2.5 text-base font-body font-semibold text-marine disabled:opacity-50"
+              >
+                {busy === "forward" ? "Forwarding…" : "Save & forward"}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
                 setEditing(false);
                 setError(null);
               }}
-              className="rounded-lg border border-border/70 px-4 py-2.5 text-base font-body text-marine"
+              className="ml-auto rounded-lg px-3 py-2.5 text-base font-body text-marine/70"
             >
               Cancel
             </button>
           </div>
+          {canForward && (
+            <p className="font-body text-sm text-marine/70">
+              <strong>Save</strong> keeps the ticket with you to share its QR.{" "}
+              <strong>Save &amp; forward</strong> emails the QR to the guest so they can name it.
+            </p>
+          )}
         </div>
       )}
-
-      {forwarding && canForward && forwardEndpoint && (
-        <ForwardTicket
-          endpoint={forwardEndpoint}
-          ticketId={ticket.id}
-          onClose={() => setForwarding(false)}
-          onForwarded={() => {
-            onForwarded(ticket.id);
-            setForwarding(false);
-          }}
-        />
-      )}
     </li>
-  );
-}
-
-function ForwardTicket({
-  endpoint,
-  ticketId,
-  onClose,
-  onForwarded,
-}: {
-  endpoint: string;
-  ticketId: string;
-  onClose: () => void;
-  onForwarded: () => void;
-}) {
-  const [email, setEmail] = useState("");
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const send = async () => {
-    setSending(true);
-    setError(null);
-    try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ticketIds: [ticketId], email: email.trim() }),
-      });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) {
-        setError(data.error ?? "Could not forward. Please try again.");
-        return;
-      }
-      onForwarded();
-    } catch {
-      setError("Could not forward. Please try again.");
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <div className="mt-4 space-y-3 border-t border-border/60 pt-4">
-      <p className="font-body text-sm text-marine/80">
-        Enter the guest’s email. They’ll get this ticket with its QR code and can add their
-        own name.
-      </p>
-      <input
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="Recipient email"
-        inputMode="email"
-        className="w-full rounded-lg border border-border/70 px-3 py-2.5 text-base font-body"
-      />
-      {error && <p className="text-sm font-body text-red-600">{error}</p>}
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={send}
-          disabled={sending || !email.trim()}
-          className="rounded-lg bg-marine px-4 py-2.5 text-base font-body font-semibold text-white disabled:opacity-50"
-        >
-          {sending ? "Sending…" : "Forward ticket"}
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg border border-border/70 px-4 py-2.5 text-base font-body text-marine"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
   );
 }
