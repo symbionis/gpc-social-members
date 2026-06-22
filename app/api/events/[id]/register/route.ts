@@ -276,9 +276,13 @@ export async function POST(
   const regPatch: {
     phone_e164?: string;
     self_reg_token: string;
+    manage_token: string;
     lead_ticket_type_id?: string;
   } = {
     self_reg_token: generateSelfRegToken(),
+    // Path-secret for the lead "My Booking" page (U4). Same CSPRNG shape as the
+    // self-reg token; sent in the confirmation email (U9) as manage_url.
+    manage_token: generateSelfRegToken(),
   };
   if (phone) regPatch.phone_e164 = phone;
   if (leadType) regPatch.lead_ticket_type_id = leadType;
