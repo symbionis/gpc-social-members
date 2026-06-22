@@ -16,6 +16,7 @@ function adminClient(opts: {
   registration: Record<string, unknown>;
   event: Record<string, unknown>;
   items: Item[] | null;
+  tickets?: { credential_token: string | null; name: string | null }[];
 }) {
   return {
     from: (table: string) => {
@@ -26,6 +27,17 @@ function adminClient(opts: {
         c.order = () => c;
         (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
           resolve({ data: opts.items, error: null });
+        return c;
+      }
+      if (table === "tickets") {
+        const c: Record<string, unknown> = {};
+        c.select = () => c;
+        c.eq = () => c;
+        c.in = () => c;
+        c.is = () => c;
+        c.order = () => c;
+        (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
+          resolve({ data: opts.tickets ?? [], error: null });
         return c;
       }
       const c: Record<string, unknown> = {};
@@ -110,6 +122,39 @@ describe("sendEventRegistrationConfirmation — ticket_lines breakdown", () => {
     expect(model.is_free).toBe(true);
     expect(model.amount_label).toBe("Free");
     expect((model.ticket_lines as { line_label: string }[])[0].line_label).toBe("Free");
+  });
+});
+
+describe("sendEventRegistrationConfirmation — booking link + per-ticket QRs (FEAT-41)", () => {
+  it("includes manage_url and a hosted QR per live ticket (name null when unnamed)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        registration: { ...baseReg, manage_token: "mtok-xyz" },
+        event: baseEvent,
+        items: [],
+        tickets: [
+          { credential_token: "credAAA", name: "Jean" },
+          { credential_token: "credBBB", name: null },
+          { credential_token: null, name: "skip-me" },
+        ],
+      })
+    );
+    await sendEventRegistrationConfirmation("reg-1");
+    const model = lastModel();
+    expect(model.manage_url).toBe("http://localhost:3000/public/bookings/mtok-xyz");
+    expect(model.tickets).toEqual([
+      { label: "Ticket 1", name: "Jean", qr_url: "http://localhost:3000/api/qr/credAAA" },
+      { label: "Ticket 2", name: null, qr_url: "http://localhost:3000/api/qr/credBBB" },
+    ]);
+  });
+
+  it("manage_url is null (never empty) when the registration has no token", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ registration: baseReg, event: baseEvent, items: [], tickets: [] })
+    );
+    await sendEventRegistrationConfirmation("reg-1");
+    expect(lastModel().manage_url).toBeNull();
+    expect(lastModel().tickets).toEqual([]);
   });
 });
 

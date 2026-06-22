@@ -225,7 +225,7 @@ export default function DoorConsole({
                             </div>
                             <p className="font-body text-sm text-marine/60 text-center">
                               Have the guest scan this to pre-register on their own
-                              phone, then check in at the kiosk.
+                              phone — then scan their ticket QR here to check them in.
                             </p>
                           </div>
                         )}
@@ -303,6 +303,7 @@ function SlotRow({
   const [phone, setPhone] = useState<string | null>(slot.phone || null);
   const [saving, setSaving] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
+  const [needsWaiver, setNeedsWaiver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // New open slots are editable immediately; claimed (live) rows start locked.
   const [editing, setEditing] = useState(slot.attendeeId === null);
@@ -387,6 +388,42 @@ function SlotRow({
     }
   }
 
+  // Adult lost-QR check-in: a named ticket found in the roster is checked in by id.
+  // If the waiver is unsigned the route returns needs_waiver — we surface a one-tap
+  // accept, then re-submit. Idempotent on the server.
+  async function checkInAdult(waiverAccepted: boolean) {
+    setError(null);
+    setCheckingIn(true);
+    try {
+      const res = await fetch(`/api/public/door/${eventId}/check-in`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticketId: slot.attendeeId, waiverAccepted, language: "en" }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not check in.");
+        return;
+      }
+      if (data.status === "needs_waiver") {
+        setNeedsWaiver(true);
+        return;
+      }
+      setNeedsWaiver(false);
+      onSaved();
+    } catch (err) {
+      console.error("[door/check-in] request failed", err);
+      setError(
+        err instanceof DOMException && err.name === "TimeoutError"
+          ? "Timed out — check the connection and try again."
+          : "Could not check in. Try again."
+      );
+    } finally {
+      setCheckingIn(false);
+    }
+  }
+
   return (
     <div
       className={`rounded-xl border p-3 ${
@@ -416,10 +453,10 @@ function SlotRow({
             </span>
           )}
         </span>
-        {slot.isChild && !slot.checkedIn && !isOpen && (
+        {!slot.checkedIn && !isOpen && (
           <button
             type="button"
-            onClick={checkInChild}
+            onClick={() => (slot.isChild ? checkInChild() : checkInAdult(false))}
             disabled={checkingIn}
             className="shrink-0 px-3 py-1 rounded-lg border border-emerald-300 text-emerald-800 text-xs font-body hover:bg-emerald-50 transition-colors disabled:opacity-50 cursor-pointer"
           >
@@ -464,6 +501,22 @@ function SlotRow({
         <p className="mt-2 text-sm font-body text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
           {error}
         </p>
+      )}
+
+      {needsWaiver && (
+        <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+          <p className="font-body text-xs text-amber-900 mb-2">
+            This guest hasn’t accepted the waiver. Confirm they accept it to check in.
+          </p>
+          <button
+            type="button"
+            onClick={() => checkInAdult(true)}
+            disabled={checkingIn}
+            className="w-full px-3 py-2 rounded-lg bg-marine text-white font-body font-semibold text-sm disabled:opacity-50 cursor-pointer"
+          >
+            {checkingIn ? "…" : "Waiver accepted — check in"}
+          </button>
+        </div>
       )}
 
       {locked ? (

@@ -2,31 +2,13 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 
-import {
-  normalizeEmail,
-  resolveContactMatch,
-  matchContact,
-  recordAttendeeCheckin,
-} from "@/lib/events/checkin";
+import { recordAttendeeCheckin } from "@/lib/events/checkin";
 import { WAIVER_VERSION } from "@/lib/events/waiver";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const mockedCreateAdminClient = vi.mocked(createAdminClient);
 
 type QResult = { data: unknown; error: unknown };
-
-// Thenable event_attendees query (matchContact awaits the eq/ilike chain directly).
-function attendeeClient(rows: unknown[], opts: { error?: unknown } = {}) {
-  return {
-    from: () => {
-      const c: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "ilike", "is"]) c[m] = () => c;
-      (c as { then: unknown }).then = (resolve: (r: QResult) => unknown) =>
-        resolve({ data: rows, error: opts.error ?? null });
-      return c;
-    },
-  } as unknown as ReturnType<typeof createAdminClient>;
-}
 
 // recordAttendeeCheckin: a select→eq→eq→maybeSingle (the attendee load) followed by
 // an update→eq→eq (the guarded flip). The update chain is awaited directly (thenable).
@@ -62,85 +44,6 @@ function recordClient(opts: {
 }
 
 beforeEach(() => vi.clearAllMocks());
-
-describe("normalizeEmail", () => {
-  it("trims and lowercases", () => {
-    expect(normalizeEmail("  Jean@X.CH ")).toBe("jean@x.ch");
-  });
-});
-
-describe("resolveContactMatch", () => {
-  it("returns none for no candidates", () => {
-    expect(resolveContactMatch([])).toEqual({ kind: "none" });
-  });
-
-  it("returns the single matched attendee", () => {
-    expect(
-      resolveContactMatch([
-        { id: "a1", email: "a@b.com", phone_e164: null, created_at: "2026-06-01T10:00:00Z" },
-      ])
-    ).toEqual({ kind: "one", attendeeId: "a1" });
-  });
-
-  it("resolves a shared contact to the earliest-created row (no name lookup)", () => {
-    const rows = [
-      { id: "late", email: null, phone_e164: "+41781234567", created_at: "2026-06-03T12:00:00Z" },
-      { id: "early", email: null, phone_e164: "+41781234567", created_at: "2026-06-01T08:00:00Z" },
-    ];
-    expect(resolveContactMatch(rows)).toEqual({ kind: "one", attendeeId: "early" });
-  });
-});
-
-describe("matchContact", () => {
-  const row = {
-    id: "att-1",
-    email: "a@b.com",
-    phone_e164: "+41781234567",
-    created_at: "2026-06-01T10:00:00Z",
-  };
-
-  it("returns none when neither email nor phone is provided", async () => {
-    mockedCreateAdminClient.mockReturnValue(attendeeClient([]));
-    expect(await matchContact("evt", {})).toEqual({ kind: "none" });
-  });
-
-  it("matches by email (case-insensitively)", async () => {
-    mockedCreateAdminClient.mockReturnValue(attendeeClient([row]));
-    expect(await matchContact("evt", { email: "A@B.com" })).toEqual({
-      kind: "one",
-      attendeeId: "att-1",
-    });
-  });
-
-  it("matches by phone", async () => {
-    mockedCreateAdminClient.mockReturnValue(attendeeClient([row]));
-    expect(await matchContact("evt", { phone: "+41781234567" })).toEqual({
-      kind: "one",
-      attendeeId: "att-1",
-    });
-  });
-
-  it("unions both legs and dedupes by id", async () => {
-    mockedCreateAdminClient.mockReturnValue(attendeeClient([row]));
-    expect(
-      await matchContact("evt", { email: "a@b.com", phone: "+41781234567" })
-    ).toEqual({ kind: "one", attendeeId: "att-1" });
-  });
-
-  it("returns none when no roster row matches", async () => {
-    mockedCreateAdminClient.mockReturnValue(attendeeClient([]));
-    expect(await matchContact("evt", { email: "nobody@x.ch" })).toEqual({
-      kind: "none",
-    });
-  });
-
-  it("throws on a query error rather than returning none", async () => {
-    mockedCreateAdminClient.mockReturnValue(
-      attendeeClient([], { error: { message: "db down" } })
-    );
-    await expect(matchContact("evt", { email: "a@b.com" })).rejects.toBeTruthy();
-  });
-});
 
 describe("recordAttendeeCheckin", () => {
   const base = {

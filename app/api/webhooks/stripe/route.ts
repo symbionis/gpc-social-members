@@ -2,7 +2,7 @@ import { getStripe } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
-import { seedLeadAttendee } from "@/lib/events/roster";
+import { seedLeadAttendee, mintRegistrationTickets } from "@/lib/events/roster";
 import { generateCardNumber } from "@/lib/utils/card";
 import { NextResponse, type NextRequest } from "next/server";
 import Stripe from "stripe";
@@ -176,6 +176,65 @@ export async function POST(request: NextRequest) {
       // webhook may race the post-create update.
       const eventRegistrationId = session.metadata?.event_registration_id;
       if (eventRegistrationId) {
+        // TOP-UP branch (U6) — MUST run before the paid short-circuit below. A top-up
+        // checkout carries the existing (already-'paid') registration id; without this
+        // branch the short-circuit would ack it and mint nothing, charging for tickets
+        // that never appear. apply_registration_topup is idempotent (keyed on the
+        // top-up id), and mint is idempotent, so a webhook replay is safe.
+        const topupId =
+          session.metadata?.topup === "true" ? session.metadata?.topup_id : undefined;
+        if (topupId) {
+          const { data: applied, error: applyErr } = await supabase.rpc(
+            "apply_registration_topup",
+            { p_topup_id: topupId }
+          );
+          if (applyErr) {
+            console.error("[webhook] apply_registration_topup failed — 500 for retry", {
+              topupId,
+              err: applyErr,
+            });
+            return NextResponse.json({ error: "Top-up apply failed" }, { status: 500 });
+          }
+          const topupStatus = (applied as { status?: string } | null)?.status;
+          if (topupStatus === "not_found") {
+            // Metadata names a top-up row that doesn't exist — the customer was charged
+            // but there is nothing to apply, and this is not retryable. Tag the
+            // PaymentIntent with a durable, queryable refund signal (mirrors the
+            // duplicate-registration path) so the charge can be found after logs rotate.
+            console.error(
+              "[webhook] top-up id in metadata not found — payment captured, NEEDS MANUAL REFUND/RECONCILIATION",
+              { topupId, sessionId: session.id, paymentIntent: session.payment_intent }
+            );
+            if (typeof session.payment_intent === "string") {
+              try {
+                await getStripe().paymentIntents.update(session.payment_intent, {
+                  metadata: {
+                    needs_refund: "topup_not_found",
+                    topup_id: topupId,
+                    event_session: session.id,
+                  },
+                });
+              } catch (tagErr) {
+                console.error("[webhook] failed to tag PaymentIntent for refund", {
+                  paymentIntent: session.payment_intent,
+                  err: tagErr,
+                });
+              }
+            }
+            return NextResponse.json({ received: true });
+          }
+          // Mint the newly-purchased slots (idempotent — only the shortfall is minted).
+          await mintRegistrationTickets(eventRegistrationId);
+          // Send an updated confirmation (carries manage_url + every ticket's QR, now
+          // including the new ones) so the lead can name/forward them. Best-effort.
+          if (topupStatus === "applied") {
+            await sendEventRegistrationConfirmation(eventRegistrationId).catch((err) =>
+              console.error("[webhook] top-up confirmation email failed", err)
+            );
+          }
+          return NextResponse.json({ received: true, topup: topupStatus });
+        }
+
         const { data: existing, error: lookupErr } = await supabase
           .from("event_registrations")
           .select("id, status")
@@ -270,8 +329,11 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Seed the purchaser onto the roster now that payment is confirmed (U12).
+        // Seed the purchaser onto the roster now that payment is confirmed (U12),
+        // then mint a credentialled (QR) ticket for every remaining purchased slot
+        // (U2). Both are idempotent, so a webhook replay mints no duplicates.
         await seedLeadAttendee(existing.id);
+        await mintRegistrationTickets(existing.id);
 
         await sendEventRegistrationConfirmation(existing.id).catch((err) =>
           console.error(

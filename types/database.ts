@@ -7,10 +7,30 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.4"
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -289,98 +309,6 @@ export type Database = {
           },
         ]
       }
-      event_attendees: {
-        Row: {
-          checked_in_at: string | null
-          created_at: string
-          email: string | null
-          event_id: string
-          id: string
-          is_child: boolean
-          is_lead: boolean
-          language: string | null
-          marketing_consent: boolean | null
-          member_id: string | null
-          name: string | null
-          phone_e164: string | null
-          registration_id: string | null
-          released_at: string | null
-          slot_status: string
-          ticket_type_id: string | null
-          waiver_accepted_at: string | null
-          waiver_version: string | null
-        }
-        Insert: {
-          checked_in_at?: string | null
-          created_at?: string
-          email?: string | null
-          event_id: string
-          id?: string
-          is_child?: boolean
-          is_lead?: boolean
-          language?: string | null
-          marketing_consent?: boolean | null
-          member_id?: string | null
-          name?: string | null
-          phone_e164?: string | null
-          registration_id?: string | null
-          released_at?: string | null
-          slot_status?: string
-          ticket_type_id?: string | null
-          waiver_accepted_at?: string | null
-          waiver_version?: string | null
-        }
-        Update: {
-          checked_in_at?: string | null
-          created_at?: string
-          email?: string | null
-          event_id?: string
-          id?: string
-          is_child?: boolean
-          is_lead?: boolean
-          language?: string | null
-          marketing_consent?: boolean | null
-          member_id?: string | null
-          name?: string | null
-          phone_e164?: string | null
-          registration_id?: string | null
-          released_at?: string | null
-          slot_status?: string
-          ticket_type_id?: string | null
-          waiver_accepted_at?: string | null
-          waiver_version?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "event_attendees_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_attendees_member_id_fkey"
-            columns: ["member_id"]
-            isOneToOne: false
-            referencedRelation: "members"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_attendees_registration_id_fkey"
-            columns: ["registration_id"]
-            isOneToOne: false
-            referencedRelation: "event_registrations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_attendees_ticket_type_id_fkey"
-            columns: ["ticket_type_id"]
-            isOneToOne: false
-            referencedRelation: "event_ticket_types"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       event_checkins: {
         Row: {
           created_at: string
@@ -519,6 +447,41 @@ export type Database = {
           },
         ]
       }
+      event_registration_topups: {
+        Row: {
+          applied_at: string | null
+          created_at: string
+          id: string
+          items: Json
+          registration_id: string
+          status: string
+        }
+        Insert: {
+          applied_at?: string | null
+          created_at?: string
+          id?: string
+          items: Json
+          registration_id: string
+          status?: string
+        }
+        Update: {
+          applied_at?: string | null
+          created_at?: string
+          id?: string
+          items?: Json
+          registration_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_registration_topups_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_registrations: {
         Row: {
           converted_by: string | null
@@ -528,6 +491,7 @@ export type Database = {
           id: string
           is_member: boolean
           lead_ticket_type_id: string | null
+          manage_token: string | null
           member_id: string | null
           name: string
           paid_at: string | null
@@ -549,6 +513,7 @@ export type Database = {
           id?: string
           is_member: boolean
           lead_ticket_type_id?: string | null
+          manage_token?: string | null
           member_id?: string | null
           name: string
           paid_at?: string | null
@@ -570,6 +535,7 @@ export type Database = {
           id?: string
           is_member?: boolean
           lead_ticket_type_id?: string | null
+          manage_token?: string | null
           member_id?: string | null
           name?: string
           paid_at?: string | null
@@ -1417,13 +1383,220 @@ export type Database = {
         }
         Relationships: []
       }
+      tickets: {
+        Row: {
+          batch_token: string | null
+          checked_in_at: string | null
+          created_at: string
+          credential_token: string | null
+          email: string | null
+          event_id: string
+          id: string
+          is_child: boolean
+          is_lead: boolean
+          language: string | null
+          marketing_consent: boolean | null
+          member_id: string | null
+          name: string | null
+          phone_e164: string | null
+          registration_id: string | null
+          released_at: string | null
+          slot_status: string
+          ticket_type_id: string | null
+          waiver_accepted_at: string | null
+          waiver_version: string | null
+        }
+        Insert: {
+          batch_token?: string | null
+          checked_in_at?: string | null
+          created_at?: string
+          credential_token?: string | null
+          email?: string | null
+          event_id: string
+          id?: string
+          is_child?: boolean
+          is_lead?: boolean
+          language?: string | null
+          marketing_consent?: boolean | null
+          member_id?: string | null
+          name?: string | null
+          phone_e164?: string | null
+          registration_id?: string | null
+          released_at?: string | null
+          slot_status?: string
+          ticket_type_id?: string | null
+          waiver_accepted_at?: string | null
+          waiver_version?: string | null
+        }
+        Update: {
+          batch_token?: string | null
+          checked_in_at?: string | null
+          created_at?: string
+          credential_token?: string | null
+          email?: string | null
+          event_id?: string
+          id?: string
+          is_child?: boolean
+          is_lead?: boolean
+          language?: string | null
+          marketing_consent?: boolean | null
+          member_id?: string | null
+          name?: string | null
+          phone_e164?: string | null
+          registration_id?: string | null
+          released_at?: string | null
+          slot_status?: string
+          ticket_type_id?: string | null
+          waiver_accepted_at?: string | null
+          waiver_version?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_attendees_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_attendees_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_attendees_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_attendees_ticket_type_id_fkey"
+            columns: ["ticket_type_id"]
+            isOneToOne: false
+            referencedRelation: "event_ticket_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
-      [_ in never]: never
+      event_attendees: {
+        Row: {
+          checked_in_at: string | null
+          created_at: string | null
+          credential_token: string | null
+          email: string | null
+          event_id: string | null
+          id: string | null
+          is_child: boolean | null
+          is_lead: boolean | null
+          language: string | null
+          marketing_consent: boolean | null
+          member_id: string | null
+          name: string | null
+          phone_e164: string | null
+          registration_id: string | null
+          released_at: string | null
+          slot_status: string | null
+          ticket_type_id: string | null
+          waiver_accepted_at: string | null
+          waiver_version: string | null
+        }
+        Insert: {
+          checked_in_at?: string | null
+          created_at?: string | null
+          credential_token?: string | null
+          email?: string | null
+          event_id?: string | null
+          id?: string | null
+          is_child?: boolean | null
+          is_lead?: boolean | null
+          language?: string | null
+          marketing_consent?: boolean | null
+          member_id?: string | null
+          name?: string | null
+          phone_e164?: string | null
+          registration_id?: string | null
+          released_at?: string | null
+          slot_status?: string | null
+          ticket_type_id?: string | null
+          waiver_accepted_at?: string | null
+          waiver_version?: string | null
+        }
+        Update: {
+          checked_in_at?: string | null
+          created_at?: string | null
+          credential_token?: string | null
+          email?: string | null
+          event_id?: string | null
+          id?: string | null
+          is_child?: boolean | null
+          is_lead?: boolean | null
+          language?: string | null
+          marketing_consent?: boolean | null
+          member_id?: string | null
+          name?: string | null
+          phone_e164?: string | null
+          registration_id?: string | null
+          released_at?: string | null
+          slot_status?: string | null
+          ticket_type_id?: string | null
+          waiver_accepted_at?: string | null
+          waiver_version?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_attendees_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_attendees_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_attendees_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_attendees_ticket_type_id_fkey"
+            columns: ["ticket_type_id"]
+            isOneToOne: false
+            referencedRelation: "event_ticket_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       add_self_registration_children: {
         Args: { p_names: string[]; p_token: string }
+        Returns: Json
+      }
+      apply_registration_topup: { Args: { p_topup_id: string }; Returns: Json }
+      checkin_by_credential: {
+        Args: {
+          p_credential_token: string
+          p_email: string
+          p_event_id: string
+          p_language: string
+          p_marketing_consent: boolean
+          p_name: string
+          p_phone_e164: string
+          p_waiver_accepted: boolean
+          p_waiver_version: string
+        }
         Returns: Json
       }
       claim_self_registration: {
@@ -1435,6 +1608,20 @@ export type Database = {
           p_phone_e164: string
           p_ticket_type_id?: string
           p_token: string
+          p_waiver_accepted: boolean
+          p_waiver_version: string
+        }
+        Returns: Json
+      }
+      claim_ticket: {
+        Args: {
+          p_email: string
+          p_language: string
+          p_marketing_consent: boolean
+          p_name: string
+          p_phone_e164: string
+          p_registration_id: string
+          p_ticket_type_id?: string
           p_waiver_accepted: boolean
           p_waiver_version: string
         }
@@ -1459,8 +1646,48 @@ export type Database = {
         Args: { p_event: Json; p_types: Json }
         Returns: string
       }
+      fill_batch_ticket: {
+        Args: {
+          p_batch_token: string
+          p_email: string
+          p_language: string
+          p_marketing_consent: boolean
+          p_name: string
+          p_phone_e164: string
+          p_ticket_id: string
+          p_waiver_accepted: boolean
+          p_waiver_version: string
+        }
+        Returns: Json
+      }
+      fill_ticket: {
+        Args: {
+          p_email: string
+          p_language: string
+          p_manage_token: string
+          p_marketing_consent: boolean
+          p_name: string
+          p_phone_e164: string
+          p_ticket_id: string
+          p_waiver_accepted: boolean
+          p_waiver_version: string
+        }
+        Returns: Json
+      }
+      forward_ticket_batch: {
+        Args: { p_manage_token: string; p_ticket_ids: string[] }
+        Returns: Json
+      }
       import_event_attendees: {
         Args: { p_event_id: string; p_rows: Json }
+        Returns: Json
+      }
+      mint_registration_tickets: {
+        Args: { p_registration_id: string }
+        Returns: number
+      }
+      release_ticket: {
+        Args: { p_event_id: string; p_ticket_id: string }
         Returns: Json
       }
       seats_used: { Args: { eid: string }; Returns: number }
@@ -1621,6 +1848,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       admin_role: ["super_admin", "team_admin", "originator", "events_admin"],
@@ -1647,6 +1877,7 @@ export const Constants = {
     },
   },
 } as const
+
 
 // Hand-written aliases — Supabase type regen DROPS these; re-append after every regen.
 // See memory feedback_db_types_aliases.

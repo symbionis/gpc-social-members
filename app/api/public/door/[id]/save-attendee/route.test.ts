@@ -12,15 +12,10 @@ const mockedResolve = vi.mocked(resolveDoorEvent);
 
 type Row = Record<string, unknown> | null;
 
-// Table-aware mock: maybeSingle resolves the looked-up row per table; awaited queries
-// (items list, count head, insert, update) resolve via `then`.
-function adminClient(opts: {
-  existing?: Row;
-  reg?: Row;
-  type?: Row;
-  items?: { quantity: number }[];
-  count?: number;
-}) {
+// Table-aware mock. maybeSingle resolves the looked-up row per table; the edit path
+// awaits the update builder via `then`. The fill path delegates to the claim_ticket
+// RPC — `rpc` returns opts.claim.
+function adminClient(opts: { existing?: Row; reg?: Row; claim?: Record<string, unknown> }) {
   return {
     from: (table: string) => {
       const c: Record<string, unknown> = {};
@@ -29,21 +24,18 @@ function adminClient(opts: {
       c.is = () => c;
       c.in = () => c;
       c.limit = () => c;
-      c.insert = () => c;
       c.update = () => c;
       c.maybeSingle = async () => {
-        if (table === "event_attendees") return { data: opts.existing ?? null, error: null };
+        if (table === "tickets") return { data: opts.existing ?? null, error: null };
         if (table === "event_registrations") return { data: opts.reg ?? null, error: null };
-        if (table === "event_ticket_types") return { data: opts.type ?? null, error: null };
         return { data: null, error: null };
       };
-      (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) => {
-        if (table === "event_registration_items") return resolve({ data: opts.items ?? [], error: null });
-        // event_attendees awaited: count head OR insert OR update — provide all fields.
-        return resolve({ data: [{ id: "new-att" }], count: opts.count ?? 0, error: null });
-      };
+      // Edit path awaits the update builder.
+      (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
+        resolve({ data: [{ id: "edited" }], error: null });
       return c;
     },
+    rpc: async (_fn: string, _args: unknown) => ({ data: opts.claim ?? null, error: null }),
   } as unknown as ReturnType<typeof createAdminClient>;
 }
 
@@ -96,13 +88,11 @@ describe("POST /api/public/door/[id]/save-attendee", () => {
     expect(res.status).toBe(400);
   });
 
-  it("fills an open adult slot (create) with a phone", async () => {
+  it("fills an open adult slot by flipping an issued ticket (claim_ticket → claimed)", async () => {
     mockedAdmin.mockReturnValue(
       adminClient({
-        reg: { id: REG, status: "free" },
-        type: { id: TYPE, is_child: false },
-        items: [{ quantity: 3 }],
-        count: 1,
+        reg: { id: REG },
+        claim: { status: "claimed", attendee_id: "flipped", already: false },
       })
     );
     const res = await post({
@@ -112,17 +102,12 @@ describe("POST /api/public/door/[id]/save-attendee", () => {
       phone: "+41781234567",
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, created: true });
+    expect(await res.json()).toMatchObject({ ok: true, created: true, attendeeId: "flipped" });
   });
 
-  it("409s when the ticket type is already full for the party", async () => {
+  it("409s when the ticket type is already full for the party (claim_ticket → type_full)", async () => {
     mockedAdmin.mockReturnValue(
-      adminClient({
-        reg: { id: REG, status: "free" },
-        type: { id: TYPE, is_child: false },
-        items: [{ quantity: 2 }],
-        count: 2,
-      })
+      adminClient({ reg: { id: REG }, claim: { status: "type_full" } })
     );
     const res = await post({
       registrationId: REG,
@@ -133,17 +118,21 @@ describe("POST /api/public/door/[id]/save-attendee", () => {
     expect(res.status).toBe(409);
   });
 
-  it("fills a child slot with a name only (no contact needed)", async () => {
+  it("fills a child slot with a name only (claim_ticket allows contactless child)", async () => {
     mockedAdmin.mockReturnValue(
       adminClient({
-        reg: { id: REG, status: "free" },
-        type: { id: TYPE, is_child: true },
-        items: [{ quantity: 2 }],
-        count: 0,
+        reg: { id: REG },
+        claim: { status: "claimed", attendee_id: "kid", already: false },
       })
     );
     const res = await post({ registrationId: REG, ticketTypeId: TYPE, name: "Sofia" });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, created: true });
+  });
+
+  it("404s when the party is not on this event", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ reg: null }));
+    const res = await post({ registrationId: REG, ticketTypeId: TYPE, name: "Bo", phone: "+41781234567" });
+    expect(res.status).toBe(404);
   });
 });

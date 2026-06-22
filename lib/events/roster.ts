@@ -34,6 +34,33 @@ export async function seedLeadAttendee(
   }
 }
 
+/**
+ * Mint one issued, credentialled ticket per purchased-but-unfilled slot for a
+ * confirmed registration. Call AFTER seedLeadAttendee — the lead's claimed row is
+ * counted as existing, so the mint creates (purchased − existing) issued rows per
+ * type. The work (registration lock, per-type shortfall, credential generation,
+ * idempotency) lives in the mint_registration_tickets SECURITY DEFINER function, so
+ * this is safe to call from the free path and the Stripe webhook (replay-safe).
+ *
+ * Best-effort: a mint failure is logged, not thrown — the registration has already
+ * succeeded and the mint is idempotent, so a retry/backfill reconciles. The log
+ * line is the signal.
+ */
+export async function mintRegistrationTickets(
+  registrationId: string,
+): Promise<void> {
+  const supabase = createAdminClient();
+  const { error } = await supabase.rpc("mint_registration_tickets", {
+    p_registration_id: registrationId,
+  });
+  if (error) {
+    console.error("[roster] mint_registration_tickets failed", {
+      registrationId,
+      err: error,
+    });
+  }
+}
+
 // One ALREADY-NORMALIZED import row handed to the import_event_attendees RPC: the
 // name plus a lowercased email and/or an E.164 phone (either may be null). The route
 // builds these from the parsed rows (lib/events/roster-import.ts) after normalizing

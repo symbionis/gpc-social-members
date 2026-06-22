@@ -10,28 +10,10 @@ import { resolveDoorEvent } from "@/lib/events/door-access";
 const mockedAdmin = vi.mocked(createAdminClient);
 const mockedResolve = vi.mocked(resolveDoorEvent);
 
-type Row = Record<string, unknown> | null;
-
-function adminClient(opts: { attendee: Row; updated?: unknown[] }) {
+// The route delegates to the release_ticket RPC; the mock returns its result.
+function adminClient(rel: Record<string, unknown> | null) {
   return {
-    from: () => {
-      const c: Record<string, unknown> = {};
-      c.select = () => c;
-      c.eq = () => c;
-      c.is = () => c;
-      c.limit = () => c;
-      c.maybeSingle = async () => ({ data: opts.attendee, error: null });
-      c.update = () => {
-        const u: Record<string, unknown> = {};
-        u.eq = () => u;
-        u.is = () => u;
-        u.select = () => u;
-        (u as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
-          resolve({ data: opts.updated ?? [{ id: "att-1" }], error: null });
-        return u;
-      };
-      return c;
-    },
+    rpc: async (_fn: string, _args: unknown) => ({ data: rel, error: null }),
   } as unknown as ReturnType<typeof createAdminClient>;
 }
 
@@ -44,12 +26,10 @@ function post(body: unknown, id = "evt-1") {
   return POST(req as never, { params: Promise.resolve({ id }) });
 }
 
-const liveGuest = { id: "att-1", is_lead: false, checked_in_at: null, released_at: null };
-
 beforeEach(() => {
   vi.clearAllMocks();
   mockedResolve.mockResolvedValue({ id: "evt-1", title: "X", startDate: null });
-  mockedAdmin.mockReturnValue(adminClient({ attendee: liveGuest }));
+  mockedAdmin.mockReturnValue(adminClient({ status: "ok", already: false }));
 });
 
 describe("POST /api/public/door/[id]/free-slot", () => {
@@ -65,43 +45,39 @@ describe("POST /api/public/door/[id]/free-slot", () => {
     expect(res.status).toBe(400);
   });
 
-  it("404s a guest not on this event's roster", async () => {
-    mockedAdmin.mockReturnValue(adminClient({ attendee: null }));
+  it("404s a guest not on this event's roster (release_ticket → not_found)", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ status: "not_found" }));
     const res = await post({ attendeeId: "ghost" });
     expect(res.status).toBe(404);
   });
 
-  it("refuses to remove the party lead", async () => {
-    mockedAdmin.mockReturnValue(adminClient({ attendee: { ...liveGuest, is_lead: true } }));
+  it("refuses to remove the party lead (release_ticket → is_lead)", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ status: "is_lead" }));
     const res = await post({ attendeeId: "att-1" });
     expect(res.status).toBe(400);
   });
 
-  it("refuses to remove a checked-in guest (arrivals are permanent)", async () => {
-    mockedAdmin.mockReturnValue(
-      adminClient({ attendee: { ...liveGuest, checked_in_at: "2026-06-06T18:00:00Z" } })
-    );
+  it("refuses to remove a checked-in guest (release_ticket → checked_in)", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ status: "checked_in" }));
     const res = await post({ attendeeId: "att-1" });
     expect(res.status).toBe(409);
   });
 
   it("is idempotent for an already-released guest", async () => {
-    mockedAdmin.mockReturnValue(
-      adminClient({ attendee: { ...liveGuest, released_at: "2026-06-05T10:00:00Z" } })
-    );
+    mockedAdmin.mockReturnValue(adminClient({ status: "ok", already: true }));
     const res = await post({ attendeeId: "att-1" });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, already: true });
   });
 
-  it("frees a live not-yet-arrived guest", async () => {
+  it("frees a live not-yet-arrived guest and reopens the slot", async () => {
     const res = await post({ attendeeId: "att-1" });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, already: false });
   });
 
-  it("409s when the guarded update loses to a concurrent check-in", async () => {
-    mockedAdmin.mockReturnValue(adminClient({ attendee: liveGuest, updated: [] }));
+  it("409s when the release loses to a concurrent check-in", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ status: "checked_in" }));
     const res = await post({ attendeeId: "att-1" });
     expect(res.status).toBe(409);
   });

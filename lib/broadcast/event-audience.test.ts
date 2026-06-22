@@ -116,7 +116,7 @@ describe("resolveEventAudience — post-event (checked-in attendees)", () => {
   // set (event_checkins is frozen). A not-yet-arrived attendee (null
   // checked_in_at) must be excluded.
   const checkins = {
-    event_attendees: [
+    tickets: [
       { email: "yes@x.com", name: "Yes", member_id: "m1", marketing_consent: true, checked_in_at: "2026-06-06T10:00:00Z", event_id: "e1" },
       { email: "no@x.com", name: "No", member_id: null, marketing_consent: false, checked_in_at: "2026-06-06T10:01:00Z", event_id: "e1" },
       { email: "nullc@x.com", name: "Nullc", member_id: null, marketing_consent: null, checked_in_at: "2026-06-06T10:02:00Z", event_id: "e1" },
@@ -179,7 +179,7 @@ describe("resolveEventAudience — dedup, pagination, empty", () => {
   it("de-duplicates by lowercased email", async () => {
     mockedCreateAdminClient.mockReturnValue(
       client({
-        event_attendees: [
+        tickets: [
           { email: "Dup@X.com", name: "Dup One", member_id: "m1", marketing_consent: true, checked_in_at: "2026-06-06T10:00:00Z", event_id: "e1" },
           { email: "dup@x.com", name: "Dup Two", member_id: null, marketing_consent: true, checked_in_at: "2026-06-06T10:01:00Z", event_id: "e1" },
         ],
@@ -196,7 +196,7 @@ describe("resolveEventAudience — dedup, pagination, empty", () => {
   it("does not double-count a skipped email that also appears as included", async () => {
     mockedCreateAdminClient.mockReturnValue(
       client({
-        event_attendees: [
+        tickets: [
           { email: "mix@x.com", name: "Mix", member_id: null, marketing_consent: false, checked_in_at: "2026-06-06T10:00:00Z", event_id: "e1" },
           { email: "mix@x.com", name: "Mix", member_id: "m1", marketing_consent: true, checked_in_at: "2026-06-06T10:01:00Z", event_id: "e1" },
         ],
@@ -232,7 +232,7 @@ describe("resolveEventAudience — dedup, pagination, empty", () => {
       checked_in_at: "2026-06-06T10:00:00Z",
       event_id: "e1",
     }));
-    mockedCreateAdminClient.mockReturnValue(client({ event_attendees: many }));
+    mockedCreateAdminClient.mockReturnValue(client({ tickets: many }));
     const { recipients } = await resolveEventAudience({ event_id: "e1", kind: "event_post" });
     expect(recipients).toHaveLength(1500);
   });

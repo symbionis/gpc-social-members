@@ -9,7 +9,7 @@ import {
   generateSelfRegToken,
   isValidInviteCode,
 } from "@/lib/events/registration";
-import { seedLeadAttendee } from "@/lib/events/roster";
+import { seedLeadAttendee, mintRegistrationTickets } from "@/lib/events/roster";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_TICKETS = 20;
@@ -276,9 +276,13 @@ export async function POST(
   const regPatch: {
     phone_e164?: string;
     self_reg_token: string;
+    manage_token: string;
     lead_ticket_type_id?: string;
   } = {
     self_reg_token: generateSelfRegToken(),
+    // Path-secret for the lead "My Booking" page (U4). Same CSPRNG shape as the
+    // self-reg token; sent in the confirmation email (U9) as manage_url.
+    manage_token: generateSelfRegToken(),
   };
   if (phone) regPatch.phone_e164 = phone;
   if (leadType) regPatch.lead_ticket_type_id = leadType;
@@ -299,6 +303,8 @@ export async function POST(
     // in the Stripe webhook after promotion to 'paid'). Pass the phone in-hand so a
     // failed phone UPDATE above doesn't leave the lead unmatchable by phone.
     await seedLeadAttendee(registrationId, phone || null);
+    // Mint a credentialled (QR) ticket for every remaining purchased slot (U2).
+    await mintRegistrationTickets(registrationId);
     sendEventRegistrationConfirmation(registrationId).catch((err) =>
       console.error("[event-register] confirmation email failed", err)
     );

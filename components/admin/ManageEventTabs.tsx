@@ -69,7 +69,6 @@ interface Props {
   overbooked: boolean;
   csvHref: string;
   baseUrl: string;
-  checkInPath: string;
   reminders: ReminderSummaryRow[];
   sentMessages: SentMessageRow[];
   reminderSchedule: ReminderEntry[];
@@ -92,7 +91,6 @@ export default function ManageEventTabs({
   overbooked,
   csvHref,
   baseUrl,
-  checkInPath,
   reminders,
   sentMessages,
   reminderSchedule,
@@ -220,7 +218,6 @@ export default function ManageEventTabs({
       {tab === "checkin" && (
         <EventCheckInPanel
           baseUrl={baseUrl}
-          checkInPath={checkInPath}
           eventId={eventId}
           arrivedCount={checkedInCount}
           // Arrivals are measured against total tickets sold (the true expected

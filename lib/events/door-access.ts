@@ -69,6 +69,7 @@ type AttRow = {
   is_child: boolean | null;
   checked_in_at: string | null;
   created_at: string;
+  slot_status: string;
 };
 
 /**
@@ -87,13 +88,16 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
     .in("status", ["paid", "free"]);
   const registrations = (regRows ?? []) as RegRow[];
 
+  // Both filled (claimed) and open (issued) tickets in one read — issued rows ARE
+  // the open slots now (U3), so there is no purchased−claimed synthesis. Released
+  // rows are excluded (a released slot is reopened as a fresh issued row).
   const { data: attRows } = await supabase
-    .from("event_attendees")
+    .from("tickets")
     .select(
-      "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, is_child, checked_in_at, created_at"
+      "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, is_child, checked_in_at, created_at, slot_status"
     )
     .eq("event_id", eventId)
-    .eq("slot_status", "claimed")
+    .in("slot_status", ["claimed", "issued"])
     .is("released_at", null);
   const attendees = (attRows ?? []) as AttRow[];
 
@@ -113,28 +117,15 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
     ticketSortById.set(t.id as string, (t.sort_order as number | null) ?? 0);
   }
 
-  // Purchased quantity per (registration, ticket type) → drives the open slots.
-  const regIds = registrations.map((r) => r.id);
-  const { data: itemRows } = regIds.length
-    ? await supabase
-        .from("event_registration_items")
-        .select("registration_id, ticket_type_id, quantity")
-        .in("registration_id", regIds)
-    : { data: [] };
-  const purchasedByReg = new Map<string, Map<string, number>>();
-  for (const it of (itemRows ?? []) as { registration_id: string; ticket_type_id: string | null; quantity: number | null }[]) {
-    if (!it.ticket_type_id) continue;
-    const byType = purchasedByReg.get(it.registration_id) ?? new Map<string, number>();
-    byType.set(it.ticket_type_id, (byType.get(it.ticket_type_id) ?? 0) + (it.quantity ?? 0));
-    purchasedByReg.set(it.registration_id, byType);
-  }
-
+  // Partition each party's tickets into filled (claimed) and open (issued) rows.
   const claimedByReg = new Map<string, AttRow[]>();
+  const issuedByReg = new Map<string, AttRow[]>();
   for (const a of attendees) {
     if (!a.registration_id) continue;
-    const list = claimedByReg.get(a.registration_id) ?? [];
+    const map = a.slot_status === "issued" ? issuedByReg : claimedByReg;
+    const list = map.get(a.registration_id) ?? [];
     list.push(a);
-    claimedByReg.set(a.registration_id, list);
+    map.set(a.registration_id, list);
   }
 
   const toSlot = (a: AttRow): DoorSlot => ({
@@ -161,35 +152,29 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
     });
     const filled = claimed.map(toSlot);
 
-    // Open slots = purchased − claimed, per type (ordered by the type's sort order).
-    const claimedByType = new Map<string, number>();
-    for (const a of claimed) {
-      if (a.ticket_type_id) {
-        claimedByType.set(a.ticket_type_id, (claimedByType.get(a.ticket_type_id) ?? 0) + 1);
-      }
-    }
-    const purchased = purchasedByReg.get(reg.id) ?? new Map<string, number>();
-    const openSlots: DoorSlot[] = [];
-    const typeIds = [...purchased.keys()].sort(
-      (x, y) => (ticketSortById.get(x) ?? 0) - (ticketSortById.get(y) ?? 0)
-    );
-    for (const typeId of typeIds) {
-      const open = Math.max(0, (purchased.get(typeId) ?? 0) - (claimedByType.get(typeId) ?? 0));
-      for (let i = 0; i < open; i++) {
-        openSlots.push({
-          attendeeId: null,
-          name: "",
-          email: "",
-          phone: "",
-          ticketTypeId: typeId,
-          ticketTypeTitle: ticketTitleById.get(typeId) ?? "",
-          isChild: ticketIsChildById.get(typeId) ?? false,
-          isLead: false,
-          checkedIn: false,
-          arrivedAt: null,
-        });
-      }
-    }
+    // Open slots = the party's stored 'issued' rows (ordered by the type's sort
+    // order, then mint order). attendeeId stays null so the console treats them as
+    // fillable; the fill RPC picks an issued row of the chosen type to flip.
+    const openSlots: DoorSlot[] = (issuedByReg.get(reg.id) ?? [])
+      .slice()
+      .sort((a, b) => {
+        const sa = a.ticket_type_id ? ticketSortById.get(a.ticket_type_id) ?? 0 : 0;
+        const sb = b.ticket_type_id ? ticketSortById.get(b.ticket_type_id) ?? 0 : 0;
+        if (sa !== sb) return sa - sb;
+        return a.created_at.localeCompare(b.created_at);
+      })
+      .map((a) => ({
+        attendeeId: null,
+        name: "",
+        email: "",
+        phone: "",
+        ticketTypeId: a.ticket_type_id,
+        ticketTypeTitle: a.ticket_type_id ? ticketTitleById.get(a.ticket_type_id) ?? "" : "",
+        isChild: a.ticket_type_id ? ticketIsChildById.get(a.ticket_type_id) ?? false : false,
+        isLead: false,
+        checkedIn: false,
+        arrivedAt: null,
+      }));
 
     const quantity = reg.quantity ?? 0;
     return {

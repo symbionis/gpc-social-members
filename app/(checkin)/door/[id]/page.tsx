@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { resolveDoorEvent, buildDoorRoster } from "@/lib/events/door-access";
 import DoorConsole from "@/components/door/DoorConsole";
+import ScanCheckIn from "@/components/door/ScanCheckIn";
 import { formatDate } from "@/lib/format";
 
 // Keep the event id out of the Referer header on any outbound link / asset.
@@ -44,15 +45,20 @@ export default async function DoorConsolePage({
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
   return shell(
-    <DoorConsole
-      eventId={event.id}
-      eventTitle={event.title}
-      eventDate={event.startDate ? formatDate(event.startDate) : ""}
-      baseUrl={baseUrl}
-      parties={parties}
-      arrivals={arrivals}
-      arrivedCount={arrivals.length}
-      expectedCount={expected}
-    />
+    <div className="space-y-6">
+      {/* Primary check-in path: scan the guest's QR (U7). The roster below covers
+          walk-ups (fill an inviter's open slot) and lost-QR name/contact lookup. */}
+      <ScanCheckIn eventId={event.id} />
+      <DoorConsole
+        eventId={event.id}
+        eventTitle={event.title}
+        eventDate={event.startDate ? formatDate(event.startDate) : ""}
+        baseUrl={baseUrl}
+        parties={parties}
+        arrivals={arrivals}
+        arrivedCount={arrivals.length}
+        expectedCount={expected}
+      />
+    </div>
   );
 }
