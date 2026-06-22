@@ -1,14 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { WAIVER_VERSION, type WaiverLanguage } from "@/lib/events/waiver";
 
-// Delegate batch page: name one ticket in a forwarded batch (U5). Public, authorised
-// by the batch token in the path. fill_batch_ticket re-validates the token, rejects
-// any ticket id not carrying it (so a delegate can only touch their batch), and
-// applies the child/contact rule. The token is never echoed back.
+// Delegate batch page: validate one ticket in a forwarded batch (U5). The recipient
+// confirms their details (which binds the QR to them) and may accept the waiver +
+// comms consent now or sign at the door. Public, authorised by the batch token in the
+// path. fill_batch_ticket re-validates the token, rejects any ticket id not carrying
+// it (so a delegate can only touch their batch), and applies the child/contact rule.
+// The token is never echoed back.
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LANGUAGES = ["fr", "en"] as const;
 const MAX_LEN = 200;
 const MAX_EMAIL_LEN = 254;
 
@@ -23,7 +27,15 @@ export async function POST(
   const { token } = await params;
   if (!token) return bad("Invalid link", 404);
 
-  let body: { ticketId?: unknown; name?: unknown; email?: unknown; phone?: unknown; marketingConsent?: unknown };
+  let body: {
+    ticketId?: unknown;
+    name?: unknown;
+    email?: unknown;
+    phone?: unknown;
+    language?: unknown;
+    waiverAccepted?: unknown;
+    marketingConsent?: unknown;
+  };
   try {
     body = await request.json();
   } catch {
@@ -36,6 +48,8 @@ export async function POST(
   const email =
     typeof body.email === "string" && body.email.trim() ? body.email.trim().toLowerCase() : "";
   const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+  const language = typeof body.language === "string" ? body.language : "";
+  const waiverAccepted = body.waiverAccepted === true;
   const marketingConsent = body.marketingConsent !== false;
 
   if (!ticketId) return bad("ticketId is required");
@@ -45,6 +59,10 @@ export async function POST(
     return bad("a valid email is required");
   }
   if (phone && !PHONE_RE.test(phone)) return bad("a valid phone is required");
+  // Language is only required when actually accepting the waiver here.
+  if (waiverAccepted && !LANGUAGES.includes(language as WaiverLanguage)) {
+    return bad("language must be 'fr' or 'en' to accept the waiver");
+  }
 
   const supabase = createAdminClient();
   const { data: result, error } = await supabase.rpc("fill_batch_ticket", {
@@ -53,9 +71,11 @@ export async function POST(
     p_name: name,
     p_email: email || null,
     p_phone_e164: phone || null,
-    p_language: null,
-    p_waiver_version: null,
-    p_waiver_accepted: false,
+    p_language: waiverAccepted ? language : null,
+    // Source the version server-side only when accepting now, mirroring door check-in
+    // and self-registration — never trust a client-supplied version.
+    p_waiver_version: waiverAccepted ? WAIVER_VERSION : null,
+    p_waiver_accepted: waiverAccepted,
     p_marketing_consent: marketingConsent,
   });
   if (error) {

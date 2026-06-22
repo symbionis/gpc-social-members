@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
-import BookingManager, { type BookingTicket } from "@/components/public/BookingManager";
+import ForwardedTickets, { type ForwardedTicket } from "@/components/public/ForwardedTickets";
 import { credentialUrl } from "@/lib/events/credential";
 import { formatDate } from "@/lib/format";
 
@@ -67,7 +67,7 @@ export default async function BatchPage({
     sortById.set(t.id as string, (t.sort_order as number | null) ?? 0);
   }
 
-  const tickets: BookingTicket[] = ticketRows
+  const tickets: ForwardedTicket[] = ticketRows
     .slice()
     .sort((a, b) => {
       const sa = a.ticket_type_id ? sortById.get(a.ticket_type_id as string) ?? 0 : 0;
@@ -77,32 +77,28 @@ export default async function BatchPage({
     })
     .map((t) => {
       const typeId = t.ticket_type_id as string | null;
+      const name = (t.name as string | null) ?? "";
       return {
         id: t.id as string,
-        name: (t.name as string | null) ?? "",
+        name,
         email: (t.email as string | null) ?? "",
         phone: (t.phone_e164 as string | null) ?? "",
         typeTitle: typeId ? titleById.get(typeId) ?? "" : "",
         isChild: (t.is_child as boolean | null) ?? (typeId ? isChildById.get(typeId) ?? false : false),
-        status: t.slot_status as string,
         checkedIn: t.checked_in_at !== null,
+        // Named (slot_status 'claimed') counts as validated; otherwise the recipient
+        // confirms details to validate it.
+        validated: (t.slot_status as string) === "claimed" || name.trim().length > 0,
         credentialUrl: credentialUrl((t.credential_token as string | null) ?? ""),
-        // The delegate holds these tickets: none is the lead's, and there's no
-        // re-forward from here, so they're managed normally (not "forwarded away").
-        isLead: false,
-        forwarded: false,
       };
     });
 
   return shell(
-    <BookingManager
+    <ForwardedTickets
       eventTitle={event.title as string}
       eventDate={formatDate(event.start_date as string)}
-      referenceCode=""
-      quantity={tickets.length}
       tickets={tickets}
       fillEndpoint={`/api/public/batches/${token}/fill`}
-      variant="batch"
     />
   );
 }

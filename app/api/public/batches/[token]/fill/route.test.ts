@@ -4,6 +4,7 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 
 import { POST } from "@/app/api/public/batches/[token]/fill/route";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { WAIVER_VERSION } from "@/lib/events/waiver";
 
 const mockedAdmin = vi.mocked(createAdminClient);
 
@@ -77,5 +78,37 @@ describe("POST /api/public/batches/[token]/fill", () => {
     mockedAdmin.mockReturnValue(adminClient({ status: "invalid" }));
     const res = await post({ ticketId: TICKET, name: "Si", email: "a@x.com" });
     expect(res.status).toBe(404);
+  });
+
+  it("forwards the server-sourced waiver version + language when accepting now", async () => {
+    const res = await post({
+      ticketId: TICKET,
+      name: "Si",
+      email: "si@x.com",
+      waiverAccepted: true,
+      language: "en",
+      marketingConsent: false,
+    });
+    expect(res.status).toBe(200);
+    expect(lastArgs.args).toMatchObject({
+      p_waiver_accepted: true,
+      p_waiver_version: WAIVER_VERSION,
+      p_language: "en",
+      p_marketing_consent: false,
+    });
+  });
+
+  it("sends no waiver version when not accepting (signs at the door)", async () => {
+    await post({ ticketId: TICKET, name: "Si", email: "si@x.com" });
+    expect(lastArgs.args).toMatchObject({
+      p_waiver_accepted: false,
+      p_waiver_version: null,
+      p_language: null,
+    });
+  });
+
+  it("rejects accepting the waiver without a valid language", async () => {
+    const res = await post({ ticketId: TICKET, name: "Si", email: "si@x.com", waiverAccepted: true });
+    expect(res.status).toBe(400);
   });
 });

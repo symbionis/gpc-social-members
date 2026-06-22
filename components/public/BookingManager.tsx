@@ -481,13 +481,16 @@ function TicketCard({
               </span>
             )}
           </div>
-          <p className="mt-1.5 font-body text-base text-marine">
-            {named ? (
-              ticket.name
-            ) : (
-              <span className="text-marine/60">Unnamed — add a name to make this ticket valid</span>
-            )}
-          </p>
+          {/* Once forwarded the ticket is handed over — no name/validity line here. */}
+          {!ticket.forwarded && (
+            <p className="mt-1.5 font-body text-base text-marine">
+              {named ? (
+                ticket.name
+              ) : (
+                <span className="text-marine/60">Unnamed — add a name to make this ticket valid</span>
+              )}
+            </p>
+          )}
           {editable && (
             <div className="mt-3">
               <button
@@ -498,11 +501,6 @@ function TicketCard({
                 {named ? "Edit name" : "Add name"}
               </button>
             </div>
-          )}
-          {ticket.forwarded && (
-            <p className="mt-2 font-body text-sm text-marine/70">
-              Sent to your guest — they can name it and show its QR at the entrance.
-            </p>
           )}
           {ticket.isLead && (
             <p className="mt-2 font-body text-sm text-marine/70">
