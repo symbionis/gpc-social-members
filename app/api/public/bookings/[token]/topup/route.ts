@@ -62,7 +62,7 @@ export async function POST(
   const ids = [...new Set(requested.map((r) => r.ticketTypeId))];
   const { data: types } = await supabase
     .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, archived_at, counts_as_seat")
+    .select("id, title, price_member, price_non_member, invite_price, archived_at, counts_as_seat")
     .eq("event_id", reg.event_id as string)
     .in("id", ids);
   const typeById = new Map((types ?? []).map((t) => [t.id as string, t]));
@@ -80,7 +80,10 @@ export async function POST(
   for (const r of requested) {
     const t = typeById.get(r.ticketTypeId)!;
     if (t.archived_at) return bad("A selected ticket type is no longer available", 400);
-    const unit = reg.is_member ? t.price_member : t.price_non_member;
+    // Non-members fall back to invite_price when price_non_member is unset — on a
+    // members-only event there is no non-member price, so an invited guest's top-up
+    // must use the same invite_price they paid at booking (else unit is null → 500).
+    const unit = reg.is_member ? t.price_member : (t.price_non_member ?? t.invite_price);
     if (unit === null || !Number.isFinite(Number(unit)) || Number(unit) < 0) {
       return bad("Event pricing is misconfigured", 500);
     }
