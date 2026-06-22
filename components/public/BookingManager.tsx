@@ -572,7 +572,7 @@ function TicketCard({
           {canForward && (
             <p className="font-body text-sm text-marine/70">
               <strong>Save</strong> keeps the ticket with you to share its QR.{" "}
-              <strong>Save &amp; forward</strong> emails the QR to the guest so they can name it.
+              <strong>Save &amp; forward</strong> emails the QR to the guest.
             </p>
           )}
         </div>
