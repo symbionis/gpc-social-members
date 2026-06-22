@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { mintRegistrationTickets } from "@/lib/events/roster";
+import { getSeatsUsed } from "@/lib/events/seat-usage";
 
 // Buy-more top-up from the lead booking page (U6). Adds tickets UNDER the existing
 // registration (the one-reg-per-email index blocks a second one). We record a pending
@@ -61,7 +62,7 @@ export async function POST(
   const ids = [...new Set(requested.map((r) => r.ticketTypeId))];
   const { data: types } = await supabase
     .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, archived_at")
+    .select("id, title, price_member, price_non_member, archived_at, counts_as_seat")
     .eq("event_id", reg.event_id as string)
     .in("id", ids);
   const typeById = new Map((types ?? []).map((t) => [t.id as string, t]));
@@ -75,6 +76,7 @@ export async function POST(
     line_total_chf: number;
   }[] = [];
   let total = 0;
+  let seatQuantity = 0;
   for (const r of requested) {
     const t = typeById.get(r.ticketTypeId)!;
     if (t.archived_at) return bad("A selected ticket type is no longer available", 400);
@@ -85,6 +87,7 @@ export async function POST(
     const unitAmount = Number(unit);
     const lineTotal = Number((unitAmount * r.quantity).toFixed(2));
     total += lineTotal;
+    if (t.counts_as_seat) seatQuantity += r.quantity;
     items.push({
       ticket_type_id: t.id as string,
       title_snapshot: t.title as string,
@@ -94,6 +97,29 @@ export async function POST(
     });
   }
   total = Number(total.toFixed(2));
+
+  // A lead's buy-more must respect the event seat cap (the bump to quantity feeds
+  // seats_used). The registration's current quantity is already counted in
+  // getSeatsUsed, so the top-up's NEW seat tickets are what must still fit.
+  const { data: ev } = await supabase
+    .from("events")
+    .select("seat_cap")
+    .eq("id", reg.event_id as string)
+    .limit(1)
+    .maybeSingle();
+  const seatCap = (ev?.seat_cap as number | null) ?? null;
+  if (seatCap !== null && seatQuantity > 0) {
+    let seatsUsed: number;
+    try {
+      seatsUsed = await getSeatsUsed(supabase, reg.event_id as string);
+    } catch (err) {
+      console.error("[booking-topup] seat usage lookup failed", { eventId: reg.event_id, err });
+      return bad("Could not verify availability", 500);
+    }
+    if (seatsUsed + seatQuantity > seatCap) {
+      return bad("Not enough tickets remaining for this event", 409);
+    }
+  }
 
   // Record the pending top-up (service-role bypasses RLS).
   const { data: topup, error: topupErr } = await supabase

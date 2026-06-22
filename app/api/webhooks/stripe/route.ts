@@ -197,8 +197,30 @@ export async function POST(request: NextRequest) {
           }
           const topupStatus = (applied as { status?: string } | null)?.status;
           if (topupStatus === "not_found") {
-            // Metadata names a top-up that doesn't exist; not retryable.
-            console.error("[webhook] top-up id in metadata not found", { topupId });
+            // Metadata names a top-up row that doesn't exist — the customer was charged
+            // but there is nothing to apply, and this is not retryable. Tag the
+            // PaymentIntent with a durable, queryable refund signal (mirrors the
+            // duplicate-registration path) so the charge can be found after logs rotate.
+            console.error(
+              "[webhook] top-up id in metadata not found — payment captured, NEEDS MANUAL REFUND/RECONCILIATION",
+              { topupId, sessionId: session.id, paymentIntent: session.payment_intent }
+            );
+            if (typeof session.payment_intent === "string") {
+              try {
+                await getStripe().paymentIntents.update(session.payment_intent, {
+                  metadata: {
+                    needs_refund: "topup_not_found",
+                    topup_id: topupId,
+                    event_session: session.id,
+                  },
+                });
+              } catch (tagErr) {
+                console.error("[webhook] failed to tag PaymentIntent for refund", {
+                  paymentIntent: session.payment_intent,
+                  err: tagErr,
+                });
+              }
+            }
             return NextResponse.json({ received: true });
           }
           // Mint the newly-purchased slots (idempotent — only the shortfall is minted).
