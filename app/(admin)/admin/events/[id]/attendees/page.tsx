@@ -240,7 +240,6 @@ export default async function ManageEventPage({
     .order("created_at", { ascending: false });
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-  const checkInPath = `/public/events/${id}/check-in`;
 
   return (
     <div>
@@ -273,7 +272,6 @@ export default async function ManageEventPage({
         overbooked={overbooked}
         csvHref={`/api/admin/events/${id}/attendees?format=csv`}
         baseUrl={baseUrl}
-        checkInPath={checkInPath}
         reminders={reminders}
         sentMessages={sentMessages ?? []}
         reminderSchedule={reminderSchedule}

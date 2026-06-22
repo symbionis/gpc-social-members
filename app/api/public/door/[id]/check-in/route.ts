@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { resolveDoorEvent } from "@/lib/events/door-access";
-import { checkInByCredential } from "@/lib/events/checkin";
+import { checkInByCredential, recordAttendeeCheckin } from "@/lib/events/checkin";
 import { parseCredentialToken } from "@/lib/events/credential";
 import { WAIVER_VERSION, type WaiverLanguage } from "@/lib/events/waiver";
 
@@ -30,6 +30,7 @@ export async function POST(
 
   let body: {
     token?: unknown;
+    ticketId?: unknown;
     name?: unknown;
     email?: unknown;
     phone?: unknown;
@@ -41,6 +42,42 @@ export async function POST(
     body = await request.json();
   } catch {
     return bad("Invalid JSON");
+  }
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const waiverAcceptedFlag = body.waiverAccepted === true;
+  const lang = typeof body.language === "string" ? body.language : "";
+  if (waiverAcceptedFlag && !LANGUAGES.includes(lang as WaiverLanguage)) {
+    return bad("language must be 'fr' or 'en' to sign the waiver");
+  }
+
+  // Lost-QR path: a guest found by name in the roster (already a named ticket) is
+  // checked in by id. recordAttendeeCheckin is idempotent and handles the waiver.
+  if (typeof body.ticketId === "string" && UUID_RE.test(body.ticketId)) {
+    try {
+      const r = await recordAttendeeCheckin({
+        eventId,
+        attendeeId: body.ticketId,
+        language: (lang as WaiverLanguage) || "en",
+        waiverAccepted: waiverAcceptedFlag,
+        marketingConsent: body.marketingConsent !== false,
+      });
+      if (!r.ok) {
+        return NextResponse.json({
+          status: r.reason === "needs_waiver" ? "needs_waiver" : "not_recognised",
+        });
+      }
+      return NextResponse.json({
+        status: r.already ? "already" : "checked_in",
+        ticket_id: body.ticketId,
+        name: r.name,
+        ticket_type_id: r.ticketTypeId,
+        checked_in_at: r.checkedInAt,
+      });
+    } catch (err) {
+      console.error("[door-checkin] recordAttendeeCheckin failed", { eventId, err });
+      return bad("Could not check in", 500);
+    }
   }
 
   const token =

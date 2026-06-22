@@ -1,14 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/events/door-access", () => ({ resolveDoorEvent: vi.fn() }));
-vi.mock("@/lib/events/checkin", () => ({ checkInByCredential: vi.fn() }));
+vi.mock("@/lib/events/checkin", () => ({
+  checkInByCredential: vi.fn(),
+  recordAttendeeCheckin: vi.fn(),
+}));
 
 import { POST } from "@/app/api/public/door/[id]/check-in/route";
 import { resolveDoorEvent } from "@/lib/events/door-access";
-import { checkInByCredential } from "@/lib/events/checkin";
+import { checkInByCredential, recordAttendeeCheckin } from "@/lib/events/checkin";
 
 const mockedResolve = vi.mocked(resolveDoorEvent);
 const mockedCheckin = vi.mocked(checkInByCredential);
+const mockedRecord = vi.mocked(recordAttendeeCheckin);
+const TICKET = "11111111-2222-3333-4444-555555555555";
 
 function post(body: unknown, id = "evt-1") {
   const req = new Request(`http://localhost/api/public/door/${id}/check-in`, {
@@ -58,5 +63,27 @@ describe("POST /api/public/door/[id]/check-in", () => {
   it("rejects an invalid waiver language", async () => {
     const res = await post({ token: "abc123def456ghi789xyz", waiverAccepted: true, language: "de" });
     expect(res.status).toBe(400);
+  });
+
+  it("checks in a found ticket by id (lost-QR path)", async () => {
+    mockedRecord.mockResolvedValue({
+      ok: true,
+      already: false,
+      checkedInAt: "2026-07-01T18:00:00Z",
+      name: "Bo",
+      registrationId: "reg",
+      ticketTypeId: "tt",
+    });
+    const res = await post({ ticketId: TICKET });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "checked_in", name: "Bo" });
+    expect(mockedCheckin).not.toHaveBeenCalled();
+  });
+
+  it("surfaces needs_waiver for a by-id check-in of an unsigned guest", async () => {
+    mockedRecord.mockResolvedValue({ ok: false, reason: "needs_waiver" });
+    const res = await post({ ticketId: TICKET });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "needs_waiver" });
   });
 });
