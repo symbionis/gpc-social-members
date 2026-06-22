@@ -13,13 +13,6 @@ function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
-type AttendeeRow = {
-  id: string;
-  is_lead: boolean;
-  checked_in_at: string | null;
-  released_at: string | null;
-};
-
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -41,48 +34,29 @@ export async function POST(
 
   const supabase = createAdminClient();
 
-  const { data: attendee, error: loadErr } = await supabase
-    .from("tickets")
-    .select("id, is_lead, checked_in_at, released_at")
-    .eq("id", attendeeId)
-    .eq("event_id", eventId)
-    .eq("slot_status", "claimed")
-    .limit(1)
-    .maybeSingle();
-  if (loadErr) {
-    console.error("[door-free-slot] load failed", { eventId, attendeeId, err: loadErr });
-    return bad("Service temporarily unavailable", 503);
-  }
-  if (!attendee) return bad("Guest not found", 404);
-
-  const row = attendee as AttendeeRow;
-  if (row.is_lead) return bad("The party lead can’t be removed", 400);
-  if (row.checked_in_at) {
-    return bad("This guest has already checked in and can’t be removed", 409);
-  }
-  // Already released → idempotent success (a double-tap from the console).
-  if (row.released_at) return NextResponse.json({ ok: true, already: true });
-
-  // Guard the flip on checked_in_at IS NULL so a concurrent door check-in can't be
-  // erased by a release that raced it.
-  const now = new Date().toISOString();
-  const { data: updated, error: updErr } = await supabase
-    .from("tickets")
-    .update({ released_at: now })
-    .eq("id", attendeeId)
-    .eq("event_id", eventId)
-    .eq("is_lead", false)
-    .is("checked_in_at", null)
-    .is("released_at", null)
-    .select("id");
-  if (updErr) {
-    console.error("[door-free-slot] update failed", { eventId, attendeeId, err: updErr });
+  // release_ticket (U3) atomically tombstones the claimed row (released_at kept for
+  // audit) AND mints a fresh 'issued' replacement so the freed slot reopens with a
+  // new credential — the released guest's old QR now resolves to a released row and
+  // is rejected at the console. All guards (claimed, non-lead, not-checked-in,
+  // idempotent re-release, and the check-in race) live in the RPC under a row lock.
+  const { data: result, error: relErr } = await supabase.rpc("release_ticket", {
+    p_ticket_id: attendeeId,
+    p_event_id: eventId,
+  });
+  if (relErr) {
+    console.error("[door-free-slot] release_ticket failed", { eventId, attendeeId, err: relErr });
     return bad("Could not remove the guest", 500);
   }
-  if (!updated || updated.length === 0) {
-    // Lost the race — the guest checked in between load and update.
-    return bad("This guest has already checked in and can’t be removed", 409);
+  const rel = (result ?? {}) as { status?: string; already?: boolean };
+  switch (rel.status) {
+    case "ok":
+      return NextResponse.json({ ok: true, already: Boolean(rel.already) });
+    case "is_lead":
+      return bad("The party lead can’t be removed", 400);
+    case "checked_in":
+      return bad("This guest has already checked in and can’t be removed", 409);
+    case "not_found":
+    default:
+      return bad("Guest not found", 404);
   }
-
-  return NextResponse.json({ ok: true, already: false });
 }

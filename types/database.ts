@@ -1557,6 +1557,20 @@ export type Database = {
         }
         Returns: Json
       }
+      claim_ticket: {
+        Args: {
+          p_email: string
+          p_language: string
+          p_marketing_consent: boolean
+          p_name: string
+          p_phone_e164: string
+          p_registration_id: string
+          p_ticket_type_id?: string
+          p_waiver_accepted: boolean
+          p_waiver_version: string
+        }
+        Returns: Json
+      }
       create_event_registration: {
         Args: {
           p_converted_by: string
@@ -1583,6 +1597,10 @@ export type Database = {
       mint_registration_tickets: {
         Args: { p_registration_id: string }
         Returns: number
+      }
+      release_ticket: {
+        Args: { p_event_id: string; p_ticket_id: string }
+        Returns: Json
       }
       seats_used: { Args: { eid: string }; Returns: number }
       seats_used_by_events: {

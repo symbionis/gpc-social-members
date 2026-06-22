@@ -94,7 +94,7 @@ export async function POST(
     return NextResponse.json({ ok: true, attendeeId, created: false });
   }
 
-  // ----- Fill an open slot (create) -----
+  // ----- Fill an open slot: flip an issued ticket → claimed via the locked RPC -----
   const registrationId =
     typeof body.registrationId === "string" && UUID_RE.test(body.registrationId)
       ? body.registrationId
@@ -106,10 +106,11 @@ export async function POST(
   if (!registrationId) return bad("registrationId is required");
   if (!ticketTypeId) return bad("ticketTypeId is required");
 
-  // The party must belong to this event and be confirmed.
+  // Scope the party to THIS event before mutating it (the RPC keys only on the
+  // registration id — a door console for event A must not fill event B's party).
   const { data: reg, error: regErr } = await supabase
     .from("event_registrations")
-    .select("id, status")
+    .select("id")
     .eq("id", registrationId)
     .eq("event_id", eventId)
     .in("status", ["paid", "free"])
@@ -121,70 +122,41 @@ export async function POST(
   }
   if (!reg) return bad("Party not found", 404);
 
-  // The ticket type must belong to this event; its child flag drives the contact rule.
-  const { data: type, error: typeErr } = await supabase
-    .from("event_ticket_types")
-    .select("id, is_child")
-    .eq("id", ticketTypeId)
-    .eq("event_id", eventId)
-    .limit(1)
-    .maybeSingle();
-  if (typeErr) {
-    console.error("[door-save] type lookup failed", { eventId, ticketTypeId, err: typeErr });
-    return bad("Service temporarily unavailable", 503);
-  }
-  if (!type) return bad("Ticket type not found", 404);
-  const isChild = Boolean(type.is_child);
-
-  if (!isChild && !email && !phone) {
-    return bad("Add an email or phone, or use the QR code", 400);
-  }
-
-  // Per-type allotment: claimed of this type may not exceed purchased of this type.
-  const { data: items, error: itemsErr } = await supabase
-    .from("event_registration_items")
-    .select("quantity")
-    .eq("registration_id", registrationId)
-    .eq("ticket_type_id", ticketTypeId);
-  if (itemsErr) {
-    console.error("[door-save] items lookup failed", { registrationId, ticketTypeId, err: itemsErr });
-    return bad("Service temporarily unavailable", 503);
-  }
-  const purchased = (items ?? []).reduce((sum, r) => sum + ((r.quantity as number | null) ?? 0), 0);
-
-  const { count, error: countErr } = await supabase
-    .from("tickets")
-    .select("id", { count: "exact", head: true })
-    .eq("registration_id", registrationId)
-    .eq("ticket_type_id", ticketTypeId)
-    .eq("slot_status", "claimed")
-    .is("released_at", null);
-  if (countErr) {
-    console.error("[door-save] count failed", { registrationId, ticketTypeId, err: countErr });
-    return bad("Service temporarily unavailable", 503);
-  }
-  if ((count ?? 0) >= purchased) {
-    return bad("That ticket type is already full for this party", 409);
-  }
-
-  const { data: inserted, error: insErr } = await supabase
-    .from("tickets")
-    .insert({
-      event_id: eventId,
-      registration_id: registrationId,
-      name,
-      email: email || null,
-      phone_e164: phone || null,
-      is_lead: false,
-      is_child: isChild,
-      slot_status: "claimed",
-      ticket_type_id: ticketTypeId,
-    })
-    .select("id")
-    .limit(1);
-  if (insErr || !inserted || inserted.length === 0) {
-    console.error("[door-save] insert failed", { registrationId, ticketTypeId, err: insErr });
+  // The RPC holds the registration lock, enforces the per-type cap on CLAIMED rows
+  // (issued rows are capacity, not redemptions), flips one issued row to claimed, and
+  // is idempotent on contact. It allows a child ticket name-only and requires contact
+  // otherwise — mirroring the old route guard.
+  const { data: result, error: claimErr } = await supabase.rpc("claim_ticket", {
+    p_registration_id: registrationId,
+    p_name: name,
+    p_email: email || null,
+    p_phone_e164: phone || null,
+    p_language: null,
+    p_waiver_version: null,
+    p_waiver_accepted: false,
+    p_marketing_consent: null,
+    p_ticket_type_id: ticketTypeId,
+  });
+  if (claimErr) {
+    console.error("[door-save] claim_ticket failed", { registrationId, ticketTypeId, err: claimErr });
     return bad("Could not save", 500);
   }
-  return NextResponse.json({ ok: true, attendeeId: inserted[0].id, created: true });
+  const claim = (result ?? {}) as { status?: string; attendee_id?: string; already?: boolean };
+  switch (claim.status) {
+    case "claimed":
+      return NextResponse.json({
+        ok: true,
+        attendeeId: claim.attendee_id,
+        created: !claim.already,
+      });
+    case "full":
+    case "type_full":
+      return bad("That ticket type is already full for this party", 409);
+    case "invalid_input":
+      return bad("Add an email or phone, or use the QR code", 400);
+    case "inactive":
+    case "invalid":
+    default:
+      return bad("Party not found", 404);
+  }
 }
