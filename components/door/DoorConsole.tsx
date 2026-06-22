@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
 import { formatDateTime } from "@/lib/format";
 import PhoneInput from "@/components/common/PhoneInput";
+import WaiverText from "@/components/events/WaiverText";
+import type { WaiverLanguage } from "@/lib/events/waiver";
 
 interface DoorSlot {
   attendeeId: string | null;
@@ -51,7 +53,7 @@ interface Props {
 const searchInputClass =
   "w-full px-4 py-4 rounded-xl border-2 border-marine/20 bg-white text-marine font-body text-lg focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
 const fieldClass =
-  "w-full px-3 py-2.5 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky disabled:bg-cream disabled:text-marine/60 disabled:cursor-not-allowed disabled:border-border";
+  "w-full px-4 py-3 rounded-lg border-2 border-marine/20 bg-white text-marine font-body text-base focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky disabled:bg-cream disabled:text-marine/60 disabled:cursor-not-allowed disabled:border-border";
 
 function partyMatches(p: DoorParty, q: string): boolean {
   if (!q) return true;
@@ -304,6 +306,8 @@ function SlotRow({
   const [saving, setSaving] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
   const [needsWaiver, setNeedsWaiver] = useState(false);
+  const [language, setLanguage] = useState<WaiverLanguage>("en");
+  const [marketingConsent, setMarketingConsent] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // New open slots are editable immediately; claimed (live) rows start locked.
   const [editing, setEditing] = useState(slot.attendeeId === null);
@@ -398,7 +402,12 @@ function SlotRow({
       const res = await fetch(`/api/public/door/${eventId}/check-in`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId: slot.attendeeId, waiverAccepted, language: "en" }),
+        body: JSON.stringify({
+          ticketId: slot.attendeeId,
+          waiverAccepted,
+          language,
+          marketingConsent,
+        }),
         signal: AbortSignal.timeout(10000),
       });
       const data = await res.json().catch(() => ({}));
@@ -504,17 +513,47 @@ function SlotRow({
       )}
 
       {needsWaiver && (
-        <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
-          <p className="font-body text-xs text-amber-900 mb-2">
-            This guest hasn’t accepted the waiver. Confirm they accept it to check in.
-          </p>
+        <div className="mt-2 space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-body text-base font-semibold text-amber-900">
+              Read &amp; accept the waiver to check in.
+            </p>
+            <div className="flex gap-1 shrink-0">
+              {(["en", "fr"] as const).map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  onClick={() => setLanguage(l)}
+                  className={`rounded-lg border-2 px-3 py-1 font-body text-sm font-semibold transition-colors ${
+                    language === l
+                      ? "border-marine bg-marine text-white"
+                      : "border-marine/30 text-marine/60"
+                  }`}
+                >
+                  {l.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+          <WaiverText lang={language} textSize="text-sm" maxHeightClass="max-h-56" />
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={marketingConsent}
+              onChange={(e) => setMarketingConsent(e.target.checked)}
+              className="mt-0.5 h-6 w-6 shrink-0 accent-marine cursor-pointer"
+            />
+            <span className="font-body text-sm text-amber-900">
+              They’d like to receive news and invitations from Geneva Polo Social Club.
+            </span>
+          </label>
           <button
             type="button"
             onClick={() => checkInAdult(true)}
             disabled={checkingIn}
-            className="w-full px-3 py-2 rounded-lg bg-marine text-white font-body font-semibold text-sm disabled:opacity-50 cursor-pointer"
+            className="w-full px-3 py-3 rounded-lg bg-marine text-white font-body font-semibold text-base disabled:opacity-50 cursor-pointer"
           >
-            {checkingIn ? "…" : "Waiver accepted — check in"}
+            {checkingIn ? "…" : "Accept & check in"}
           </button>
         </div>
       )}
