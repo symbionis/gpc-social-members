@@ -9,7 +9,7 @@ import {
   generateSelfRegToken,
   isValidInviteCode,
 } from "@/lib/events/registration";
-import { seedLeadAttendee } from "@/lib/events/roster";
+import { seedLeadAttendee, mintRegistrationTickets } from "@/lib/events/roster";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_TICKETS = 20;
@@ -299,6 +299,8 @@ export async function POST(
     // in the Stripe webhook after promotion to 'paid'). Pass the phone in-hand so a
     // failed phone UPDATE above doesn't leave the lead unmatchable by phone.
     await seedLeadAttendee(registrationId, phone || null);
+    // Mint a credentialled (QR) ticket for every remaining purchased slot (U2).
+    await mintRegistrationTickets(registrationId);
     sendEventRegistrationConfirmation(registrationId).catch((err) =>
       console.error("[event-register] confirmation email failed", err)
     );

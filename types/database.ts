@@ -1580,6 +1580,10 @@ export type Database = {
         Args: { p_event_id: string; p_rows: Json }
         Returns: Json
       }
+      mint_registration_tickets: {
+        Args: { p_registration_id: string }
+        Returns: number
+      }
       seats_used: { Args: { eid: string }; Returns: number }
       seats_used_by_events: {
         Args: { ids: string[] }

@@ -2,7 +2,7 @@ import { getStripe } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
-import { seedLeadAttendee } from "@/lib/events/roster";
+import { seedLeadAttendee, mintRegistrationTickets } from "@/lib/events/roster";
 import { generateCardNumber } from "@/lib/utils/card";
 import { NextResponse, type NextRequest } from "next/server";
 import Stripe from "stripe";
@@ -270,8 +270,11 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Seed the purchaser onto the roster now that payment is confirmed (U12).
+        // Seed the purchaser onto the roster now that payment is confirmed (U12),
+        // then mint a credentialled (QR) ticket for every remaining purchased slot
+        // (U2). Both are idempotent, so a webhook replay mints no duplicates.
         await seedLeadAttendee(existing.id);
+        await mintRegistrationTickets(existing.id);
 
         await sendEventRegistrationConfirmation(existing.id).catch((err) =>
           console.error(
