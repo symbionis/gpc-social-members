@@ -74,8 +74,9 @@ begin
       'is_child', v_is_child);
   END IF;
 
-  -- Waiver: required unless already signed or accepted in this submission.
-  v_needs_waiver := v_t.waiver_accepted_at IS NULL;
+  -- Waiver: required unless already signed or accepted in this submission. Children
+  -- are waiver-exempt (consistent with claim_ticket / fill_ticket / checkInChildren).
+  v_needs_waiver := NOT v_is_child AND v_t.waiver_accepted_at IS NULL;
   IF v_needs_waiver AND COALESCE(p_waiver_accepted, false) IS NOT TRUE THEN
     RETURN jsonb_build_object('status', 'needs_waiver', 'ticket_id', v_t.id,
       'name', COALESCE(v_name, v_t.name), 'ticket_type_id', v_t.ticket_type_id,

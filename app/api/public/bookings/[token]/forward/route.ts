@@ -99,6 +99,8 @@ export async function POST(
       qr_url: `${appUrl}/api/qr/${t.credential_token as string}`,
     }));
 
+  // Best-effort (the batch is already stamped): a Postmark throw must not 500 the
+  // forward and tempt the lead to re-forward, re-stamping the same tickets.
   await sendTicketForwardEmail({
     to: email,
     eventTitle,
@@ -107,7 +109,9 @@ export async function POST(
     senderName: (reg?.name as string | null) ?? null,
     batchUrl,
     tickets,
-  });
+  }).catch((err) =>
+    console.error("[booking-forward] forwarding email failed (batch stamped)", { err })
+  );
 
   return NextResponse.json({ ok: true, count: fwd.count, batchUrl });
 }

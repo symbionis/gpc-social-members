@@ -66,7 +66,9 @@ begin
     RETURN jsonb_build_object('status', 'inactive');
   END IF;
 
-  -- The ticket must belong to THIS booking and not be a released tombstone.
+  -- The ticket must belong to THIS booking, not be a released tombstone, and not be
+  -- already checked in — an arrived guest's identity is immutable (mirrors
+  -- release_ticket / forward_ticket_batch, which both refuse checked-in rows).
   SELECT t.id, t.ticket_type_id, t.is_child, tt.is_child AS type_is_child
     INTO v_ticket
   FROM public.tickets t
@@ -74,6 +76,7 @@ begin
   WHERE t.id = p_ticket_id
     AND t.registration_id = v_reg.id
     AND t.released_at IS NULL
+    AND t.checked_in_at IS NULL
   FOR UPDATE OF t;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('status', 'not_found');

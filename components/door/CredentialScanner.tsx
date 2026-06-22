@@ -26,14 +26,24 @@ export default function CredentialScanner({
     let raf = 0;
     let stopped = false;
 
+    const stopStream = () => {
+      stream?.getTracks().forEach((t) => t.stop());
+      stream = null;
+    };
+
     const start = async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "environment" },
           audio: false,
         });
+        // Component unmounted (or scanning paused) while the permission prompt was
+        // open — release the camera instead of leaking the track + indicator light.
+        if (stopped || !videoRef.current) {
+          stopStream();
+          return;
+        }
         const video = videoRef.current;
-        if (!video) return;
         video.srcObject = stream;
         await video.play();
 
@@ -61,6 +71,7 @@ export default function CredentialScanner({
         };
         raf = requestAnimationFrame(tick);
       } catch {
+        stopStream();
         setDenied(true);
       }
     };
@@ -69,7 +80,7 @@ export default function CredentialScanner({
     return () => {
       stopped = true;
       cancelAnimationFrame(raf);
-      stream?.getTracks().forEach((t) => t.stop());
+      stopStream();
     };
   }, [active]);
 

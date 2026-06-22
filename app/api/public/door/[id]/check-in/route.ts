@@ -12,6 +12,7 @@ import { WAIVER_VERSION, type WaiverLanguage } from "@/lib/events/waiver";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LANGUAGES = ["fr", "en"] as const;
 const MAX_LEN = 200;
 
@@ -44,7 +45,6 @@ export async function POST(
     return bad("Invalid JSON");
   }
 
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const waiverAcceptedFlag = body.waiverAccepted === true;
   const lang = typeof body.language === "string" ? body.language : "";
   if (waiverAcceptedFlag && !LANGUAGES.includes(lang as WaiverLanguage)) {

@@ -162,14 +162,16 @@ begin
   END IF;
 
   -- Fallback: cap allowed but no issued row exists (legacy registration minted
-  -- before credentials, or its issued rows were removed). Insert a claimed row.
+  -- before credentials, or its issued rows were removed). Insert a claimed row WITH
+  -- a credential, so the "every ticket has a QR" invariant (R1) holds even here.
   INSERT INTO public.tickets
     (event_id, registration_id, member_id, name, email, phone_e164, is_lead,
-     slot_status, ticket_type_id, is_child, waiver_version, waiver_accepted_at,
-     language, marketing_consent)
+     slot_status, ticket_type_id, is_child, credential_token, waiver_version,
+     waiver_accepted_at, language, marketing_consent)
   VALUES
     (v_reg.event_id, v_reg.id, NULL, v_name, v_email, v_phone, false,
      'claimed', v_ticket, v_is_child,
+     replace(replace(encode(extensions.gen_random_bytes(24), 'base64'), '+', '-'), '/', '_'),
      CASE WHEN v_sign THEN p_waiver_version END,
      CASE WHEN v_sign THEN v_now END,
      CASE WHEN v_sign THEN NULLIF(p_language, '') END,

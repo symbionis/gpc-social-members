@@ -104,11 +104,15 @@ begin
 
   SELECT id, status INTO v_reg
   FROM public.event_registrations WHERE id = v_reg_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status', 'invalid');
+  END IF;
   IF v_reg.status NOT IN ('paid', 'free') THEN
     RETURN jsonb_build_object('status', 'inactive');
   END IF;
 
-  -- The ticket must carry THIS batch token (rejects ids outside the batch).
+  -- The ticket must carry THIS batch token (rejects ids outside the batch) and not be
+  -- already checked in (an arrived guest's identity is immutable).
   SELECT t.id, t.ticket_type_id, t.is_child, tt.is_child AS type_is_child
     INTO v_ticket
   FROM public.tickets t
@@ -116,6 +120,7 @@ begin
   WHERE t.id = p_ticket_id
     AND t.batch_token = p_batch_token
     AND t.released_at IS NULL
+    AND t.checked_in_at IS NULL
   FOR UPDATE OF t;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('status', 'not_found');

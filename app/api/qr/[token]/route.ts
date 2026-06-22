@@ -22,12 +22,23 @@ export async function GET(
     return new NextResponse("Not found", { status: 404 });
   }
 
-  const png = await QRCode.toBuffer(credentialUrl(token), {
-    type: "png",
-    width: 240,
-    margin: 1,
-    color: { dark: "#052938", light: "#FFFFFF" },
-  });
+  let png: Buffer;
+  try {
+    png = await QRCode.toBuffer(credentialUrl(token), {
+      type: "png",
+      width: 240,
+      margin: 1,
+      color: { dark: "#052938", light: "#FFFFFF" },
+    });
+  } catch (err) {
+    // Never cache an error: a cached 500 would render a broken image in every
+    // email that references this token for the 24h immutable window.
+    console.error("[qr] toBuffer failed", { err });
+    return new NextResponse("Could not render QR", {
+      status: 500,
+      headers: { "cache-control": "no-store" },
+    });
+  }
 
   return new NextResponse(new Uint8Array(png), {
     headers: {

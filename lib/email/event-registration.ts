@@ -132,13 +132,18 @@ export async function sendEventRegistrationConfirmation(
   // Per-ticket QR block: each live ticket's bearer credential as a hosted QR image
   // (qrcode.react can't run in email). Mustachio section {{#tickets}} {{label}}
   // {{name}} <img src="{{qr_url}}"> {{/tickets}}; name is null (not "") for unnamed.
-  const { data: ticketRows } = await supabase
+  const { data: ticketRows, error: ticketErr } = await supabase
     .from("tickets")
     .select("credential_token, name")
     .eq("registration_id", registrationId)
     .in("slot_status", ["issued", "claimed"])
     .is("released_at", null)
     .order("created_at", { ascending: true });
+  // Log distinctly so a real failure isn't disguised as a legitimate empty QR block
+  // (the lead can still reach every QR via manage_url).
+  if (ticketErr) {
+    console.error("[event-registration-email] tickets lookup failed", { registrationId, err: ticketErr });
+  }
   const tickets = (ticketRows ?? [])
     .filter((t) => t.credential_token)
     .map((t, i) => ({

@@ -62,9 +62,7 @@ export default function BookingManager({
       </header>
 
       <div className="rounded-2xl border border-marine/15 bg-marine/5 p-5">
-        <h2 className="font-heading text-base font-bold text-marine mb-1">
-          {variant === "batch" ? "Your tickets" : "Your tickets"}
-        </h2>
+        <h2 className="font-heading text-base font-bold text-marine mb-1">Your tickets</h2>
         <p className="font-body text-sm text-marine/75">
           Every guest needs their own QR code to get in. Add a name to each ticket and
           share its QR with that guest — each code admits one person.

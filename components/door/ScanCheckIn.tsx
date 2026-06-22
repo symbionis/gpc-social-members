@@ -49,6 +49,9 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ token: raw, ...extra }),
+          // Don't strand the scanner on "Checking…" if the RPC hangs (mirrors the
+          // door console's save/check-in timeouts).
+          signal: AbortSignal.timeout(10000),
         });
         const data = (await res.json()) as CheckinResult & { error?: string };
         if (!res.ok && data.error) {

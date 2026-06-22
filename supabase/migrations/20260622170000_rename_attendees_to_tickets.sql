@@ -145,10 +145,26 @@ BEGIN
     EXIT WHEN v_added >= v_remaining;
     v_clean := NULLIF(trim(v_name), '');
     IF v_clean IS NULL THEN CONTINUE; END IF;
-    INSERT INTO public.tickets
-      (event_id, registration_id, name, is_lead, slot_status, ticket_type_id, is_child)
-    VALUES
-      (v_reg.event_id, v_reg.id, v_clean, false, 'claimed', v_child_type, true);
+    -- Flip an issued child slot to claimed (FEAT-41) so the kid keeps the credential
+    -- minted at purchase and gets a QR like any other ticket (R13). Fallback insert
+    -- WITH a credential when no issued row exists, so the invariant still holds.
+    UPDATE public.tickets
+      SET slot_status = 'claimed', name = v_clean, is_child = true
+    WHERE id = (
+      SELECT id FROM public.tickets
+      WHERE registration_id = v_reg.id AND ticket_type_id = v_child_type
+        AND slot_status = 'issued' AND released_at IS NULL
+      ORDER BY created_at
+      LIMIT 1
+    );
+    IF NOT FOUND THEN
+      INSERT INTO public.tickets
+        (event_id, registration_id, name, is_lead, slot_status, ticket_type_id,
+         is_child, credential_token)
+      VALUES
+        (v_reg.event_id, v_reg.id, v_clean, false, 'claimed', v_child_type, true,
+         replace(replace(encode(extensions.gen_random_bytes(24), 'base64'), '+', '-'), '/', '_'));
+    END IF;
     v_added := v_added + 1;
   END LOOP;
 
