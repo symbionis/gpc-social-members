@@ -1585,6 +1585,20 @@ export type Database = {
         Returns: Json
       }
       apply_registration_topup: { Args: { p_topup_id: string }; Returns: Json }
+      checkin_by_credential: {
+        Args: {
+          p_credential_token: string
+          p_email: string
+          p_event_id: string
+          p_language: string
+          p_marketing_consent: boolean
+          p_name: string
+          p_phone_e164: string
+          p_waiver_accepted: boolean
+          p_waiver_version: string
+        }
+        Returns: Json
+      }
       claim_self_registration: {
         Args: {
           p_email: string

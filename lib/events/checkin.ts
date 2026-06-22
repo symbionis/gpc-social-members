@@ -214,6 +214,62 @@ export async function recordAttendeeCheckin(
   return { ok: true, already: false, checkedInAt: now, name, registrationId, ticketTypeId };
 }
 
+// ---------------------------------------------------------------------------
+// Info-desk scan check-in (U7 / FEAT-41). Resolve a scanned ticket credential to
+// its exact row (scoped to the active event) and stamp the arrival, filling any
+// missing name/waiver on the spot. All of it lives in the checkin_by_credential
+// SECURITY DEFINER RPC; this is a thin typed wrapper.
+// ---------------------------------------------------------------------------
+
+export type CredentialCheckinStatus =
+  | "not_recognised"
+  | "not_for_event"
+  | "already"
+  | "needs_name"
+  | "needs_waiver"
+  | "checked_in";
+
+export type CredentialCheckinResult = {
+  status: CredentialCheckinStatus;
+  ticket_id?: string;
+  name?: string | null;
+  ticket_type_id?: string | null;
+  ticket_type_title?: string | null;
+  checked_in_at?: string | null;
+  is_child?: boolean;
+};
+
+export type CheckInByCredentialInput = {
+  eventId: string;
+  credentialToken: string;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  language?: WaiverLanguage | null;
+  waiverVersion?: string | null;
+  waiverAccepted?: boolean;
+  marketingConsent?: boolean;
+};
+
+export async function checkInByCredential(
+  input: CheckInByCredentialInput
+): Promise<CredentialCheckinResult> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.rpc("checkin_by_credential", {
+    p_event_id: input.eventId,
+    p_credential_token: input.credentialToken,
+    p_name: input.name ?? null,
+    p_email: input.email ?? null,
+    p_phone_e164: input.phone ?? null,
+    p_language: input.language ?? null,
+    p_waiver_version: input.waiverVersion ?? null,
+    p_waiver_accepted: input.waiverAccepted ?? false,
+    p_marketing_consent: input.marketingConsent ?? null,
+  });
+  if (error) throw error;
+  return (data ?? { status: "not_recognised" }) as CredentialCheckinResult;
+}
+
 /**
  * The party's children who haven't arrived yet — name-only contactless attendees the
  * accompanying adult can check in alongside themselves at the kiosk. Read-only.
