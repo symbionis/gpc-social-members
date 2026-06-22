@@ -129,25 +129,28 @@ export async function sendEventRegistrationConfirmation(
     ? `${appUrl}/public/bookings/${registration.manage_token}`
     : null;
 
-  // Per-ticket QR block: each live ticket's bearer credential as a hosted QR image
-  // (qrcode.react can't run in email). Mustachio section {{#tickets}} {{label}}
-  // {{name}} <img src="{{qr_url}}"> {{/tickets}}; name is null (not "") for unnamed.
+  // Per-ticket QR block: ONLY the lead booker's own ticket QR. This is the code they
+  // show at the entrance (the familiar "your ticket" behaviour). Guests' QRs aren't in
+  // the email — the lead names/shares/forwards those from the booking page (manage_url).
+  // Hosted QR image (qrcode.react can't run in email). Mustachio section {{#tickets}}
+  // {{label}} {{name}} <img src="{{qr_url}}"> {{/tickets}}; name is null (not "") if unnamed.
   const { data: ticketRows, error: ticketErr } = await supabase
     .from("tickets")
-    .select("credential_token, name")
+    .select("credential_token, name, is_lead")
     .eq("registration_id", registrationId)
+    .eq("is_lead", true)
     .in("slot_status", ["issued", "claimed"])
     .is("released_at", null)
     .order("created_at", { ascending: true });
   // Log distinctly so a real failure isn't disguised as a legitimate empty QR block
-  // (the lead can still reach every QR via manage_url).
+  // (the lead can still reach their QR — and every guest's — via manage_url).
   if (ticketErr) {
     console.error("[event-registration-email] tickets lookup failed", { registrationId, err: ticketErr });
   }
   const tickets = (ticketRows ?? [])
     .filter((t) => t.credential_token)
-    .map((t, i) => ({
-      label: `Ticket ${i + 1}`,
+    .map((t) => ({
+      label: "Your ticket",
       name: (t.name as string | null)?.trim() || null,
       qr_url: `${appUrl}/api/qr/${t.credential_token as string}`,
     }));

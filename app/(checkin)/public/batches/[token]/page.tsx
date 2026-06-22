@@ -87,6 +87,10 @@ export default async function BatchPage({
         status: t.slot_status as string,
         checkedIn: t.checked_in_at !== null,
         credentialUrl: credentialUrl((t.credential_token as string | null) ?? ""),
+        // The delegate holds these tickets: none is the lead's, and there's no
+        // re-forward from here, so they're managed normally (not "forwarded away").
+        isLead: false,
+        forwarded: false,
       };
     });
 
