@@ -85,6 +85,10 @@ export default function DoorConsole({
   const [tab, setTab] = useState<"registered" | "checkedin">("registered");
   const [query, setQuery] = useState("");
   const [shownQr, setShownQr] = useState<Set<string>>(new Set());
+  // Per-party resend status (keyed by registrationId): in-flight, success, or error.
+  const [resend, setResend] = useState<
+    Record<string, { sending?: boolean; ok?: boolean; error?: string }>
+  >({});
 
   // Keep the roster + arrivals current during the event without a manual reload.
   useEffect(() => {
@@ -102,6 +106,40 @@ export default function DoorConsole({
       else next.add(id);
       return next;
     });
+  }
+
+  // Resend the booking email (lead QR + booking page) to a party's lead — for a guest
+  // who arrives without their QR. The email goes to the registrant, not the operator.
+  async function resendTickets(registrationId: string) {
+    setResend((s) => ({ ...s, [registrationId]: { sending: true } }));
+    try {
+      const res = await fetch(`/api/public/door/${eventId}/resend-confirmation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setResend((s) => ({
+          ...s,
+          [registrationId]: { error: data.error || "Could not resend." },
+        }));
+        return;
+      }
+      setResend((s) => ({ ...s, [registrationId]: { ok: true } }));
+    } catch (err) {
+      console.error("[door/resend] request failed", err);
+      setResend((s) => ({
+        ...s,
+        [registrationId]: {
+          error:
+            err instanceof DOMException && err.name === "TimeoutError"
+              ? "Timed out — try again."
+              : "Could not resend. Try again.",
+        },
+      }));
+    }
   }
 
   const pct = expectedCount > 0 ? Math.round((arrivedCount / expectedCount) * 100) : 0;
@@ -239,6 +277,32 @@ export default function DoorConsole({
                         feature). Fill the details above or use the welcome desk.
                       </p>
                     )}
+
+                    {/* Lost-QR helper: resend the booking email (QR + booking page) to
+                        the lead's own address. */}
+                    <div className="mt-3 border-t border-border pt-3">
+                      {resend[p.registrationId]?.ok ? (
+                        <p className="font-body text-sm text-emerald-700">
+                          ✓ Ticket email resent to the lead’s address.
+                        </p>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => resendTickets(p.registrationId)}
+                          disabled={resend[p.registrationId]?.sending}
+                          className="w-full px-3 py-2.5 rounded-lg border border-marine/30 text-marine font-body font-semibold text-sm hover:bg-marine/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                        >
+                          {resend[p.registrationId]?.sending
+                            ? "Resending…"
+                            : "Resend ticket email to lead"}
+                        </button>
+                      )}
+                      {resend[p.registrationId]?.error && (
+                        <p className="mt-2 font-body text-sm text-red-700">
+                          {resend[p.registrationId]?.error}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 );
               })
