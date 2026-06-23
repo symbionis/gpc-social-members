@@ -25,6 +25,20 @@ The person who created a Registration and manages it afterward — adding Ticket
 ### Top-up
 Adding further Tickets to an existing confirmed Registration after booking — the "Buy more tickets" flow. A Top-up is priced at the Registration's original Rate Class and, when it costs money, runs its own checkout before the new Tickets are minted.
 
+### Ticket Credential
+The unguessable bearer token carried by each Ticket, rendered as a QR code and used as the entry token at the door. Holding the credential is what admits a guest; identity (name, waiver) is metadata attached around it. Designed so an NFC bracelet could later be paired to the same credential.
+
+### Slot Status
+The lifecycle state of a Ticket: **issued** (minted with a credential at purchase, no name yet), **claimed** (filled with a person's name and contact), or **unclaimed** (a legacy open slot predating per-ticket minting).
+
+A Ticket can also be *released* — freed by staff before arrival — which tombstones it (kept for audit, never deleted) so its old credential stops admitting anyone. A checked-in Ticket cannot be released.
+
+### Booking Page
+The Lead's self-service page for a Registration, reached by a private manage link, where they name each Ticket, share or forward Tickets to guests, see every QR, and buy more.
+
+### Door Console
+The public, no-login check-in surface for an Event, opened by staff at a hard-to-guess per-Event link, used to scan Ticket QRs, fill in missing names and waivers, admit walk-ups against unredeemed Tickets, and resend a party's Tickets to its Lead.
+
 ## Pricing
 
 ### Rate Class
