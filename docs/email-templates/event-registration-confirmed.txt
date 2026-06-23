@@ -1,5 +1,9 @@
 Dear {{first_name}},
 
+{{#resend}}
+We've upgraded to QR tickets — here are yours. Each ticket now has its own QR code to show at the door, and you can name your guests and share their tickets from your booking page below.
+
+{{/resend}}
 {{#is_free}}
 Your spot at {{event_title}} is confirmed. This email is your ticket — keep it handy.
 {{/is_free}}
@@ -27,17 +31,17 @@ Tickets:
 {{/each}}
 Total:        {{amount_label}}
 
-{{#self_registration_url}}
-Bringing guests? Share this link so each person pre-registers their own details before the event:
+{{#manage_url}}
+Tickets are nominative — each guest needs their own named ticket. Manage your booking to add names, share or forward each guest's QR code, or buy more:
 {{.}}
-{{/self_registration_url}}
+{{/manage_url}}
 
 {{#event_url}}
 View event details:
 {{.}}
 {{/event_url}}
 
-Please bring this email (or your reference code) with you on the day. We'll check you in at the door.
+On the day, each guest just shows their QR code at the door and we'll scan them straight in.
 
 We look forward to seeing you there.
 

@@ -1,5 +1,15 @@
 <h1>You're registered, {{first_name}}.</h1>
 
+{{#resend}}
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 16px 0 24px 0;">
+  <tr>
+    <td style="padding: 16px; background-color: #f4f7f9; border-radius: 6px; border-left: 3px solid #052938;">
+      <p style="margin: 0; font-size: 14px;">We've upgraded to <strong>QR tickets</strong> — here are yours. Each ticket now has its own QR code to show at the door, and you can name your guests and share their tickets from your booking page below.</p>
+    </td>
+  </tr>
+</table>
+{{/resend}}
+
 {{#is_free}}
 <p>Your spot at <strong>{{event_title}}</strong> is confirmed. This email is your ticket — keep it handy.</p>
 {{/is_free}}
@@ -28,6 +38,20 @@
   </tr>
 </table>
 
+{{#manage_url}}
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 24px 0 8px 0;">
+  <tr>
+    <td style="padding: 16px; background-color: #f4f7f9; border-radius: 6px;">
+      <p style="margin: 0 0 12px 0; font-size: 14px;"><strong>Tickets are nominative — each guest needs their own named ticket.</strong> Open your booking page to add a name to each ticket, share or forward its QR code to your guests, or buy more:</p>
+      <p style="text-align: center; margin: 0 0 10px 0;">
+        <a href="{{.}}" class="button" style="color:#FFFFFF !important;text-decoration:none;display:inline-block;background-color:#052938;border-radius:3px;font-family:'Poppins','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14px;font-weight:500;letter-spacing:1px;text-align:center;padding:12px 32px;-webkit-text-size-adjust:none;">Manage my tickets</a>
+      </p>
+      <p style="margin: 0; font-size: 12px; color: #777777; word-break: break-all;">Or copy this link: {{.}}</p>
+    </td>
+  </tr>
+</table>
+{{/manage_url}}
+
 <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 16px 0;">
   <tr>
     <td style="padding: 6px 0 2px 0; font-size: 14px;"><strong>Tickets</strong></td>
@@ -42,19 +66,19 @@
   </tr>
 </table>
 
-{{#self_registration_url}}
-<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 24px 0 8px 0;">
+
+<!-- Lead booker's own entry QR (FEAT-41). The rest of the party is named/shared from the booking page. -->
+{{#each tickets}}
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 24px 0 12px 0;">
   <tr>
-    <td style="padding: 16px; background-color: #f4f7f9; border-radius: 6px;">
-      <p style="margin: 0 0 12px 0; font-size: 14px;"><strong>Bringing guests?</strong> Share this link so each person pre-registers their own details before the event:</p>
-      <p style="text-align: center; margin: 0 0 10px 0;">
-        <a href="{{.}}" class="button" style="color: #FFFFFF !important; text-decoration: none; display: inline-block; background-color: #052938; border-radius: 3px; font-family: 'Poppins', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 500; letter-spacing: 1px; text-align: center; padding: 12px 32px; -webkit-text-size-adjust: none;">Pre-register guests</a>
-      </p>
-      <p style="margin: 0; font-size: 12px; color: #777777; word-break: break-all;">Or copy this link: {{.}}</p>
+    <td align="center" style="padding: 20px 16px; background-color: #f4f7f9; border-radius: 6px;">
+      <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 2px;"><font color="#7aafc4">Your entry QR code</font></p>
+      <p style="margin: 0 0 14px 0; font-size: 14px; color:#052938;">Show this at the door{{#name}} &middot; {{name}}{{/name}}</p>
+      <img src="{{qr_url}}" alt="Your ticket QR code" width="180" height="180" style="display:block;margin:0 auto;border:1px solid #e3e3e3;border-radius:6px;" />
     </td>
   </tr>
 </table>
-{{/self_registration_url}}
+{{/each}}
 
 {{#event_url}}
 <p style="text-align: center; margin: 32px 0;">
@@ -62,7 +86,7 @@
 </p>
 {{/event_url}}
 
-<p>Please bring this email (or your reference code) with you on the day. We'll check you in at the door.</p>
+<p>On the day, each guest just shows their QR code at the door and we'll scan them straight in.</p>
 
 <p>We look forward to seeing you there.</p>
 

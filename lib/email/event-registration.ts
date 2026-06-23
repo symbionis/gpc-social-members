@@ -35,7 +35,8 @@ function formatAmount(totalChf: number, isFree: boolean): string {
 }
 
 export async function sendEventRegistrationConfirmation(
-  registrationId: string
+  registrationId: string,
+  opts?: { resend?: boolean }
 ): Promise<{ success: boolean; error?: unknown }> {
   const supabase = createAdminClient();
 
@@ -178,6 +179,10 @@ export async function sendEventRegistrationConfirmation(
       // Per-ticket QR codes (FEAT-41). Empty array → the {{#tickets}} block renders
       // nothing (the lead can still reach every QR via manage_url).
       tickets,
+      // Resend (existing registrants): a {{#resend}} intro block explains why a
+      // second email arrived (the upgrade to QR tickets). false/absent → the block
+      // is omitted, so a normal first confirmation is unchanged.
+      resend: opts?.resend ?? false,
       preheader: `You're registered for ${event.title}. Reference ${registration.reference_code}.`,
     },
   });
@@ -188,6 +193,22 @@ export async function sendEventRegistrationConfirmation(
       registrationId,
       result.error
     );
+    return result;
+  }
+
+  // Record the successful send so the admin "not yet notified" filter + bulk resend
+  // can skip this row and double-sends are avoided. Stamp ONLY on success — a failed
+  // send must leave the row in the not-yet-notified set so it stays eligible for retry.
+  // Best-effort: a stamp failure doesn't undo a delivered email, so log and continue.
+  const { error: stampErr } = await supabase
+    .from("event_registrations")
+    .update({ ticket_email_sent_at: new Date().toISOString() })
+    .eq("id", registrationId);
+  if (stampErr) {
+    console.error("[event-registration-email] failed to stamp ticket_email_sent_at", {
+      registrationId,
+      err: stampErr,
+    });
   }
 
   return result;

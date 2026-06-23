@@ -17,6 +17,10 @@ function adminClient(opts: {
   event: Record<string, unknown>;
   items: Item[] | null;
   tickets?: { credential_token: string | null; name: string | null; is_lead?: boolean }[];
+  /** Records each event_registrations.update({...}) payload (the success stamp). */
+  updateCalls?: Record<string, unknown>[];
+  /** Forces the stamp update to fail, to test best-effort logging. */
+  stampError?: unknown;
 }) {
   return {
     from: (table: string) => {
@@ -48,6 +52,11 @@ function adminClient(opts: {
         data: table === "events" ? opts.event : opts.registration,
         error: null,
       });
+      // Success stamp: event_registrations.update({ ticket_email_sent_at }).eq("id", …)
+      c.update = (vals: Record<string, unknown>) => {
+        opts.updateCalls?.push(vals);
+        return { eq: async () => ({ error: opts.stampError ?? null }) };
+      };
       return c;
     },
   } as unknown as ReturnType<typeof createAdminClient>;
@@ -201,5 +210,53 @@ describe("sendEventRegistrationConfirmation — self-registration link (U10)", (
     );
     await sendEventRegistrationConfirmation("reg-1");
     expect(lastModel().self_registration_url).toBeNull();
+  });
+});
+
+describe("sendEventRegistrationConfirmation — resend flag + send stamp (U2)", () => {
+  it("defaults resend to false and stamps ticket_email_sent_at on success", async () => {
+    const updateCalls: Record<string, unknown>[] = [];
+    mockedAdmin.mockReturnValue(
+      adminClient({ registration: baseReg, event: baseEvent, items: [], updateCalls })
+    );
+    const res = await sendEventRegistrationConfirmation("reg-1");
+    expect(res.success).toBe(true);
+    expect(lastModel().resend).toBe(false);
+    // Exactly one stamp, carrying a ticket_email_sent_at timestamp.
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]).toHaveProperty("ticket_email_sent_at");
+    expect(typeof updateCalls[0].ticket_email_sent_at).toBe("string");
+  });
+
+  it("propagates resend: true into the template model", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ registration: baseReg, event: baseEvent, items: [] })
+    );
+    await sendEventRegistrationConfirmation("reg-1", { resend: true });
+    expect(lastModel().resend).toBe(true);
+  });
+
+  it("does NOT stamp when the email send fails (row stays not-yet-notified)", async () => {
+    const updateCalls: Record<string, unknown>[] = [];
+    mockedSend.mockResolvedValueOnce({ success: false, error: "boom" });
+    mockedAdmin.mockReturnValue(
+      adminClient({ registration: baseReg, event: baseEvent, items: [], updateCalls })
+    );
+    const res = await sendEventRegistrationConfirmation("reg-1");
+    expect(res.success).toBe(false);
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it("still reports success when the stamp update fails (best-effort)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        registration: baseReg,
+        event: baseEvent,
+        items: [],
+        stampError: "stamp failed",
+      })
+    );
+    const res = await sendEventRegistrationConfirmation("reg-1");
+    expect(res.success).toBe(true);
   });
 });
