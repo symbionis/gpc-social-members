@@ -502,6 +502,7 @@ export type Database = {
           status: string
           stripe_checkout_session_id: string | null
           stripe_payment_intent_id: string | null
+          ticket_email_sent_at: string | null
           total_amount_chf: number
           unit_amount_chf: number
         }
@@ -524,6 +525,7 @@ export type Database = {
           status?: string
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
+          ticket_email_sent_at?: string | null
           total_amount_chf: number
           unit_amount_chf: number
         }
@@ -546,6 +548,7 @@ export type Database = {
           status?: string
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
+          ticket_email_sent_at?: string | null
           total_amount_chf?: number
           unit_amount_chf?: number
         }

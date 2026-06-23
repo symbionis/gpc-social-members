@@ -27,6 +27,8 @@ interface Attendee {
   ticketTypeTitle: string;
   /** Party self-reg detail (fill + token) on lead rows; null otherwise. */
   party: PartyDetail | null;
+  /** When this party's ticket email was last sent (lead rows); null = never sent. */
+  ticketEmailSentAt: string | null;
   waiverSigned: boolean;
   checkedIn: boolean;
   arrivedAt: string | null;
@@ -54,6 +56,19 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // Registrations whose ticket email is being (re)sent — keyed by registrationId.
+  const [resending, setResending] = useState<Set<string>>(new Set());
+  const [bulkSending, setBulkSending] = useState(false);
+
+  // Lead rows that have never been sent the ticket email (ticketEmailSentAt === null)
+  // — the population the bulk "resend to everyone not yet notified" button targets.
+  const notNotifiedCount = useMemo(
+    () =>
+      attendees.filter((a) => a.isLead && a.registrationId && a.ticketEmailSentAt === null)
+        .length,
+    [attendees]
+  );
 
   const [origin, setOrigin] = useState(baseUrl);
   useEffect(() => {
@@ -163,6 +178,74 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
     }
   }
 
+  // Resend the ticket/booking email for one party (its lead registration). Reusable
+  // any time a lead loses their email; primary use is notifying existing registrants
+  // who booked before the per-ticket QR system.
+  async function resendTickets(registrationId: string, name: string) {
+    setError(null);
+    setNotice(null);
+    setResending((prev) => new Set(prev).add(registrationId));
+    try {
+      const res = await fetch(
+        `/api/admin/events/${eventId}/registrations/${registrationId}/resend-confirmation`,
+        { method: "POST", headers: { "Content-Type": "application/json" } }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not resend the tickets.");
+        return;
+      }
+      setNotice(`Tickets resent to ${name || data.email || "the lead"}.`);
+      router.refresh();
+    } catch {
+      setError("Could not resend the tickets.");
+    } finally {
+      setResending((prev) => {
+        const next = new Set(prev);
+        next.delete(registrationId);
+        return next;
+      });
+    }
+  }
+
+  // Resend to every confirmed registration on this event not yet notified. The server
+  // resolves the set (status paid/free, ticket_email_sent_at null), so the count here
+  // is just a display hint.
+  async function resendBulk() {
+    if (
+      !window.confirm(
+        `Resend tickets to ${notNotifiedCount} registrant${
+          notNotifiedCount === 1 ? "" : "s"
+        } who haven't been notified yet?`
+      )
+    )
+      return;
+    setError(null);
+    setNotice(null);
+    setBulkSending(true);
+    try {
+      const res = await fetch(`/api/admin/events/${eventId}/registrations/resend-bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not resend the tickets.");
+        return;
+      }
+      setNotice(
+        data.failed > 0
+          ? `Resent ${data.sent} of ${data.total} — ${data.failed} failed, please retry.`
+          : `Resent tickets to ${data.sent} registrant${data.sent === 1 ? "" : "s"}.`
+      );
+      router.refresh();
+    } catch {
+      setError("Could not resend the tickets.");
+    } finally {
+      setBulkSending(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3 flex-wrap">
@@ -196,6 +279,19 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
             <option value="incomplete">Unfilled slots</option>
           </select>
         </div>
+        {notNotifiedCount > 0 && (
+          <button
+            type="button"
+            onClick={resendBulk}
+            disabled={bulkSending}
+            title="Resend the ticket/booking email to everyone who hasn't been sent it yet"
+            className="px-3 py-2 rounded-lg border border-marine text-marine text-sm font-body font-medium hover:bg-marine hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {bulkSending
+              ? "Resending…"
+              : `Resend tickets to ${notNotifiedCount} not notified`}
+          </button>
+        )}
       </div>
 
       {isFiltering && (
@@ -208,6 +304,12 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
       {error && (
         <p className="text-sm font-body text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
           {error}
+        </p>
+      )}
+
+      {notice && (
+        <p className="text-sm font-body text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+          {notice}
         </p>
       )}
 
@@ -253,9 +355,11 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
                       selfRegUrl={selfRegUrl}
                       copiedId={copiedId}
                       removing={removing.has(row.id)}
+                      resending={!!row.registrationId && resending.has(row.registrationId)}
                       onToggle={() => toggle(row.id)}
                       onCopy={copyLink}
                       onRemove={removeGuest}
+                      onResend={resendTickets}
                     />
                   );
                 })}
@@ -275,9 +379,11 @@ function RosterRow({
   selfRegUrl,
   copiedId,
   removing,
+  resending,
   onToggle,
   onCopy,
   onRemove,
+  onResend,
 }: {
   row: Attendee;
   isGuest: boolean;
@@ -285,9 +391,11 @@ function RosterRow({
   selfRegUrl: string;
   copiedId: string | null;
   removing: boolean;
+  resending: boolean;
   onToggle: () => void;
   onCopy: (id: string, url: string) => void;
   onRemove: (id: string, name: string) => void;
+  onResend: (registrationId: string, name: string) => void;
 }) {
   const party = row.party;
   const canExpand = party !== null && !!selfRegUrl && party.remaining > 0;
@@ -398,6 +506,24 @@ function RosterRow({
             >
               {removing ? "…" : "Remove"}
             </button>
+          )}
+          {row.isLead && row.registrationId && (
+            <div className="flex flex-col items-end gap-1">
+              <button
+                type="button"
+                onClick={() => onResend(row.registrationId as string, row.name)}
+                disabled={resending}
+                title="Resend the ticket/booking email (QR + booking page) to this lead"
+                className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
+              >
+                {resending ? "Resending…" : "Resend tickets"}
+              </button>
+              <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                {row.ticketEmailSentAt
+                  ? `Notified ${formatDateTime(row.ticketEmailSentAt)}`
+                  : "Not yet notified"}
+              </span>
+            </div>
           )}
         </td>
       </tr>

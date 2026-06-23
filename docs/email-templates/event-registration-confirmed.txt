@@ -1,5 +1,9 @@
 Dear {{first_name}},
 
+{{#resend}}
+We've upgraded to QR tickets — here are yours. Each ticket now has its own QR code to show at the door, and you can name your guests and share their tickets from your booking page below.
+
+{{/resend}}
 {{#is_free}}
 Your spot at {{event_title}} is confirmed. This email is your ticket — keep it handy.
 {{/is_free}}

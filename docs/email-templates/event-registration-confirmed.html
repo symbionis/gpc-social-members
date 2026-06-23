@@ -1,5 +1,15 @@
 <h1>You're registered, {{first_name}}.</h1>
 
+{{#resend}}
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 16px 0 24px 0;">
+  <tr>
+    <td style="padding: 16px; background-color: #f4f7f9; border-radius: 6px; border-left: 3px solid #052938;">
+      <p style="margin: 0; font-size: 14px;">We've upgraded to <strong>QR tickets</strong> — here are yours. Each ticket now has its own QR code to show at the door, and you can name your guests and share their tickets from your booking page below.</p>
+    </td>
+  </tr>
+</table>
+{{/resend}}
+
 {{#is_free}}
 <p>Your spot at <strong>{{event_title}}</strong> is confirmed. This email is your ticket — keep it handy.</p>
 {{/is_free}}

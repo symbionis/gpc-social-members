@@ -41,6 +41,8 @@ interface Attendee {
   ticketTypeTitle: string;
   /** Party self-reg detail (fill + claimed guests + token) on lead rows; null otherwise. */
   party: PartyDetail | null;
+  /** When this party's ticket email was last sent (lead rows); null = never sent. */
+  ticketEmailSentAt: string | null;
   waiverSigned: boolean;
   checkedIn: boolean;
   arrivedAt: string | null;
