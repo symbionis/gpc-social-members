@@ -6,6 +6,7 @@ import {
   aggregateOriginators,
   aggregateMemberHealth,
   getFinanceSummary,
+  getFinanceTransactions,
   UNATTRIBUTED_ORIGINATOR,
   type MembershipPaymentRow,
   type EventRegistrationRow,
@@ -288,5 +289,75 @@ describe("getFinanceSummary pagination", () => {
     };
     const summary = await getFinanceSummary(client, "2026-01-01", "2026-12-31");
     expect(summary.complete).toBe(false);
+  });
+});
+
+describe("getFinanceTransactions", () => {
+  function makeClient(tables: Record<string, Record<string, unknown>[]>) {
+    return {
+      from(table: string) {
+        return {
+          select() {
+            const rows = tables[table] ?? [];
+            const builder = {
+              order() {
+                return builder;
+              },
+              range(from: number, to: number) {
+                return Promise.resolve({ data: rows.slice(from, to + 1), error: null });
+              },
+            };
+            return builder;
+          },
+        };
+      },
+    };
+  }
+
+  const base = {
+    members: [{ id: "m1", first_name: "Pat", last_name: "Payer", email: "pat@x.com" }],
+    membership_tiers: [{ id: "t1", name: "Individual" }],
+    events: [{ id: "e1", title: "Gala" }],
+  };
+
+  it("signs amounts so the column reconciles with net + event gross; comp/free are 0; pending excluded", async () => {
+    const client = makeClient({
+      ...base,
+      payments: [
+        { member_id: "m1", tier_id: "t1", amount_eur: 100, payment_status: "paid", paid_at: "2026-03-01T00:00:00Z", created_at: "2026-03-01T00:00:00Z" },
+        { member_id: "m1", tier_id: "t1", amount_eur: 40, payment_status: "refunded", paid_at: "2026-03-05T00:00:00Z", created_at: "2026-03-05T00:00:00Z" },
+        { member_id: "m1", tier_id: "t1", amount_eur: 0, payment_status: "free", paid_at: "2026-03-06T00:00:00Z", created_at: "2026-03-06T00:00:00Z" },
+        { member_id: "m1", tier_id: "t1", amount_eur: 999, payment_status: "pending", paid_at: null, created_at: "2026-03-07T00:00:00Z" },
+      ],
+      event_registrations: [
+        { id: "r1", event_id: "e1", total_amount_chf: 50, status: "paid", paid_at: "2026-04-01T00:00:00Z", created_at: "2026-04-01T00:00:00Z", name: "Guest", email: "g@x.com" },
+        { id: "r2", event_id: "e1", total_amount_chf: 0, status: "free", paid_at: "2026-04-02T00:00:00Z", created_at: "2026-04-02T00:00:00Z", name: "Comp", email: "c@x.com" },
+      ],
+      event_registration_items: [],
+    });
+    const rows = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
+    // pending excluded → 3 membership (paid, refunded, free) + 2 event = 5
+    expect(rows).toHaveLength(5);
+    const total = rows.reduce((s, r) => s + r.amountChf, 0);
+    // membership net (100 - 40 + 0) + event gross (50 + 0) = 60 + 50 = 110
+    expect(total).toBe(110);
+    const refundRow = rows.find((r) => r.status === "refunded")!;
+    expect(refundRow.amountChf).toBe(-40);
+    const freeRows = rows.filter((r) => r.status === "free");
+    expect(freeRows.every((r) => r.amountChf === 0)).toBe(true);
+    expect(rows.some((r) => r.status === "pending")).toBe(false);
+  });
+
+  it("returns no rows for an empty range (CSV would be headers only)", async () => {
+    const client = makeClient({
+      ...base,
+      payments: [
+        { member_id: "m1", tier_id: "t1", amount_eur: 100, payment_status: "paid", paid_at: "2020-01-01T00:00:00Z", created_at: "2020-01-01T00:00:00Z" },
+      ],
+      event_registrations: [],
+      event_registration_items: [],
+    });
+    const rows = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
+    expect(rows).toHaveLength(0);
   });
 });

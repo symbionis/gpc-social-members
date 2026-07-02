@@ -17,7 +17,15 @@ interface Props {
 export default function FinanceDashboard({ summary }: Props) {
   return (
     <div className="space-y-8">
-      <h1 className="font-heading text-3xl font-bold text-marine">Finance</h1>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="font-heading text-3xl font-bold text-marine">Finance</h1>
+        <a
+          href={`/admin/finance/export?from=${summary.range.from}&to=${summary.range.to}`}
+          className="rounded-lg border border-marine/20 px-4 py-2 text-sm font-body text-marine/70 hover:bg-marine/5"
+        >
+          Export CSV
+        </a>
+      </div>
 
       <DateRangeFilter from={summary.range.from} to={summary.range.to} />
 

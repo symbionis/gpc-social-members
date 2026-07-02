@@ -515,6 +515,98 @@ async function fetchAll<T>(
   return { rows, complete: true };
 }
 
+// A single settled financial row for CSV export. `amountChf` is signed so a
+// naive column sum reconciles with membership net + event gross: paid rows are
+// positive, refunded membership rows negative, free/comp rows zero. Pending and
+// overdue rows are omitted (not settled).
+export interface FinanceTransaction {
+  type: "membership" | "event";
+  date: string; // YYYY-MM-DD (from paid_at, else created_at)
+  party: string; // member or registrant name/email
+  detail: string; // tier name or event title
+  status: string;
+  amountChf: number;
+}
+
+function isoDate(row: { paid_at: string | null; created_at: string }): string {
+  return (row.paid_at ?? row.created_at).slice(0, 10);
+}
+
+export async function getFinanceTransactions(
+  client: FinanceClient,
+  from: string,
+  to: string,
+): Promise<FinanceTransaction[]> {
+  const range = rangeFromDates(from, to);
+
+  const [pay, members, tiers, regs, events] = await Promise.all([
+    fetchAll<MembershipPaymentRow>(
+      client,
+      "payments",
+      "member_id, tier_id, amount_eur, payment_status, paid_at, created_at",
+      "id",
+    ),
+    fetchAll<{ id: string; first_name: string; last_name: string; email: string }>(
+      client,
+      "members",
+      "id, first_name, last_name, email",
+      "id",
+    ),
+    fetchAll<{ id: string; name: string }>(client, "membership_tiers", "id, name", "id"),
+    fetchAll<
+      EventRegistrationRow & { name: string; email: string }
+    >(
+      client,
+      "event_registrations",
+      "id, event_id, total_amount_chf, status, paid_at, created_at, name, email",
+      "id",
+    ),
+    fetchAll<{ id: string; title: string }>(client, "events", "id, title", "id"),
+  ]);
+
+  const memberName = new Map(
+    members.rows.map((m) => [m.id, `${m.first_name} ${m.last_name}`.trim() || m.email]),
+  );
+  const tierName = new Map(tiers.rows.map((t) => [t.id, t.name]));
+  const eventTitle = new Map(events.rows.map((e) => [e.id, e.title]));
+
+  const rows: FinanceTransaction[] = [];
+
+  for (const p of pay.rows) {
+    if (!inRange(effectivePaidMs(p), range)) continue;
+    const amt = p.amount_eur ?? 0;
+    let amountChf: number;
+    if (p.payment_status === "paid") amountChf = amt;
+    else if (p.payment_status === "refunded") amountChf = -amt;
+    else if (p.payment_status === "free") amountChf = 0;
+    else continue; // pending / overdue: not settled
+    rows.push({
+      type: "membership",
+      date: isoDate(p),
+      party: memberName.get(p.member_id) ?? p.member_id,
+      detail: tierName.get(p.tier_id) ?? "Unknown tier",
+      status: p.payment_status,
+      amountChf: round2(amountChf),
+    });
+  }
+
+  for (const r of regs.rows) {
+    if (!inRange(effectivePaidMs(r), range)) continue;
+    if (r.status !== "paid" && r.status !== "free") continue;
+    rows.push({
+      type: "event",
+      date: isoDate(r),
+      party: r.name || r.email,
+      detail: eventTitle.get(r.event_id) ?? "Unknown event",
+      status: r.status,
+      amountChf: r.status === "paid" ? round2(r.total_amount_chf ?? 0) : 0,
+    });
+  }
+
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  return rows;
+}
+
 export async function getFinanceSummary(
   client: FinanceClient,
   from: string,
