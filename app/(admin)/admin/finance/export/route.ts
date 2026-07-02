@@ -10,7 +10,15 @@ const ALLOWED_ROLES = ["super_admin", "finance"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function csvCell(value: string | number): string {
-  const s = String(value);
+  // Numeric cells (amounts) are emitted as-is so spreadsheet SUMs still work —
+  // they can't carry a formula-injection payload.
+  if (typeof value === "number") return String(value);
+  let s = value;
+  // Neutralize spreadsheet formula injection: Excel/Sheets treat a cell that
+  // begins with =, +, -, @, tab, or CR as a formula. Party/detail come from
+  // user-controlled data (member/registrant names, event titles), so prefix a
+  // single quote to force text interpretation.
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   // Quote when the value contains a comma, quote, or newline; double embedded quotes.
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
