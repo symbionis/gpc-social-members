@@ -5,6 +5,8 @@ import FinanceHeader from "./FinanceHeader";
 import DateRangeFilter from "./DateRangeFilter";
 import MembershipRevenuePanel from "./MembershipRevenuePanel";
 import EventRevenuePanel from "./EventRevenuePanel";
+import OriginatorBreakdownPanel from "./OriginatorBreakdownPanel";
+import MemberHealthPanel from "./MemberHealthPanel";
 
 interface Props {
   summary: FinanceSummary;
@@ -30,6 +32,11 @@ export default function FinanceDashboard({ summary }: Props) {
 
       <MembershipRevenuePanel membership={summary.membership} />
       <EventRevenuePanel events={summary.events} />
+
+      <div className="grid lg:grid-cols-2 gap-8 items-start">
+        <OriginatorBreakdownPanel originators={summary.originators} />
+        <MemberHealthPanel health={summary.memberHealth} />
+      </div>
 
       <p className="text-xs text-marine/40 font-body">
         Figures are gross of Stripe fees. Event revenue is gross of refunds.
