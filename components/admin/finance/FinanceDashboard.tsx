@@ -3,6 +3,8 @@
 import type { FinanceSummary } from "@/lib/admin/finance";
 import FinanceHeader from "./FinanceHeader";
 import DateRangeFilter from "./DateRangeFilter";
+import MembershipRevenuePanel from "./MembershipRevenuePanel";
+import EventRevenuePanel from "./EventRevenuePanel";
 
 interface Props {
   summary: FinanceSummary;
@@ -25,6 +27,9 @@ export default function FinanceDashboard({ summary }: Props) {
       )}
 
       <FinanceHeader totals={summary.totals} />
+
+      <MembershipRevenuePanel membership={summary.membership} />
+      <EventRevenuePanel events={summary.events} />
 
       <p className="text-xs text-marine/40 font-body">
         Figures are gross of Stripe fees. Event revenue is gross of refunds.
