@@ -17,14 +17,18 @@ export default async function OriginatorsPage() {
     .limit(1);
   const currentAdmin = admins?.[0];
   const isSuperAdmin = currentAdmin?.role === "super_admin";
+  // The finance role is a reporting role: it sees the full originator list (to
+  // match the finance dashboard's originator revenue breakdown) but cannot add
+  // or manage originators (that stays super_admin-only, below and in the route).
+  const canSeeAllOriginators = isSuperAdmin || currentAdmin?.role === "finance";
 
-  // Get originators — super_admin sees all, team_admin sees only self
+  // Get originators — super_admin/finance see all, others see only self
   let originatorQuery = supabase
     .from("admin_users")
     .select("id, first_name, last_name, email, invite_code, invite_link_active")
     .eq("is_originator", true);
 
-  if (!isSuperAdmin) {
+  if (!canSeeAllOriginators) {
     originatorQuery = originatorQuery.eq("id", currentAdmin?.id || "");
   }
 
