@@ -29,7 +29,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   const admin = admins?.[0];
   if (
     !admin ||
-    !["super_admin", "team_admin", "events_admin"].includes(admin.role)
+    !["super_admin", "team_admin", "events_admin", "finance"].includes(admin.role)
   ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

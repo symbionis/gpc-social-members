@@ -9,7 +9,7 @@ import { sendEventRegistrationConfirmation } from "@/lib/email/event-registratio
 //
 // See docs/plans/2026-06-23-001-feat-resend-tickets-existing-registrants-plan.md (U3).
 
-const ALLOWED_ROLES = ["super_admin", "team_admin", "events_admin"];
+const ALLOWED_ROLES = ["super_admin", "team_admin", "events_admin", "finance"];
 
 async function assertAdmin() {
   const supabase = await createClient();
