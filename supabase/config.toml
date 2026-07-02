@@ -1,0 +1,10 @@
+project_id = "rmchkoktpzoojlglyfca"
+
+# The Send SMS Hook calls this function with a Standard Webhooks signature, not a
+# Supabase JWT, so JWT verification must be off or the gateway 401s the hook.
+#
+# NOTE: this file is only read by the Supabase CLI (`supabase functions deploy`).
+# The MCP / Management API deploy path ignores it — there, pass verify_jwt:false
+# as an explicit deploy parameter. Kept here as parity for any future CLI deploy.
+[functions.sinch-sms]
+verify_jwt = false
