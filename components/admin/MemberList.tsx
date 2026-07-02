@@ -11,6 +11,7 @@ import {
   matchesMonthFilter,
   type PaidFilter,
   type PaidMonthsByMember,
+  type PaidDateByMember,
 } from "@/lib/members/payments";
 import { paginate } from "@/lib/pagination";
 
@@ -33,6 +34,7 @@ interface MemberListProps {
   tierMap: Record<string, string>;
   originatorMap: Record<string, string>;
   paidMonthsByMember: PaidMonthsByMember;
+  paidDateByMember: PaidDateByMember;
   // false when the payments fetch errored mid-read, so the paid/month data is
   // partial and the Paid/Month filters can't be trusted.
   paymentsComplete: boolean;
@@ -49,7 +51,7 @@ const statusColors: Record<string, string> = {
 
 const PAGE_SIZE = 25;
 
-export default function MemberList({ members, tierMap, originatorMap, paidMonthsByMember, paymentsComplete }: MemberListProps) {
+export default function MemberList({ members, tierMap, originatorMap, paidMonthsByMember, paidDateByMember, paymentsComplete }: MemberListProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -113,7 +115,7 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
   });
 
   function exportCSV() {
-    const headers = ["Name", "Email", "Member Number", "Tier", "Status", "Start Date", "End Date", "Originator", "Joined"];
+    const headers = ["Name", "Email", "Member Number", "Tier", "Status", "Start Date", "End Date", "Originator", "Joined", "Date Paid"];
     const rows = filtered.map((m) => [
       `${m.first_name} ${m.last_name}`,
       m.email,
@@ -124,6 +126,7 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
       m.end_date || "",
       m.originator_id ? originatorMap[m.originator_id] || "" : "",
       formatDate(m.created_at),
+      paidDateByMember[m.id] ? formatDate(paidDateByMember[m.id]) : "",
     ]);
     const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -250,6 +253,7 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
                 <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">Membership Period</th>
                 <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">Originator</th>
                 <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">Joined</th>
+                <th className="text-left px-4 py-3 font-body font-medium text-muted-foreground">Date Paid</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -296,6 +300,9 @@ export default function MemberList({ members, tierMap, originatorMap, paidMonths
                   </td>
                   <td className="px-4 py-3 font-body text-muted-foreground">
                     {formatDate(m.created_at)}
+                  </td>
+                  <td className="px-4 py-3 font-body text-muted-foreground">
+                    {paidDateByMember[m.id] ? formatDate(paidDateByMember[m.id]) : "—"}
                   </td>
                 </tr>
               ))}

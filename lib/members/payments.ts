@@ -62,6 +62,26 @@ export function buildPaidMonthsByMember(
   return out;
 }
 
+// memberId -> that member's most recent paid timestamp (ISO string), using
+// paid_at when set, else created_at — the same fallback as the month buckets.
+export type PaidDateByMember = Record<string, string>;
+
+// Map each member to their latest paid timestamp, so the table can show a
+// "Date paid" column. Compares the raw ISO strings (paid_at ?? created_at) and
+// keeps the newest; ISO-8601 timestamps sort chronologically as plain strings.
+export function buildPaidDateByMember(
+  rows: PaidPaymentRow[],
+): PaidDateByMember {
+  const out: PaidDateByMember = {};
+  for (const row of rows) {
+    const ts = row.paid_at ?? row.created_at;
+    if (!ts) continue;
+    const existing = out[row.member_id];
+    if (!existing || ts > existing) out[row.member_id] = ts;
+  }
+  return out;
+}
+
 // Union of every member's months, newest-first, deduped. Drives the month
 // <select> options.
 export function availablePaymentMonths(

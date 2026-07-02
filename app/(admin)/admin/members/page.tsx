@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import MemberList from "@/components/admin/MemberList";
 import {
   buildPaidMonthsByMember,
+  buildPaidDateByMember,
   type PaidPaymentRow,
 } from "@/lib/members/payments";
 import { captureServerException } from "@/lib/analytics/server-errors";
@@ -67,6 +68,7 @@ export default async function MembersPage() {
     ]);
 
   const paidMonthsByMember = buildPaidMonthsByMember(paid.rows);
+  const paidDateByMember = buildPaidDateByMember(paid.rows);
 
   const tierMap = Object.fromEntries(
     (tiers || []).map((t: Record<string, unknown>) => [t.id, t.name])
@@ -88,6 +90,7 @@ export default async function MembersPage() {
         tierMap={tierMap}
         originatorMap={originatorMap}
         paidMonthsByMember={paidMonthsByMember}
+        paidDateByMember={paidDateByMember}
         paymentsComplete={paid.complete}
       />
     </div>
