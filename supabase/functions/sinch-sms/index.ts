@@ -22,13 +22,15 @@ import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
 const E164 = /^\+[1-9]\d{6,14}$/;
 
 // Resolve a hook-payload phone to a strict E.164 string, or null if it cannot be
-// trusted. We do NOT blindly prepend "+": the member base has inconsistent phone
-// data (raw "00…" prefixes, malformed entries), and a bad number means a paid SMS
-// sent to garbage. Reject rather than guess.
+// trusted. Supabase Auth validates E.164 BEFORE calling this hook and delivers the
+// number as international digits WITHOUT the leading "+" (e.g. "41798485238"), so we
+// re-add the "+". The final E164 regex still rejects genuinely malformed input
+// (letters, national-format leading 0, too short) so we never pay to text garbage.
 function resolveE164(raw: string | undefined | null): string | null {
   if (!raw) return null;
   let p = raw.trim().replace(/[\s\-()]/g, "");
   if (p.startsWith("00")) p = `+${p.slice(2)}`;
+  else if (!p.startsWith("+")) p = `+${p}`;
   return E164.test(p) ? p : null;
 }
 
