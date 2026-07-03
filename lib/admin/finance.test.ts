@@ -7,6 +7,7 @@ import {
   aggregateMemberHealth,
   getFinanceSummary,
   getFinanceTransactions,
+  buildMembershipTransactions,
   UNATTRIBUTED_ORIGINATOR,
   type MembershipPaymentRow,
   type EventRegistrationRow,
@@ -118,6 +119,33 @@ describe("aggregateMembership", () => {
   it("reads amounts from amount_eur and treats them as CHF (no conversion)", () => {
     const s = aggregateMembership([payment({ amount_eur: 1500 })], tierNames, YEAR_2026, 1);
     expect(s.gross).toBe(1500);
+  });
+});
+
+describe("buildMembershipTransactions", () => {
+  const names = new Map([
+    ["a", "Ann Adams"],
+    ["b", "Bob Brown"],
+  ]);
+
+  it("includes paid/refunded in range with signed amounts that reconcile per tier/month", () => {
+    const rows = [
+      payment({ member_id: "a", tier_id: "t1", amount_eur: 100, payment_status: "paid", paid_at: "2026-03-01T00:00:00Z" }),
+      payment({ member_id: "b", tier_id: "t1", amount_eur: 40, payment_status: "refunded", paid_at: "2026-03-10T00:00:00Z" }),
+      payment({ member_id: "a", tier_id: "t2", amount_eur: 200, payment_status: "paid", paid_at: "2026-05-01T00:00:00Z" }),
+      payment({ member_id: "a", tier_id: "t1", amount_eur: 999, payment_status: "pending", paid_at: "2026-03-02T00:00:00Z" }),
+      payment({ member_id: "a", tier_id: "t1", amount_eur: 50, payment_status: "paid", paid_at: "2027-01-01T00:00:00Z" }), // out of range
+    ];
+    const txns = buildMembershipTransactions(rows, names, YEAR_2026);
+    expect(txns).toHaveLength(3); // pending + out-of-range excluded
+    // Tier t1 subset nets 100 - 40 = 60 (matches aggregateMembership byTier)
+    const t1 = txns.filter((t) => t.tierId === "t1");
+    expect(t1.reduce((s, t) => s + t.amountChf, 0)).toBe(60);
+    // March subset nets 60 too
+    const march = txns.filter((t) => t.monthKey === "2026-03");
+    expect(march.reduce((s, t) => s + t.amountChf, 0)).toBe(60);
+    expect(txns.find((t) => t.status === "refunded")!.amountChf).toBe(-40);
+    expect(txns[0].memberName).toBe("Ann Adams");
   });
 });
 

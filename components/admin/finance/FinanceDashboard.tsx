@@ -38,7 +38,10 @@ export default function FinanceDashboard({ summary }: Props) {
 
       <FinanceHeader totals={summary.totals} />
 
-      <MembershipRevenuePanel membership={summary.membership} />
+      <MembershipRevenuePanel
+        membership={summary.membership}
+        transactions={summary.membershipTransactions}
+      />
       <EventRevenuePanel events={summary.events} />
 
       <div className="grid lg:grid-cols-2 gap-8 items-start">

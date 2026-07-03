@@ -61,6 +61,9 @@ export interface MemberRow {
   originator_id: string | null;
   created_at: string;
   end_date: string | null;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
 }
 
 export interface ReferralRow {
@@ -241,6 +244,41 @@ export function aggregateMembership(
     byTier,
     byMonth,
   };
+}
+
+// A single membership payment row, for the tier/month drill-down modal. Signed
+// `amountChf` (paid +, refunded −) so a filtered subset sums to that tier's or
+// month's net. Only `paid`/`refunded` in-range rows — the same set that makes
+// up byTier/byMonth — so the modal totals reconcile with the row clicked.
+export interface MembershipTxn {
+  memberName: string;
+  tierId: string;
+  monthKey: MonthKey;
+  date: string; // YYYY-MM-DD
+  status: string; // 'paid' | 'refunded'
+  amountChf: number;
+}
+
+export function buildMembershipTransactions(
+  payments: MembershipPaymentRow[],
+  memberNameById: Map<string, string>,
+  range: DateRange,
+): MembershipTxn[] {
+  const rows: MembershipTxn[] = [];
+  for (const p of payments) {
+    if (!inRange(effectivePaidMs(p), range)) continue;
+    if (p.payment_status !== "paid" && p.payment_status !== "refunded") continue;
+    const amt = p.amount_eur ?? 0;
+    rows.push({
+      memberName: memberNameById.get(p.member_id) ?? p.member_id,
+      tierId: p.tier_id,
+      monthKey: zurichMonthKey(p.paid_at ?? p.created_at),
+      date: isoDate(p),
+      status: p.payment_status,
+      amountChf: round2(p.payment_status === "refunded" ? -amt : amt),
+    });
+  }
+  return rows.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // ---------------------------------------------------------------------------
@@ -470,6 +508,7 @@ export interface FinanceSummary {
     newMembers: number;
   };
   membership: MembershipSummary;
+  membershipTransactions: MembershipTxn[]; // per-row detail for the drill-down modal
   events: EventSummary;
   originators: OriginatorRevenue[];
   memberHealth: MemberHealth;
@@ -636,7 +675,7 @@ export async function getFinanceSummary(
     fetchAll<MemberRow>(
       client,
       "members",
-      "id, status, tier_id, originator_id, created_at, end_date",
+      "id, status, tier_id, originator_id, created_at, end_date, first_name, last_name, email",
       "id",
     ),
     fetchAll<{ id: string; name: string }>(client, "membership_tiers", "id, name", "id"),
@@ -665,8 +704,19 @@ export async function getFinanceSummary(
   );
 
   const activeMembers = members.rows.filter((m) => m.status === "active").length;
+  const memberNameById = new Map(
+    members.rows.map((m) => [
+      m.id,
+      `${m.first_name ?? ""} ${m.last_name ?? ""}`.trim() || m.email || m.id,
+    ]),
+  );
 
   const membership = aggregateMembership(pay.rows, tierNameById, range, activeMembers);
+  const membershipTransactions = buildMembershipTransactions(
+    pay.rows,
+    memberNameById,
+    range,
+  );
   const events = aggregateEvents(regs.rows, items.rows, eventTitleById, range);
   const originatorBreakdown = aggregateOriginators(
     pay.rows,
@@ -697,6 +747,7 @@ export async function getFinanceSummary(
       newMembers: memberHealth.newMembers,
     },
     membership,
+    membershipTransactions,
     events,
     originators: originatorBreakdown,
     memberHealth,

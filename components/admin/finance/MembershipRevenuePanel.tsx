@@ -1,11 +1,23 @@
-import type { MembershipSummary } from "@/lib/admin/finance";
+"use client";
+
+import { useState } from "react";
+import type { MembershipSummary, MembershipTxn } from "@/lib/admin/finance";
 import { formatCurrency, formatMonth } from "@/lib/format";
+import FinanceDetailModal from "./FinanceDetailModal";
 
 interface Props {
   membership: MembershipSummary;
+  transactions: MembershipTxn[];
 }
 
-export default function MembershipRevenuePanel({ membership }: Props) {
+type Drill =
+  | { kind: "tier"; key: string; label: string }
+  | { kind: "month"; key: string; label: string };
+
+export default function MembershipRevenuePanel({
+  membership,
+  transactions,
+}: Props) {
   const {
     gross,
     refunds,
@@ -18,6 +30,15 @@ export default function MembershipRevenuePanel({ membership }: Props) {
     byTier,
     byMonth,
   } = membership;
+
+  const [drill, setDrill] = useState<Drill | null>(null);
+
+  const drillRows =
+    drill == null
+      ? []
+      : transactions.filter((t) =>
+          drill.kind === "tier" ? t.tierId === drill.key : t.monthKey === drill.key,
+        );
 
   return (
     <section className="rounded-xl bg-white border border-marine/10 p-6 space-y-6">
@@ -56,6 +77,9 @@ export default function MembershipRevenuePanel({ membership }: Props) {
               formatCurrency(t.net),
             ])}
             empty="No membership revenue in this period."
+            onRowClick={(i) =>
+              setDrill({ kind: "tier", key: byTier[i].tierId, label: byTier[i].tierName })
+            }
           />
         </div>
         <div>
@@ -70,9 +94,24 @@ export default function MembershipRevenuePanel({ membership }: Props) {
               formatCurrency(m.net),
             ])}
             empty="No membership revenue in this period."
+            onRowClick={(i) =>
+              setDrill({
+                kind: "month",
+                key: byMonth[i].monthKey,
+                label: formatMonth(byMonth[i].monthKey),
+              })
+            }
           />
         </div>
       </div>
+
+      {drill && (
+        <FinanceDetailModal
+          title={`${drill.label} — membership payments`}
+          rows={drillRows}
+          onClose={() => setDrill(null)}
+        />
+      )}
     </section>
   );
 }
@@ -108,14 +147,18 @@ export function Table({
   head,
   rows,
   empty,
+  onRowClick,
 }: {
   head: string[];
   rows: string[][];
   empty: string;
+  // When provided, rows become clickable (used for the tier/month drill-down).
+  onRowClick?: (index: number) => void;
 }) {
   if (rows.length === 0) {
     return <p className="text-sm text-marine/40 font-body">{empty}</p>;
   }
+  const clickable = Boolean(onRowClick);
   return (
     <table className="w-full text-sm font-body">
       <thead>
@@ -132,7 +175,26 @@ export function Table({
       </thead>
       <tbody>
         {rows.map((r, ri) => (
-          <tr key={ri} className="border-b border-marine/5">
+          <tr
+            key={ri}
+            className={
+              clickable
+                ? "border-b border-marine/5 cursor-pointer hover:bg-marine/5"
+                : "border-b border-marine/5"
+            }
+            onClick={onRowClick ? () => onRowClick(ri) : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            onKeyDown={
+              onRowClick
+                ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onRowClick(ri);
+                    }
+                  }
+                : undefined
+            }
+          >
             {r.map((cell, ci) => (
               <td
                 key={ci}
