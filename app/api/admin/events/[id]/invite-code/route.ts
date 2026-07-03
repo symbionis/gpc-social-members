@@ -28,7 +28,7 @@ async function assertAdmin() {
 
   if (
     !admins?.[0] ||
-    !["super_admin", "team_admin", "events_admin"].includes(admins[0].role)
+    !["super_admin", "team_admin", "events_admin", "finance"].includes(admins[0].role)
   ) {
     return { error: "Forbidden", status: 403 as const };
   }

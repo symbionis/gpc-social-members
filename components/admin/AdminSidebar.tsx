@@ -21,6 +21,7 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
   const isTeamAdmin = admin.role === "team_admin";
   const isOriginator = admin.role === "originator";
   const isEventsAdmin = admin.role === "events_admin";
+  const isFinance = admin.role === "finance";
 
   const navLinks = isOriginator
     ? [
@@ -30,6 +31,15 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
     ? [
         { href: "/admin/events", label: "Events", icon: "calendar" },
         { href: "/admin/lounge", label: "Lounge", icon: "coffee" },
+      ]
+    : isFinance
+    ? [
+        { href: "/admin/finance", label: "Finance", icon: "bar-chart" },
+        { href: "/admin/members", label: "Members", icon: "users" },
+        { href: "/admin/events", label: "Events", icon: "calendar" },
+        { href: "/admin/lounge", label: "Lounge", icon: "coffee" },
+        { href: "/admin/originators", label: "Originators", icon: "share" },
+        { href: "/admin/tiers", label: "Tiers", icon: "layers" },
       ]
     : [
         { href: "/admin/dashboard", label: "Dashboard", icon: "grid" },
@@ -59,6 +69,7 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
           : []),
         ...(isSuper
           ? [
+              { href: "/admin/finance", label: "Finance", icon: "bar-chart" },
               { href: "/admin/tiers", label: "Tiers", icon: "layers" },
               { href: "/admin/users", label: "Users", icon: "shield" },
               { href: "/admin/scheduled-jobs", label: "Scheduled Jobs", icon: "clock" },

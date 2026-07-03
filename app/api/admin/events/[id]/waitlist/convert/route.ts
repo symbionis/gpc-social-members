@@ -16,7 +16,7 @@ import { getSeatsUsed } from "@/lib/events/seat-usage";
 //
 // See docs/plans/2026-05-21-001-feat-waitlist-to-registration-plan.md (U3).
 
-const ALLOWED_ROLES = ["super_admin", "team_admin", "events_admin"];
+const ALLOWED_ROLES = ["super_admin", "team_admin", "events_admin", "finance"];
 
 async function assertAdmin() {
   const supabase = await createClient();
