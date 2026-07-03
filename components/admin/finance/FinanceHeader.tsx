@@ -14,7 +14,7 @@ export default function FinanceHeader({ totals }: Props) {
       <Kpi label="Membership (net)" value={formatCurrency(totals.membershipNet)} />
       <Kpi label="Event sales" value={formatCurrency(totals.eventGross)} />
       <Kpi label="Active members" value={String(totals.activeMembers)} />
-      <Kpi label="New members" value={String(totals.newMembers)} />
+      <Kpi label="New sign-ups" value={String(totals.newMembers)} />
     </div>
   );
 }

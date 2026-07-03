@@ -130,11 +130,12 @@ export interface MembershipSummary {
   refunds: number;
   net: number;
   paidCount: number;
+  payingMembers: number; // distinct members with a paid payment in the period
   newRevenue: number;
   renewalRevenue: number;
   newCount: number;
   renewalCount: number;
-  arpu: number; // net / active member count
+  arpu: number; // net / paying members (not all active — many are honorary/comp)
   byTier: TierRevenue[];
   byMonth: MonthRevenue[];
 }
@@ -158,7 +159,6 @@ export function aggregateMembership(
   payments: MembershipPaymentRow[],
   tierNameById: Map<string, string>,
   range: DateRange,
-  activeMemberCount: number,
 ): MembershipSummary {
   const firstPaid = firstPaidMsByMember(payments);
 
@@ -169,6 +169,10 @@ export function aggregateMembership(
   let renewalRevenue = 0;
   let newCount = 0;
   let renewalCount = 0;
+  // Distinct members who actually paid in-period — the honest ARPU denominator.
+  // (Active-member count is a poor denominator here: most active members are
+  // honorary/complimentary and never generate a payment row.)
+  const payers = new Set<string>();
 
   const tierAcc = new Map<string, { gross: number; net: number; paidCount: number }>();
   const monthAcc = new Map<string, { gross: number; net: number }>();
@@ -197,6 +201,7 @@ export function aggregateMembership(
     if (p.payment_status === "paid") {
       gross += amt;
       paidCount += 1;
+      payers.add(p.member_id);
       bumpTier(p.tier_id, amt, amt, 1);
       bumpMonth(monthKey, amt, amt);
       // new vs renewal — earliest paid for this member across all time
@@ -236,11 +241,12 @@ export function aggregateMembership(
     refunds: round2(refunds),
     net: round2(net),
     paidCount,
+    payingMembers: payers.size,
     newRevenue: round2(newRevenue),
     renewalRevenue: round2(renewalRevenue),
     newCount,
     renewalCount,
-    arpu: activeMemberCount > 0 ? round2(net / activeMemberCount) : 0,
+    arpu: payers.size > 0 ? round2(net / payers.size) : 0,
     byTier,
     byMonth,
   };
@@ -711,7 +717,7 @@ export async function getFinanceSummary(
     ]),
   );
 
-  const membership = aggregateMembership(pay.rows, tierNameById, range, activeMembers);
+  const membership = aggregateMembership(pay.rows, tierNameById, range);
   const membershipTransactions = buildMembershipTransactions(
     pay.rows,
     memberNameById,

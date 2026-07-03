@@ -22,6 +22,7 @@ export default function MembershipRevenuePanel({
     gross,
     refunds,
     net,
+    payingMembers,
     newRevenue,
     renewalRevenue,
     newCount,
@@ -46,16 +47,17 @@ export default function MembershipRevenuePanel({
         Membership revenue
       </h2>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Stat label="Gross" value={formatCurrency(gross)} />
         <Stat label="Refunds" value={`− ${formatCurrency(refunds)}`} />
         <Stat label="Net" value={formatCurrency(net)} strong />
-        <Stat label="ARPU (net / active)" value={formatCurrency(arpu)} />
+        <Stat label="Paying members" value={String(payingMembers)} />
+        <Stat label="ARPU (net / paying)" value={formatCurrency(arpu)} />
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <Stat
-          label={`New members (${newCount})`}
+          label={`New paid (${newCount})`}
           value={formatCurrency(newRevenue)}
         />
         <Stat

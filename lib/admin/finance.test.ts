@@ -53,7 +53,7 @@ describe("aggregateMembership", () => {
       payment({ member_id: "d", amount_eur: 999, payment_status: "free" }),
       payment({ member_id: "e", amount_eur: 999, payment_status: "pending" }),
     ];
-    const s = aggregateMembership(rows, tierNames, YEAR_2026, 2);
+    const s = aggregateMembership(rows, tierNames, YEAR_2026);
     expect(s.gross).toBe(300);
     expect(s.refunds).toBe(50);
     expect(s.net).toBe(250);
@@ -66,7 +66,7 @@ describe("aggregateMembership", () => {
       payment({ member_id: "a", amount_eur: 120, paid_at: "2026-09-01T00:00:00Z" }),
       payment({ member_id: "b", amount_eur: 100, paid_at: "2026-05-01T00:00:00Z" }),
     ];
-    const s = aggregateMembership(rows, tierNames, YEAR_2026, 2);
+    const s = aggregateMembership(rows, tierNames, YEAR_2026);
     expect(s.newCount).toBe(2); // a's Feb + b's May
     expect(s.newRevenue).toBe(200);
     expect(s.renewalCount).toBe(1); // a's Sep
@@ -79,7 +79,7 @@ describe("aggregateMembership", () => {
       payment({ member_id: "a", amount_eur: 90, paid_at: "2025-06-01T00:00:00Z" }),
       payment({ member_id: "a", amount_eur: 100, paid_at: "2026-06-01T00:00:00Z" }),
     ];
-    const s = aggregateMembership(rows, tierNames, YEAR_2026, 1);
+    const s = aggregateMembership(rows, tierNames, YEAR_2026);
     expect(s.newCount).toBe(0);
     expect(s.renewalCount).toBe(1);
     expect(s.gross).toBe(100); // only the in-period payment counts toward revenue
@@ -90,7 +90,7 @@ describe("aggregateMembership", () => {
       payment({ tier_id: "t1", amount_eur: 100, payment_status: "paid", paid_at: "2026-03-10T00:00:00Z" }),
       payment({ tier_id: "t1", amount_eur: 40, payment_status: "refunded", paid_at: "2026-03-20T00:00:00Z" }),
     ];
-    const s = aggregateMembership(rows, tierNames, YEAR_2026, 1);
+    const s = aggregateMembership(rows, tierNames, YEAR_2026);
     const t1 = s.byTier.find((t) => t.tierId === "t1")!;
     expect(t1.gross).toBe(100);
     expect(t1.net).toBe(60);
@@ -99,12 +99,19 @@ describe("aggregateMembership", () => {
     expect(march.net).toBe(60);
   });
 
-  it("computes ARPU as net / active members", () => {
-    const rows = [payment({ amount_eur: 300, payment_status: "paid" })];
-    const s = aggregateMembership(rows, tierNames, YEAR_2026, 3);
-    expect(s.arpu).toBe(100);
-    const zero = aggregateMembership(rows, tierNames, YEAR_2026, 0);
-    expect(zero.arpu).toBe(0);
+  it("computes ARPU as net / distinct paying members (not all active members)", () => {
+    const rows = [
+      payment({ member_id: "a", amount_eur: 300, payment_status: "paid" }),
+      payment({ member_id: "a", amount_eur: 100, payment_status: "paid" }), // same member
+      payment({ member_id: "b", amount_eur: 200, payment_status: "paid" }),
+    ];
+    const s = aggregateMembership(rows, tierNames, YEAR_2026);
+    expect(s.payingMembers).toBe(2); // a and b, deduped
+    expect(s.net).toBe(600);
+    expect(s.arpu).toBe(300); // 600 / 2 paying members
+    const none = aggregateMembership([], tierNames, YEAR_2026);
+    expect(none.arpu).toBe(0);
+    expect(none.payingMembers).toBe(0);
   });
 
   it("excludes payments outside the range (exclusive upper bound)", () => {
@@ -112,12 +119,12 @@ describe("aggregateMembership", () => {
       payment({ amount_eur: 100, paid_at: "2026-01-01T00:00:00Z" }), // in
       payment({ amount_eur: 200, paid_at: "2027-01-01T00:00:00Z" }), // out (== toMs)
     ];
-    const s = aggregateMembership(rows, tierNames, YEAR_2026, 1);
+    const s = aggregateMembership(rows, tierNames, YEAR_2026);
     expect(s.gross).toBe(100);
   });
 
   it("reads amounts from amount_eur and treats them as CHF (no conversion)", () => {
-    const s = aggregateMembership([payment({ amount_eur: 1500 })], tierNames, YEAR_2026, 1);
+    const s = aggregateMembership([payment({ amount_eur: 1500 })], tierNames, YEAR_2026);
     expect(s.gross).toBe(1500);
   });
 });
