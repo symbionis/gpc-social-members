@@ -11,8 +11,12 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
+    // Server component errors carry a digest and are already captured
+    // server-side by onRequestError with the real message. The client
+    // only sees a sanitized placeholder, so skip to avoid noisy duplicates.
+    if (error.digest) return;
     try {
-      posthog.captureException(error, { digest: error.digest });
+      posthog.captureException(error);
     } catch {
       /* posthog not initialized — ignore */
     }
