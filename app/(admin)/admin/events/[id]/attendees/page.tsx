@@ -19,7 +19,10 @@ export default async function ManageEventPage({
   // roster of zeros (indistinguishable from a genuinely empty event).
   const failLoad = (scope: string, error: unknown): never => {
     console.error("[admin/events/attendees] load failed", { id, scope, err: error });
-    throw new Error(`Could not load ${scope}`);
+    const detail = error && typeof error === "object" && "message" in error
+      ? (error as { message: string }).message
+      : String(error);
+    throw new Error(`Could not load ${scope}: ${detail}`, { cause: error });
   };
 
   const { data: event } = await supabase

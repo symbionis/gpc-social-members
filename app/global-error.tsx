@@ -11,8 +11,9 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
+    if (error.digest) return;
     try {
-      posthog.captureException(error, { digest: error.digest, scope: "global" });
+      posthog.captureException(error, { scope: "global" });
     } catch {
       /* posthog not initialized — ignore */
     }
