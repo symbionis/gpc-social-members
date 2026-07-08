@@ -35,6 +35,8 @@ const STRINGS = {
     spotsRemaining: (n: number) =>
       `${n} ${n === 1 ? "spot" : "spots"} remaining for this party`,
     joining: (lead: string) => `You’re joining ${lead}’s party.`,
+    qrPolicy:
+      "You’ll need your own QR code to get in — no QR code, no bracelet. Add your email so we can reach you with it.",
     namePrompt: "Add yourself to the guest list",
     nameLabel: "Full name",
     emailLabel: "Email",
@@ -74,6 +76,8 @@ const STRINGS = {
     spotsRemaining: (n: number) =>
       `${n} ${n === 1 ? "place" : "places"} restante${n === 1 ? "" : "s"} pour ce groupe`,
     joining: (lead: string) => `Vous rejoignez le groupe de ${lead}.`,
+    qrPolicy:
+      "Vous aurez besoin de votre propre code QR pour entrer — pas de code QR, pas de bracelet. Ajoutez votre e-mail pour que nous puissions vous joindre.",
     namePrompt: "Ajoutez-vous à la liste des invités",
     nameLabel: "Nom complet",
     emailLabel: "E-mail",
@@ -303,6 +307,7 @@ export default function SelfRegistrationForm({
             {t.joining(leadName)}
           </p>
         )}
+        <p className="font-body text-sm text-marine/80 mt-2">{t.qrPolicy}</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
