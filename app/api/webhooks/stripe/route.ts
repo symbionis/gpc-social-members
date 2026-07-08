@@ -5,8 +5,7 @@ import { sendEventRegistrationConfirmation } from "@/lib/email/event-registratio
 import {
   seedLeadAttendee,
   mintRegistrationTickets,
-  fillRegistrationRoster,
-  type RosterFillAttendee,
+  applyPendingRoster,
 } from "@/lib/events/roster";
 import { generateCardNumber } from "@/lib/utils/card";
 import { NextResponse, type NextRequest } from "next/server";
@@ -349,25 +348,13 @@ export async function POST(request: NextRequest) {
         await seedLeadAttendee(existing.id);
         await mintRegistrationTickets(existing.id);
 
-        // Apply the booker-entered guest names captured at checkout, then clear the
-        // transient PII column so it can't linger and so a later redelivery
-        // short-circuits. Run-once is enforced by the clear (children carry no
-        // contact, so claim_ticket does not dedupe them).
+        // Apply the booker-entered guest names captured at checkout. This is a single
+        // atomic RPC (claim each guest + clear the column in one transaction under a
+        // row lock), so it is fully replay-safe INCLUDING children: a crash rolls both
+        // back and a redelivery re-applies cleanly; concurrent redeliveries serialize
+        // and the loser sees a cleared roster and no-ops.
         if (existing.pending_roster) {
-          await fillRegistrationRoster(
-            existing.id,
-            existing.pending_roster as unknown as RosterFillAttendee[]
-          );
-          const { error: clearErr } = await supabase
-            .from("event_registrations")
-            .update({ pending_roster: null })
-            .eq("id", existing.id);
-          if (clearErr) {
-            console.error("[webhook] failed to clear pending_roster after fill", {
-              registrationId: existing.id,
-              err: clearErr,
-            });
-          }
+          await applyPendingRoster(existing.id);
         }
 
         // Send the confirmation only on the first promotion — not on a pure

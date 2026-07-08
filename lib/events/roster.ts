@@ -72,21 +72,32 @@ export interface RosterFillAttendee {
 }
 
 /**
+ * Apply a PAID registration's stored `pending_roster` atomically: the
+ * apply_pending_roster SECURITY DEFINER function claims each guest and clears the
+ * column in one transaction under a row lock. Use this on the Stripe webhook path —
+ * unlike fillRegistrationRoster it is fully replay-safe (children included), because
+ * a crash rolls back both the claims and the clear, and concurrent redeliveries
+ * serialize on the lock.
+ *
+ * Best-effort: a failure is logged, not thrown — the payment already succeeded and
+ * the un-cleared roster makes a later redelivery re-apply cleanly.
+ */
+export async function applyPendingRoster(registrationId: string): Promise<void> {
+  const supabase = createAdminClient();
+  const { error } = await supabase.rpc("apply_pending_roster", {
+    p_registration_id: registrationId,
+  });
+  if (error) {
+    console.error("[roster] apply_pending_roster failed", { registrationId, err: error });
+  }
+}
+
+/**
  * Apply booker-entered guest names to a confirmed registration's issued tickets by
- * calling claim_ticket once per attendee — flipping one `issued` slot of the matching
- * type to `claimed`. Call AFTER seedLeadAttendee + mintRegistrationTickets (the lead
- * and the blank issued rows must exist first).
- *
- * claim_ticket has NO is_child parameter — it derives is_child from the ticket-type
- * row — so we pass only p_ticket_type_id (null contact for children). marketing_consent
- * is always false: a booker cannot opt a guest into marketing (matches the manage-page
- * fill).
- *
- * Best-effort per row: a claim error (including per-type-full) is logged, not thrown —
- * the registration/payment has already succeeded and any un-filled slot stays issued,
- * reachable via the self-registration link. Replay-safety for this call comes from the
- * caller gating on and clearing pending_roster (children carry no contact, so
- * claim_ticket does not dedupe them); the helper itself makes no idempotency guarantee.
+ * calling claim_ticket once per attendee. Use this ONLY on the synchronous free
+ * path, where there is no webhook replay — it is NOT replay-safe for children (they
+ * carry no contact, so claim_ticket cannot dedupe them). The paid path must use
+ * applyPendingRoster instead.
  */
 export async function fillRegistrationRoster(
   registrationId: string,
