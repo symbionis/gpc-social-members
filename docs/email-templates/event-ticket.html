@@ -1,7 +1,8 @@
 <!-- event-ticket: one guest's own entry QR ("no QR, no bracelet"). Sent when a guest is
      named with an email at checkout (booking confirmation) or via the self-registration
-     link. Renders inside the main-polo-club layout ({{{@content}}}). Mustachio: no
-     {{#if}} — use {{#key}}…{{/key}}; pass null (not "") to omit an optional block. -->
+     link. Renders inside the main-polo-club layout. Mustachio conditionals use section
+     tags (no if-blocks); pass null, not an empty string, to omit an optional block.
+     NOTE: keep template tags out of comments — Postmark parses them here too. -->
 <h1>Your ticket{{#first_name}}, {{first_name}}{{/first_name}}.</h1>
 
 <p>You're on the guest list for <strong>{{event_title}}</strong>. This email is your ticket — you'll need the QR code below to get in: <strong>no QR code, no bracelet</strong>. Keep it handy on your phone.</p>
