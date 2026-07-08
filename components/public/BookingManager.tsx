@@ -88,9 +88,9 @@ export default function BookingManager({
       <div className="rounded-2xl border border-marine/20 bg-marine/5 p-5">
         <h2 className="font-heading text-lg font-bold text-marine mb-1.5">Your tickets</h2>
         <p className="font-body text-base leading-relaxed text-marine/90">
-          Tickets are nominative — a name must be added to each ticket for it to be valid.
-          Name each ticket, or forward it to your guest so they can name it. Each QR code
-          admits one person at the entrance.
+          Add each guest’s <strong>name and email</strong> — we’ll email them their own QR
+          code. Every guest needs their QR code to get in: <strong>no QR code, no
+          bracelet.</strong> Your own ticket’s QR is below and in your confirmation email.
         </p>
       </div>
 
@@ -552,12 +552,16 @@ function TicketCard({
     }
   };
 
-  // Save & forward: email is required (it's where the QR is sent). The name is optional —
-  // the guest can add it themselves on the page they receive.
+  // Save & send QR: name + email are required. We name the ticket, then hand it to the
+  // guest at that email — the forward flow emails them their own QR (no QR, no entry).
   const saveAndForward = async () => {
     if (!forwardEndpoint) return;
+    if (!name.trim()) {
+      setError("Enter the guest’s name.");
+      return;
+    }
     if (!EMAIL_RE.test(email.trim())) {
-      setError("Add the guest’s email to forward this ticket.");
+      setError("Add the guest’s email — that’s where we send their QR code.");
       return;
     }
     setBusy("forward");
@@ -598,8 +602,8 @@ function TicketCard({
               </span>
             )}
             {ticket.forwarded && (
-              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-sm font-body font-semibold text-amber-900">
-                Forwarded
+              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-sm font-body font-semibold text-emerald-800">
+                QR sent to guest ✓
               </span>
             )}
             {ticket.checkedIn && (
@@ -673,22 +677,23 @@ function TicketCard({
           )}
           {error && <p className="text-sm font-body text-red-600">{error}</p>}
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={save}
-              disabled={busy !== null}
-              className="rounded-lg bg-marine px-4 py-2.5 text-base font-body font-semibold text-white disabled:opacity-50"
-            >
-              {busy === "save" ? "Saving…" : "Save"}
-            </button>
-            {canForward && (
+            {canForward ? (
               <button
                 type="button"
                 onClick={saveAndForward}
                 disabled={busy !== null}
-                className="rounded-lg border border-marine px-4 py-2.5 text-base font-body font-semibold text-marine disabled:opacity-50"
+                className="rounded-lg bg-marine px-4 py-2.5 text-base font-body font-semibold text-white disabled:opacity-50"
               >
-                {busy === "forward" ? "Forwarding…" : "Save & forward"}
+                {busy === "forward" ? "Sending…" : "Save & send QR to guest"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={save}
+                disabled={busy !== null}
+                className="rounded-lg bg-marine px-4 py-2.5 text-base font-body font-semibold text-white disabled:opacity-50"
+              >
+                {busy === "save" ? "Saving…" : "Save"}
               </button>
             )}
             <button
@@ -704,8 +709,8 @@ function TicketCard({
           </div>
           {canForward && (
             <p className="font-body text-sm text-marine/70">
-              <strong>Save</strong> keeps the ticket with you to share its QR.{" "}
-              <strong>Save &amp; forward</strong> emails the QR to the guest.
+              We’ll email this guest their own QR code — they show it at the door.{" "}
+              <strong>No QR code, no bracelet.</strong>
             </p>
           )}
         </div>

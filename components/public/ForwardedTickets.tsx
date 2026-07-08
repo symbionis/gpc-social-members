@@ -43,8 +43,9 @@ export default function ForwardedTickets({
       <div className="rounded-2xl border border-marine/20 bg-marine/5 p-5">
         <h2 className="mb-1.5 font-heading text-lg font-bold text-marine">Your tickets</h2>
         <p className="font-body text-base leading-relaxed text-marine/90">
-          Confirm your personal details to validate each ticket. On the day, show its QR
-          code at the entrance and we’ll scan you straight in.
+          Confirm your details to validate each ticket, then show its QR code at the
+          entrance and we’ll scan you straight in. You need your QR code to get in:{" "}
+          <strong>no QR code, no bracelet.</strong>
         </p>
       </div>
 
