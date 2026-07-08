@@ -9,10 +9,19 @@ import {
   generateSelfRegToken,
   isValidInviteCode,
 } from "@/lib/events/registration";
-import { seedLeadAttendee, mintRegistrationTickets } from "@/lib/events/roster";
+import {
+  seedLeadAttendee,
+  mintRegistrationTickets,
+  fillRegistrationRoster,
+  type RosterFillAttendee,
+} from "@/lib/events/roster";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_TICKETS = 20;
+// Bounds for the nominative roster fields — this endpoint is unauthenticated, so
+// reject oversized name/email rather than storing multi-megabyte junk (R10).
+const MAX_ATTENDEE_NAME = 120;
+const MAX_ATTENDEE_EMAIL = 254;
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -31,6 +40,7 @@ export async function POST(
     code?: unknown;
     items?: unknown;
     leadTicketTypeId?: unknown;
+    attendees?: unknown;
   };
   try {
     body = await request.json();
@@ -161,9 +171,7 @@ export async function POST(
   }
   const typeById = new Map(types.map((t) => [t.id, t]));
 
-  // The lead's own ticket must be one of the basket's types (the form adds +1 to it).
-  // When absent, a single-type basket implies it; a multi-type basket leaves the lead
-  // untyped rather than guessing.
+  // The lead's own ticket must be one of the basket's non-child types.
   let leadType: string | null = leadTicketTypeId || null;
   if (leadType && !ids.includes(leadType)) {
     return bad("Your ticket must be one of the selected tickets", 400);
@@ -172,8 +180,59 @@ export async function POST(
   if (leadType && typeById.get(leadType)?.is_child) {
     return bad("Your ticket can't be a children's ticket", 400);
   }
-  if (!leadType && ids.length === 1 && !typeById.get(ids[0])?.is_child) {
-    leadType = ids[0];
+  // Resolve the lead's ticket type from the basket when the client didn't send one:
+  // a single adult type implies it; 2+ adult types are genuinely ambiguous and must
+  // be chosen (mirrors the client "You"-row gate) rather than seeding an untyped lead.
+  const adultTypeIds = ids.filter((id) => !typeById.get(id)?.is_child);
+  if (!leadType && adultTypeIds.length === 1) {
+    leadType = adultTypeIds[0];
+  }
+  if (!leadType && adultTypeIds.length >= 2) {
+    return bad("Please choose which ticket is yours", 400);
+  }
+
+  // Parse the OPTIONAL nominative roster: booker-entered names for GUEST tickets
+  // (the lead is seeded separately from leadType). Never trust a client is_child —
+  // derive it from the ticket type. Adults need a valid distinct email; children are
+  // name-only. Bounds + distinctness close abuse paths on this unauthenticated route.
+  const rawAttendees = Array.isArray(body.attendees) ? body.attendees : [];
+  if (rawAttendees.length > MAX_TICKETS) {
+    return bad("Too many attendees for one order", 400);
+  }
+  const normalizedAttendees: RosterFillAttendee[] = [];
+  const seenEmails = new Set<string>();
+  if (email) seenEmails.add(email); // the lead's email — guests must differ (R9)
+  const namedPerType = new Map<string, number>();
+  for (const raw of rawAttendees) {
+    const rec = (raw ?? {}) as { ticket_type_id?: unknown; name?: unknown; email?: unknown };
+    const ttId = typeof rec.ticket_type_id === "string" ? rec.ticket_type_id : "";
+    const t = typeById.get(ttId);
+    if (!t) return bad("An attendee references a ticket not in your order", 400);
+    const nm = typeof rec.name === "string" ? rec.name.trim() : "";
+    if (!nm) return bad("Each named ticket needs a name", 400);
+    if (nm.length > MAX_ATTENDEE_NAME) return bad("An attendee name is too long", 400);
+    let attEmail: string | null = null;
+    if (!t.is_child) {
+      const e = typeof rec.email === "string" ? rec.email.trim().toLowerCase() : "";
+      if (!e || !EMAIL_RE.test(e)) return bad("Each named adult needs a valid email", 400);
+      if (e.length > MAX_ATTENDEE_EMAIL) return bad("An attendee email is too long", 400);
+      if (seenEmails.has(e)) {
+        return bad("Each attendee needs a different email address", 400);
+      }
+      seenEmails.add(e);
+      attEmail = e;
+    }
+    namedPerType.set(ttId, (namedPerType.get(ttId) ?? 0) + 1);
+    normalizedAttendees.push({ ticket_type_id: ttId, name: nm, email: attEmail });
+  }
+  // A type's named guests can't exceed the purchased quantity minus the lead's own
+  // slot of that type (the lead is seeded, not in this list).
+  const purchasedPerType = new Map(parsed.map((p) => [p.ticket_type_id, p.quantity]));
+  for (const [ttId, named] of namedPerType) {
+    const capacity = (purchasedPerType.get(ttId) ?? 0) - (leadType === ttId ? 1 : 0);
+    if (named > capacity) {
+      return bad("More named guests than tickets for a ticket type", 400);
+    }
   }
 
   // Resolve per-line prices. STRICT null check before any coercion — Number(null)
@@ -305,10 +364,31 @@ export async function POST(
     await seedLeadAttendee(registrationId, phone || null);
     // Mint a credentialled (QR) ticket for every remaining purchased slot (U2).
     await mintRegistrationTickets(registrationId);
+    // Name the guest tickets the booker filled in at checkout (best-effort; any
+    // un-filled slot stays issued and is reachable via the self-registration link).
+    await fillRegistrationRoster(registrationId, normalizedAttendees);
     sendEventRegistrationConfirmation(registrationId).catch((err) =>
       console.error("[event-register] confirmation email failed", err)
     );
     return NextResponse.json({ success: true, reference_code: referenceCode });
+  }
+
+  // Paid basket: stash the booker-entered guest roster so the Stripe webhook can
+  // apply it after payment (the tickets don't exist yet — mint runs post-payment).
+  // FAIL-LOUD: if this write fails we must NOT send the buyer to Stripe, or they'd
+  // pay for a roster that was never stored. (The regPatch above stays best-effort.)
+  if (normalizedAttendees.length > 0) {
+    const { error: rosterErr } = await supabase
+      .from("event_registrations")
+      .update({ pending_roster: normalizedAttendees })
+      .eq("id", registrationId);
+    if (rosterErr) {
+      console.error("[event-register] pending_roster persist failed — blocking checkout", {
+        registrationId,
+        err: rosterErr,
+      });
+      return bad("Could not save your guest details. Please try again.", 500);
+    }
   }
 
   // Paid basket: one Stripe line item per PAID type (free lines are recorded as
