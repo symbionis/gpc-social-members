@@ -25,6 +25,11 @@ The person who created a Registration and manages it afterward — adding Ticket
 ### Top-up
 Adding further Tickets to an existing confirmed Registration after booking — the "Buy more tickets" flow. A Top-up is priced at the Registration's original Rate Class and, when it costs money, runs its own checkout before the new Tickets are minted.
 
+### Conversion
+Changing one existing Ticket to a different Ticket Type on the same Registration — the "Change ticket type" flow — as opposed to a Top-up, which adds new Tickets. Priced at the Registration's original Rate Class.
+
+Upgrade-only: the target Ticket Type must cost the same or more, and the Lead pays the difference (applied immediately when the difference is zero, otherwise through its own checkout first). A Conversion preserves the Ticket's Credential, its Lead-held status, and its named person — it changes only the Ticket Type; the Registration's Ticket count is unchanged, and the Event's seat usage changes only when converting from a non-seat to a seat-consuming Type. A Ticket cannot be converted between a child and an adult Ticket Type.
+
 ### Ticket Credential
 The unguessable bearer token carried by each Ticket, rendered as a QR code and used as the entry token at the door. Holding the credential is what admits a guest; identity (name, waiver) is metadata attached around it. Designed so an NFC bracelet could later be paired to the same credential.
 
