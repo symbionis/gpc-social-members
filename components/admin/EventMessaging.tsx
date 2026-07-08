@@ -64,12 +64,13 @@ interface Props {
 }
 
 const KIND_LABEL: Record<string, string> = {
-  event_pre: "Pre-event",
+  event_pre: "Booking leads",
   event_post: "Post-event",
 };
 
 const AUDIENCE_HINT: Record<EventMessageKind, string> = {
-  event_pre: "Goes to everyone registered for this event (regardless of marketing consent).",
+  event_pre:
+    "Goes to the lead who manages each booking (single or party) — not the individual guests. Regardless of marketing consent.",
   event_post: "Goes to everyone who checked in. By default only those who opted in at the door.",
 };
 
@@ -217,7 +218,7 @@ export default function EventMessaging({
             className="w-full max-w-sm px-3 py-2.5 rounded-lg border border-border bg-white text-marine font-body text-sm"
             aria-label="Message audience"
           >
-            <option value="event_pre">Pre-event — registered attendees</option>
+            <option value="event_pre">Booking leads</option>
             <option value="event_post">Post-event — checked-in attendees</option>
           </select>
           <p className="mt-1 text-[11px] font-body text-muted-foreground">{AUDIENCE_HINT[kind]}</p>

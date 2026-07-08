@@ -49,10 +49,16 @@ describe("isBodyEmpty", () => {
 });
 
 describe("buildSendConfirm", () => {
-  it("names the registered audience for pre-event", () => {
+  it("names the booking-leads audience for pre-event", () => {
     expect(
       buildSendConfirm({ subject: "Venue moved", kind: "event_pre", recipientCount: 12, includeNonConsented: false })
-    ).toBe('Send "Venue moved" to 12 registered attendees?');
+    ).toBe('Send "Venue moved" to 12 booking leads?');
+  });
+
+  it("singularises a one-lead pre-event send", () => {
+    expect(
+      buildSendConfirm({ subject: "Assign your tickets", kind: "event_pre", recipientCount: 1, includeNonConsented: false })
+    ).toBe('Send "Assign your tickets" to 1 booking lead?');
   });
 
   it("singularises a one-recipient send", () => {

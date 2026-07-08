@@ -42,7 +42,7 @@ export function buildSendConfirm(i: {
   recipientCount: number;
   includeNonConsented: boolean;
 }): string {
-  const who = i.kind === "event_pre" ? "registered attendee" : "checked-in attendee";
+  const who = i.kind === "event_pre" ? "booking lead" : "checked-in attendee";
   const plural = i.recipientCount === 1 ? "" : "s";
   let msg = `Send "${i.subject}" to ${i.recipientCount} ${who}${plural}?`;
   if (i.kind === "event_post" && i.includeNonConsented) {
