@@ -520,10 +520,19 @@ function SlotRow({
               child
             </span>
           )}
-          {slot.checkedIn && (
+          {/* "Arrived" (green) means this ticket has been scanned/checked in by the
+              door clerk — never just pre-registered. A filled-but-not-scanned slot
+              shows a muted "Not arrived" so pre-registration isn't mistaken for it. */}
+          {slot.checkedIn ? (
             <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-emerald-100 text-emerald-800">
-              arrived
+              arrived{slot.arrivedAt ? ` · ${formatDateTime(slot.arrivedAt)}` : ""}
             </span>
+          ) : (
+            !isOpen && (
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-cream text-marine/50">
+                not arrived
+              </span>
+            )
           )}
         </span>
         {!slot.checkedIn && !isOpen && (
@@ -531,9 +540,9 @@ function SlotRow({
             type="button"
             onClick={() => (slot.isChild ? checkInChild() : checkInAdult(false))}
             disabled={checkingIn}
-            className="shrink-0 px-3 py-1 rounded-lg border border-emerald-300 text-emerald-800 text-xs font-body hover:bg-emerald-50 transition-colors disabled:opacity-50 cursor-pointer"
+            className="shrink-0 px-3 py-1 rounded-lg border border-marine text-marine text-xs font-body font-semibold hover:bg-marine hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
           >
-            {checkingIn ? "…" : "Arrived"}
+            {checkingIn ? "…" : "Check in"}
           </button>
         )}
       </div>

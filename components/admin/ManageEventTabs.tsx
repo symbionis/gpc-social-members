@@ -41,6 +41,8 @@ interface Attendee {
   ticketTypeTitle: string;
   /** Party self-reg detail (fill + claimed guests + token) on lead rows; null otherwise. */
   party: PartyDetail | null;
+  /** The lead's "My Booking" manage_token (lead rows only) → booking-page link. */
+  manageToken: string | null;
   /** When this party's ticket email was last sent (lead rows); null = never sent. */
   ticketEmailSentAt: string | null;
   waiverSigned: boolean;

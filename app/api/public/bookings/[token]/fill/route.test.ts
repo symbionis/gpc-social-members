@@ -7,9 +7,24 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const mockedAdmin = vi.mocked(createAdminClient);
 
-// The route delegates to fill_ticket; the mock returns its result.
-function adminClient(fill: Record<string, unknown> | null) {
+// The route delegates to fill_ticket; the mock returns its result. When an email is
+// missing the route first looks up the registration (by manage_token) and the ticket
+// (for is_child) before the RPC — the mock serves those from `reg` / `ticket`.
+function adminClient(
+  fill: Record<string, unknown> | null,
+  opts: { reg?: Record<string, unknown> | null; ticket?: Record<string, unknown> | null } = {}
+) {
+  const { reg = { id: "reg1" }, ticket = { is_child: false } } = opts;
+  const table = (row: Record<string, unknown> | null) => {
+    const builder = {
+      select: () => builder,
+      eq: () => builder,
+      maybeSingle: async () => ({ data: row, error: null }),
+    };
+    return builder;
+  };
   return {
+    from: (name: string) => table(name === "tickets" ? ticket : reg),
     rpc: async (_fn: string, _args: unknown) => ({ data: fill, error: null }),
   } as unknown as ReturnType<typeof createAdminClient>;
 }
@@ -47,9 +62,30 @@ describe("POST /api/public/bookings/[token]/fill", () => {
     expect(await res.json()).toMatchObject({ ok: true, ticketId: TICKET, name: "Ann" });
   });
 
+  it("400s an adult ticket named with no email (QR can't be delivered)", async () => {
+    // Default mock ticket is an adult (is_child: false); phone-only must be rejected.
+    const res = await post({ ticketId: TICKET, name: "Ann", phone: "+41791112233" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("email") });
+  });
+
+  it("allows a child ticket to be named with no email (name-only)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ status: "claimed", attendee_id: TICKET, name: "Kid" }, { ticket: { is_child: true } })
+    );
+    const res = await post({ ticketId: TICKET, name: "Kid" });
+    expect(res.status).toBe(200);
+  });
+
+  it("404s when the ticket isn't in this booking (email-less path)", async () => {
+    mockedAdmin.mockReturnValue(adminClient(null, { ticket: null }));
+    const res = await post({ ticketId: TICKET, name: "Ann" });
+    expect(res.status).toBe(404);
+  });
+
   it("400s when the RPC rejects missing contact (invalid_input)", async () => {
     mockedAdmin.mockReturnValue(adminClient({ status: "invalid_input", reason: "contact" }));
-    const res = await post({ ticketId: TICKET, name: "Ann" });
+    const res = await post({ ticketId: TICKET, name: "Ann", email: "ann@x.com" });
     expect(res.status).toBe(400);
   });
 

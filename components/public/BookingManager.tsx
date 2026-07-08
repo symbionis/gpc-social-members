@@ -528,13 +528,14 @@ function TicketCard({
       setError("Enter a name for this ticket.");
       return;
     }
-    // Adults need a way to be reached (RPC rule). If the lead doesn't have the guest's
-    // contact, they should forward the ticket and let the guest fill it in themselves.
-    if (!ticket.isChild && !email.trim() && !phone.trim()) {
+    // Adults need an email — the QR code is delivered by email, so a guest saved with
+    // only a phone can never receive their ticket. If the lead doesn't have the guest's
+    // email, they should forward the ticket and let the guest fill it in themselves.
+    if (!ticket.isChild && !email.trim()) {
       setError(
         canForward
-          ? "Add an email or phone — or use Save & forward to send this ticket to the guest."
-          : "Add an email or phone for this guest."
+          ? "Add the guest’s email so we can send their QR code — or use Save & forward to let them add their own details."
+          : "Add the guest’s email so we can send their QR code."
       );
       return;
     }
@@ -657,7 +658,7 @@ function TicketCard({
               <input
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder={canForward ? "Email (needed to forward)" : "Email"}
+                placeholder="Email (for their QR code)"
                 inputMode="email"
                 className="w-full rounded-lg border border-marine/20 bg-white px-3 py-2.5 text-base font-body"
               />
