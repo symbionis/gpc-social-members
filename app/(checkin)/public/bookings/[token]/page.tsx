@@ -106,12 +106,15 @@ export default async function BookingPage({
     sortById.set(t.id as string, (t.sort_order as number | null) ?? 0);
   }
 
-  // Ticket types the lead can buy more of: active types, priced at the booking's rate.
+  // Ticket types the lead can buy more of: active types, priced at the booking's rate,
+  // with the same invite_price fallback the top-up route applies — on an invite-only
+  // event there is no non-member price, so an invited guest buys at the rate they were
+  // invited at. Without the fallback every type prices to null and the panel vanishes.
   const buyableTypes = (typeRows ?? [])
     .filter((t) => !t.archived_at)
     .sort((a, b) => ((a.sort_order as number) ?? 0) - ((b.sort_order as number) ?? 0))
     .map((t) => {
-      const unit = registration.is_member ? t.price_member : t.price_non_member;
+      const unit = registration.is_member ? t.price_member : (t.price_non_member ?? t.invite_price);
       const amount = unit === null ? null : Number(unit);
       return {
         id: t.id as string,
@@ -126,10 +129,9 @@ export default async function BookingPage({
     })
     .filter((t) => t.priceLabel !== "—");
 
-  // Convert targets: active types priced at the booking's rate, with the invite_price
-  // fallback the route uses (so invite-only food types still appear for invited guests —
-  // buyableTypes above deliberately does NOT fall back). The client filters these per
-  // ticket to same-or-higher priced, matching is_child (see eligibleConvertTargets).
+  // Convert targets: active types priced at the booking's rate, with the same invite_price
+  // fallback. The client filters these per ticket to same-or-higher priced, matching
+  // is_child (see eligibleConvertTargets).
   const convertTypes = (typeRows ?? [])
     .filter((t) => !t.archived_at)
     .map((t) => {
