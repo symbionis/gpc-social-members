@@ -36,6 +36,9 @@ A Ticket can also be *released* — freed by staff before arrival — which tomb
 ### Booking Page
 The Lead's self-service page for a Registration, reached by a private manage link, where they name each Ticket, share or forward Tickets to guests, see every QR, and buy more.
 
+### Self-registration
+The process by which a guest fills an open Ticket for themselves — entering their own name and contact through a per-Registration link — instead of the Lead naming it on their behalf. It is the fallback for any Ticket left un-named when the Lead books, and claiming an open slot this way moves it from issued to claimed (see Slot Status) without minting a new Ticket.
+
 ### Door Console
 The public, no-login check-in surface for an Event, opened by staff at a hard-to-guess per-Event link, used to scan Ticket QRs, fill in missing names and waivers, admit walk-ups against unredeemed Tickets, and resend a party's Tickets to its Lead.
 
