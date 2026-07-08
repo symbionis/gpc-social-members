@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
+import { sendTicketQrEmail } from "@/lib/email/ticket-qr";
 
 const TEMPLATE_ALIAS = "event-registration-confirmed";
 
@@ -209,6 +210,32 @@ export async function sendEventRegistrationConfirmation(
       registrationId,
       err: stampErr,
     });
+  }
+
+  // Auto-send each NAMED guest their own entry QR ("no QR, no bracelet"). The lead's
+  // confirmation above carries only the lead's QR; guests named at checkout get theirs
+  // here. Best-effort and fully independent — a guest-email failure never affects the
+  // lead's email or the registration. Idempotent per ticket (qr_email_sent_at), so a
+  // re-fired Stripe webhook or an admin resend won't double-send; it only fills gaps.
+  try {
+    const { data: guestTickets } = await supabase
+      .from("tickets")
+      .select("id, is_child, email, qr_email_sent_at")
+      .eq("registration_id", registrationId)
+      .eq("is_lead", false)
+      .eq("slot_status", "claimed")
+      .is("released_at", null);
+    for (const g of guestTickets ?? []) {
+      if (g.is_child || !g.email || g.qr_email_sent_at) continue;
+      await sendTicketQrEmail(g.id as string).catch((err) =>
+        console.error("[event-registration-email] guest QR send failed", {
+          ticketId: g.id,
+          err,
+        })
+      );
+    }
+  } catch (err) {
+    console.error("[event-registration-email] guest QR batch failed", { registrationId, err });
   }
 
   return result;

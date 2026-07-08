@@ -1,0 +1,19 @@
+Your ticket{{#first_name}}, {{.}}{{/first_name}}.
+
+{{#inviter_name}}{{.}} has invited you.{{/inviter_name}}{{^inviter_name}}You're on the guest list.{{/inviter_name}} This is your ticket for {{event_title}} — you'll need your QR code to get in: no QR code, no bracelet.
+
+YOUR ENTRY QR CODE
+Show this at the door{{#guest_name}} · {{.}}{{/guest_name}}.
+Open your QR code: {{qr_url}}
+
+EVENT
+{{event_title}}
+{{#event_date_label}}{{.}}
+{{/event_date_label}}{{#event_time}}Starts at {{.}}
+{{/event_time}}{{#event_location}}{{.}}
+{{/event_location}}{{#reference_code}}Reference: {{.}}
+{{/reference_code}}
+On the day, just show your QR code at the door and we'll scan you straight in.
+
+See you there,
+The Geneva Polo Social Club Team

@@ -1,0 +1,46 @@
+<!-- event-ticket: one guest's own entry QR ("no QR, no bracelet"). Sent when a guest is
+     named with an email at checkout (booking confirmation) or via the self-registration
+     link. Renders inside the main-polo-club layout. Mustachio conditionals use section
+     tags (no if-blocks); pass null, not an empty string, to omit an optional block.
+     NOTE: keep template tags out of comments — Postmark parses them here too. -->
+<h1>Your ticket{{#first_name}}, {{.}}{{/first_name}}.</h1>
+
+<p>{{#inviter_name}}<strong>{{.}}</strong> has invited you.{{/inviter_name}}{{^inviter_name}}You're on the guest list.{{/inviter_name}} This is your ticket for <strong>{{event_title}}</strong> — you'll need the QR code below to get in: <strong>no QR code, no bracelet</strong>. Keep it handy on your phone.</p>
+
+<!-- Entry QR -->
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 28px 0 12px 0;">
+  <tr>
+    <td align="center" style="padding: 24px 16px; background-color: #f4f7f9; border-radius: 6px;">
+      <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 2px;"><font color="#7aafc4">Your entry QR code</font></p>
+      <p style="margin: 0 0 14px 0; font-size: 14px; color:#052938;">Show this at the door{{#guest_name}} &middot; {{.}}{{/guest_name}}</p>
+      <img src="{{qr_url}}" alt="Your ticket QR code" width="200" height="200" style="display:block;margin:0 auto;border:1px solid #e3e3e3;border-radius:6px;" />
+    </td>
+  </tr>
+</table>
+
+<!-- Event details -->
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 20px 0 28px 0;">
+  <tr>
+    <td align="center" style="background-color: #052938; border-radius: 8px; padding: 24px 32px;">
+      <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 3px;"><font color="#95CEE1">Event</font></p>
+      <p style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600;"><font color="#ffffff">{{event_title}}</font></p>
+      {{#event_date_label}}
+      <p style="margin: 0 0 4px 0; font-size: 14px;"><font color="#ffffff">{{.}}</font></p>
+      {{/event_date_label}}
+      {{#event_time}}
+      <p style="margin: 0 0 4px 0; font-size: 14px;"><font color="#ffffff">Starts at {{.}}</font></p>
+      {{/event_time}}
+      {{#event_location}}
+      <p style="margin: 0 0 16px 0; font-size: 14px;"><font color="#c8dfe8">{{.}}</font></p>
+      {{/event_location}}
+      {{#reference_code}}
+      <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 2px;"><font color="#7aafc4">Reference</font></p>
+      <p style="margin: 0; font-size: 14px; letter-spacing: 2px; font-weight: 600;"><font color="#ffffff">{{.}}</font></p>
+      {{/reference_code}}
+    </td>
+  </tr>
+</table>
+
+<p>On the day, just show your QR code at the door and we'll scan you straight in.</p>
+
+<p>See you there,<br><strong>The Geneva Polo Social Club Team</strong></p>
