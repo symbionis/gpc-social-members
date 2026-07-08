@@ -60,7 +60,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("resolveEventAudience — pre-event (registered attendees)", () => {
+describe("resolveEventAudience — booking leads (pre-event)", () => {
   it("includes paid and free registrations and excludes cancelled/refunded", async () => {
     mockedCreateAdminClient.mockReturnValue(
       client({
@@ -108,6 +108,41 @@ describe("resolveEventAudience — pre-event (registered attendees)", () => {
     const mary = recipients.find((r) => r.email === "h@x.com")!;
     expect(guest).toMatchObject({ member_id: null, first_name: "Guest", last_name: "", tier_name: null });
     expect(mary).toMatchObject({ first_name: "Mary", last_name: "Jane Smith" });
+  });
+
+  // R6: one message per booking lead. Two bookings that share a lead email (e.g. a
+  // non-member who booked twice under one address) collapse to a single recipient —
+  // the "Booking leads" label promises the lead, de-duplicated by email.
+  it("collapses two bookings sharing a lead email to one recipient", async () => {
+    mockedCreateAdminClient.mockReturnValue(
+      client({
+        event_registrations: [
+          { email: "lead@x.com", name: "Lead One", member_id: null, status: "paid", event_id: "e1" },
+          { email: "Lead@X.com", name: "Lead One", member_id: null, status: "paid", event_id: "e1" },
+        ],
+      })
+    );
+    const { recipients } = await resolveEventAudience({ event_id: "e1", kind: "event_pre" });
+    expect(recipients.map((r) => r.email)).toEqual(["lead@x.com"]);
+  });
+
+  // R6: guests are never messaged pre-event. The booking-leads audience reads only
+  // event_registrations (one row per booking = the lead); individual guest `tickets`
+  // rows are on a table the pre-event path never queries, so they cannot leak in.
+  it("never includes guest tickets — reads only registrations", async () => {
+    mockedCreateAdminClient.mockReturnValue(
+      client({
+        event_registrations: [
+          { email: "lead@x.com", name: "Lead One", member_id: "m1", status: "paid", event_id: "e1" },
+        ],
+        tickets: [
+          { email: "guest@x.com", name: "Guest Two", member_id: null, is_lead: false, checked_in_at: null, event_id: "e1" },
+        ],
+      })
+    );
+    const { recipients } = await resolveEventAudience({ event_id: "e1", kind: "event_pre" });
+    expect(recipients.map((r) => r.email)).toEqual(["lead@x.com"]);
+    expect(recipients.map((r) => r.email)).not.toContain("guest@x.com");
   });
 });
 
