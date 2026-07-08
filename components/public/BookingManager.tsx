@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { formatCurrency } from "@/lib/format";
+import { eligibleConvertTargets, type ConvertType } from "@/lib/events/convert-eligibility";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -10,6 +12,8 @@ export interface BookingTicket {
   name: string;
   email: string;
   phone: string;
+  /** The ticket's current ticket_type_id — used to compute convertible target types. */
+  typeId: string;
   typeTitle: string;
   isChild: boolean;
   status: string; // 'issued' | 'claimed'
@@ -37,6 +41,10 @@ interface Props {
   topupEndpoint?: string;
   /** Ticket types the lead can buy more of (with a display price label). */
   buyableTypes?: { id: string; title: string; priceLabel: string }[];
+  /** When set, enable per-ticket "Change ticket type" (upgrade) posting to this endpoint. */
+  convertEndpoint?: string;
+  /** All active ticket types priced at the booking's rate — filtered per ticket to targets. */
+  convertTypes?: ConvertType[];
 }
 
 export default function BookingManager({
@@ -50,6 +58,8 @@ export default function BookingManager({
   forwardEndpoint,
   topupEndpoint,
   buyableTypes,
+  convertEndpoint,
+  convertTypes,
 }: Props) {
   const [tickets, setTickets] = useState<BookingTicket[]>(initialTickets);
   const namedCount = useMemo(
@@ -108,6 +118,8 @@ export default function BookingManager({
             key={t.id}
             fillEndpoint={fillEndpoint}
             forwardEndpoint={forwardEndpoint}
+            convertEndpoint={convertEndpoint}
+            convertTypes={convertTypes}
             index={i + 1}
             ticket={t}
             onSaved={onSaved}
@@ -350,9 +362,113 @@ function BuyMorePanel({
   );
 }
 
+/** Per-ticket upgrade control: pick a same-or-higher priced target, pay the difference. */
+function ConvertControl({
+  endpoint,
+  ticketId,
+  currentPrice,
+  targets,
+}: {
+  endpoint: string;
+  ticketId: string;
+  currentPrice: number;
+  targets: ConvertType[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [choice, setChoice] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!choice) {
+      setError("Choose a ticket type.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ticketId, toTicketTypeId: choice }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        checkoutUrl?: string;
+        redirectUrl?: string;
+      };
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? "Could not change the ticket type.");
+        return;
+      }
+      // checkoutUrl → Stripe for the difference; redirectUrl → free (delta 0) change applied.
+      const next = data.checkoutUrl ?? data.redirectUrl;
+      if (next) window.location.href = next;
+    } catch {
+      setError("Could not change the ticket type.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-sm font-body font-semibold text-marine underline underline-offset-2"
+      >
+        Change ticket type
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2 rounded-xl border border-marine/15 bg-marine/5 p-3">
+          <p className="font-body text-sm text-marine/80">
+            Upgrade this ticket — you’ll pay any price difference.
+          </p>
+          <ul className="space-y-1">
+            {targets.map((t) => {
+              const delta = Number((t.price - currentPrice).toFixed(2));
+              return (
+                <li key={t.id}>
+                  <label className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-base font-body text-marine">
+                    <input
+                      type="radio"
+                      name={`convert-${ticketId}`}
+                      checked={choice === t.id}
+                      onChange={() => setChoice(t.id)}
+                    />
+                    <span>
+                      {t.title}{" "}
+                      <span className="text-marine/70">
+                        · {delta === 0 ? "no extra cost" : `+${formatCurrency(delta)}`}
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          {error && <p className="text-sm font-body text-red-600">{error}</p>}
+          <button
+            type="button"
+            onClick={submit}
+            disabled={submitting || !choice}
+            className="w-full rounded-lg bg-marine px-4 py-2.5 text-base font-body font-semibold text-white disabled:opacity-50"
+          >
+            {submitting ? "Starting…" : "Change ticket type"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TicketCard({
   fillEndpoint,
   forwardEndpoint,
+  convertEndpoint,
+  convertTypes,
   index,
   ticket,
   onSaved,
@@ -360,6 +476,8 @@ function TicketCard({
 }: {
   fillEndpoint: string;
   forwardEndpoint?: string;
+  convertEndpoint?: string;
+  convertTypes?: ConvertType[];
   index: number;
   ticket: BookingTicket;
   onSaved: (t: BookingTicket) => void;
@@ -378,6 +496,14 @@ function TicketCard({
   // Per-ticket forward needs the guest's email field, which is hidden for children —
   // children are bundled to a guardian via the multi-select panel instead.
   const canForward = editable && Boolean(forwardEndpoint) && !ticket.isChild;
+
+  // Convert (upgrade) is allowed on the lead's own ticket too — it preserves is_lead. Only
+  // forwarded / checked-in tickets are excluded. Offer only same-or-higher priced targets.
+  const convertTargets =
+    convertEndpoint && convertTypes && !ticket.forwarded && !ticket.checkedIn
+      ? eligibleConvertTargets(ticket.typeId, convertTypes)
+      : [];
+  const currentPrice = convertTypes?.find((t) => t.id === ticket.typeId)?.price ?? 0;
 
   // Record the name/contact on the ticket. marketingConsent is always false here: the
   // lead must not opt a guest into news on their behalf — each guest opts in themselves.
@@ -506,6 +632,14 @@ function TicketCard({
             <p className="mt-2 font-body text-sm text-marine/70">
               This is your own entry QR — also in your confirmation email.
             </p>
+          )}
+          {convertTargets.length > 0 && convertEndpoint && (
+            <ConvertControl
+              endpoint={convertEndpoint}
+              ticketId={ticket.id}
+              currentPrice={currentPrice}
+              targets={convertTargets}
+            />
           )}
         </div>
       </div>
