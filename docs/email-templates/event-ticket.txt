@@ -1,9 +1,9 @@
-Your ticket{{#first_name}}, {{first_name}}{{/first_name}}.
+Your ticket{{#first_name}}, {{.}}{{/first_name}}.
 
-You're on the guest list for {{event_title}}. This email is your ticket — you'll need your QR code to get in: no QR code, no bracelet.
+{{#inviter_name}}{{.}} has invited you.{{/inviter_name}}{{^inviter_name}}You're on the guest list.{{/inviter_name}} This is your ticket for {{event_title}} — you'll need your QR code to get in: no QR code, no bracelet.
 
 YOUR ENTRY QR CODE
-Show this at the door{{#guest_name}} · {{guest_name}}{{/guest_name}}.
+Show this at the door{{#guest_name}} · {{.}}{{/guest_name}}.
 Open your QR code: {{qr_url}}
 
 EVENT

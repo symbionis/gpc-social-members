@@ -78,20 +78,29 @@ export async function sendTicketQrEmail(ticketId: string): Promise<SendTicketQrR
     .maybeSingle();
   if (!event) return { success: false, skipped: "no_event" };
 
+  const guestName = (ticket.name as string | null)?.trim() || null;
+
   // Booking reference (best-effort) — handy for the guest and door staff on a lost-QR.
+  // The registration's `name` is the booker/inviter, so the guest sees who invited them.
   let referenceCode: string | null = null;
+  let inviterName: string | null = null;
   if (ticket.registration_id) {
     const { data: reg } = await supabase
       .from("event_registrations")
-      .select("reference_code")
+      .select("reference_code, name")
       .eq("id", ticket.registration_id)
       .limit(1)
       .maybeSingle();
     referenceCode = (reg?.reference_code as string | null) ?? null;
+    const booker = ((reg?.name as string | null) ?? "").trim();
+    // Only name the inviter when it's someone other than this guest (a lead who named
+    // themselves as a guest slot would otherwise be "invited by <themselves>").
+    if (booker && booker.toLowerCase() !== (guestName ?? "").toLowerCase()) {
+      inviterName = booker;
+    }
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const guestName = (ticket.name as string | null)?.trim() || null;
 
   const result = await sendEmail({
     to: ticket.email as string,
@@ -100,6 +109,8 @@ export async function sendTicketQrEmail(ticketId: string): Promise<SendTicketQrR
       // first_name for the greeting; null (not "") so the Mustachio block is omitted.
       first_name: guestName ? firstNameFrom(guestName) : null,
       guest_name: guestName,
+      // The lead booker who invited this guest; null (not "") omits the block.
+      inviter_name: inviterName,
       event_title: event.title,
       event_date_label: formatDate(event.start_date as string),
       event_time: formatTime(event.start_time as string),

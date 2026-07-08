@@ -64,7 +64,12 @@ describe("sendTicketQrEmail", () => {
   it("sends the guest their QR and stamps qr_email_sent_at on success", async () => {
     const updateCalls: Record<string, unknown>[] = [];
     mockedAdmin.mockReturnValue(
-      adminClient({ ticket: liveAdultTicket, event, reg: { reference_code: "EV-ABCD1234" }, updateCalls })
+      adminClient({
+        ticket: liveAdultTicket,
+        event,
+        reg: { reference_code: "EV-ABCD1234", name: "Lead Booker" },
+        updateCalls,
+      })
     );
     const res = await sendTicketQrEmail("tkt-1");
     expect(res.success).toBe(true);
@@ -78,9 +83,18 @@ describe("sendTicketQrEmail", () => {
       reference_code: "EV-ABCD1234",
       guest_name: "Bo Guest",
       first_name: "Bo",
+      inviter_name: "Lead Booker",
     });
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]).toHaveProperty("qr_email_sent_at");
+  });
+
+  it("omits inviter_name when the booker is the guest themselves", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ ticket: liveAdultTicket, event, reg: { reference_code: "EV-1", name: "bo guest" } })
+    );
+    await sendTicketQrEmail("tkt-1");
+    expect(mockedSend.mock.calls[0][0].templateModel.inviter_name).toBeNull();
   });
 
   it("skips a ticket with no email (a phone-only guest can't receive a QR)", async () => {

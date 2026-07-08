@@ -3,16 +3,16 @@
      link. Renders inside the main-polo-club layout. Mustachio conditionals use section
      tags (no if-blocks); pass null, not an empty string, to omit an optional block.
      NOTE: keep template tags out of comments — Postmark parses them here too. -->
-<h1>Your ticket{{#first_name}}, {{first_name}}{{/first_name}}.</h1>
+<h1>Your ticket{{#first_name}}, {{.}}{{/first_name}}.</h1>
 
-<p>You're on the guest list for <strong>{{event_title}}</strong>. This email is your ticket — you'll need the QR code below to get in: <strong>no QR code, no bracelet</strong>. Keep it handy on your phone.</p>
+<p>{{#inviter_name}}<strong>{{.}}</strong> has invited you.{{/inviter_name}}{{^inviter_name}}You're on the guest list.{{/inviter_name}} This is your ticket for <strong>{{event_title}}</strong> — you'll need the QR code below to get in: <strong>no QR code, no bracelet</strong>. Keep it handy on your phone.</p>
 
 <!-- Entry QR -->
 <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 28px 0 12px 0;">
   <tr>
     <td align="center" style="padding: 24px 16px; background-color: #f4f7f9; border-radius: 6px;">
       <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 2px;"><font color="#7aafc4">Your entry QR code</font></p>
-      <p style="margin: 0 0 14px 0; font-size: 14px; color:#052938;">Show this at the door{{#guest_name}} &middot; {{guest_name}}{{/guest_name}}</p>
+      <p style="margin: 0 0 14px 0; font-size: 14px; color:#052938;">Show this at the door{{#guest_name}} &middot; {{.}}{{/guest_name}}</p>
       <img src="{{qr_url}}" alt="Your ticket QR code" width="200" height="200" style="display:block;margin:0 auto;border:1px solid #e3e3e3;border-radius:6px;" />
     </td>
   </tr>

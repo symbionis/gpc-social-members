@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// One-off: create the "event-ticket" Postmark template (the guest entry-QR email).
-// The app never creates templates at runtime (the admin tool only edits existing ones),
-// so this must be run once by someone with the server token.
+// Upsert the "event-ticket" Postmark template (the guest entry-QR email). The app never
+// creates templates at runtime (the admin tool only edits existing ones), so this must be
+// run by someone with the server token to create it — or to push body/subject changes.
 //
 //   POSTMARK_SERVER_TOKEN=xxxxxxxx node scripts/postmark/create-event-ticket-template.mjs
 //
-// Idempotent-ish: if the alias already exists Postmark returns 422 — edit it in the admin
-// Email Templates tool (or re-run after deleting). Body is read from docs/email-templates.
+// Idempotent: creates the alias if missing, otherwise edits the existing template in
+// place. Body is read from docs/email-templates/event-ticket.{html,txt}.
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -35,13 +35,22 @@ const payload = {
   LayoutTemplate: "main-polo-club",
 };
 
-const res = await fetch("https://api.postmarkapp.com/templates", {
-  method: "POST",
-  headers: {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    "X-Postmark-Server-Token": token,
-  },
+const headers = {
+  Accept: "application/json",
+  "Content-Type": "application/json",
+  "X-Postmark-Server-Token": token,
+};
+
+// Does the alias already exist? GET 200 → edit (PUT); 404 → create (POST).
+const existing = await fetch(`https://api.postmarkapp.com/templates/${payload.Alias}`, { headers });
+const isUpdate = existing.ok;
+const url = isUpdate
+  ? `https://api.postmarkapp.com/templates/${payload.Alias}`
+  : "https://api.postmarkapp.com/templates";
+
+const res = await fetch(url, {
+  method: isUpdate ? "PUT" : "POST",
+  headers,
   body: JSON.stringify(payload),
 });
 const body = await res.json().catch(() => ({}));
@@ -49,4 +58,8 @@ if (!res.ok) {
   console.error(`Failed (${res.status}):`, body);
   process.exit(1);
 }
-console.log("Created template:", { TemplateId: body.TemplateId, Alias: body.Alias, Name: body.Name });
+console.log(`${isUpdate ? "Updated" : "Created"} template:`, {
+  TemplateId: body.TemplateId,
+  Alias: body.Alias,
+  Name: body.Name,
+});
