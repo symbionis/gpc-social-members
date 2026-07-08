@@ -396,9 +396,8 @@ export default function EventRegistrationForm({
           </h3>
           <p className="font-body text-xs text-muted-foreground">
             Every guest needs their own QR code to get in — <strong>no QR code, no
-            bracelet.</strong> Add each guest’s name and email so you can send them their QR
-            from your booking page. Leave a guest blank and they’ll get a link to register
-            themselves.
+            bracelet.</strong> Add each guest’s name and email and we’ll email them their QR
+            code. Leave a guest blank and they’ll get a link to register themselves.
           </p>
 
           {/* The buyer's own ticket. */}

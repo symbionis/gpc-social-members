@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/events/roster", () => ({ claimSelfRegistration: vi.fn() }));
+vi.mock("@/lib/email/ticket-qr", () => ({ sendTicketQrEmail: vi.fn() }));
 
 import { POST } from "@/app/api/public/registrations/[token]/claim/route";
 import { claimSelfRegistration } from "@/lib/events/roster";
+import { sendTicketQrEmail } from "@/lib/email/ticket-qr";
 import { WAIVER_VERSION } from "@/lib/events/waiver";
 
 const mockedClaim = vi.mocked(claimSelfRegistration);
+const mockedQr = vi.mocked(sendTicketQrEmail);
 
 function post(body: unknown, token = "tok-1") {
   const req = new Request(
@@ -30,6 +33,7 @@ beforeEach(() => {
     name: "Bo Guest",
     already: false,
   });
+  mockedQr.mockResolvedValue({ success: true });
 });
 
 describe("POST /api/public/registrations/[token]/claim — validation", () => {
@@ -92,6 +96,27 @@ describe("POST /api/public/registrations/[token]/claim — claim outcomes", () =
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toMatchObject({ ok: true, name: "Bo Guest", already: false });
+  });
+
+  it("emails the guest their QR on a first claim with an email", async () => {
+    await post(validBody);
+    expect(mockedQr).toHaveBeenCalledWith("att-1");
+  });
+
+  it("does NOT email a QR on an idempotent re-submit (already=true)", async () => {
+    mockedClaim.mockResolvedValue({
+      status: "claimed",
+      attendeeId: "att-1",
+      name: "Bo Guest",
+      already: true,
+    });
+    await post(validBody);
+    expect(mockedQr).not.toHaveBeenCalled();
+  });
+
+  it("does NOT email a QR to a phone-only guest (no address to send to)", async () => {
+    await post({ name: "Bo", phone: "+41781234567" });
+    expect(mockedQr).not.toHaveBeenCalled();
   });
 
   it("passes the server waiver version only when the guest signs now", async () => {

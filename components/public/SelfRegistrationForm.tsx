@@ -36,7 +36,7 @@ const STRINGS = {
       `${n} ${n === 1 ? "spot" : "spots"} remaining for this party`,
     joining: (lead: string) => `You’re joining ${lead}’s party.`,
     qrPolicy:
-      "You’ll need your own QR code to get in — no QR code, no bracelet. Add your email so we can reach you with it.",
+      "You’ll need your own QR code to get in — no QR code, no bracelet. Add your email and we’ll send it straight to you.",
     namePrompt: "Add yourself to the guest list",
     nameLabel: "Full name",
     emailLabel: "Email",
@@ -77,7 +77,7 @@ const STRINGS = {
       `${n} ${n === 1 ? "place" : "places"} restante${n === 1 ? "" : "s"} pour ce groupe`,
     joining: (lead: string) => `Vous rejoignez le groupe de ${lead}.`,
     qrPolicy:
-      "Vous aurez besoin de votre propre code QR pour entrer — pas de code QR, pas de bracelet. Ajoutez votre e-mail pour que nous puissions vous joindre.",
+      "Vous aurez besoin de votre propre code QR pour entrer — pas de code QR, pas de bracelet. Ajoutez votre e-mail et nous vous l’enverrons directement.",
     namePrompt: "Ajoutez-vous à la liste des invités",
     nameLabel: "Nom complet",
     emailLabel: "E-mail",

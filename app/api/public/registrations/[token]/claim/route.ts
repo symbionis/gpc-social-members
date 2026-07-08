@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { claimSelfRegistration } from "@/lib/events/roster";
+import { sendTicketQrEmail } from "@/lib/email/ticket-qr";
 import { WAIVER_VERSION, type WaiverLanguage } from "@/lib/events/waiver";
 
 // Public, unauthenticated guest self-registration claim (U9). A guest follows the
@@ -91,13 +92,22 @@ export async function POST(
   }
 
   switch (result.status) {
-    case "claimed":
+    case "claimed": {
+      // Email the guest their own entry QR ("no QR, no bracelet") — only on the first
+      // claim (skip idempotent re-submits) and only when they gave an email. Best-effort:
+      // a send failure never fails the registration (they're already on the roster).
+      if (!result.already && email) {
+        await sendTicketQrEmail(result.attendeeId).catch((err) =>
+          console.error("[self-reg-claim] guest QR send failed", { err })
+        );
+      }
       return NextResponse.json({
         ok: true,
         name: result.name,
         already: result.already,
         waiverSigned: waiverAccepted,
       });
+    }
     case "full":
       return NextResponse.json({ ok: false, reason: "full" }, { status: 409 });
     case "type_full":
