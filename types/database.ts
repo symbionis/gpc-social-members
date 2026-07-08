@@ -625,6 +625,77 @@ export type Database = {
           },
         ]
       }
+      event_ticket_type_conversions: {
+        Row: {
+          applied_at: string | null
+          created_at: string
+          delta_chf: number
+          from_type_id: string
+          from_unit_chf: number
+          id: string
+          registration_id: string
+          status: string
+          ticket_id: string
+          to_type_id: string
+          to_unit_chf: number
+        }
+        Insert: {
+          applied_at?: string | null
+          created_at?: string
+          delta_chf: number
+          from_type_id: string
+          from_unit_chf: number
+          id?: string
+          registration_id: string
+          status?: string
+          ticket_id: string
+          to_type_id: string
+          to_unit_chf: number
+        }
+        Update: {
+          applied_at?: string | null
+          created_at?: string
+          delta_chf?: number
+          from_type_id?: string
+          from_unit_chf?: number
+          id?: string
+          registration_id?: string
+          status?: string
+          ticket_id?: string
+          to_type_id?: string
+          to_unit_chf?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_ticket_type_conversions_from_type_id_fkey"
+            columns: ["from_type_id"]
+            isOneToOne: false
+            referencedRelation: "event_ticket_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_ticket_type_conversions_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_ticket_type_conversions_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_ticket_type_conversions_to_type_id_fkey"
+            columns: ["to_type_id"]
+            isOneToOne: false
+            referencedRelation: "event_ticket_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_ticket_types: {
         Row: {
           archived_at: string | null
@@ -1588,6 +1659,7 @@ export type Database = {
         Returns: Json
       }
       apply_registration_topup: { Args: { p_topup_id: string }; Returns: Json }
+      apply_ticket_type_conversion: { Args: { p_conversion_id: string }; Returns: Json }
       checkin_by_credential: {
         Args: {
           p_credential_token: string

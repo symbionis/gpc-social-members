@@ -95,7 +95,7 @@ export default async function BookingPage({
 
   const { data: typeRows } = await supabase
     .from("event_ticket_types")
-    .select("id, title, is_child, sort_order, price_member, price_non_member, archived_at")
+    .select("id, title, is_child, sort_order, price_member, price_non_member, invite_price, archived_at")
     .eq("event_id", registration.event_id);
   const titleById = new Map<string, string>();
   const isChildById = new Map<string, boolean>();
@@ -126,6 +126,26 @@ export default async function BookingPage({
     })
     .filter((t) => t.priceLabel !== "—");
 
+  // Convert targets: active types priced at the booking's rate, with the invite_price
+  // fallback the route uses (so invite-only food types still appear for invited guests —
+  // buyableTypes above deliberately does NOT fall back). The client filters these per
+  // ticket to same-or-higher priced, matching is_child (see eligibleConvertTargets).
+  const convertTypes = (typeRows ?? [])
+    .filter((t) => !t.archived_at)
+    .map((t) => {
+      const unit = registration.is_member ? t.price_member : (t.price_non_member ?? t.invite_price);
+      const price = unit === null ? null : Number(unit);
+      return {
+        id: t.id as string,
+        title: (t.title as string | null) ?? "Ticket",
+        price,
+        isChild: Boolean(t.is_child),
+      };
+    })
+    .filter((t): t is { id: string; title: string; price: number; isChild: boolean } =>
+      t.price !== null && Number.isFinite(t.price)
+    );
+
   const tickets: BookingTicket[] = (ticketRows ?? [])
     .slice()
     .sort((a, b) => {
@@ -143,6 +163,7 @@ export default async function BookingPage({
         name: (t.name as string | null) ?? "",
         email: (t.email as string | null) ?? "",
         phone: (t.phone_e164 as string | null) ?? "",
+        typeId: typeId ?? "",
         typeTitle: typeId ? titleById.get(typeId) ?? "" : "",
         isChild: (t.is_child as boolean | null) ?? (typeId ? isChildById.get(typeId) ?? false : false),
         status: t.slot_status as string,
@@ -166,6 +187,8 @@ export default async function BookingPage({
       forwardEndpoint={`/api/public/bookings/${token}/forward`}
       topupEndpoint={`/api/public/bookings/${token}/topup`}
       buyableTypes={buyableTypes}
+      convertEndpoint={`/api/public/bookings/${token}/convert`}
+      convertTypes={convertTypes}
       variant="booking"
     />
   );
