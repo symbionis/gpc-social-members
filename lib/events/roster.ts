@@ -61,6 +61,72 @@ export async function mintRegistrationTickets(
   }
 }
 
+// One booker-entered guest ticket to name at checkout. `email` is null for
+// children (name-only); is_child is NEVER carried from the client — claim_ticket
+// derives it from the ticket type. The lead is excluded (seeded from
+// lead_ticket_type_id), so this list is guests only.
+export interface RosterFillAttendee {
+  ticket_type_id: string;
+  name: string;
+  email: string | null;
+}
+
+/**
+ * Apply a PAID registration's stored `pending_roster` atomically: the
+ * apply_pending_roster SECURITY DEFINER function claims each guest and clears the
+ * column in one transaction under a row lock. Use this on the Stripe webhook path —
+ * unlike fillRegistrationRoster it is fully replay-safe (children included), because
+ * a crash rolls back both the claims and the clear, and concurrent redeliveries
+ * serialize on the lock.
+ *
+ * Best-effort: a failure is logged, not thrown — the payment already succeeded and
+ * the un-cleared roster makes a later redelivery re-apply cleanly.
+ */
+export async function applyPendingRoster(registrationId: string): Promise<void> {
+  const supabase = createAdminClient();
+  const { error } = await supabase.rpc("apply_pending_roster", {
+    p_registration_id: registrationId,
+  });
+  if (error) {
+    console.error("[roster] apply_pending_roster failed", { registrationId, err: error });
+  }
+}
+
+/**
+ * Apply booker-entered guest names to a confirmed registration's issued tickets by
+ * calling claim_ticket once per attendee. Use this ONLY on the synchronous free
+ * path, where there is no webhook replay — it is NOT replay-safe for children (they
+ * carry no contact, so claim_ticket cannot dedupe them). The paid path must use
+ * applyPendingRoster instead.
+ */
+export async function fillRegistrationRoster(
+  registrationId: string,
+  attendees: RosterFillAttendee[],
+): Promise<void> {
+  if (attendees.length === 0) return;
+  const supabase = createAdminClient();
+  for (const a of attendees) {
+    const { error } = await supabase.rpc("claim_ticket", {
+      p_registration_id: registrationId,
+      p_name: a.name,
+      p_email: a.email,
+      p_phone_e164: null,
+      p_language: null,
+      p_waiver_version: null,
+      p_waiver_accepted: false,
+      p_marketing_consent: false,
+      p_ticket_type_id: a.ticket_type_id,
+    });
+    if (error) {
+      console.error("[roster] claim_ticket (checkout fill) failed", {
+        registrationId,
+        ticketTypeId: a.ticket_type_id,
+        err: error,
+      });
+    }
+  }
+}
+
 // One ALREADY-NORMALIZED import row handed to the import_event_attendees RPC: the
 // name plus a lowercased email and/or an E.164 phone (either may be null). The route
 // builds these from the parsed rows (lib/events/roster-import.ts) after normalizing

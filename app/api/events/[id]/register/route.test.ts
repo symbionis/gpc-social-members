@@ -32,6 +32,7 @@ type TicketType = {
   invite_price: number | null;
   counts_as_seat: boolean;
   archived_at: string | null;
+  is_child?: boolean;
 };
 
 type RpcArgs = { p_status: string; p_is_member: boolean; p_member_id: string | null; p_items: { ticket_type_id: string; unit_amount_chf: number; line_total_chf: number; quantity: number }[] };
@@ -43,6 +44,10 @@ type Cfg = {
   existingReg?: unknown[];
   rpcError?: { code?: string } | null;
   capturedRpc?: { name: string; args: RpcArgs };
+  // Roster-fill assertions (U4): claim_ticket calls and the pending_roster write.
+  capturedClaims?: Record<string, unknown>[];
+  capturedRosterUpdate?: Record<string, unknown>;
+  rosterUpdateError?: boolean;
 };
 
 function adminClient(cfg: Cfg) {
@@ -84,19 +89,26 @@ function adminClient(cfg: Cfg) {
             resolve({ data: cfg.existingReg ?? [], error: null });
           return d;
         };
-        c.update = () => {
+        c.update = (payload: Record<string, unknown>) => {
           const upd: Record<string, unknown> = {};
-          upd.eq = async () => ({ error: null });
+          upd.eq = async () => {
+            if (payload && "pending_roster" in payload) {
+              cfg.capturedRosterUpdate = payload;
+              if (cfg.rosterUpdateError) return { error: { message: "roster write failed" } };
+            }
+            return { error: null };
+          };
           return upd;
         };
         return c;
       }
       throw new Error(`unexpected table ${table}`);
     },
-    rpc: (name: string, args: RpcArgs) => {
+    rpc: (name: string, args: Record<string, unknown>) => {
       // Capture the registration RPC only; seed_lead_attendee (U12) also calls
       // rpc() on the free/paid confirmation path and must not clobber it.
-      if (name === "create_event_registration") cfg.capturedRpc = { name, args };
+      if (name === "create_event_registration") cfg.capturedRpc = { name, args: args as unknown as RpcArgs };
+      if (name === "claim_ticket") (cfg.capturedClaims ??= []).push(args);
       return Promise.resolve({ data: cfg.rpcError ? null : "reg-1", error: cfg.rpcError ?? null });
     },
   } as unknown as ReturnType<typeof createAdminClient>;
@@ -255,7 +267,7 @@ describe("basket validation + IDOR / archived guards", () => {
 describe("multi-type basket + Stripe lines", () => {
   const publicEvent = { ...membersOnlyEvent, visibility: "public" };
   const adult: TicketType = { id: "t1", title: "Standard", price_member: 80, price_non_member: 120, invite_price: null, counts_as_seat: true, archived_at: null };
-  const kidsFree: TicketType = { id: "t2", title: "Kids", price_member: 0, price_non_member: 0, invite_price: null, counts_as_seat: true, archived_at: null };
+  const kidsFree: TicketType = { id: "t2", title: "Kids", price_member: 0, price_non_member: 0, invite_price: null, counts_as_seat: true, archived_at: null, is_child: true };
 
   it("prices a public non-member per type and omits free lines from Stripe", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adult, kidsFree] };
@@ -280,5 +292,146 @@ describe("Stripe return URLs carry the code", () => {
     const args = stripeCreate.mock.calls[0][0];
     expect(args.success_url).toContain(`&code=${INVITE}`);
     expect(args.cancel_url).toContain(`&code=${INVITE}`);
+  });
+});
+
+describe("nominative attendees (U4)", () => {
+  const publicEvent = { ...membersOnlyEvent, visibility: "public" };
+  const adultPaid: TicketType = { id: "t1", title: "Asado", price_member: 80, price_non_member: 80, invite_price: null, counts_as_seat: true, archived_at: null };
+  const adultFree: TicketType = { ...adultPaid, price_member: 0, price_non_member: 0 };
+  const veg: TicketType = { id: "t2", title: "Veg", price_member: 40, price_non_member: 40, invite_price: null, counts_as_seat: true, archived_at: null };
+  const kidFree: TicketType = { id: "tk", title: "Kids", price_member: 0, price_non_member: 0, invite_price: null, counts_as_seat: true, archived_at: null, is_child: true };
+
+  function publicPost(cfg: Cfg, body: Record<string, unknown>) {
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+    return post({ name: "Lead", email: "lead@x.ch", ...body });
+  }
+
+  it("free path: fills each named guest inline via claim_ticket", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      attendees: [{ ticket_type_id: "t1", name: "Ana", email: "ana@x.ch" }],
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).success).toBe(true);
+    expect(cfg.capturedClaims).toHaveLength(1);
+    expect(cfg.capturedClaims![0]).toMatchObject({ p_registration_id: "reg-1", p_name: "Ana", p_email: "ana@x.ch", p_ticket_type_id: "t1" });
+  });
+
+  it("paid path: persists pending_roster and defers the fill (no inline claim)", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      attendees: [{ ticket_type_id: "t1", name: "Ana", email: "ana@x.ch" }],
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).checkout_url).toBe("https://stripe/checkout");
+    expect(cfg.capturedRosterUpdate?.pending_roster).toEqual([{ ticket_type_id: "t1", name: "Ana", email: "ana@x.ch" }]);
+    expect(cfg.capturedClaims).toBeUndefined();
+  });
+
+  it("paid path: 500s and skips Stripe when the pending_roster write fails", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid], rosterUpdateError: true };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      attendees: [{ ticket_type_id: "t1", name: "Ana", email: "ana@x.ch" }],
+    });
+    expect(res.status).toBe(500);
+    expect(stripeCreate).not.toHaveBeenCalled();
+  });
+
+  it("400s an attendee referencing a ticket not in the order", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      attendees: [{ ticket_type_id: "tX", name: "Ghost", email: "g@x.ch" }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400s an adult attendee with no email", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      attendees: [{ ticket_type_id: "t1", name: "Ana" }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts a child by name only and drops any client-sent email", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree, kidFree] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 1 }, { ticket_type_id: "tk", quantity: 1 }],
+      attendees: [{ ticket_type_id: "tk", name: "Kid", email: "kid@x.ch" }],
+    });
+    expect(res.status).toBe(200);
+    expect(cfg.capturedClaims).toHaveLength(1);
+    expect(cfg.capturedClaims![0]).toMatchObject({ p_ticket_type_id: "tk", p_name: "Kid", p_email: null });
+    expect(cfg.capturedClaims![0]).not.toHaveProperty("p_is_child");
+  });
+
+  it("ignores a client is_child flag on an adult type (still requires email)", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      attendees: [{ ticket_type_id: "t1", name: "Ana", is_child: true }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400s duplicate attendee emails, and reuse of the lead email", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
+    const dup = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 3 }],
+      attendees: [
+        { ticket_type_id: "t1", name: "A", email: "same@x.ch" },
+        { ticket_type_id: "t1", name: "B", email: "same@x.ch" },
+      ],
+    });
+    expect(dup.status).toBe(400);
+    const reuseLead = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      attendees: [{ ticket_type_id: "t1", name: "A", email: "lead@x.ch" }],
+    });
+    expect(reuseLead.status).toBe(400);
+  });
+
+  it("400s an over-length attendee name", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      attendees: [{ ticket_type_id: "t1", name: "x".repeat(121), email: "a@x.ch" }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400s more named guests than tickets for a type (accounting for the lead)", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }], // lead + 1 → capacity 1
+      attendees: [
+        { ticket_type_id: "t1", name: "A", email: "a@x.ch" },
+        { ticket_type_id: "t1", name: "B", email: "b@x.ch" },
+      ],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400s a 2+ adult-type basket with no lead ticket chosen", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid, veg] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 1 }, { ticket_type_id: "t2", quantity: 1 }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("succeeds with no attendees (back-compat) and writes no pending_roster", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
+    const res = await publicPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(200);
+    expect((await res.json()).checkout_url).toBe("https://stripe/checkout");
+    expect(cfg.capturedRosterUpdate).toBeUndefined();
+    expect(cfg.capturedClaims).toBeUndefined();
   });
 });
