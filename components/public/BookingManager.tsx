@@ -612,14 +612,20 @@ function TicketCard({
               </span>
             )}
           </div>
-          {/* Once forwarded the ticket is handed over — no name/validity line here. */}
-          {!ticket.forwarded && (
-            <p className="mt-1.5 font-body text-base text-marine">
-              {named ? (
-                ticket.name
-              ) : (
-                <span className="text-marine/60">Unnamed — add a name to make this ticket valid</span>
-              )}
+          {/* A forwarded ticket is the guest's to edit, but the lead still sees whatever
+              details are on it — they're managing the party and need to know who's who. */}
+          <p className="mt-1.5 font-body text-base text-marine">
+            {named ? (
+              ticket.name
+            ) : ticket.forwarded ? (
+              <span className="text-marine/60">Awaiting the guest’s details</span>
+            ) : (
+              <span className="text-marine/60">Unnamed — add a name to make this ticket valid</span>
+            )}
+          </p>
+          {(ticket.email || ticket.phone) && (
+            <p className="mt-0.5 font-body text-sm text-marine/70">
+              {[ticket.email, ticket.phone].filter(Boolean).join(" · ")}
             </p>
           )}
           {editable && (
