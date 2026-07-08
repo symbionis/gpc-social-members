@@ -2,7 +2,12 @@ import { getStripe } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
-import { seedLeadAttendee, mintRegistrationTickets } from "@/lib/events/roster";
+import {
+  seedLeadAttendee,
+  mintRegistrationTickets,
+  fillRegistrationRoster,
+  type RosterFillAttendee,
+} from "@/lib/events/roster";
 import { generateCardNumber } from "@/lib/utils/card";
 import { NextResponse, type NextRequest } from "next/server";
 import Stripe from "stripe";
@@ -237,7 +242,7 @@ export async function POST(request: NextRequest) {
 
         const { data: existing, error: lookupErr } = await supabase
           .from("event_registrations")
-          .select("id, status")
+          .select("id, status, pending_roster")
           .eq("id", eventRegistrationId)
           .limit(1)
           .maybeSingle();
@@ -262,14 +267,22 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true });
         }
 
-        if (existing.status === "paid") {
+        const alreadyPaid = existing.status === "paid";
+
+        // Gate on pending_roster PRESENCE, not on status. A redelivery after a
+        // first-delivery mid-crash can arrive already 'paid' but with the guest
+        // roster still unapplied — recover by running the fill below. Only a fully
+        // finished registration (paid AND roster cleared) short-circuits here.
+        if (alreadyPaid && existing.pending_roster == null) {
           return NextResponse.json({
             received: true,
             already_processed: true,
           });
         }
 
-        const { error: updateErr } = await supabase
+        const { error: updateErr } = alreadyPaid
+          ? { error: null }
+          : await supabase
           .from("event_registrations")
           .update({
             status: "paid",
@@ -331,16 +344,42 @@ export async function POST(request: NextRequest) {
 
         // Seed the purchaser onto the roster now that payment is confirmed (U12),
         // then mint a credentialled (QR) ticket for every remaining purchased slot
-        // (U2). Both are idempotent, so a webhook replay mints no duplicates.
+        // (U2). Both are idempotent, so a webhook replay (or the recovery path
+        // above) seeds/mints no duplicates.
         await seedLeadAttendee(existing.id);
         await mintRegistrationTickets(existing.id);
 
-        await sendEventRegistrationConfirmation(existing.id).catch((err) =>
-          console.error(
-            "[webhook] event-registration-confirmed email failed",
-            err
-          )
-        );
+        // Apply the booker-entered guest names captured at checkout, then clear the
+        // transient PII column so it can't linger and so a later redelivery
+        // short-circuits. Run-once is enforced by the clear (children carry no
+        // contact, so claim_ticket does not dedupe them).
+        if (existing.pending_roster) {
+          await fillRegistrationRoster(
+            existing.id,
+            existing.pending_roster as unknown as RosterFillAttendee[]
+          );
+          const { error: clearErr } = await supabase
+            .from("event_registrations")
+            .update({ pending_roster: null })
+            .eq("id", existing.id);
+          if (clearErr) {
+            console.error("[webhook] failed to clear pending_roster after fill", {
+              registrationId: existing.id,
+              err: clearErr,
+            });
+          }
+        }
+
+        // Send the confirmation only on the first promotion — not on a pure
+        // fill-recovery redelivery (the buyer already got their email).
+        if (!alreadyPaid) {
+          await sendEventRegistrationConfirmation(existing.id).catch((err) =>
+            console.error(
+              "[webhook] event-registration-confirmed email failed",
+              err
+            )
+          );
+        }
 
         return NextResponse.json({ received: true });
       }
@@ -401,6 +440,29 @@ export async function POST(request: NextRequest) {
           .eq("id", renewalTokenId);
       }
 
+      break;
+    }
+
+    // ===== NEW: Checkout Session expired — sweep transient guest PII (KTD7) =====
+    case "checkout.session.expired": {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const regId = session.metadata?.event_registration_id;
+      if (regId) {
+        // The buyer abandoned checkout; a pending_roster (guest names + emails)
+        // would otherwise linger indefinitely on the un-promoted 'pending' row.
+        // Best-effort clear — leaves the registration itself untouched.
+        const { error } = await supabase
+          .from("event_registrations")
+          .update({ pending_roster: null })
+          .eq("id", regId)
+          .eq("status", "pending");
+        if (error) {
+          console.error("[webhook] failed to clear pending_roster on session expiry", {
+            regId,
+            err: error,
+          });
+        }
+      }
       break;
     }
 
