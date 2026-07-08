@@ -239,6 +239,66 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true, topup: topupStatus });
         }
 
+        // CONVERT branch (U3) — MUST run before the paid short-circuit below, for the same
+        // reason as top-up: a conversion checkout carries the existing (already-'paid')
+        // registration id. Data-driven on conversion_id presence (KTD3), not a boolean flag
+        // that can be set at creation and missing at delivery. apply_ticket_type_conversion
+        // is idempotent (keyed on the conversion id), so a webhook replay returns 'already'
+        // and mutates nothing. No mint here — the conversion leaves quantity unchanged.
+        const conversionId = session.metadata?.conversion_id;
+        if (conversionId) {
+          const { data: convApplied, error: convErr } = await supabase.rpc(
+            "apply_ticket_type_conversion",
+            { p_conversion_id: conversionId }
+          );
+          if (convErr) {
+            console.error("[webhook] apply_ticket_type_conversion failed — 500 for retry", {
+              conversionId,
+              err: convErr,
+            });
+            return NextResponse.json({ error: "Conversion apply failed" }, { status: 500 });
+          }
+          const convStatus = (convApplied as { status?: string } | null)?.status;
+          if (convStatus === "not_found" || convStatus === "conflict") {
+            // The customer was charged but the conversion can't be applied — either the id
+            // names a row that doesn't exist, or the ticket changed state (checked-in,
+            // released, re-converted) between checkout and webhook. Neither is retryable.
+            // Tag the PaymentIntent with a durable, queryable refund signal (mirrors the
+            // top-up / duplicate paths) so the charge can be found after logs rotate.
+            const reason =
+              convStatus === "conflict" ? "conversion_conflict" : "conversion_not_found";
+            console.error(
+              "[webhook] conversion " + convStatus + " — payment captured, NEEDS MANUAL REFUND/RECONCILIATION",
+              { conversionId, sessionId: session.id, paymentIntent: session.payment_intent }
+            );
+            if (typeof session.payment_intent === "string") {
+              try {
+                await getStripe().paymentIntents.update(session.payment_intent, {
+                  metadata: {
+                    needs_refund: reason,
+                    conversion_id: conversionId,
+                    event_session: session.id,
+                  },
+                });
+              } catch (tagErr) {
+                console.error("[webhook] failed to tag PaymentIntent for refund", {
+                  paymentIntent: session.payment_intent,
+                  err: tagErr,
+                });
+              }
+            }
+            return NextResponse.json({ received: true });
+          }
+          // Applied: re-send the confirmation (updated type/price, same QRs) so the lead
+          // has the current booking. 'already' (replay) skips the email. Best-effort.
+          if (convStatus === "applied") {
+            await sendEventRegistrationConfirmation(eventRegistrationId).catch((err) =>
+              console.error("[webhook] conversion confirmation email failed", err)
+            );
+          }
+          return NextResponse.json({ received: true, conversion: convStatus });
+        }
+
         const { data: existing, error: lookupErr } = await supabase
           .from("event_registrations")
           .select("id, status, pending_roster")
