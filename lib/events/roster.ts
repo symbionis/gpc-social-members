@@ -61,6 +61,61 @@ export async function mintRegistrationTickets(
   }
 }
 
+// One booker-entered guest ticket to name at checkout. `email` is null for
+// children (name-only); is_child is NEVER carried from the client — claim_ticket
+// derives it from the ticket type. The lead is excluded (seeded from
+// lead_ticket_type_id), so this list is guests only.
+export interface RosterFillAttendee {
+  ticket_type_id: string;
+  name: string;
+  email: string | null;
+}
+
+/**
+ * Apply booker-entered guest names to a confirmed registration's issued tickets by
+ * calling claim_ticket once per attendee — flipping one `issued` slot of the matching
+ * type to `claimed`. Call AFTER seedLeadAttendee + mintRegistrationTickets (the lead
+ * and the blank issued rows must exist first).
+ *
+ * claim_ticket has NO is_child parameter — it derives is_child from the ticket-type
+ * row — so we pass only p_ticket_type_id (null contact for children). marketing_consent
+ * is always false: a booker cannot opt a guest into marketing (matches the manage-page
+ * fill).
+ *
+ * Best-effort per row: a claim error (including per-type-full) is logged, not thrown —
+ * the registration/payment has already succeeded and any un-filled slot stays issued,
+ * reachable via the self-registration link. Replay-safety for this call comes from the
+ * caller gating on and clearing pending_roster (children carry no contact, so
+ * claim_ticket does not dedupe them); the helper itself makes no idempotency guarantee.
+ */
+export async function fillRegistrationRoster(
+  registrationId: string,
+  attendees: RosterFillAttendee[],
+): Promise<void> {
+  if (attendees.length === 0) return;
+  const supabase = createAdminClient();
+  for (const a of attendees) {
+    const { error } = await supabase.rpc("claim_ticket", {
+      p_registration_id: registrationId,
+      p_name: a.name,
+      p_email: a.email,
+      p_phone_e164: null,
+      p_language: null,
+      p_waiver_version: null,
+      p_waiver_accepted: false,
+      p_marketing_consent: false,
+      p_ticket_type_id: a.ticket_type_id,
+    });
+    if (error) {
+      console.error("[roster] claim_ticket (checkout fill) failed", {
+        registrationId,
+        ticketTypeId: a.ticket_type_id,
+        err: error,
+      });
+    }
+  }
+}
+
 // One ALREADY-NORMALIZED import row handed to the import_event_attendees RPC: the
 // name plus a lowercased email and/or an E.164 phone (either may be null). The route
 // builds these from the parsed rows (lib/events/roster-import.ts) after normalizing
