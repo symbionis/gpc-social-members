@@ -54,6 +54,31 @@ export async function POST(
   if (phone && !PHONE_RE.test(phone)) return bad("a valid phone is required");
 
   const supabase = createAdminClient();
+
+  // The QR code is delivered by email, so an adult ticket saved with only a phone can
+  // never receive its QR. Require an email for adult tickets; children are name-only
+  // (contactless). Only pay the lookup when no email was sent — the happy path adds no
+  // round-trips. Resolve the ticket within THIS booking (via the manage_token) so the
+  // is_child decision reads the real row, not a client claim.
+  if (!email) {
+    const { data: reg } = await supabase
+      .from("event_registrations")
+      .select("id")
+      .eq("manage_token", token)
+      .maybeSingle();
+    if (!reg) return bad("Ticket not found", 404);
+    const { data: tk } = await supabase
+      .from("tickets")
+      .select("is_child")
+      .eq("id", ticketId)
+      .eq("registration_id", reg.id)
+      .maybeSingle();
+    if (!tk) return bad("Ticket not found", 404);
+    if (!tk.is_child) {
+      return bad("an email is required so we can send the guest their QR code");
+    }
+  }
+
   const { data: result, error } = await supabase.rpc("fill_ticket", {
     p_manage_token: token,
     p_ticket_id: ticketId,

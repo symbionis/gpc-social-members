@@ -27,6 +27,8 @@ interface Attendee {
   ticketTypeTitle: string;
   /** Party self-reg detail (fill + token) on lead rows; null otherwise. */
   party: PartyDetail | null;
+  /** The lead's "My Booking" manage_token (lead rows only) → booking-page link. */
+  manageToken: string | null;
   /** When this party's ticket email was last sent (lead rows); null = never sent. */
   ticketEmailSentAt: string | null;
   waiverSigned: boolean;
@@ -346,6 +348,9 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
                     party?.selfRegToken
                       ? `${origin}/public/registrations/${party.selfRegToken}`
                       : "";
+                  const bookingUrl = row.manageToken
+                    ? `${origin}/public/bookings/${row.manageToken}`
+                    : "";
                   return (
                     <RosterRow
                       key={row.id}
@@ -353,6 +358,7 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
                       isGuest={isGuest}
                       isOpen={isOpen}
                       selfRegUrl={selfRegUrl}
+                      bookingUrl={bookingUrl}
                       copiedId={copiedId}
                       removing={removing.has(row.id)}
                       resending={!!row.registrationId && resending.has(row.registrationId)}
@@ -377,6 +383,7 @@ function RosterRow({
   isGuest,
   isOpen,
   selfRegUrl,
+  bookingUrl,
   copiedId,
   removing,
   resending,
@@ -389,6 +396,7 @@ function RosterRow({
   isGuest: boolean;
   isOpen: boolean;
   selfRegUrl: string;
+  bookingUrl: string;
   copiedId: string | null;
   removing: boolean;
   resending: boolean;
@@ -509,6 +517,17 @@ function RosterRow({
           )}
           {row.isLead && row.registrationId && (
             <div className="flex flex-col items-end gap-1">
+              {bookingUrl && (
+                <a
+                  href={bookingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open this lead's booking page (name/forward tickets, view QR codes)"
+                  className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors whitespace-nowrap"
+                >
+                  Booking page ↗
+                </a>
+              )}
               <button
                 type="button"
                 onClick={() => onResend(row.registrationId as string, row.name)}
