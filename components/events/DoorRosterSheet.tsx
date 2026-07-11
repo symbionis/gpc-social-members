@@ -111,8 +111,16 @@ export default function DoorRosterSheet({ event, parties, typeTotals }: Props) {
                     <td className="col-name">
                       {row.named ? (
                         <span className={lead ? "name-lead" : "name-guest"}>
-                          <span className="surname">{row.last}</span>
-                          {row.first && <>, {row.first}</>}
+                          {/* Someone who gave a one-word name has no surname to file
+                              under. Print the name they gave, not a dangling ", Hallf". */}
+                          {row.last ? (
+                            <>
+                              <span className="surname">{row.last}</span>
+                              {row.first && <>, {row.first}</>}
+                            </>
+                          ) : (
+                            <span className="surname">{row.first}</span>
+                          )}
                         </span>
                       ) : (
                         // Nobody has been named on this ticket — a rule to write on.
