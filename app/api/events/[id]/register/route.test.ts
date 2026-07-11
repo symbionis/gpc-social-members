@@ -273,7 +273,7 @@ describe("multi-type basket + Stripe lines", () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adult, kidsFree] };
     mockedAdmin.mockReturnValue(adminClient(cfg));
     const res = await post({
-      name: "A", email: "a@b.com",
+      name: "Ann Ace", email: "a@b.com",
       items: [{ ticket_type_id: "t1", quantity: 2 }, { ticket_type_id: "t2", quantity: 3 }],
     });
     expect(res.status).toBe(200);
@@ -304,30 +304,30 @@ describe("nominative attendees (U4)", () => {
 
   function publicPost(cfg: Cfg, body: Record<string, unknown>) {
     mockedAdmin.mockReturnValue(adminClient(cfg));
-    return post({ name: "Lead", email: "lead@x.ch", ...body });
+    return post({ name: "Lead Booker", email: "lead@x.ch", ...body });
   }
 
   it("free path: fills each named guest inline via claim_ticket", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree] };
     const res = await publicPost(cfg, {
       items: [{ ticket_type_id: "t1", quantity: 2 }],
-      attendees: [{ ticket_type_id: "t1", name: "Ana", email: "ana@x.ch" }],
+      attendees: [{ ticket_type_id: "t1", name: "Ana Adult", email: "ana@x.ch" }],
     });
     expect(res.status).toBe(200);
     expect((await res.json()).success).toBe(true);
     expect(cfg.capturedClaims).toHaveLength(1);
-    expect(cfg.capturedClaims![0]).toMatchObject({ p_registration_id: "reg-1", p_name: "Ana", p_email: "ana@x.ch", p_ticket_type_id: "t1" });
+    expect(cfg.capturedClaims![0]).toMatchObject({ p_registration_id: "reg-1", p_name: "Ana Adult", p_email: "ana@x.ch", p_ticket_type_id: "t1" });
   });
 
   it("paid path: persists pending_roster and defers the fill (no inline claim)", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
     const res = await publicPost(cfg, {
       items: [{ ticket_type_id: "t1", quantity: 2 }],
-      attendees: [{ ticket_type_id: "t1", name: "Ana", email: "ana@x.ch" }],
+      attendees: [{ ticket_type_id: "t1", name: "Ana Adult", email: "ana@x.ch" }],
     });
     expect(res.status).toBe(200);
     expect((await res.json()).checkout_url).toBe("https://stripe/checkout");
-    expect(cfg.capturedRosterUpdate?.pending_roster).toEqual([{ ticket_type_id: "t1", name: "Ana", email: "ana@x.ch" }]);
+    expect(cfg.capturedRosterUpdate?.pending_roster).toEqual([{ ticket_type_id: "t1", name: "Ana Adult", email: "ana@x.ch" }]);
     expect(cfg.capturedClaims).toBeUndefined();
   });
 
@@ -335,7 +335,7 @@ describe("nominative attendees (U4)", () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid], rosterUpdateError: true };
     const res = await publicPost(cfg, {
       items: [{ ticket_type_id: "t1", quantity: 2 }],
-      attendees: [{ ticket_type_id: "t1", name: "Ana", email: "ana@x.ch" }],
+      attendees: [{ ticket_type_id: "t1", name: "Ana Adult", email: "ana@x.ch" }],
     });
     expect(res.status).toBe(500);
     expect(stripeCreate).not.toHaveBeenCalled();
@@ -350,11 +350,31 @@ describe("nominative attendees (U4)", () => {
     expect(res.status).toBe(400);
   });
 
+  it("400s a one-word booker name — no surname to file them under", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+    const res = await post({
+      name: "Hallf",
+      email: "hallf@x.ch",
+      items: [{ ticket_type_id: "t1", quantity: 1 }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400s a one-word adult guest name", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      attendees: [{ ticket_type_id: "t1", name: "Ana", email: "ana@x.ch" }],
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("400s an adult attendee with no email", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
     const res = await publicPost(cfg, {
       items: [{ ticket_type_id: "t1", quantity: 2 }],
-      attendees: [{ ticket_type_id: "t1", name: "Ana" }],
+      attendees: [{ ticket_type_id: "t1", name: "Ana Adult" }],
     });
     expect(res.status).toBe(400);
   });

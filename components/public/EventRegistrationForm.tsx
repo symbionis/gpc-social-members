@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { isFullName, joinName, splitName } from "@/lib/names";
 import posthog from "posthog-js";
 import PhoneInput from "@/components/common/PhoneInput";
 
@@ -52,7 +53,9 @@ export default function EventRegistrationForm({
   const selectable = useMemo(() => ticketTypes.filter((t) => t.price !== null), [ticketTypes]);
   const adultTypes = useMemo(() => selectable.filter((t) => !t.is_child), [selectable]);
 
-  const [name, setName] = useState(defaultName);
+  const [firstName, setFirstName] = useState(() => splitName(defaultName).first);
+  const [lastName, setLastName] = useState(() => splitName(defaultName).last);
+  const name = joinName(firstName, lastName);
   const [email, setEmail] = useState(defaultEmail);
   const [phone, setPhone] = useState<string | null>(null);
   // Quantities for the WHOLE party (the buyer's own ticket included). No implicit +1.
@@ -61,7 +64,9 @@ export default function EventRegistrationForm({
   // The buyer's own meal. Auto when one adult type is selected; chosen in step 2 otherwise.
   const [leadTicketTypeId, setLeadTicketTypeId] = useState("");
   // Guest name/email keyed by GuestRow.key.
-  const [guests, setGuests] = useState<Record<string, { name: string; email: string }>>({});
+  const [guests, setGuests] = useState<
+    Record<string, { firstName: string; lastName: string; email: string }>
+  >({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
@@ -111,9 +116,13 @@ export default function EventRegistrationForm({
     setQuantities((prev) => ({ ...prev, [id]: Math.max(0, q) }));
   }
 
-  function setGuestField(key: string, field: "name" | "email", value: string) {
+  function setGuestField(
+    key: string,
+    field: "firstName" | "lastName" | "email",
+    value: string
+  ) {
     setGuests((prev) => {
-      const cur = prev[key] ?? { name: "", email: "" };
+      const cur = prev[key] ?? { firstName: "", lastName: "", email: "" };
       return { ...prev, [key]: { ...cur, [field]: value } };
     });
     if (rowErrors[key]) setRowErrors((prev) => ({ ...prev, [key]: "" }));
@@ -142,10 +151,16 @@ export default function EventRegistrationForm({
 
     for (const row of guestRows) {
       const g = guests[row.key];
-      const nm = g?.name?.trim() ?? "";
+      // A child is named by an adult and is often mononymous ("Emma"), so only the
+      // first-name box shows for a child ticket and its name is that box alone.
+      const nm = joinName(g?.firstName ?? "", g?.lastName ?? "");
       if (!nm) continue; // blank rows are allowed — left for the self-reg link
       if (row.isChild) {
         attendees.push({ ticket_type_id: row.ticketTypeId, name: nm });
+        continue;
+      }
+      if (!isFullName(nm)) {
+        errs[row.key] = "Enter this guest's first and last name.";
         continue;
       }
       const e = (g?.email ?? "").trim().toLowerCase();
@@ -167,7 +182,8 @@ export default function EventRegistrationForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!name.trim()) return setError("Please enter your name.");
+    if (!firstName.trim() || !lastName.trim())
+      return setError("Please enter your first and last name.");
     if (!email.trim()) return setError("Please enter your email.");
     if (!hasAdultSelected) return setError("Add at least one adult ticket.");
     if (!leadTicketTypeId) return setError("Please choose which ticket is yours.");
@@ -295,9 +311,15 @@ export default function EventRegistrationForm({
 
       {step === "tickets" && (
         <>
-          <div>
-            <label htmlFor="reg-name" className="block text-xs font-body text-muted-foreground mb-1">Full name</label>
-            <input id="reg-name" type="text" required value={name} onChange={(e) => setName(e.target.value)} className={inputClass} autoComplete="name" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="reg-first-name" className="block text-xs font-body text-muted-foreground mb-1">First name</label>
+              <input id="reg-first-name" type="text" required value={firstName} onChange={(e) => setFirstName(e.target.value)} className={inputClass} autoComplete="given-name" />
+            </div>
+            <div>
+              <label htmlFor="reg-last-name" className="block text-xs font-body text-muted-foreground mb-1">Last name</label>
+              <input id="reg-last-name" type="text" required value={lastName} onChange={(e) => setLastName(e.target.value)} className={inputClass} autoComplete="family-name" />
+            </div>
           </div>
 
           <div>
@@ -433,7 +455,7 @@ export default function EventRegistrationForm({
             <div className="space-y-3">
               <p className="font-body text-xs text-muted-foreground uppercase tracking-wide">Guest tickets</p>
               {guestRows.map((row, idx) => {
-                const g = guests[row.key] ?? { name: "", email: "" };
+                const g = guests[row.key] ?? { firstName: "", lastName: "", email: "" };
                 const err = rowErrors[row.key];
                 const nameId = `guest-${row.key}-name`;
                 const emailId = `guest-${row.key}-email`;
@@ -442,15 +464,40 @@ export default function EventRegistrationForm({
                     <p className="font-body text-xs text-muted-foreground">
                       Guest {idx + 1} · {row.title}
                     </p>
-                    <input
-                      id={nameId}
-                      type="text"
-                      value={g.name}
-                      onChange={(e) => setGuestField(row.key, "name", e.target.value)}
-                      placeholder="Name"
-                      aria-label={`Guest ${idx + 1} name — ${row.title}`}
-                      className={inputClass}
-                    />
+                    {row.isChild ? (
+                      // A child is named by an adult and is often mononymous ("Emma").
+                      <input
+                        id={nameId}
+                        type="text"
+                        value={g.firstName}
+                        onChange={(e) => setGuestField(row.key, "firstName", e.target.value)}
+                        placeholder="Child's name"
+                        aria-label={`Guest ${idx + 1} name — ${row.title}`}
+                        className={inputClass}
+                      />
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          id={nameId}
+                          type="text"
+                          value={g.firstName}
+                          onChange={(e) => setGuestField(row.key, "firstName", e.target.value)}
+                          placeholder="First name"
+                          aria-label={`Guest ${idx + 1} first name — ${row.title}`}
+                          className={inputClass}
+                          autoComplete="off"
+                        />
+                        <input
+                          type="text"
+                          value={g.lastName}
+                          onChange={(e) => setGuestField(row.key, "lastName", e.target.value)}
+                          placeholder="Last name"
+                          aria-label={`Guest ${idx + 1} last name — ${row.title}`}
+                          className={inputClass}
+                          autoComplete="off"
+                        />
+                      </div>
+                    )}
                     {!row.isChild && (
                       <input
                         type="email"

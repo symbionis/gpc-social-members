@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { claimSelfRegistration } from "@/lib/events/roster";
 import { sendTicketQrEmail } from "@/lib/email/ticket-qr";
 import { WAIVER_VERSION, type WaiverLanguage } from "@/lib/events/waiver";
+import { isFullName } from "@/lib/names";
 
 // Public, unauthenticated guest self-registration claim (U9). A guest follows the
 // per-party link (/public/registrations/<token>) and adds themselves to the door
@@ -62,6 +63,9 @@ export async function POST(
 
   if (!name) return bad("name is required");
   if (name.length > MAX_LEN) return bad("name is too long");
+  // A first AND a last name — the door roster files guests by surname. Enforced here
+  // too, not just in the form: this route is unauthenticated.
+  if (!isFullName(name)) return bad("Please enter your first and last name.");
   if (email && !EMAIL_RE.test(email)) return bad("a valid email is required");
   if (email.length > MAX_EMAIL_LEN) return bad("email is too long");
   if (phone.length > MAX_PHONE_LEN) return bad("phone is too long");

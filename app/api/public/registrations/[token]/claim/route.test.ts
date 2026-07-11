@@ -48,8 +48,14 @@ describe("POST /api/public/registrations/[token]/claim — validation", () => {
     expect(mockedClaim).not.toHaveBeenCalled();
   });
 
+  it("rejects a one-word name — the roster files guests by surname", async () => {
+    const res = await post({ ...validBody, name: "Hallf" });
+    expect(res.status).toBe(400);
+    expect(mockedClaim).not.toHaveBeenCalled();
+  });
+
   it("requires at least an email or a phone", async () => {
-    const res = await post({ name: "Bo", email: "", phone: "" });
+    const res = await post({ name: "Bo Guest", email: "", phone: "" });
     expect(res.status).toBe(400);
     expect(mockedClaim).not.toHaveBeenCalled();
   });
@@ -60,7 +66,7 @@ describe("POST /api/public/registrations/[token]/claim — validation", () => {
   });
 
   it("accepts a phone-only guest (no email)", async () => {
-    const res = await post({ name: "Bo", phone: "+41781234567" });
+    const res = await post({ name: "Bo Guest", phone: "+41781234567" });
     expect(res.status).toBe(200);
     expect(mockedClaim).toHaveBeenCalledWith(
       expect.objectContaining({ phone_e164: "+41781234567", email: null })
