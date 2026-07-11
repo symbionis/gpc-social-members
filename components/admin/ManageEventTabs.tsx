@@ -49,6 +49,8 @@ interface Attendee {
   checkedIn: boolean;
   arrivedAt: string | null;
   createdAt: string;
+  /** A comped seat on a guest list — the roster tab offers no Remove button for one. */
+  isComp: boolean;
 }
 
 interface Waitlist {

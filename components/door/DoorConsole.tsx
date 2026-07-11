@@ -36,8 +36,15 @@ interface Props {
   notArrived: DoorNotArrived[];
   arrivedCount: number;
   expectedCount: number;
-  /** expected − arrived. Equals notArrived.length, because open slots are listed. */
+  /** Literally notArrived.length, so the count and the list it labels always agree. */
   outstandingCount: number;
+  /**
+   * expected − arrived − outstanding: seats sold that have no ticket row in either feed,
+   * so those guests cannot be found or checked in from this console. Zero for a healthy
+   * event; non-zero is surfaced as a warning so the door sees the gap instead of turning
+   * a real ticket-holder away. Can be negative (more live rows than seats sold).
+   */
+  unaccountedCount: number;
 }
 
 const searchInputClass =
@@ -77,6 +84,7 @@ export default function DoorConsole({
   arrivedCount,
   expectedCount,
   outstandingCount,
+  unaccountedCount,
 }: Props) {
   const router = useRouter();
 
@@ -291,6 +299,17 @@ export default function DoorConsole({
                           </div>
                         )}
                       </div>
+                    ) : p.isGuestList ? (
+                      // A comp party's self_reg_token is NULL deliberately — it must not
+                      // expose a public self-registration link. Saying the link is
+                      // "missing" would be a lie, and inviting a volunteer to fill an
+                      // open comp seat gives away one of the sponsor's seats.
+                      <p className="mt-4 font-body text-sm text-amber-700">
+                        Comped seats — this party has no self-registration link by design.
+                        {" "}
+                        {p.remaining} {p.remaining === 1 ? "seat is" : "seats are"} still
+                        unnamed. Check with the welcome desk before filling one.
+                      </p>
                     ) : (
                       <p className="mt-4 font-body text-sm text-amber-700">
                         {p.remaining} {p.remaining === 1 ? "spot" : "spots"} open, but
@@ -359,6 +378,21 @@ export default function DoorConsole({
               <div className="h-full bg-marine transition-all" style={{ width: `${pct}%` }} />
             </div>
           </div>
+
+          {/* The seats sold and the ticket rows on this roster disagree, so some people
+              with a valid ticket appear NOWHERE on this console — searching their name
+              finds nothing. Say so, or the door quietly turns them away. */}
+          {unaccountedCount !== 0 && (
+            <p
+              data-testid="unaccounted-warning"
+              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 font-body text-sm font-semibold text-amber-900"
+            >
+              {unaccountedCount > 0
+                ? `${unaccountedCount} expected ${unaccountedCount === 1 ? "guest has" : "guests have"} no row on this roster`
+                : `${-unaccountedCount} more ${-unaccountedCount === 1 ? "ticket" : "tickets"} on this roster than seats sold`}{" "}
+              — check with the welcome desk.
+            </p>
+          )}
 
           <div className="flex border-b border-border">
             <button

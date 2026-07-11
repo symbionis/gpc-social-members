@@ -55,6 +55,14 @@ export async function POST(
       return bad("The party lead can’t be removed", 400);
     case "checked_in":
       return bad("This guest has already checked in and can’t be removed", 409);
+    // Freeing a comp seat here would reopen it as a public, self-fillable slot and
+    // never give the seat back (KTD5). Removing a comp guest shrinks the party, which
+    // only remove_comp_guest (the admin Guest list tab) does.
+    case "is_comp":
+      return bad(
+        "This is a comped guest — remove them from the Guest list tab in admin",
+        409
+      );
     case "not_found":
     default:
       return bad("Guest not found", 404);

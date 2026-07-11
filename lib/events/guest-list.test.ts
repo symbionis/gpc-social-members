@@ -7,6 +7,7 @@ import {
   mapCompRpcError,
   mentionsTicketType,
   DUPLICATE_LEAD_MESSAGE,
+  MAX_GUESTS_PER_REQUEST,
 } from "@/lib/events/guest-list";
 
 describe("parseGuestNames", () => {
@@ -133,6 +134,27 @@ describe("parseGuestsInput", () => {
 
   it("rejects a non-array", () => {
     expect(parseGuestsInput({ name: "G" })).toMatchObject({ ok: false });
+  });
+
+  it("accepts a batch right at the per-request ceiling", () => {
+    const guests = Array.from({ length: MAX_GUESTS_PER_REQUEST }, (_, i) => ({
+      name: `Guest ${i}`,
+      ticketTypeId: "tt-1",
+    }));
+    const res = parseGuestsInput(guests);
+    expect(res.ok).toBe(true);
+    expect(res.ok && res.value).toHaveLength(MAX_GUESTS_PER_REQUEST);
+  });
+
+  it("rejects a batch over the ceiling (one RPC transaction, one lock — R6 still uncapped across batches)", () => {
+    const guests = Array.from({ length: MAX_GUESTS_PER_REQUEST + 1 }, (_, i) => ({
+      name: `Guest ${i}`,
+      ticketTypeId: "tt-1",
+    }));
+    const res = parseGuestsInput(guests);
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.error).toMatch(/too many guests/i);
+    expect(res.ok === false && res.error).toContain(String(MAX_GUESTS_PER_REQUEST));
   });
 });
 

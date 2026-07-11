@@ -63,6 +63,12 @@ interface AddState {
    * One idempotency key per submit, held across retries (KTD2). A submitting flag does
    * not survive a network retry or a back-and-resubmit; the key does, and the server
    * returns the prior result unchanged when it repeats.
+   *
+   * The key is bound to the PAYLOAD, not just to the submit: every edit of the name, email
+   * or ticket type clears it. Otherwise a failed submit for "Bruno" whose write actually
+   * committed would hold key K, and correcting the row to "Chiara" and pressing Add would
+   * replay K — add_comp_guests finds the batch, returns the prior count and writes nothing,
+   * so the UI reports success and Chiara is silently never added.
    */
   idempotencyKey: string | null;
   submitting: boolean;
@@ -598,11 +604,20 @@ export default function GuestList({
 
                 <div className="px-4 py-3 border-t border-border/60 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
+                    {/* Every edit clears the held key (see AddState.idempotencyKey): an
+                        EDITED row is a different guest, and reusing the key would have the
+                        server replay the previous batch — reporting success while writing
+                        nothing. An untouched retry keeps its key, as intended. */}
                     <input
                       aria-label="Guest name"
                       placeholder="Add a guest"
                       value={add.name}
-                      onChange={(e) => patchAdd(list.registrationId, { name: e.target.value })}
+                      onChange={(e) =>
+                        patchAdd(list.registrationId, {
+                          name: e.target.value,
+                          idempotencyKey: null,
+                        })
+                      }
                       className={inputClass}
                     />
                     <input
@@ -610,12 +625,21 @@ export default function GuestList({
                       type="email"
                       placeholder="Email (optional)"
                       value={add.email}
-                      onChange={(e) => patchAdd(list.registrationId, { email: e.target.value })}
+                      onChange={(e) =>
+                        patchAdd(list.registrationId, {
+                          email: e.target.value,
+                          idempotencyKey: null,
+                        })
+                      }
                       className={inputClass}
                     />
                     {ticketTypeSelect(
                       add.ticketTypeId,
-                      (id) => patchAdd(list.registrationId, { ticketTypeId: id }),
+                      (id) =>
+                        patchAdd(list.registrationId, {
+                          ticketTypeId: id,
+                          idempotencyKey: null,
+                        }),
                       "Guest ticket type"
                     )}
                     <button

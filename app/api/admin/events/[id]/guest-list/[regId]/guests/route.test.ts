@@ -27,6 +27,31 @@ function sessionClient(user: { email: string } | null) {
   } as unknown as Awaited<ReturnType<typeof createClient>>;
 }
 
+// The rows the scoped lookups are meant to find: the comp registration lives on evt-1, and
+// tk-1 is a COMP ticket on it. A paid top-up ticket on the same registration is is_comp:false.
+const REGISTRATION: Record<string, unknown> = {
+  id: "reg-1",
+  event_id: "evt-1",
+  is_guest_list: true,
+};
+const TICKET: Record<string, unknown> = {
+  id: "tk-1",
+  registration_id: "reg-1",
+  event_id: "evt-1",
+  is_comp: true,
+};
+
+/**
+ * The stub APPLIES the route's own .eq() filters to the fixture row, so a lookup that is not
+ * scoped to the path event (or not scoped to comp tickets) genuinely finds the row it should
+ * not — the guards are proven, not simulated.
+ */
+function matchesFilters(row: unknown, applied: Record<string, unknown>): boolean {
+  if (!row || typeof row !== "object") return false;
+  const r = row as Record<string, unknown>;
+  return Object.entries(applied).every(([col, val]) => r[col] === val);
+}
+
 function adminClient(opts: {
   admins?: { id: string; role: string }[];
   registration?: unknown;
@@ -44,17 +69,14 @@ function adminClient(opts: {
         return c;
       };
       c.maybeSingle = async () => {
+        const applied = filters[table] ?? {};
         if (table === "event_registrations") {
-          return {
-            data: "registration" in opts ? opts.registration : { id: "reg-1", is_guest_list: true },
-            error: null,
-          };
+          const row = "registration" in opts ? opts.registration : REGISTRATION;
+          return { data: matchesFilters(row, applied) ? row : null, error: null };
         }
         if (table === "tickets") {
-          return {
-            data: "ticket" in opts ? opts.ticket : { id: "tk-1", registration_id: "reg-1" },
-            error: null,
-          };
+          const row = "ticket" in opts ? opts.ticket : TICKET;
+          return { data: matchesFilters(row, applied) ? row : null, error: null };
         }
         return { data: null, error: null };
       };
@@ -207,6 +229,34 @@ describe("guest-list add — write", () => {
     expect((await res.json()).error).toContain("tt-archived");
   });
 
+  it("scopes the registration to the path event and to a guest list BEFORE the RPC (IDOR guard)", async () => {
+    const res = await post(addBody);
+    expect(res.status).toBe(200);
+    expect(filters.event_registrations).toMatchObject({
+      id: "reg-1",
+      event_id: "evt-1",
+      is_guest_list: true,
+    });
+  });
+
+  it("404s (and calls no RPC) when the regId is a registration on ANOTHER event", async () => {
+    // add_comp_guests resolves ticket types against the REGISTRATION's event, so an
+    // unscoped regId would write guests onto that other event's list while this route
+    // reported the path event's seat count.
+    const res = await post(addBody, { eventId: "evt-other" });
+    expect(res.status).toBe(404);
+    expect(rpcCalls).toHaveLength(0);
+  });
+
+  it("404s (and calls no RPC) when the registration is not a guest list", async () => {
+    mockedCreateAdminClient.mockReturnValue(
+      adminClient({ admins: superAdmin, registration: null })
+    );
+    const res = await post(addBody);
+    expect(res.status).toBe(404);
+    expect(rpcCalls).toHaveLength(0);
+  });
+
   it("400s when the registration is not a comp guest list (the RPC refuses)", async () => {
     mockedCreateAdminClient.mockReturnValue(
       adminClient({
@@ -248,12 +298,39 @@ describe("guest-list remove", () => {
       id: "tk-1",
       registration_id: "reg-1",
       event_id: "evt-1",
+      is_comp: true,
     });
     expect(filters.event_registrations).toMatchObject({
       id: "reg-1",
       event_id: "evt-1",
       is_guest_list: true,
     });
+  });
+
+  it("404s (and calls no RPC) on a PAID top-up ticket sitting on the comp registration", async () => {
+    // The comp registration has a manage_token and the public top-up route accepts
+    // status 'free', so the lead can buy real tickets onto it. Those are claimed rows with
+    // is_comp = false — tombstoning one would destroy a ticket the customer paid for.
+    mockedCreateAdminClient.mockReturnValue(
+      adminClient({
+        admins: superAdmin,
+        ticket: {
+          id: "tk-paid",
+          registration_id: "reg-1",
+          event_id: "evt-1",
+          is_comp: false,
+        },
+      })
+    );
+    const res = await del({ ticketId: "tk-paid" });
+    expect(res.status).toBe(404);
+    expect(rpcCalls).toHaveLength(0);
+  });
+
+  it("404s (and calls no RPC) when the regId is a registration on ANOTHER event", async () => {
+    const res = await del({ ticketId: "tk-1" }, { eventId: "evt-other" });
+    expect(res.status).toBe(404);
+    expect(rpcCalls).toHaveLength(0);
   });
 
   it("404s (and calls no RPC) when the ticket belongs to another registration in the same event", async () => {
@@ -295,8 +372,14 @@ describe("guest-list remove", () => {
   });
 
   it("400s removing the lead", async () => {
+    // The lead's ticket is itself a comp ticket, so it passes the lookup — the RPC is what
+    // refuses it (the lead IS the registration).
     mockedCreateAdminClient.mockReturnValue(
-      adminClient({ admins: superAdmin, rpcResult: { status: "is_lead" } })
+      adminClient({
+        admins: superAdmin,
+        ticket: { ...TICKET, id: "tk-lead" },
+        rpcResult: { status: "is_lead" },
+      })
     );
     const res = await del({ ticketId: "tk-lead" });
     expect(res.status).toBe(400);

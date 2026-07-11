@@ -42,3 +42,41 @@ export async function assertAdmin() {
 export function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
+
+/** The comp registration a guest-list write targets, once it is proven to be on the event. */
+export interface GuestListRegistration {
+  id: string;
+}
+
+/**
+ * The IDOR guard both guest-list writes share, run BEFORE any RPC.
+ *
+ * Neither add_comp_guests nor remove_comp_guest knows about the path event: each takes the
+ * registration id on trust and resolves everything (ticket types, tickets) against the
+ * REGISTRATION's own event. So a regId belonging to another event would otherwise write to
+ * that other event's list while the route reported the path event's seat count — and the
+ * ticket-type error path, which checks the PATH event, would name valid types as unknown.
+ *
+ * All three must hold before a write: the registration exists, it is on THIS event, and it
+ * is a comp guest list. Anything else is a 404 (never a leak of which of the three failed).
+ */
+export async function assertGuestListOnEvent(
+  adminClient: ReturnType<typeof createAdminClient>,
+  eventId: string,
+  regId: string
+): Promise<{ registration: GuestListRegistration } | { error: string; status: number }> {
+  const { data, error } = await adminClient
+    .from("event_registrations")
+    .select("id")
+    .eq("id", regId)
+    .eq("event_id", eventId)
+    .eq("is_guest_list", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[guest-list] registration lookup failed", { eventId, regId, err: error });
+    return { error: "Service temporarily unavailable", status: 503 };
+  }
+  if (!data) return { error: "Guest list not found", status: 404 };
+  return { registration: { id: data.id as string } };
+}

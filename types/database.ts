@@ -1604,7 +1604,6 @@ export type Database = {
           event_id: string | null
           id: string | null
           is_child: boolean | null
-          is_comp: boolean | null
           is_lead: boolean | null
           language: string | null
           marketing_consent: boolean | null
@@ -1626,7 +1625,6 @@ export type Database = {
           event_id?: string | null
           id?: string | null
           is_child?: boolean | null
-          is_comp?: boolean | null
           is_lead?: boolean | null
           language?: string | null
           marketing_consent?: boolean | null
@@ -1648,7 +1646,6 @@ export type Database = {
           event_id?: string | null
           id?: string | null
           is_child?: boolean | null
-          is_comp?: boolean | null
           is_lead?: boolean | null
           language?: string | null
           marketing_consent?: boolean | null

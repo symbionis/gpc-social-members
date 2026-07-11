@@ -48,6 +48,7 @@ const party = (over: Partial<Party> = {}): Party => ({
   remaining: 0,
   complete: true,
   selfRegToken: null,
+  isGuestList: false,
   slots: [slot()],
   ...over,
 });
@@ -92,6 +93,7 @@ function renderConsole(over: Partial<Props> = {}) {
       arrivedCount={over.arrivedCount ?? arrivals.length}
       expectedCount={over.expectedCount ?? arrivals.length + missing.length}
       outstandingCount={over.outstandingCount ?? missing.length}
+      unaccountedCount={over.unaccountedCount ?? 0}
     />
   );
 }
@@ -260,6 +262,38 @@ describe("R18 — reconciled counts", () => {
   });
 });
 
+describe("unaccounted seats are visible at the door", () => {
+  it("shows no warning when every seat sold has a row on the roster", async () => {
+    const user = userEvent.setup();
+    renderConsole({
+      arrivals: [arrival()],
+      notArrived: [notArrived()],
+      arrivedCount: 1,
+      expectedCount: 2,
+      outstandingCount: 1,
+      unaccountedCount: 0,
+    });
+    await user.click(arrivalsTab());
+    expect(screen.queryByTestId("unaccounted-warning")).not.toBeInTheDocument();
+  });
+
+  it("warns with the count when seats sold have no row anywhere on the roster", async () => {
+    const user = userEvent.setup();
+    renderConsole({
+      arrivals: [arrival()],
+      notArrived: [notArrived()],
+      arrivedCount: 1,
+      expectedCount: 5,
+      outstandingCount: 1,
+      unaccountedCount: 3,
+    });
+    await user.click(arrivalsTab());
+    const warning = screen.getByTestId("unaccounted-warning");
+    expect(warning).toHaveTextContent("3 expected guests have no row on this roster");
+    expect(warning).toHaveTextContent(/welcome desk/i);
+  });
+});
+
 describe("arrivals tab states", () => {
   it("says so when nobody has arrived yet", async () => {
     const user = userEvent.setup();
@@ -326,6 +360,36 @@ describe("R12 — comp guests are findable in the Pre-registered tab", () => {
     expect(screen.getByText("Cardis Sponsor")).toBeInTheDocument();
     expect(screen.queryByText("Ana Vidal")).not.toBeInTheDocument();
     expect(screen.getByDisplayValue("Marta Lopez")).toBeInTheDocument();
+  });
+});
+
+describe("open slots with no self-registration link", () => {
+  // A comp party's self_reg_token is NULL by design, so the "predates the feature" copy
+  // is a lie for it — and it must not read as an invitation to fill a sponsor's seat.
+  const withOpenSlot = (over: Partial<Party>) =>
+    party({
+      quantity: 2,
+      claimedCount: 1,
+      remaining: 1,
+      complete: false,
+      selfRegToken: null,
+      slots: [slot(), slot({ attendeeId: null, name: "", email: "", phone: "", isLead: false })],
+      ...over,
+    });
+
+  it("tells the volunteer a comp party has no link BY DESIGN", () => {
+    renderConsole({ parties: [withOpenSlot({ isGuestList: true })] });
+    expect(screen.getByText(/no self-registration link by design/i)).toBeInTheDocument();
+    expect(screen.getByText(/welcome desk/i)).toBeInTheDocument();
+    expect(screen.queryByText(/predates the feature/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps the legacy-booking copy for a non-comp party", () => {
+    renderConsole({ parties: [withOpenSlot({ isGuestList: false })] });
+    expect(screen.getByText(/predates the feature/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/no self-registration link by design/i)
+    ).not.toBeInTheDocument();
   });
 });
 

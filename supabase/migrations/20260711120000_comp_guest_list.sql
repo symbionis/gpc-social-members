@@ -522,4 +522,77 @@ revoke all on function public.remove_comp_guest(uuid, uuid)
 grant execute on function public.remove_comp_guest(uuid, uuid)
   to service_role;
 
+-- ---------------------------------------------------------------------------
+-- 7. release_ticket refuses a comp ticket
+-- ---------------------------------------------------------------------------
+-- The other half of KTD5. remove_comp_guest exists because release_ticket is the wrong
+-- tool for a comp seat — but nothing STOPPED release_ticket being pointed at one. The
+-- door's free-slot route (and the admin roster's Remove button, which posts to it) would
+-- tombstone the comp ticket and mint a fresh 'issued' replacement: the seat stays
+-- consumed, the guest stays in `expected` forever, and the sponsor's party is handed a
+-- self-fillable open slot on the PUBLIC door page that any walk-up can be typed into.
+-- Worse, remove_comp_guest then short-circuits on released_at IS NOT NULL ('ok',
+-- already=true) WITHOUT decrementing, so the seat can never be recovered.
+--
+-- Byte-identical to the 20260622190000_claim_ticket_flip_issued.sql definition except
+-- for the is_comp guard: a comp ticket is refused outright with 'is_comp', and the
+-- caller is told to use the admin Guest list tab (which calls remove_comp_guest, the
+-- RPC that actually shrinks the party).
+create or replace function public.release_ticket(p_ticket_id uuid, p_event_id uuid)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare
+  v_row record;
+begin
+  SELECT id, registration_id, event_id, ticket_type_id, is_lead, checked_in_at,
+         released_at, slot_status, is_comp
+    INTO v_row
+  FROM public.tickets
+  WHERE id = p_ticket_id AND event_id = p_event_id
+  FOR UPDATE;
+
+  IF NOT FOUND OR v_row.slot_status <> 'claimed' THEN
+    RETURN jsonb_build_object('status', 'not_found');
+  END IF;
+  -- Removing a comp guest SHRINKS the party — that is remove_comp_guest's job, not this
+  -- function's. Refuse before any side effect.
+  IF v_row.is_comp THEN
+    RETURN jsonb_build_object('status', 'is_comp');
+  END IF;
+  IF v_row.is_lead THEN
+    RETURN jsonb_build_object('status', 'is_lead');
+  END IF;
+  IF v_row.checked_in_at IS NOT NULL THEN
+    RETURN jsonb_build_object('status', 'checked_in');
+  END IF;
+  IF v_row.released_at IS NOT NULL THEN
+    RETURN jsonb_build_object('status', 'ok', 'already', true);
+  END IF;
+
+  UPDATE public.tickets
+    SET released_at = now()
+  WHERE id = p_ticket_id AND checked_in_at IS NULL AND released_at IS NULL
+    AND is_lead = false;
+  IF NOT FOUND THEN
+    -- Lost a race with a concurrent check-in.
+    RETURN jsonb_build_object('status', 'checked_in');
+  END IF;
+
+  -- Mint a fresh issued replacement so the freed slot reopens (new credential).
+  INSERT INTO public.tickets
+    (event_id, registration_id, ticket_type_id, slot_status, credential_token)
+  VALUES
+    (v_row.event_id, v_row.registration_id, v_row.ticket_type_id, 'issued',
+     replace(replace(encode(extensions.gen_random_bytes(24), 'base64'), '+', '-'), '/', '_'));
+
+  RETURN jsonb_build_object('status', 'ok', 'already', false);
+end;
+$function$;
+
+revoke all on function public.release_ticket(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.release_ticket(uuid, uuid) to service_role;
+
 commit;

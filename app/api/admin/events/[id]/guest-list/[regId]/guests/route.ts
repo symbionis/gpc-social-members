@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
-import { assertAdmin, bad } from "@/lib/events/guest-list-auth";
+import { assertAdmin, assertGuestListOnEvent, bad } from "@/lib/events/guest-list-auth";
 import {
   parseGuestsInput,
   suppliedTicketTypeIds,
@@ -50,6 +50,12 @@ export async function POST(
   const guests = parseGuestsInput(body.guests);
   if (!guests.ok) return bad(guests.error);
   if (guests.value.length === 0) return bad("At least one guest is required");
+
+  // IDOR guard, BEFORE the RPC (same guard DELETE runs): add_comp_guests resolves ticket
+  // types against the REGISTRATION's event, not the path event, so an unscoped regId would
+  // write guests onto another event's list while this route reported this event's seats.
+  const guard = await assertGuestListOnEvent(adminClient, eventId, regId);
+  if ("error" in guard) return bad(guard.error, guard.status);
 
   // Line items + quantity bump + mint + name, under the registration lock. The RPC
   // refuses a registration that is not a comp guest list, and resolves every
@@ -118,26 +124,21 @@ export async function DELETE(
   // trust. An unscoped ticket id would otherwise tombstone a paying attendee's ticket.
   // Both of these must hold: the registration is a comp list ON THIS EVENT, and the
   // ticket is on that registration AND that event.
-  const { data: registration, error: regErr } = await adminClient
-    .from("event_registrations")
-    .select("id")
-    .eq("id", regId)
-    .eq("event_id", eventId)
-    .eq("is_guest_list", true)
-    .maybeSingle();
+  const guard = await assertGuestListOnEvent(adminClient, eventId, regId);
+  if ("error" in guard) return bad(guard.error, guard.status);
 
-  if (regErr) {
-    console.error("[guest-list] registration lookup failed", { eventId, regId, err: regErr });
-    return bad("Service temporarily unavailable", 503);
-  }
-  if (!registration) return bad("Guest list not found", 404);
-
+  // …and the ticket must be a COMP ticket (is_comp). A comp registration carries a
+  // manage_token, and the public top-up route accepts status 'free' — so the sponsor lead
+  // can buy REAL paid tickets onto this very registration. Those are claimed rows with
+  // is_comp = false; tombstoning one would delete a ticket the customer paid for, with no
+  // refund and no replacement. Only what the guest list minted may be removed here.
   const { data: ticket, error: ticketErr } = await adminClient
     .from("tickets")
     .select("id")
     .eq("id", ticketId)
     .eq("registration_id", regId)
     .eq("event_id", eventId)
+    .eq("is_comp", true)
     .maybeSingle();
 
   if (ticketErr) {

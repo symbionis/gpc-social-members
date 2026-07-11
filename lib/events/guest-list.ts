@@ -50,6 +50,16 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const MAX_NAME_LENGTH = 120;
 
+/**
+ * Ceiling on ONE request's guests array, not on a party (R6 keeps the comp list uncapped —
+ * successive batches still grow it without limit). The RPC mints a credentialled ticket per
+ * guest and runs claim_comp_guest_slot once per guest, each scan holding a FOR UPDATE lock
+ * on the party, all in a single transaction on a production-shared database. An unbounded
+ * array turns one paste into an arbitrarily long lock. Same convention as MAX_QTY in
+ * app/api/public/bookings/[token]/topup/route.ts.
+ */
+export const MAX_GUESTS_PER_REQUEST = 500;
+
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
@@ -95,6 +105,12 @@ export function parseLeadInput(input: unknown): Validated<CompLeadPayload> {
 export function parseGuestsInput(input: unknown): Validated<CompGuestPayload[]> {
   if (input === undefined || input === null) return { ok: true, value: [] };
   if (!Array.isArray(input)) return { ok: false, error: "guests must be an array" };
+  if (input.length > MAX_GUESTS_PER_REQUEST) {
+    return {
+      ok: false,
+      error: `Too many guests in one request (${input.length}); add up to ${MAX_GUESTS_PER_REQUEST} at a time`,
+    };
+  }
 
   const value: CompGuestPayload[] = [];
   for (const [i, entry] of input.entries()) {

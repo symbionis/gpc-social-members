@@ -363,6 +363,34 @@ describe("GuestList — maintaining an existing comp list", () => {
     expect(bodyOf(1).idempotencyKey).toBe(bodyOf(0).idempotencyKey);
   });
 
+  it("mints a NEW idempotency key when the guest is edited after a failed add", async () => {
+    const user = userEvent.setup();
+    global.fetch = vi
+      .fn()
+      // The write may well have COMMITTED — the response was just lost. Replaying the same
+      // key for a different guest would have the server return the prior batch's count and
+      // write nothing, reporting success while silently dropping the edited guest.
+      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({ error: "boom" }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ success: true }) });
+
+    renderGuestList({ guestLists: [entry()] });
+
+    const region = listRegion();
+    await user.type(region.getByLabelText("Guest name"), "Bruno Keller");
+    await user.selectOptions(region.getByLabelText("Guest ticket type"), "tt-child");
+    await user.click(region.getByRole("button", { name: "Add guest" }));
+    expect(await screen.findByText("boom")).toBeInTheDocument();
+
+    // The admin corrects the row — a DIFFERENT guest now — and submits again.
+    await user.clear(region.getByLabelText("Guest name"));
+    await user.type(region.getByLabelText("Guest name"), "Chiara Bosco");
+    await user.click(region.getByRole("button", { name: "Add guest" }));
+
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(bodyOf(1).guests[0].name).toBe("Chiara Bosco");
+    expect(bodyOf(1).idempotencyKey).not.toBe(bodyOf(0).idempotencyKey);
+  });
+
   it("hides the remove control on the lead and on a checked-in guest", () => {
     renderGuestList({
       guestLists: [

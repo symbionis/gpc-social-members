@@ -39,6 +39,12 @@ export interface DoorParty {
   remaining: number;
   complete: boolean;
   selfRegToken: string | null;
+  /**
+   * A sponsor's comp guest list. Its selfRegToken is NULL BY DESIGN (a comp party must
+   * not expose a public self-registration link), so the console must not tell the
+   * volunteer the link is merely missing.
+   */
+  isGuestList: boolean;
   slots: DoorSlot[];
 }
 
@@ -76,10 +82,34 @@ export interface DoorRoster {
   notArrived: DoorNotArrived[];
   /** Checked-in headcount. */
   arrived: number;
-  /** Total tickets sold = expected headcount. */
+  /**
+   * The denominator: the headcount the parties were SOLD (sum of registration quantities).
+   * It is NOT necessarily arrived + outstanding — see `unaccounted`.
+   */
   expected: number;
-  /** expected − arrived. Equals notArrived.length, because open slots are listed. */
+  /**
+   * The not-arrived headcount — literally `notArrived.length`, so the number the door shows
+   * and the list it shows it over are always the SAME population.
+   *
+   * Deliberately NOT `expected − arrived`: those agree only when every party's non-released
+   * ticket rows exactly equal its quantity, and nothing enforces that. A legacy registration
+   * with no ticket rows at all (claim_ticket's own fallback documents these), or a legacy
+   * `slot_status = 'unclaimed'` row (still permitted by the CHECK constraint), holds a seat
+   * in `expected` while appearing in neither feed. Deriving this from the quantity would
+   * print "14 outstanding" over a list of 11 and leave three ticket-holders unfindable
+   * anywhere on the console — a guest with a seat turned away at the door.
+   */
   outstanding: number;
+  /**
+   * expected − arrived − outstanding: seats sold with NO ticket row in either feed. Zero for
+   * a healthy event. Non-zero means some party's rows and its quantity disagree, and those
+   * people cannot be found or checked in from the console.
+   *
+   * NOTE for components/door/DoorConsole.tsx: surface this when it is non-zero (e.g. "2
+   * unaccounted — check the party's tickets"). It exists so the mismatch is VISIBLE instead
+   * of silently absorbed into a count that no longer matches its own list.
+   */
+  unaccounted: number;
 }
 
 type RegRow = {
@@ -88,6 +118,7 @@ type RegRow = {
   name: string | null;
   quantity: number | null;
   self_reg_token: string | null;
+  is_guest_list: boolean | null;
 };
 
 type AttRow = {
@@ -104,6 +135,46 @@ type AttRow = {
   slot_status: string;
 };
 
+/** PostgREST's default response cap. A bigger read comes back SHORT, with no error. */
+const PAGE_SIZE = 1000;
+
+/**
+ * Read EVERY row of a query, a page at a time.
+ *
+ * A comp list has no quantity ceiling (R6), so a busy match day pushes an event past 1000
+ * tickets — and an unpaginated select would then hand the door a silently truncated roster:
+ * guests past row 1000 missing from Pre-registered, Arrivals and Not-arrived, unfindable by
+ * search, while `expected` kept counting them. See
+ * docs/solutions/database-issues/supabase-row-fetch-undercount-when-aggregating-2026-05-19.md
+ *
+ * A failed page THROWS rather than returning what it has: at the door, a truncated roster is
+ * worse than an error page — it turns real ticket-holders away and no one can tell. Same
+ * stance as the admin roster's failLoad.
+ */
+async function readAllRows<T>(
+  label: string,
+  page: (
+    from: number,
+    to: number
+  ) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>
+): Promise<T[]> {
+  const rows: T[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await page(from, from + PAGE_SIZE - 1);
+    if (error) {
+      throw new Error(`buildDoorRoster: could not load ${label}: ${error.message}`, {
+        cause: error,
+      });
+    }
+    if (!data || data.length === 0) break;
+    rows.push(...(data as T[]));
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return rows;
+}
+
 /**
  * Assemble the full door roster: every party expanded into one slot per purchased
  * ticket — filled from its live claimed attendees (lead first), then an open slot for
@@ -113,25 +184,33 @@ type AttRow = {
 export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
   const supabase = createAdminClient();
 
-  const { data: regRows } = await supabase
-    .from("event_registrations")
-    .select("id, reference_code, name, quantity, self_reg_token")
-    .eq("event_id", eventId)
-    .in("status", ["paid", "free"]);
-  const registrations = (regRows ?? []) as RegRow[];
+  // Paged (and ordered — a paged read needs a stable sort or rows can repeat or vanish
+  // between pages).
+  const registrations = await readAllRows<RegRow>("registrations", (from, to) =>
+    supabase
+      .from("event_registrations")
+      .select("id, reference_code, name, quantity, self_reg_token, is_guest_list")
+      .eq("event_id", eventId)
+      .in("status", ["paid", "free"])
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
 
   // Both filled (claimed) and open (issued) tickets in one read — issued rows ARE
   // the open slots now (U3), so there is no purchased−claimed synthesis. Released
   // rows are excluded (a released slot is reopened as a fresh issued row).
-  const { data: attRows } = await supabase
-    .from("tickets")
-    .select(
-      "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, is_child, checked_in_at, created_at, slot_status"
-    )
-    .eq("event_id", eventId)
-    .in("slot_status", ["claimed", "issued"])
-    .is("released_at", null);
-  const attendees = (attRows ?? []) as AttRow[];
+  const attendees = await readAllRows<AttRow>("tickets", (from, to) =>
+    supabase
+      .from("tickets")
+      .select(
+        "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, is_child, checked_in_at, created_at, slot_status"
+      )
+      .eq("event_id", eventId)
+      .in("slot_status", ["claimed", "issued"])
+      .is("released_at", null)
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
 
   // Active ticket types → titles + the per-type child flag for empty slots.
   const { data: ttRows } = await supabase
@@ -219,6 +298,7 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
       remaining: Math.max(0, quantity - claimed.length),
       complete: claimed.length >= quantity,
       selfRegToken: reg.self_reg_token,
+      isGuestList: Boolean(reg.is_guest_list),
       slots: [...filled, ...openSlots],
     };
   });
@@ -274,13 +354,24 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
 
   const expected = registrations.reduce((sum, r) => sum + (r.quantity ?? 0), 0);
 
+  // The number and the list are the same population BY CONSTRUCTION: outstanding IS the
+  // not-arrived list's length. Any daylight between the seats sold and the ticket rows that
+  // represent them (a legacy party with no rows, an 'unclaimed' row filtered out of both
+  // feeds) lands in `unaccounted`, where it can be seen, instead of inflating a count over a
+  // list that does not contain those people.
+  const outstanding = notArrived.length;
+
   return {
     parties,
     arrivals,
     notArrived,
     arrived: arrivals.length,
     expected,
-    outstanding: expected - arrivals.length,
+    outstanding,
+    // Unclamped on purpose: negative means the party has MORE live ticket rows than seats
+    // sold, which is just as broken as fewer, and hiding it behind a floor of 0 is how a
+    // mismatch stays invisible.
+    unaccounted: expected - arrivals.length - outstanding,
   };
 }
 

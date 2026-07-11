@@ -89,7 +89,7 @@ export default async function ManageEventPage({
   const { data: attendeeRows, error: attendeeRowsError } = await supabase
     .from("tickets")
     .select(
-      "id, registration_id, member_id, name, email, phone_e164, is_lead, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, member_id, name, email, phone_e164, is_lead, ticket_type_id, is_comp, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", id)
     .eq("slot_status", "claimed")
@@ -106,6 +106,7 @@ export default async function ManageEventPage({
     phone_e164: string | null;
     is_lead: boolean;
     ticket_type_id: string | null;
+    is_comp: boolean;
     waiver_accepted_at: string | null;
     checked_in_at: string | null;
     created_at: string;
@@ -209,6 +210,10 @@ export default async function ManageEventPage({
       checkedIn: a.checked_in_at !== null,
       arrivedAt: a.checked_in_at,
       createdAt: a.created_at,
+      // A comped seat: the roster's Remove button (release_ticket) must never be offered
+      // for one — that would reopen the seat publicly instead of shrinking the party.
+      // The Guest list tab removes comp guests (remove_comp_guest).
+      isComp: Boolean(a.is_comp),
     };
   });
 
@@ -261,6 +266,12 @@ export default async function ManageEventPage({
       leadName: (r.name as string | null) ?? "",
       leadEmail: (r.email as string | null) ?? "",
       people: (rosterByReg.get(r.id) ?? [])
+        // COMP tickets only. A comp registration carries a manage_token and the public
+        // top-up route accepts status 'free', so the sponsor lead can buy REAL paid tickets
+        // onto this very registration. Those claimed rows are is_comp = false: listing them
+        // here would put a Remove button on a ticket the customer paid for (the DELETE route
+        // refuses them anyway — this is what keeps the button from ever appearing).
+        .filter((t) => t.is_comp)
         // Lead first, then the guests in the order they were added.
         .slice()
         .sort((a, b) =>
