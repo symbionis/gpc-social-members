@@ -216,12 +216,24 @@ export default function ManageEventTabs({
                 overbooked={overbooked}
                 ticketTypeSummary={ticketTypeSummary}
               />
-              <a
-                href={csvHref}
-                className="shrink-0 px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors"
-              >
-                Export CSV
-              </a>
+              <div className="shrink-0 flex gap-2">
+                {/* The paper sheet staff tick off at the door: same rows as the CSV,
+                    laid out to be scanned by surname rather than pivoted in Excel. */}
+                <a
+                  href={`/print/door-roster/${eventId}`}
+                  target="_blank"
+                  rel="noopener"
+                  className="px-4 py-2 border border-marine text-marine rounded-lg text-sm font-body font-medium hover:bg-marine/5 transition-colors"
+                >
+                  Print door sheet
+                </a>
+                <a
+                  href={csvHref}
+                  className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors"
+                >
+                  Export CSV
+                </a>
+              </div>
             </div>
             <AttendeeList attendees={attendees} baseUrl={baseUrl} eventId={eventId} />
           </div>
