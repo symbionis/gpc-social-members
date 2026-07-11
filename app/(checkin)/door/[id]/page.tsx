@@ -41,7 +41,7 @@ export default async function DoorConsolePage({
     );
   }
 
-  const { parties, arrivals, expected } = await buildDoorRoster(id);
+  const { parties, arrivals, arrived, expected } = await buildDoorRoster(id);
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
   return shell(
@@ -56,7 +56,7 @@ export default async function DoorConsolePage({
         baseUrl={baseUrl}
         parties={parties}
         arrivals={arrivals}
-        arrivedCount={arrivals.length}
+        arrivedCount={arrived}
         expectedCount={expected}
       />
     </div>

@@ -42,12 +42,44 @@ export interface DoorParty {
   slots: DoorSlot[];
 }
 
+/**
+ * One ticket as the arrivals / not-arrived feeds show it: the ticket plus the party
+ * it belongs to and the type it was sold as. Contact fields ride along because the
+ * arrivals search matches on them exactly as the Pre-registered tab's does (R15).
+ */
+interface DoorTicketRow {
+  id: string;
+  partyName: string;
+  referenceCode: string | null;
+  ticketTypeTitle: string;
+  isChild: boolean;
+  email: string;
+  phone: string;
+}
+
+/** A checked-in ticket. Always named — a ticket is named before it can arrive. */
+export interface DoorArrival extends DoorTicketRow {
+  name: string;
+  arrivedAt: string;
+}
+
+/** An expected-but-absent ticket: a named guest, or an unnamed open slot (null name). */
+export interface DoorNotArrived extends DoorTicketRow {
+  name: string | null;
+}
+
 export interface DoorRoster {
   parties: DoorParty[];
-  /** Checked-in attendees, most-recent first (arrivals feed). */
-  arrivals: { id: string; name: string; arrivedAt: string }[];
+  /** Checked-in tickets, most-recent first (arrivals feed). */
+  arrivals: DoorArrival[];
+  /** Everyone still expected: named no-shows AND unnamed open slots (KTD8). */
+  notArrived: DoorNotArrived[];
+  /** Checked-in headcount. */
+  arrived: number;
   /** Total tickets sold = expected headcount. */
   expected: number;
+  /** expected − arrived. Equals notArrived.length, because open slots are listed. */
+  outstanding: number;
 }
 
 type RegRow = {
@@ -191,18 +223,65 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
     };
   });
 
-  const arrivals = attendees
-    .filter((a) => a.checked_in_at !== null)
-    .sort((a, b) => (b.checked_in_at as string).localeCompare(a.checked_in_at as string))
-    .map((a) => ({
-      id: a.id,
-      name: a.name ?? "",
-      arrivedAt: a.checked_in_at as string,
-    }));
+  // Both feeds are keyed on the party, so a ticket with no registration — a legacy
+  // imported row (R9) — is skipped exactly as `parties` already skips it, and stays
+  // invisible at the door. That skip is also what keeps the counts reconciling:
+  // `expected` only ever sums registration quantities (KTD8).
+  const partyById = new Map(parties.map((p) => [p.registrationId, p]));
+
+  const ticketRow = (a: AttRow, party: DoorParty): DoorTicketRow => ({
+    id: a.id,
+    partyName: party.leadName,
+    referenceCode: party.referenceCode,
+    ticketTypeTitle: a.ticket_type_id ? ticketTitleById.get(a.ticket_type_id) ?? "" : "",
+    // Same stale-flag guard as toSlot: trust the row flag OR the live ticket type.
+    isChild:
+      (a.is_child ?? false) ||
+      (a.ticket_type_id ? ticketIsChildById.get(a.ticket_type_id) ?? false : false),
+    email: a.email ?? "",
+    phone: a.phone_e164 ?? "",
+  });
+
+  const arrivals: DoorArrival[] = [];
+  const notArrived: DoorNotArrived[] = [];
+  for (const a of attendees) {
+    const party = a.registration_id ? partyById.get(a.registration_id) : undefined;
+    if (!party) continue;
+    if (a.checked_in_at !== null) {
+      arrivals.push({
+        ...ticketRow(a, party),
+        name: a.name ?? "",
+        arrivedAt: a.checked_in_at,
+      });
+      continue;
+    }
+    // An 'issued' row is an unfilled slot: no name, so the door renders "Open slot".
+    // It is counted in `expected`, so it belongs in the not-arrived list (KTD8).
+    notArrived.push({
+      ...ticketRow(a, party),
+      name: a.slot_status === "issued" ? null : a.name ?? "",
+    });
+  }
+
+  arrivals.sort((x, y) => y.arrivedAt.localeCompare(x.arrivedAt));
+  notArrived.sort(
+    (x, y) =>
+      x.partyName.localeCompare(y.partyName) ||
+      // Named guests first within a party; the party's open slots trail them.
+      Number(x.name === null) - Number(y.name === null) ||
+      (x.name ?? "").localeCompare(y.name ?? "")
+  );
 
   const expected = registrations.reduce((sum, r) => sum + (r.quantity ?? 0), 0);
 
-  return { parties, arrivals, expected };
+  return {
+    parties,
+    arrivals,
+    notArrived,
+    arrived: arrivals.length,
+    expected,
+    outstanding: expected - arrivals.length,
+  };
 }
 
 /**
