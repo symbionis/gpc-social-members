@@ -1,8 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { rollupTicketItems, formatTicketBreakdown } from "@/lib/events/tickets";
-import { computePartyFills } from "@/lib/events/roster-fill";
 
 async function assertAdmin() {
   const supabase = await createClient();
@@ -51,6 +49,71 @@ function splitFullName(name: string | null): { first: string; last: string } {
   return { first: parts.slice(0, -1).join(" "), last: parts[parts.length - 1] };
 }
 
+// One printed line. Every ticket sold gets exactly one of these, whether it was
+// pre-registered (a claimed ticket), merely minted (an issued ticket — nobody named
+// yet), or reconstructed from the purchase record (a legacy party with no ticket rows
+// at all). A blank cell means "not known", never "no".
+interface SheetRow {
+  bookingRef: string;
+  last: string;
+  first: string;
+  ticketType: string;
+  email: string;
+  phone: string;
+  isMember: string;
+  partyLead: string;
+  tickets: string;
+  waiver: string;
+  arrived: string;
+}
+
+const HEADERS = [
+  "booking_ref",
+  "last_name",
+  "first_name",
+  "ticket_type",
+  "email",
+  "phone",
+  "is_member",
+  "party_lead",
+  "tickets",
+  "waiver",
+  "arrived",
+];
+
+function emit(r: SheetRow): string {
+  return [
+    r.bookingRef,
+    r.last,
+    r.first,
+    r.ticketType,
+    r.email,
+    r.phone,
+    r.isMember,
+    r.partyLead,
+    r.tickets,
+    r.waiver,
+    r.arrived,
+  ]
+    .map(csvEscape)
+    .join(",");
+}
+
+// Surname sort, case- and accent-aware (Ärnström, Öberg file where a Swiss reader
+// expects them). A row with no surname to sort on goes last, rather than silently
+// landing at the top of the sheet under an empty string.
+function bySurname(
+  a: { last: string; first: string; bookingRef: string },
+  b: { last: string; first: string; bookingRef: string }
+): number {
+  if (!a.last !== !b.last) return a.last ? -1 : 1;
+  const last = a.last.localeCompare(b.last, undefined, { sensitivity: "base" });
+  if (last !== 0) return last;
+  const first = a.first.localeCompare(b.first, undefined, { sensitivity: "base" });
+  if (first !== 0) return first;
+  return a.bookingRef.localeCompare(b.bookingRef);
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -67,8 +130,8 @@ export async function GET(
     return NextResponse.json({ error: "format=csv required" }, { status: 400 });
   }
 
-  // A failed load must never be exported as an empty/zeroed sheet — that would put
-  // a confident-but-wrong roster (and catering totals) in front of staff. Fail loud.
+  // A failed load must never be exported as an empty/zeroed sheet — that would put a
+  // confident-but-wrong roster in front of door staff. Fail loud.
   const failLoad = (scope: string, error: unknown) => {
     console.error("[admin/events/attendees-csv] query failed", {
       eventId,
@@ -91,9 +154,16 @@ export async function GET(
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
   }
 
-  // event_attendees is the per-person source of truth (event_checkins is frozen).
-  // One row per claimed attendee; columns mirror the admin roster (AttendeeList).
-  interface AttendeeRow {
+  // Every ticket sold, claimed or not. An `issued` row is a ticket nobody has named
+  // yet — it carries its ticket type and its party, just no person — so it is exactly
+  // the blank check-off line door staff need, and must NOT be filtered out.
+  //
+  // The filter is an allowlist, not a negation of 'claimed': tickets_slot_status_check
+  // still permits the legacy 'unclaimed' value, and on a sheet that governs door
+  // admission an unrecognized status must fall OFF the roster, never onto it as an
+  // anonymous tickable line. `credential_token` is deliberately not selected — it is a
+  // bearer QR token, and a printed sheet of them would admit anyone who photographs it.
+  interface TicketRow {
     id: string;
     registration_id: string | null;
     member_id: string | null;
@@ -101,25 +171,25 @@ export async function GET(
     email: string | null;
     phone_e164: string | null;
     is_lead: boolean;
+    slot_status: string;
     ticket_type_id: string | null;
     waiver_accepted_at: string | null;
     checked_in_at: string | null;
     created_at: string;
   }
-  const { data: attendees, error: attendeesError } = await adminClient
+  const { data: ticketData, error: ticketsError } = await adminClient
     .from("tickets")
     .select(
-      "id, registration_id, member_id, name, email, phone_e164, is_lead, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", eventId)
-    .eq("slot_status", "claimed")
+    .in("slot_status", ["issued", "claimed"])
     .is("released_at", null)
     .order("created_at", { ascending: true });
-  if (attendeesError) return failLoad("event_attendees", attendeesError);
+  if (ticketsError) return failLoad("tickets", ticketsError);
 
-  const roster = (attendees || []) as AttendeeRow[];
+  const tickets = (ticketData || []) as TicketRow[];
 
-  // Each person's own ticket type (asado meal) → a per-person column for catering.
   const { data: typeRows, error: typeRowsError } = await adminClient
     .from("event_ticket_types")
     .select("id, title")
@@ -130,10 +200,63 @@ export async function GET(
     ticketTitleById.set(t.id as string, (t.title as string | null) ?? "");
   }
 
-  // Structured first/last name for members (the roster only stores a single `name`
-  // string; the members table is the authoritative split). Non-members and guests
-  // entered a single "Full name" field, so theirs is split heuristically below.
-  const memberIds = [...new Set(roster.map((a) => a.member_id).filter((m): m is string => !!m))];
+  // The purchase record. `quantity` is how many tickets the party owns — the number of
+  // lines it must occupy on the sheet. `name`/`email`/`phone_e164`/`member_id` are the
+  // purchaser, which is how a legacy party with no ticket rows still gets a real lead.
+  interface RegRow {
+    id: string;
+    quantity: number | null;
+    reference_code: string | null;
+    name: string | null;
+    email: string | null;
+    phone_e164: string | null;
+    member_id: string | null;
+  }
+  const { data: regData, error: regRowsError } = await adminClient
+    .from("event_registrations")
+    .select("id, quantity, reference_code, name, email, phone_e164, member_id")
+    .eq("event_id", eventId)
+    .in("status", ["paid", "free"]);
+  if (regRowsError) return failLoad("event_registrations", regRowsError);
+  const regs = (regData || []) as RegRow[];
+  const registrationIds = regs.map((r) => r.id);
+
+  // Per-ticket-type purchased quantities. These label the padded lines: a party that
+  // bought 3 × Standard + 1 × Vegetarian and has only its Standard lead claimed pads
+  // 2 × Standard and 1 × Vegetarian. That is arithmetic on the purchase record, not a
+  // guess — and without it the per-type pivot that replaced the old TOTALS block would
+  // undercount by exactly the padded tickets.
+  interface ItemRow {
+    registration_id: string;
+    ticket_type_id: string | null;
+    title_snapshot: string | null;
+    quantity: number | null;
+  }
+  const { data: itemData, error: itemRowsError } = registrationIds.length
+    ? await adminClient
+        .from("event_registration_items")
+        .select("registration_id, ticket_type_id, title_snapshot, quantity")
+        .in("registration_id", registrationIds)
+        .order("created_at", { ascending: true })
+    : { data: [], error: null };
+  if (itemRowsError) return failLoad("event_registration_items", itemRowsError);
+
+  const itemsByReg = new Map<string, ItemRow[]>();
+  for (const item of (itemData ?? []) as ItemRow[]) {
+    const list = itemsByReg.get(item.registration_id) ?? [];
+    list.push(item);
+    itemsByReg.set(item.registration_id, list);
+  }
+
+  // Authoritative first/last for members. Tickets and registrations both store only a
+  // single `name` string; the members table is the real split.
+  const memberIds = [
+    ...new Set(
+      [...tickets.map((t) => t.member_id), ...regs.map((r) => r.member_id)].filter(
+        (m): m is string => !!m
+      )
+    ),
+  ];
   const memberNameById = new Map<string, { first: string; last: string }>();
   if (memberIds.length) {
     const { data: memberRows, error: memberRowsError } = await adminClient
@@ -149,167 +272,190 @@ export async function GET(
     }
   }
 
-  // Lead name per registration → guests are attributed to their party's lead.
-  const leadNameByReg = new Map<string, string>();
-  for (const a of roster) {
-    if (a.is_lead && a.registration_id && a.name) {
-      leadNameByReg.set(a.registration_id, a.name);
+  const nameOf = (memberId: string | null, name: string | null) =>
+    (memberId && memberNameById.get(memberId)) || splitFullName(name);
+  const typeTitle = (id: string | null) => (id ? ticketTitleById.get(id) ?? "" : "");
+  const isClaimed = (t: TicketRow) => t.slot_status === "claimed";
+
+  const liveByReg = new Map<string, TicketRow[]>();
+  for (const t of tickets) {
+    if (!t.registration_id) continue;
+    const list = liveByReg.get(t.registration_id) ?? [];
+    list.push(t);
+    liveByReg.set(t.registration_id, list);
+  }
+
+  // A claimed ticket prints the person as recorded. An unclaimed one prints its ticket
+  // type and its party, and leaves every person-cell blank — we do not assert "no" or
+  // "unsigned" about someone who has not been named.
+  const rowFromTicket = (
+    t: TicketRow,
+    bookingRef: string,
+    partyLead: string
+  ): SheetRow => {
+    const base = {
+      bookingRef,
+      ticketType: typeTitle(t.ticket_type_id),
+      partyLead,
+      tickets: "",
+    };
+    if (!isClaimed(t)) {
+      return {
+        ...base,
+        last: "",
+        first: "",
+        email: "",
+        phone: "",
+        isMember: "",
+        waiver: "",
+        arrived: "",
+      };
     }
-  }
-
-  // Tickets per party — the total on the registration, the breakdown on its items.
-  // Attributed to the lead row only (mirrors the admin roster list).
-  const { data: regRows, error: regRowsError } = await adminClient
-    .from("event_registrations")
-    .select("id, quantity, reference_code")
-    .eq("event_id", eventId)
-    .in("status", ["paid", "free"]);
-  if (regRowsError) return failLoad("event_registrations", regRowsError);
-  const registrationIds = (regRows ?? []).map((r) => r.id as string);
-
-  // Booking reference (EV-XXXX) per registration → grouping/sort key in the sheet.
-  const refByReg = new Map<string, string>();
-  for (const r of regRows ?? []) {
-    refByReg.set(r.id as string, (r.reference_code as string | null) ?? "");
-  }
-
-  // Pre-registration fill per party (claimed of purchased), mirroring the admin
-  // roster's "X of Y" — approach B has no placeholder rows, so the guests who
-  // haven't pre-registered are absent; their count surfaces as `remaining`.
-  const partyFills = computePartyFills(
-    (regRows ?? []).map((r) => ({ id: r.id as string, quantity: (r.quantity as number) ?? 0 })),
-    roster
-  );
-
-  const { data: itemRows, error: itemRowsError } = registrationIds.length
-    ? await adminClient
-        .from("event_registration_items")
-        .select("registration_id, title_snapshot, quantity")
-        .in("registration_id", registrationIds)
-        .order("created_at", { ascending: true })
-    : { data: [], error: null };
-  if (itemRowsError) return failLoad("event_registration_items", itemRowsError);
-
-  const ticketQtyByReg = new Map<string, number>();
-  for (const r of regRows ?? []) {
-    ticketQtyByReg.set(r.id as string, r.quantity as number);
-  }
-  type ItemRow = {
-    registration_id: string;
-    title_snapshot: string | null;
-    quantity: number | null;
+    const { first, last } = nameOf(t.member_id, t.name);
+    return {
+      ...base,
+      last,
+      first,
+      email: t.email ?? "",
+      phone: t.phone_e164 ?? "",
+      isMember: t.member_id ? "yes" : "no",
+      waiver: t.waiver_accepted_at ? "signed" : "unsigned",
+      arrived: t.checked_in_at ? "yes" : "no",
+    };
   };
-  const ticketItemsByReg = new Map<string, ItemRow[]>();
-  for (const item of (itemRows ?? []) as ItemRow[]) {
-    const list = ticketItemsByReg.get(item.registration_id) ?? [];
-    list.push(item);
-    ticketItemsByReg.set(item.registration_id, list);
-  }
 
-  // Group a party together: order by the lead's creation time, lead first within
-  // the party, then its guests. Attendees with no registration (bulk-imported ops)
-  // fall back to their own created_at and interleave by time.
-  const partyAnchorByReg = new Map<string, string>();
-  for (const a of roster) {
-    if (a.is_lead && a.registration_id) partyAnchorByReg.set(a.registration_id, a.created_at);
+  const today = new Date().toISOString().slice(0, 10);
+
+  interface Party {
+    sortKey: { last: string; first: string; bookingRef: string };
+    rows: SheetRow[];
   }
-  const anchorOf = (a: AttendeeRow) =>
-    a.registration_id ? partyAnchorByReg.get(a.registration_id) ?? a.created_at : a.created_at;
-  const sorted = [...roster].sort((a, b) => {
-    const anchorA = anchorOf(a);
-    const anchorB = anchorOf(b);
-    if (anchorA !== anchorB) return anchorA < anchorB ? -1 : 1;
-    if (a.registration_id && a.registration_id === b.registration_id && a.is_lead !== b.is_lead) {
-      return a.is_lead ? -1 : 1;
+  const parties: Party[] = [];
+
+  for (const reg of regs) {
+    const bookingRef = reg.reference_code ?? "";
+    const quantity = reg.quantity ?? 0;
+    const live = liveByReg.get(reg.id) ?? [];
+    const leadTicket = live.find((t) => t.is_lead && isClaimed(t)) ?? null;
+
+    // Who the guests are a `guest of`: the claimed lead when there is one, else the
+    // purchaser on the registration. So this is never a dangling "guest of ", even on
+    // a party with no ticket rows at all.
+    const leadDisplayName = (leadTicket?.name ?? reg.name ?? "").trim();
+    const guestOf = leadDisplayName ? `guest of ${leadDisplayName}` : "";
+
+    // The type slots this party owns that no live ticket row accounts for, expanded in
+    // purchase order. Drained by the reconstructed lead and the padded guests below.
+    const unaccounted = new Map<string, number>();
+    for (const t of live) {
+      if (!t.ticket_type_id) continue;
+      unaccounted.set(t.ticket_type_id, (unaccounted.get(t.ticket_type_id) ?? 0) + 1);
     }
-    return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0;
-  });
+    const typePool: string[] = [];
+    for (const item of itemsByReg.get(reg.id) ?? []) {
+      const id = item.ticket_type_id;
+      const purchased = item.quantity ?? 0;
+      const covered = id ? Math.min(unaccounted.get(id) ?? 0, purchased) : 0;
+      if (id) unaccounted.set(id, (unaccounted.get(id) ?? 0) - covered);
+      const title = id ? typeTitle(id) : (item.title_snapshot ?? "").trim();
+      for (let i = 0; i < purchased - covered; i++) typePool.push(title);
+    }
+    const nextType = () => typePool.shift() ?? "";
 
-  // Event-wide totals block (top of the sheet): total tickets sold + a count per
-  // ticket type, computed from what was PURCHASED (registration items), so the
-  // catering numbers are right even before every guest has pre-registered.
-  const totalTickets = (regRows ?? []).reduce(
-    (sum, r) => sum + ((r.quantity as number) ?? 0),
-    0
-  );
-  const typeTotals = rollupTicketItems((itemRows ?? []) as ItemRow[]);
-  const totalsBlock = [
-    "TOTALS",
-    `Total tickets,${totalTickets}`,
-    ...typeTotals.map((l) => `${csvEscape(l.title)},${l.qty}`),
-    "",
-  ];
+    let leadRow: SheetRow;
+    if (leadTicket) {
+      leadRow = {
+        ...rowFromTicket(leadTicket, bookingRef, "lead"),
+        tickets: String(quantity),
+      };
+    } else {
+      // No claimed lead ticket. Rebuild the lead from the purchaser: a legacy party,
+      // minted before ticket rows existed, still knows who bought it — so the party is
+      // never anonymous or unsortable. waiver/arrived stay blank: there is no ticket
+      // row to read them from, and the sheet should not claim she is unsigned.
+      const { first, last } = nameOf(reg.member_id, reg.name);
+      leadRow = {
+        bookingRef,
+        last,
+        first,
+        ticketType: nextType(),
+        email: reg.email ?? "",
+        phone: reg.phone_e164 ?? "",
+        isMember: reg.member_id ? "yes" : "no",
+        partyLead: "lead",
+        tickets: String(quantity),
+        waiver: "",
+        arrived: "",
+      };
+    }
 
-  const headers = [
-    "booking_ref",
-    "last_name",
-    "first_name",
-    "email",
-    "phone",
-    "is_member",
-    "party_lead",
-    "tickets",
-    "party_registered",
-    "party_remaining",
-    "ticket_types",
-    "ticket_type",
-    "waiver",
-    "arrived",
-    "arrived_at",
-  ];
+    const guestTickets = live.filter((t) => t !== leadTicket);
+    const namedGuests = guestTickets
+      .filter(isClaimed)
+      .map((t) => rowFromTicket(t, bookingRef, guestOf))
+      .sort(bySurname);
+    const unnamedGuests = guestTickets
+      .filter((t) => !isClaimed(t))
+      .map((t) => rowFromTicket(t, bookingRef, guestOf));
 
-  const lines: string[] = [...totalsBlock, headers.join(",")];
+    // Pad up to the tickets actually sold. `live.length` already counts the claimed
+    // lead when there is one; a reconstructed lead occupies one of the party's lines
+    // too. A party whose live rows exceed its quantity pads by zero and is never
+    // truncated — losing a real ticket is worse than an over-long party block.
+    const emitted = live.length + (leadTicket ? 0 : 1);
+    const padCount = Math.max(0, quantity - emitted);
+    const padded: SheetRow[] = Array.from({ length: padCount }, () => ({
+      bookingRef,
+      last: "",
+      first: "",
+      ticketType: nextType(),
+      email: "",
+      phone: "",
+      isMember: "",
+      partyLead: guestOf,
+      tickets: "",
+      waiver: "",
+      arrived: "",
+    }));
 
-  for (const a of sorted) {
-    const partyLead = a.is_lead
-      ? "lead"
-      : a.registration_id
-      ? `guest of ${leadNameByReg.get(a.registration_id) ?? ""}`.trim()
-      : "";
-    const bookingRef = a.registration_id ? refByReg.get(a.registration_id) ?? "" : "";
-    // Tickets and pre-registration fill sit on the lead row only (the guests
-    // share the party's tickets, and a guest's own presence is its own fill).
-    const ticketRegId = a.is_lead ? a.registration_id : null;
-    const ticketCount = ticketRegId ? ticketQtyByReg.get(ticketRegId) ?? "" : "";
-    const ticketTypes = ticketRegId
-      ? formatTicketBreakdown(rollupTicketItems(ticketItemsByReg.get(ticketRegId) ?? []))
-      : "";
-    // "X of Y" pre-registered, plus how many guests are still outstanding.
-    const fill = ticketRegId ? partyFills.get(ticketRegId) : undefined;
-    const partyRegistered = fill ? `${fill.claimedCount} of ${fill.quantity}` : "";
-    const partyRemaining = fill ? fill.remaining : "";
-    // This person's own ticket type (asado meal), for the per-person catering split.
-    const ticketType = a.ticket_type_id
-      ? ticketTitleById.get(a.ticket_type_id) ?? ""
-      : "";
-    // Members carry an authoritative first/last; everyone else is split heuristically.
-    const { first, last } = (a.member_id && memberNameById.get(a.member_id)) || splitFullName(a.name);
-    lines.push(
-      [
-        csvEscape(bookingRef),
-        csvEscape(last),
-        csvEscape(first),
-        csvEscape(a.email),
-        csvEscape(a.phone_e164),
-        a.member_id ? "yes" : "no",
-        csvEscape(partyLead),
-        csvEscape(ticketCount),
-        csvEscape(partyRegistered),
-        csvEscape(partyRemaining),
-        csvEscape(ticketTypes),
-        csvEscape(ticketType),
-        a.waiver_accepted_at ? "signed" : "unsigned",
-        a.checked_in_at ? "yes" : "no",
-        a.checked_in_at ?? "",
-      ].join(",")
-    );
+    // On a current-generation event, minting should have produced these rows. Padding
+    // on a future event means real ticket rows are missing: the sheet stays correct,
+    // but the data underneath it does not, so say so rather than paper over it.
+    if (padCount > 0 && event.start_date && event.start_date >= today) {
+      console.warn("[admin/events/attendees-csv] padded a party on a future event", {
+        eventId,
+        registrationId: reg.id,
+        quantity,
+        liveRows: live.length,
+        padded: padCount,
+      });
+    }
+
+    parties.push({
+      sortKey: { last: leadRow.last, first: leadRow.first, bookingRef },
+      rows: [leadRow, ...namedGuests, ...unnamedGuests, ...padded],
+    });
   }
 
-  const csv = lines.join("\n");
+  // Ops/bulk-imported tickets belong to no registration. Each is its own one-person
+  // party, filed under its own surname among the leads.
+  for (const t of tickets) {
+    if (t.registration_id) continue;
+    const row = rowFromTicket(t, "", "");
+    parties.push({
+      sortKey: { last: row.last, first: row.first, bookingRef: "" },
+      rows: [row],
+    });
+  }
+
+  parties.sort((a, b) => bySurname(a.sortKey, b.sortKey));
+
+  const csv = [HEADERS.join(","), ...parties.flatMap((p) => p.rows.map(emit))].join("\n");
+
   const slug =
     event.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") ||
     event.id;
-  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const datePart = today.replace(/-/g, "");
   const filename = `attendees-${slug}-${datePart}.csv`;
 
   return new NextResponse(csv, {
