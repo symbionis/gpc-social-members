@@ -78,7 +78,89 @@ create unique index if not exists comp_guest_batches_registration_key_uniq
   on public.comp_guest_batches (registration_id, idempotency_key);
 
 -- ---------------------------------------------------------------------------
--- 3. create_comp_guest_list
+-- 3. claim_comp_guest_slot
+-- ---------------------------------------------------------------------------
+-- Name ONE guest onto ONE of their party's freshly minted 'issued' slots. Shared by
+-- create_comp_guest_list and add_comp_guests, which each carried a byte-identical copy
+-- of this block. p_caller is used ONLY as the RAISE prefix, so both keep their own error
+-- strings unchanged.
+--
+-- The caller has already locked the registration and resolved every ticket_type_id
+-- against the event, so this only parses the guest, takes a slot of the requested type,
+-- and names it.
+--
+-- is_child comes from the TYPE, never from client input — and is read in the SAME
+-- statement that takes the slot (UPDATE ... FROM event_ticket_types). The lookup used to
+-- be a separate SELECT per guest even though it is keyed only on the type, so a sponsor
+-- list of forty guests across three types re-ran it forty times while holding the
+-- registration lock.
+--
+-- The slot is taken with a deterministic order + FOR UPDATE, so two guests on the same
+-- type can never grab the same row. Naming the slot IN PLACE keeps the credential minted
+-- for it, so a later resend delivers a working QR. is_comp is what makes a contactless
+-- adult legal here (tickets_contact_present, widened above).
+create or replace function public.claim_comp_guest_slot(
+  p_registration_id uuid,
+  p_guest           jsonb,
+  p_caller          text
+)
+ returns void
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare
+  v_guest_name  text;
+  v_guest_email text;
+  v_guest_phone text;
+  v_guest_type  uuid;
+begin
+  v_guest_name  := nullif(trim(coalesce(p_guest->>'name', '')), '');
+  v_guest_email := nullif(lower(trim(coalesce(p_guest->>'email', ''))), '');
+  v_guest_phone := nullif(trim(coalesce(p_guest->>'phone_e164', '')), '');
+  v_guest_type  := (p_guest->>'ticket_type_id')::uuid;
+
+  IF v_guest_name IS NULL THEN
+    RAISE EXCEPTION '%: every guest requires a name', p_caller;
+  END IF;
+
+  UPDATE public.tickets t
+     SET slot_status = 'claimed',
+         name        = v_guest_name,
+         email       = v_guest_email,
+         phone_e164  = v_guest_phone,
+         is_comp     = true,
+         is_child    = coalesce(tt.is_child, false)
+    FROM public.event_ticket_types tt
+   WHERE tt.id = v_guest_type
+     AND t.id = (
+       SELECT s.id
+       FROM public.tickets s
+       WHERE s.registration_id = p_registration_id
+         AND s.slot_status = 'issued'
+         AND s.ticket_type_id = v_guest_type
+         AND s.released_at IS NULL
+       ORDER BY s.created_at, s.id
+       LIMIT 1
+       FOR UPDATE
+     );
+
+  -- Per-guest, and named: which guest ran the type out is what the admin has to fix.
+  IF NOT FOUND THEN
+    RAISE EXCEPTION
+      '%: no issued ticket available for type % (guest %)',
+      p_caller, v_guest_type, v_guest_name;
+  END IF;
+end;
+$function$;
+
+revoke all on function public.claim_comp_guest_slot(uuid, jsonb, text)
+  from public, anon, authenticated;
+grant execute on function public.claim_comp_guest_slot(uuid, jsonb, text)
+  to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 4. create_comp_guest_list
 -- ---------------------------------------------------------------------------
 -- Build a whole comp party in one transaction: registration + CHF 0 line items (one
 -- per DISTINCT ticket type) + the lead's ticket + one named, claimed, is_comp ticket
@@ -118,12 +200,6 @@ declare
   v_active_types    integer;
   v_items           jsonb;
   v_guest           jsonb;
-  v_guest_name      text;
-  v_guest_email     text;
-  v_guest_phone     text;
-  v_guest_type      uuid;
-  v_is_child        boolean;
-  v_ticket_id       uuid;
 begin
   v_lead_name  := nullif(trim(coalesce(p_lead->>'name', '')), '');
   v_lead_email := nullif(lower(trim(coalesce(p_lead->>'email', ''))), '');
@@ -225,47 +301,7 @@ begin
 
   FOR v_guest IN SELECT * FROM jsonb_array_elements(v_guests)
   LOOP
-    v_guest_name  := nullif(trim(coalesce(v_guest->>'name', '')), '');
-    v_guest_email := nullif(lower(trim(coalesce(v_guest->>'email', ''))), '');
-    v_guest_phone := nullif(trim(coalesce(v_guest->>'phone_e164', '')), '');
-    v_guest_type  := (v_guest->>'ticket_type_id')::uuid;
-
-    IF v_guest_name IS NULL THEN
-      RAISE EXCEPTION 'create_comp_guest_list: every guest requires a name';
-    END IF;
-
-    -- is_child comes from the TYPE, never from client input.
-    SELECT coalesce(t.is_child, false) INTO v_is_child
-    FROM public.event_ticket_types t WHERE t.id = v_guest_type;
-
-    -- Take one issued slot of the guest's type. Deterministic order + FOR UPDATE, so two
-    -- guests on the same type can never grab the same row.
-    SELECT t.id INTO v_ticket_id
-    FROM public.tickets t
-    WHERE t.registration_id = v_registration_id
-      AND t.slot_status = 'issued'
-      AND t.ticket_type_id = v_guest_type
-      AND t.released_at IS NULL
-    ORDER BY t.created_at, t.id
-    LIMIT 1
-    FOR UPDATE;
-
-    IF v_ticket_id IS NULL THEN
-      RAISE EXCEPTION
-        'create_comp_guest_list: no issued ticket available for type % (guest %)',
-        v_guest_type, v_guest_name;
-    END IF;
-
-    -- Name the slot in place: it keeps the credential minted for it, so a later resend
-    -- delivers a working QR. is_comp is what makes a contactless adult legal here.
-    UPDATE public.tickets
-       SET slot_status = 'claimed',
-           name        = v_guest_name,
-           email       = v_guest_email,
-           phone_e164  = v_guest_phone,
-           is_comp     = true,
-           is_child    = v_is_child
-     WHERE id = v_ticket_id;
+    PERFORM public.claim_comp_guest_slot(v_registration_id, v_guest, 'create_comp_guest_list');
   END LOOP;
 
   RETURN v_registration_id;
@@ -278,7 +314,7 @@ grant execute on function public.create_comp_guest_list(uuid, jsonb, jsonb, text
   to service_role;
 
 -- ---------------------------------------------------------------------------
--- 4. add_comp_guests
+-- 5. add_comp_guests
 -- ---------------------------------------------------------------------------
 -- Add guests to an EXISTING comp list: line items + quantity bump + mint + name, under
 -- the registration lock. Idempotent on (registration_id, idempotency_key): a replay
@@ -301,12 +337,6 @@ declare
   v_prior       integer;
   v_count       integer;
   v_guest       jsonb;
-  v_guest_name  text;
-  v_guest_email text;
-  v_guest_phone text;
-  v_guest_type  uuid;
-  v_is_child    boolean;
-  v_ticket_id   uuid;
 begin
   IF v_key IS NULL THEN
     RAISE EXCEPTION 'add_comp_guests: an idempotency key is required';
@@ -375,42 +405,7 @@ begin
 
     FOR v_guest IN SELECT * FROM jsonb_array_elements(v_guests)
     LOOP
-      v_guest_name  := nullif(trim(coalesce(v_guest->>'name', '')), '');
-      v_guest_email := nullif(lower(trim(coalesce(v_guest->>'email', ''))), '');
-      v_guest_phone := nullif(trim(coalesce(v_guest->>'phone_e164', '')), '');
-      v_guest_type  := (v_guest->>'ticket_type_id')::uuid;
-
-      IF v_guest_name IS NULL THEN
-        RAISE EXCEPTION 'add_comp_guests: every guest requires a name';
-      END IF;
-
-      SELECT coalesce(t.is_child, false) INTO v_is_child
-      FROM public.event_ticket_types t WHERE t.id = v_guest_type;
-
-      SELECT t.id INTO v_ticket_id
-      FROM public.tickets t
-      WHERE t.registration_id = p_registration_id
-        AND t.slot_status = 'issued'
-        AND t.ticket_type_id = v_guest_type
-        AND t.released_at IS NULL
-      ORDER BY t.created_at, t.id
-      LIMIT 1
-      FOR UPDATE;
-
-      IF v_ticket_id IS NULL THEN
-        RAISE EXCEPTION
-          'add_comp_guests: no issued ticket available for type % (guest %)',
-          v_guest_type, v_guest_name;
-      END IF;
-
-      UPDATE public.tickets
-         SET slot_status = 'claimed',
-             name        = v_guest_name,
-             email       = v_guest_email,
-             phone_e164  = v_guest_phone,
-             is_comp     = true,
-             is_child    = v_is_child
-       WHERE id = v_ticket_id;
+      PERFORM public.claim_comp_guest_slot(p_registration_id, v_guest, 'add_comp_guests');
     END LOOP;
   END IF;
 
@@ -429,7 +424,7 @@ grant execute on function public.add_comp_guests(uuid, text, jsonb)
   to service_role;
 
 -- ---------------------------------------------------------------------------
--- 5. remove_comp_guest
+-- 6. remove_comp_guest
 -- ---------------------------------------------------------------------------
 -- Removing a comp guest SHRINKS THE PARTY. This is why release_ticket is not reused
 -- (KTD5): release_ticket tombstones the row and then mints a fresh 'issued'

@@ -34,6 +34,14 @@ export interface CompGuestPayload {
 
 export type Validated<T> = { ok: true; value: T } | { ok: false; error: string };
 
+/**
+ * The exhaustive status remove_comp_guest returns in its jsonb payload — it refuses by
+ * status rather than by RAISE (see supabase/migrations/20260711120000_comp_guest_list.sql).
+ * Typed rather than read as a bare string so a typo in any literal on the reading side is
+ * a compile error, not a silent fall-through to the generic 404.
+ */
+export type RemoveCompGuestStatus = "not_found" | "is_lead" | "checked_in" | "ok";
+
 // --- Validation ------------------------------------------------------------------
 
 // Loose shape check only; the DB CHECK is the real guard. This exists so an obvious

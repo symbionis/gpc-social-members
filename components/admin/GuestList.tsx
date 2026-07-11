@@ -84,6 +84,19 @@ function newRow(ticketTypeId: string): DraftRow {
   return { key: `row-${rowSeq}`, name: "", email: "", ticketTypeId };
 }
 
+/**
+ * The one guest shape both write paths send (create a list, add to a list). A guest is
+ * name-only by design (R3), so an empty email is null — never "" — and the routes'
+ * parsers agree.
+ */
+function toGuestPayload(guest: { name: string; email: string; ticketTypeId: string }) {
+  return {
+    name: guest.name.trim(),
+    email: guest.email.trim() || null,
+    ticketTypeId: guest.ticketTypeId,
+  };
+}
+
 const inputClass =
   "px-3 py-2 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
 
@@ -194,11 +207,7 @@ export default function GuestList({
             email: leadEmail.trim(),
             ticketTypeId: leadTicketTypeId,
           },
-          guests: rows.map((r) => ({
-            name: r.name.trim(),
-            email: r.email.trim() || null,
-            ticketTypeId: r.ticketTypeId,
-          })),
+          guests: rows.map(toGuestPayload),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -246,13 +255,7 @@ export default function GuestList({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           idempotencyKey,
-          guests: [
-            {
-              name: state.name.trim(),
-              email: state.email.trim() || null,
-              ticketTypeId: state.ticketTypeId,
-            },
-          ],
+          guests: [toGuestPayload(state)],
         }),
       });
       const data = await res.json().catch(() => ({}));

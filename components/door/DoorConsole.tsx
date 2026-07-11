@@ -7,58 +7,24 @@ import { formatDateTime } from "@/lib/format";
 import PhoneInput from "@/components/common/PhoneInput";
 import WaiverText from "@/components/events/WaiverText";
 import type { WaiverLanguage } from "@/lib/events/waiver";
-
-interface DoorSlot {
-  attendeeId: string | null;
-  name: string;
-  email: string;
-  phone: string;
-  ticketTypeId: string | null;
-  ticketTypeTitle: string;
-  isChild: boolean;
-  isLead: boolean;
-  checkedIn: boolean;
-  arrivedAt: string | null;
-}
-
-interface DoorParty {
-  registrationId: string;
-  referenceCode: string | null;
-  leadName: string;
-  quantity: number;
-  claimedCount: number;
-  remaining: number;
-  complete: boolean;
-  selfRegToken: string | null;
-  slots: DoorSlot[];
-}
+// The shapes this console renders are the shapes buildDoorRoster produces — imported
+// from the module that produces them rather than restated here, so the two cannot
+// drift. Type-only, so lib/events/door-access's admin Supabase client is never pulled
+// into the client bundle.
+import type {
+  DoorSlot,
+  DoorParty,
+  DoorArrival,
+  DoorNotArrived,
+} from "@/lib/events/door-access";
 
 /**
- * One ticket as the arrivals / not-arrived lists show it. Contact fields ride along
- * because the arrivals search matches on them exactly as the Pre-registered tab's
- * does (R15) — they are never displayed.
+ * What the arrivals list renders: a ticket row (contact fields ride along because the
+ * arrivals search matches on them exactly as the Pre-registered tab's does (R15) — they
+ * are never displayed), plus a time when it has arrived. DoorNotArrived is the nullable-
+ * name variant: null is an unnamed open slot, rendered as "Open slot" (KTD8).
  */
-interface TicketRow {
-  id: string;
-  /** null for an unnamed open slot — rendered as "Open slot" (KTD8). */
-  name: string | null;
-  partyName: string;
-  referenceCode: string | null;
-  ticketTypeTitle: string;
-  isChild: boolean;
-  email: string;
-  phone: string;
-}
-
-interface Arrival extends TicketRow {
-  name: string;
-  arrivedAt: string;
-}
-
-type NotArrived = TicketRow;
-
-/** What the arrivals list renders: a ticket row, with a time when it has arrived. */
-type ListRow = TicketRow & { arrivedAt?: string };
+type ListRow = DoorNotArrived & { arrivedAt?: string };
 
 interface Props {
   eventId: string;
@@ -66,8 +32,8 @@ interface Props {
   eventDate: string;
   baseUrl: string;
   parties: DoorParty[];
-  arrivals: Arrival[];
-  notArrived: NotArrived[];
+  arrivals: DoorArrival[];
+  notArrived: DoorNotArrived[];
   arrivedCount: number;
   expectedCount: number;
   /** expected − arrived. Equals notArrived.length, because open slots are listed. */
@@ -96,7 +62,7 @@ function partyMatches(p: DoorParty, q: string): boolean {
   );
 }
 
-function ticketMatches(t: TicketRow, q: string): boolean {
+function ticketMatches(t: DoorNotArrived, q: string): boolean {
   return matchesQuery([t.name, t.partyName, t.referenceCode, t.email, t.phone], q);
 }
 

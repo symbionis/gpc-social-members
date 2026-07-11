@@ -48,7 +48,7 @@ export default async function ManageEventPage({
   const { data: registrations, error: registrationsError } = await supabase
     .from("event_registrations")
     .select(
-      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, self_reg_token, manage_token, ticket_email_sent_at, created_at"
+      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, self_reg_token, manage_token, ticket_email_sent_at, is_guest_list, created_at"
     )
     .eq("event_id", id)
     .in("status", ["paid", "free"])
@@ -240,44 +240,45 @@ export default async function ManageEventPage({
   });
 
   // The event's comp guest lists (is_guest_list registrations) with their tickets — the
-  // Guest list tab maintains these. Tombstoned tickets are excluded; unnamed `issued`
-  // slots cannot occur on a comp list (every seat is minted named), so no slot filter is
-  // needed beyond that.
-  const { data: guestListRows, error: guestListError } = await supabase
-    .from("event_registrations")
-    .select(
-      "id, name, email, reference_code, created_at, tickets(id, name, email, is_lead, ticket_type_id, checked_in_at, released_at, created_at)"
-    )
-    .eq("event_id", id)
-    .eq("is_guest_list", true)
-    .in("status", ["paid", "free"])
-    .order("created_at", { ascending: false });
-  if (guestListError) failLoad("guest lists", guestListError);
+  // Guest list tab maintains these. Both halves are already in hand: `registrations`
+  // holds every paid/free registration of this event, and `roster` holds every claimed,
+  // non-released ticket of it. Every comp-guest ticket is claimed (a comp seat is minted
+  // named), so `roster` already contains them — no second round trip, and tombstoned
+  // tickets are excluded by the roster query's released_at filter.
+  const rosterByReg = new Map<string, AttendeeRow[]>();
+  for (const a of roster) {
+    if (!a.registration_id) continue;
+    const list = rosterByReg.get(a.registration_id) ?? [];
+    list.push(a);
+    rosterByReg.set(a.registration_id, list);
+  }
 
-  const guestLists = (guestListRows ?? []).map((r) => ({
-    registrationId: r.id,
-    referenceCode: (r.reference_code as string | null) ?? null,
-    leadName: (r.name as string | null) ?? "",
-    leadEmail: (r.email as string | null) ?? "",
-    people: (r.tickets ?? [])
-      .filter((t) => t.released_at === null)
-      // Lead first, then the guests in the order they were added.
-      .sort((a, b) =>
-        a.is_lead === b.is_lead
-          ? a.created_at.localeCompare(b.created_at)
-          : a.is_lead
-            ? -1
-            : 1
-      )
-      .map((t) => ({
-        ticketId: t.id,
-        name: t.name ?? "",
-        email: t.email ?? null,
-        ticketTypeTitle: t.ticket_type_id ? ticketTitleById.get(t.ticket_type_id) ?? "" : "",
-        isLead: t.is_lead,
-        checkedIn: t.checked_in_at !== null,
-      })),
-  }));
+  const guestLists = (registrations ?? [])
+    .filter((r) => r.is_guest_list === true)
+    .map((r) => ({
+      registrationId: r.id,
+      referenceCode: (r.reference_code as string | null) ?? null,
+      leadName: (r.name as string | null) ?? "",
+      leadEmail: (r.email as string | null) ?? "",
+      people: (rosterByReg.get(r.id) ?? [])
+        // Lead first, then the guests in the order they were added.
+        .slice()
+        .sort((a, b) =>
+          a.is_lead === b.is_lead
+            ? a.created_at.localeCompare(b.created_at)
+            : a.is_lead
+              ? -1
+              : 1
+        )
+        .map((t) => ({
+          ticketId: t.id,
+          name: t.name ?? "",
+          email: t.email ?? null,
+          ticketTypeTitle: t.ticket_type_id ? ticketTitleById.get(t.ticket_type_id) ?? "" : "",
+          isLead: t.is_lead,
+          checkedIn: t.checked_in_at !== null,
+        })),
+    }));
 
   const total = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
   const seatCap = event.seat_cap as number | null;

@@ -1,13 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import type { createAdminClient } from "@/lib/supabase/admin";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
+import { assertAdmin, bad } from "@/lib/events/guest-list-auth";
 import {
   parseGuestsInput,
   suppliedTicketTypeIds,
   mapCompRpcError,
   mentionsTicketType,
   unresolvedTicketTypeIds,
+  type RemoveCompGuestStatus,
 } from "@/lib/events/guest-list";
 
 // Admin actions on an EXISTING comp guest list: add guests (POST) and remove one
@@ -18,34 +19,7 @@ import {
 //
 // No seat-cap gate (KTD6 / R11); `seats_used` is returned for display only. Nothing is
 // emailed (R8). Only handlers may be exported from this file — helpers live in
-// lib/events/guest-list.ts.
-
-const ALLOWED_ROLES = ["super_admin", "team_admin", "events_admin", "finance"];
-
-async function assertAdmin() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user?.email) return { error: "Unauthorized", status: 401 as const };
-
-  const adminClient = createAdminClient();
-  const { data: admins } = await adminClient
-    .from("admin_users")
-    .select("id, role")
-    .eq("email", user.email)
-    .limit(1);
-
-  const admin = admins?.[0];
-  if (!admin || !admin.id || !ALLOWED_ROLES.includes(admin.role)) {
-    return { error: "Forbidden", status: 403 as const };
-  }
-  return { adminClient, adminId: admin.id as string };
-}
-
-function bad(message: string, status = 400) {
-  return NextResponse.json({ error: message }, { status });
-}
+// lib/events/guest-list.ts and lib/events/guest-list-auth.ts.
 
 export async function POST(
   request: NextRequest,
@@ -188,7 +162,7 @@ export async function DELETE(
   // remove_comp_guest returns a jsonb status rather than raising, so the refusals are
   // read from the payload: the lead can never be removed, and a checked-in guest is
   // already through the door (R7).
-  const status = (result as { status?: string } | null)?.status ?? "";
+  const status = (result as { status?: RemoveCompGuestStatus } | null)?.status ?? "";
   if (status === "is_lead") return bad("The lead cannot be removed from their own guest list", 400);
   if (status === "checked_in") return bad("This guest has already checked in", 409);
   if (status !== "ok") return bad("Guest not found on this guest list", 404);
