@@ -7,30 +7,10 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.4"
   }
   public: {
     Tables: {
@@ -528,6 +508,7 @@ export type Database = {
           member_id: string | null
           name: string
           paid_at: string | null
+          pending_roster: Json | null
           phone_e164: string | null
           quantity: number
           reference_code: string
@@ -552,6 +533,7 @@ export type Database = {
           member_id?: string | null
           name: string
           paid_at?: string | null
+          pending_roster?: Json | null
           phone_e164?: string | null
           quantity: number
           reference_code: string
@@ -576,6 +558,7 @@ export type Database = {
           member_id?: string | null
           name?: string
           paid_at?: string | null
+          pending_roster?: Json | null
           phone_e164?: string | null
           quantity?: number
           reference_code?: string
@@ -713,6 +696,13 @@ export type Database = {
             columns: ["registration_id"]
             isOneToOne: false
             referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_ticket_type_conversions_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "event_attendees"
             referencedColumns: ["id"]
           },
           {
@@ -1509,6 +1499,7 @@ export type Database = {
           member_id: string | null
           name: string | null
           phone_e164: string | null
+          qr_email_sent_at: string | null
           registration_id: string | null
           released_at: string | null
           slot_status: string
@@ -1532,6 +1523,7 @@ export type Database = {
           member_id?: string | null
           name?: string | null
           phone_e164?: string | null
+          qr_email_sent_at?: string | null
           registration_id?: string | null
           released_at?: string | null
           slot_status?: string
@@ -1555,6 +1547,7 @@ export type Database = {
           member_id?: string | null
           name?: string | null
           phone_e164?: string | null
+          qr_email_sent_at?: string | null
           registration_id?: string | null
           released_at?: string | null
           slot_status?: string
@@ -1704,8 +1697,15 @@ export type Database = {
         Args: { p_names: string[]; p_token: string }
         Returns: Json
       }
+      apply_pending_roster: {
+        Args: { p_registration_id: string }
+        Returns: undefined
+      }
       apply_registration_topup: { Args: { p_topup_id: string }; Returns: Json }
-      apply_ticket_type_conversion: { Args: { p_conversion_id: string }; Returns: Json }
+      apply_ticket_type_conversion: {
+        Args: { p_conversion_id: string }
+        Returns: Json
+      }
       checkin_by_credential: {
         Args: {
           p_credential_token: string
@@ -1719,6 +1719,10 @@ export type Database = {
           p_waiver_version: string
         }
         Returns: Json
+      }
+      claim_comp_guest_slot: {
+        Args: { p_caller: string; p_guest: Json; p_registration_id: string }
+        Returns: undefined
       }
       claim_self_registration: {
         Args: {
@@ -1988,12 +1992,15 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
-      admin_role: ["super_admin", "team_admin", "originator", "events_admin", "finance"],
+      admin_role: [
+        "super_admin",
+        "team_admin",
+        "originator",
+        "events_admin",
+        "finance",
+      ],
       member_status: [
         "pending",
         "approved",
