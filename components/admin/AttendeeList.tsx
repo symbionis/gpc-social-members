@@ -35,6 +35,14 @@ interface Attendee {
   checkedIn: boolean;
   arrivedAt: string | null;
   createdAt: string;
+  /**
+   * A comped seat on a sponsor's guest list. Removing one SHRINKS the party, which is
+   * remove_comp_guest's job (the Guest list tab) — this tab's Remove button posts to the
+   * door's free-slot route (release_ticket), which would instead reopen the seat as a
+   * publicly self-fillable slot and never give it back (KTD5). So comp rows get no
+   * Remove button here at all.
+   */
+  isComp: boolean;
 }
 
 interface Props {
@@ -505,7 +513,7 @@ function RosterRow({
           )}
         </td>
         <td className="px-4 py-3 text-right">
-          {isGuest && !row.checkedIn && (
+          {isGuest && !row.checkedIn && !row.isComp && (
             <button
               type="button"
               onClick={() => onRemove(row.id, row.name)}

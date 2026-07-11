@@ -63,6 +63,13 @@ describe("POST /api/public/door/[id]/free-slot", () => {
     expect(res.status).toBe(409);
   });
 
+  it("refuses to free a comp guest's seat (release_ticket → is_comp)", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ status: "is_comp" }));
+    const res = await post({ attendeeId: "att-comp" });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/guest list/i);
+  });
+
   it("is idempotent for an already-released guest", async () => {
     mockedAdmin.mockReturnValue(adminClient({ status: "ok", already: true }));
     const res = await post({ attendeeId: "att-1" });

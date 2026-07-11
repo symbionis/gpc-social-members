@@ -48,7 +48,7 @@ export default async function ManageEventPage({
   const { data: registrations, error: registrationsError } = await supabase
     .from("event_registrations")
     .select(
-      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, self_reg_token, manage_token, ticket_email_sent_at, created_at"
+      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, self_reg_token, manage_token, ticket_email_sent_at, is_guest_list, created_at"
     )
     .eq("event_id", id)
     .in("status", ["paid", "free"])
@@ -89,7 +89,7 @@ export default async function ManageEventPage({
   const { data: attendeeRows, error: attendeeRowsError } = await supabase
     .from("tickets")
     .select(
-      "id, registration_id, member_id, name, email, phone_e164, is_lead, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, member_id, name, email, phone_e164, is_lead, ticket_type_id, is_comp, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", id)
     .eq("slot_status", "claimed")
@@ -106,6 +106,7 @@ export default async function ManageEventPage({
     phone_e164: string | null;
     is_lead: boolean;
     ticket_type_id: string | null;
+    is_comp: boolean;
     waiver_accepted_at: string | null;
     checked_in_at: string | null;
     created_at: string;
@@ -209,6 +210,10 @@ export default async function ManageEventPage({
       checkedIn: a.checked_in_at !== null,
       arrivedAt: a.checked_in_at,
       createdAt: a.created_at,
+      // A comped seat: the roster's Remove button (release_ticket) must never be offered
+      // for one — that would reopen the seat publicly instead of shrinking the party.
+      // The Guest list tab removes comp guests (remove_comp_guest).
+      isComp: Boolean(a.is_comp),
     };
   });
 
@@ -238,6 +243,53 @@ export default async function ManageEventPage({
       sold: soldByTicketType.get(typeId) ?? 0,
     };
   });
+
+  // The event's comp guest lists (is_guest_list registrations) with their tickets — the
+  // Guest list tab maintains these. Both halves are already in hand: `registrations`
+  // holds every paid/free registration of this event, and `roster` holds every claimed,
+  // non-released ticket of it. Every comp-guest ticket is claimed (a comp seat is minted
+  // named), so `roster` already contains them — no second round trip, and tombstoned
+  // tickets are excluded by the roster query's released_at filter.
+  const rosterByReg = new Map<string, AttendeeRow[]>();
+  for (const a of roster) {
+    if (!a.registration_id) continue;
+    const list = rosterByReg.get(a.registration_id) ?? [];
+    list.push(a);
+    rosterByReg.set(a.registration_id, list);
+  }
+
+  const guestLists = (registrations ?? [])
+    .filter((r) => r.is_guest_list === true)
+    .map((r) => ({
+      registrationId: r.id,
+      referenceCode: (r.reference_code as string | null) ?? null,
+      leadName: (r.name as string | null) ?? "",
+      leadEmail: (r.email as string | null) ?? "",
+      people: (rosterByReg.get(r.id) ?? [])
+        // COMP tickets only. A comp registration carries a manage_token and the public
+        // top-up route accepts status 'free', so the sponsor lead can buy REAL paid tickets
+        // onto this very registration. Those claimed rows are is_comp = false: listing them
+        // here would put a Remove button on a ticket the customer paid for (the DELETE route
+        // refuses them anyway — this is what keeps the button from ever appearing).
+        .filter((t) => t.is_comp)
+        // Lead first, then the guests in the order they were added.
+        .slice()
+        .sort((a, b) =>
+          a.is_lead === b.is_lead
+            ? a.created_at.localeCompare(b.created_at)
+            : a.is_lead
+              ? -1
+              : 1
+        )
+        .map((t) => ({
+          ticketId: t.id,
+          name: t.name ?? "",
+          email: t.email ?? null,
+          ticketTypeTitle: t.ticket_type_id ? ticketTitleById.get(t.ticket_type_id) ?? "" : "",
+          isLead: t.is_lead,
+          checkedIn: t.checked_in_at !== null,
+        })),
+    }));
 
   const total = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
   const seatCap = event.seat_cap as number | null;
@@ -304,6 +356,7 @@ export default async function ManageEventPage({
         inviteCode={(event.invite_code as string | null) ?? null}
         ticketTypes={ticketTypes}
         registrationEnabled={Boolean(event.registration_enabled)}
+        guestLists={guestLists}
       />
     </div>
   );

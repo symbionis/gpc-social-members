@@ -7,30 +7,10 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.4"
   }
   public: {
     Tables: {
@@ -240,6 +220,38 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      comp_guest_batches: {
+        Row: {
+          created_at: string
+          guests_added: number
+          id: string
+          idempotency_key: string
+          registration_id: string
+        }
+        Insert: {
+          created_at?: string
+          guests_added?: number
+          id?: string
+          idempotency_key: string
+          registration_id: string
+        }
+        Update: {
+          created_at?: string
+          guests_added?: number
+          id?: string
+          idempotency_key?: string
+          registration_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comp_guest_batches_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
             referencedColumns: ["id"]
           },
         ]
@@ -489,12 +501,14 @@ export type Database = {
           email: string
           event_id: string
           id: string
+          is_guest_list: boolean
           is_member: boolean
           lead_ticket_type_id: string | null
           manage_token: string | null
           member_id: string | null
           name: string
           paid_at: string | null
+          pending_roster: Json | null
           phone_e164: string | null
           quantity: number
           reference_code: string
@@ -512,12 +526,14 @@ export type Database = {
           email: string
           event_id: string
           id?: string
+          is_guest_list?: boolean
           is_member: boolean
           lead_ticket_type_id?: string | null
           manage_token?: string | null
           member_id?: string | null
           name: string
           paid_at?: string | null
+          pending_roster?: Json | null
           phone_e164?: string | null
           quantity: number
           reference_code: string
@@ -535,12 +551,14 @@ export type Database = {
           email?: string
           event_id?: string
           id?: string
+          is_guest_list?: boolean
           is_member?: boolean
           lead_ticket_type_id?: string | null
           manage_token?: string | null
           member_id?: string | null
           name?: string
           paid_at?: string | null
+          pending_roster?: Json | null
           phone_e164?: string | null
           quantity?: number
           reference_code?: string
@@ -678,6 +696,13 @@ export type Database = {
             columns: ["registration_id"]
             isOneToOne: false
             referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_ticket_type_conversions_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "event_attendees"
             referencedColumns: ["id"]
           },
           {
@@ -1467,12 +1492,14 @@ export type Database = {
           event_id: string
           id: string
           is_child: boolean
+          is_comp: boolean
           is_lead: boolean
           language: string | null
           marketing_consent: boolean | null
           member_id: string | null
           name: string | null
           phone_e164: string | null
+          qr_email_sent_at: string | null
           registration_id: string | null
           released_at: string | null
           slot_status: string
@@ -1489,12 +1516,14 @@ export type Database = {
           event_id: string
           id?: string
           is_child?: boolean
+          is_comp?: boolean
           is_lead?: boolean
           language?: string | null
           marketing_consent?: boolean | null
           member_id?: string | null
           name?: string | null
           phone_e164?: string | null
+          qr_email_sent_at?: string | null
           registration_id?: string | null
           released_at?: string | null
           slot_status?: string
@@ -1511,12 +1540,14 @@ export type Database = {
           event_id?: string
           id?: string
           is_child?: boolean
+          is_comp?: boolean
           is_lead?: boolean
           language?: string | null
           marketing_consent?: boolean | null
           member_id?: string | null
           name?: string | null
           phone_e164?: string | null
+          qr_email_sent_at?: string | null
           registration_id?: string | null
           released_at?: string | null
           slot_status?: string
@@ -1654,12 +1685,27 @@ export type Database = {
       }
     }
     Functions: {
+      add_comp_guests: {
+        Args: {
+          p_guests: Json
+          p_idempotency_key: string
+          p_registration_id: string
+        }
+        Returns: number
+      }
       add_self_registration_children: {
         Args: { p_names: string[]; p_token: string }
         Returns: Json
       }
+      apply_pending_roster: {
+        Args: { p_registration_id: string }
+        Returns: undefined
+      }
       apply_registration_topup: { Args: { p_topup_id: string }; Returns: Json }
-      apply_ticket_type_conversion: { Args: { p_conversion_id: string }; Returns: Json }
+      apply_ticket_type_conversion: {
+        Args: { p_conversion_id: string }
+        Returns: Json
+      }
       checkin_by_credential: {
         Args: {
           p_credential_token: string
@@ -1673,6 +1719,10 @@ export type Database = {
           p_waiver_version: string
         }
         Returns: Json
+      }
+      claim_comp_guest_slot: {
+        Args: { p_caller: string; p_guest: Json; p_registration_id: string }
+        Returns: undefined
       }
       claim_self_registration: {
         Args: {
@@ -1701,6 +1751,16 @@ export type Database = {
           p_waiver_version: string
         }
         Returns: Json
+      }
+      create_comp_guest_list: {
+        Args: {
+          p_converted_by: string
+          p_event_id: string
+          p_guests: Json
+          p_lead: Json
+          p_reference_code: string
+        }
+        Returns: string
       }
       create_event_registration: {
         Args: {
@@ -1763,6 +1823,10 @@ export type Database = {
       }
       release_ticket: {
         Args: { p_event_id: string; p_ticket_id: string }
+        Returns: Json
+      }
+      remove_comp_guest: {
+        Args: { p_registration_id: string; p_ticket_id: string }
         Returns: Json
       }
       seats_used: { Args: { eid: string }; Returns: number }
@@ -1928,12 +1992,15 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
-      admin_role: ["super_admin", "team_admin", "originator", "events_admin", "finance"],
+      admin_role: [
+        "super_admin",
+        "team_admin",
+        "originator",
+        "events_admin",
+        "finance",
+      ],
       member_status: [
         "pending",
         "approved",
