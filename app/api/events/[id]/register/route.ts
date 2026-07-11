@@ -15,6 +15,7 @@ import {
   fillRegistrationRoster,
   type RosterFillAttendee,
 } from "@/lib/events/roster";
+import { isFullName } from "@/lib/names";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_TICKETS = 20;
@@ -64,6 +65,10 @@ export async function POST(
     typeof body.leadTicketTypeId === "string" ? body.leadTicketTypeId.trim() : "";
 
   if (!name) return bad("name is required");
+  // A first AND a last name. The roster files people by surname, so a one-word name
+  // leaves that person with nothing to be filed under on the printed door sheet.
+  // Enforced here as well as in the form: this route is unauthenticated.
+  if (!isFullName(name)) return bad("Please enter both a first and last name");
   if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
 
   // Parse the basket: one { ticket_type_id, quantity } per chosen type.
@@ -211,6 +216,11 @@ export async function POST(
     const nm = typeof rec.name === "string" ? rec.name.trim() : "";
     if (!nm) return bad("Each named ticket needs a name", 400);
     if (nm.length > MAX_ATTENDEE_NAME) return bad("An attendee name is too long", 400);
+    // Adults need a surname to be filed under; a child is named by an adult and is
+    // often mononymous ("Emma"), so children keep the single-name path.
+    if (!t.is_child && !isFullName(nm)) {
+      return bad("Each named guest needs a first and last name", 400);
+    }
     let attEmail: string | null = null;
     if (!t.is_child) {
       const e = typeof rec.email === "string" ? rec.email.trim().toLowerCase() : "";

@@ -78,7 +78,8 @@ describe("U1 — unified ticket list + step 1 gating", () => {
 
 describe("U2 — attendee naming step", () => {
   async function goToStep2(user: ReturnType<typeof userEvent.setup>) {
-    await user.type(screen.getByLabelText("Full name"), "Frank");
+    await user.type(screen.getByLabelText("First name"), "Frank");
+    await user.type(screen.getByLabelText("Last name"), "Sykes");
     await user.type(screen.getByLabelText("Email"), "frank@x.ch");
     await user.click(screen.getByRole("button", { name: "Continue" }));
   }
@@ -91,7 +92,7 @@ describe("U2 — attendee naming step", () => {
     await goToStep2(user);
     expect(screen.getByText("Who's coming?")).toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument(); // no meal picker
-    expect(screen.getByLabelText(/Guest 1 name — Asado/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Guest 1 first name — Asado/)).toBeInTheDocument();
     expect(screen.queryByLabelText(/Guest 2 name/)).not.toBeInTheDocument();
   });
 
@@ -124,7 +125,8 @@ describe("U2 — attendee naming step", () => {
     await user.click(addBtn("Asado"));
     await user.click(addBtn("Asado"));
     await goToStep2(user);
-    await user.type(screen.getByLabelText(/Guest 1 name — Asado/), "Ana");
+    await user.type(screen.getByLabelText(/Guest 1 first name — Asado/), "Ana");
+    await user.type(screen.getByLabelText(/Guest 1 last name — Asado/), "Adult");
     await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
     expect(screen.getByText(/valid email for this guest/i)).toBeInTheDocument();
     expect(global.fetch).not.toHaveBeenCalled();
@@ -151,12 +153,13 @@ describe("U2 — attendee naming step", () => {
     await user.click(addBtn("Asado"));
     await user.click(addBtn("Asado")); // lead + 2 guests
     await goToStep2(user);
-    await user.type(screen.getByLabelText(/Guest 1 name — Asado/), "Ana");
+    await user.type(screen.getByLabelText(/Guest 1 first name — Asado/), "Ana");
+    await user.type(screen.getByLabelText(/Guest 1 last name — Asado/), "Adult");
     await user.type(screen.getByLabelText(/Guest 1 email — Asado/), "ana@x.ch");
     // Guest 2 left blank.
     await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
     const body = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.attendees).toEqual([{ ticket_type_id: "a", name: "Ana", email: "ana@x.ch" }]);
+    expect(body.attendees).toEqual([{ ticket_type_id: "a", name: "Ana Adult", email: "ana@x.ch" }]);
   });
 
   it("Back preserves quantities and typed guest names", async () => {
@@ -165,10 +168,11 @@ describe("U2 — attendee naming step", () => {
     await user.click(addBtn("Asado"));
     await user.click(addBtn("Asado"));
     await goToStep2(user);
-    await user.type(screen.getByLabelText(/Guest 1 name — Asado/), "Ana");
+    await user.type(screen.getByLabelText(/Guest 1 first name — Asado/), "Ana");
+    await user.type(screen.getByLabelText(/Guest 1 last name — Asado/), "Adult");
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByLabelText("Asado quantity")).toHaveTextContent("2");
     await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(screen.getByLabelText(/Guest 1 name — Asado/)).toHaveValue("Ana");
+    expect(screen.getByLabelText(/Guest 1 first name — Asado/)).toHaveValue("Ana");
   });
 });

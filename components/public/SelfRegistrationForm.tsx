@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { isFullName, joinName } from "@/lib/names";
 import PhoneInput from "@/components/common/PhoneInput";
 import { type WaiverLanguage } from "@/lib/events/waiver";
 import WaiverText from "@/components/events/WaiverText";
@@ -38,7 +39,8 @@ const STRINGS = {
     qrPolicy:
       "You’ll need your own QR code to get in — no QR code, no bracelet. Add your email and we’ll send it straight to you.",
     namePrompt: "Add yourself to the guest list",
-    nameLabel: "Full name",
+    firstNameLabel: "First name",
+    lastNameLabel: "Last name",
     emailLabel: "Email",
     phoneLabel: "Phone",
     or: "or",
@@ -65,7 +67,7 @@ const STRINGS = {
     fullBody:
       "All spots for this party have been taken. If you think this is a mistake, please contact the person who invited you.",
     invalidBody: "Something went wrong. Please try again.",
-    nameRequired: "Please enter your name.",
+    nameRequired: "Please enter your first and last name.",
     contactRequired: "Please enter a valid email or phone number.",
     doneTitle: "You’re on the list",
     doneSignedBody: "See you there! You’re all set.",
@@ -79,7 +81,8 @@ const STRINGS = {
     qrPolicy:
       "Vous aurez besoin de votre propre code QR pour entrer — pas de code QR, pas de bracelet. Ajoutez votre e-mail et nous vous l’enverrons directement.",
     namePrompt: "Ajoutez-vous à la liste des invités",
-    nameLabel: "Nom complet",
+    firstNameLabel: "Prénom",
+    lastNameLabel: "Nom de famille",
     emailLabel: "E-mail",
     phoneLabel: "Téléphone",
     or: "ou",
@@ -108,7 +111,7 @@ const STRINGS = {
     fullBody:
       "Toutes les places de ce groupe ont été prises. Si vous pensez qu’il s’agit d’une erreur, contactez la personne qui vous a invité.",
     invalidBody: "Une erreur s’est produite. Veuillez réessayer.",
-    nameRequired: "Veuillez saisir votre nom.",
+    nameRequired: "Veuillez saisir votre prénom et votre nom de famille.",
     contactRequired: "Veuillez saisir un e-mail ou un téléphone valide.",
     doneTitle: "Vous êtes inscrit",
     doneSignedBody: "À bientôt ! Tout est en ordre.",
@@ -131,7 +134,10 @@ export default function SelfRegistrationForm({
   childRemaining,
 }: Props) {
   const [lang, setLang] = useState<WaiverLanguage>("fr");
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  // The roster files guests by surname, so both halves are required (lib/names).
+  const name = joinName(firstName, lastName);
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState<string | null>(null);
   // Only a real choice (>1 available type) needs a selector; a single remaining type
@@ -224,7 +230,7 @@ export default function SelfRegistrationForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!name.trim()) return setError(t.nameRequired);
+    if (!isFullName(name)) return setError(t.nameRequired);
     const trimmedEmail = email.trim();
     const hasEmail = EMAIL_RE.test(trimmedEmail);
     if (!hasEmail && !phone) return setError(t.contactRequired);
@@ -313,18 +319,33 @@ export default function SelfRegistrationForm({
       <form onSubmit={handleSubmit} className="space-y-5">
         <p className="font-heading text-xl font-bold text-marine">{t.namePrompt}</p>
 
-        <div>
-          <label className="block text-sm font-body font-medium text-marine/70 mb-1.5">
-            {t.nameLabel}
-          </label>
-          <input
-            type="text"
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className={inputClass}
-            autoComplete="name"
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-body font-medium text-marine/70 mb-1.5">
+              {t.firstNameLabel}
+            </label>
+            <input
+              type="text"
+              required
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              className={inputClass}
+              autoComplete="given-name"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-body font-medium text-marine/70 mb-1.5">
+              {t.lastNameLabel}
+            </label>
+            <input
+              type="text"
+              required
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              className={inputClass}
+              autoComplete="family-name"
+            />
+          </div>
         </div>
 
         <div>
