@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import AttendeeList from "@/components/admin/AttendeeList";
-import RosterImport from "@/components/admin/RosterImport";
+import GuestList, { type GuestListEntry } from "@/components/admin/GuestList";
 import EventCheckInPanel from "@/components/admin/EventCheckInPanel";
 import EventCheckInSettings from "@/components/admin/EventCheckInSettings";
 import EventInviteLink, { type InviteTicketType } from "@/components/admin/EventInviteLink";
@@ -19,7 +19,7 @@ import type { ReminderEntry } from "@/lib/events/reminder-schedule";
 import type { TicketTypeLine } from "@/lib/events/tickets";
 import type { PartyDetail } from "@/lib/events/roster-fill";
 
-type Tab = "roster" | "checkin" | "import" | "messaging" | "waitlist" | "settings";
+type Tab = "roster" | "checkin" | "guestlist" | "messaging" | "waitlist" | "settings";
 
 /** One person on the roster (event_attendees, claimed slots). */
 interface Attendee {
@@ -80,6 +80,8 @@ interface Props {
   inviteCode: string | null;
   ticketTypes: InviteTicketType[];
   registrationEnabled: boolean;
+  /** The event's comp guest lists (is_guest_list registrations), for the Guest list tab. */
+  guestLists: GuestListEntry[];
 }
 
 export default function ManageEventTabs({
@@ -102,6 +104,7 @@ export default function ManageEventTabs({
   inviteCode,
   ticketTypes,
   registrationEnabled,
+  guestLists,
 }: Props) {
   const [tab, setTab] = useState<Tab>("roster");
   const router = useRouter();
@@ -184,8 +187,12 @@ export default function ManageEventTabs({
             Waitlist{visibleWaitlist.length > 0 ? ` (${visibleWaitlist.length})` : ""}
           </button>
         )}
-        <button type="button" className={tabClass(tab === "import")} onClick={() => setTab("import")}>
-          Import
+        <button
+          type="button"
+          className={tabClass(tab === "guestlist")}
+          onClick={() => setTab("guestlist")}
+        >
+          Guest list
         </button>
         <button type="button" className={tabClass(tab === "messaging")} onClick={() => setTab("messaging")}>
           Messaging
@@ -304,7 +311,16 @@ export default function ManageEventTabs({
         </div>
       )}
 
-      {tab === "import" && <RosterImport eventId={eventId} />}
+      {tab === "guestlist" && (
+        <GuestList
+          eventId={eventId}
+          ticketTypes={ticketTypes}
+          guestLists={guestLists}
+          hasSeatCap={hasSeatCap}
+          seatCap={seatCap}
+          total={total}
+        />
+      )}
 
       {tab === "messaging" && (
         <EventMessaging

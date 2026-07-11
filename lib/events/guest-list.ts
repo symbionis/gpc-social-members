@@ -223,8 +223,8 @@ export interface ParseGuestNamesResult {
  * and the rest is discarded. Blank lines are ignored. The admin picks the ticket type
  * per row in the UI afterwards, so nothing here resolves one.
  *
- * Mirrors lib/events/roster-import.ts (the parser of the Import tab this replaces):
- * pure, no DB, returns rows plus a per-line error list rather than throwing.
+ * Mirrors the parser of the retired Import tab it replaces: pure, no DB, returns rows
+ * plus a per-line error list rather than throwing.
  */
 export function parseGuestNames(text: string): ParseGuestNamesResult {
   const rows: ParsedGuestNameRow[] = [];

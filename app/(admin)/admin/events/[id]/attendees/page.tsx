@@ -239,6 +239,46 @@ export default async function ManageEventPage({
     };
   });
 
+  // The event's comp guest lists (is_guest_list registrations) with their tickets — the
+  // Guest list tab maintains these. Tombstoned tickets are excluded; unnamed `issued`
+  // slots cannot occur on a comp list (every seat is minted named), so no slot filter is
+  // needed beyond that.
+  const { data: guestListRows, error: guestListError } = await supabase
+    .from("event_registrations")
+    .select(
+      "id, name, email, reference_code, created_at, tickets(id, name, email, is_lead, ticket_type_id, checked_in_at, released_at, created_at)"
+    )
+    .eq("event_id", id)
+    .eq("is_guest_list", true)
+    .in("status", ["paid", "free"])
+    .order("created_at", { ascending: false });
+  if (guestListError) failLoad("guest lists", guestListError);
+
+  const guestLists = (guestListRows ?? []).map((r) => ({
+    registrationId: r.id,
+    referenceCode: (r.reference_code as string | null) ?? null,
+    leadName: (r.name as string | null) ?? "",
+    leadEmail: (r.email as string | null) ?? "",
+    people: (r.tickets ?? [])
+      .filter((t) => t.released_at === null)
+      // Lead first, then the guests in the order they were added.
+      .sort((a, b) =>
+        a.is_lead === b.is_lead
+          ? a.created_at.localeCompare(b.created_at)
+          : a.is_lead
+            ? -1
+            : 1
+      )
+      .map((t) => ({
+        ticketId: t.id,
+        name: t.name ?? "",
+        email: t.email ?? null,
+        ticketTypeTitle: t.ticket_type_id ? ticketTitleById.get(t.ticket_type_id) ?? "" : "",
+        isLead: t.is_lead,
+        checkedIn: t.checked_in_at !== null,
+      })),
+  }));
+
   const total = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
   const seatCap = event.seat_cap as number | null;
   const hasSeatCap = seatCap !== null && seatCap !== undefined;
@@ -304,6 +344,7 @@ export default async function ManageEventPage({
         inviteCode={(event.invite_code as string | null) ?? null}
         ticketTypes={ticketTypes}
         registrationEnabled={Boolean(event.registration_enabled)}
+        guestLists={guestLists}
       />
     </div>
   );
