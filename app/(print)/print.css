@@ -8,6 +8,158 @@
   margin: 0 auto;
 }
 
+/* --- Door roster -----------------------------------------------------------
+   The hand-check sheet. Its whole job is to be scannable at a door, in poor light,
+   by someone holding a pen: leads stand out, guests sit visibly underneath them, and
+   every ticket has a box to tick — including the ones nobody has been named on yet. */
+
+.roster {
+  width: 210mm; /* A4 */
+  max-width: 100%;
+  padding: 12mm;
+  margin: 0 auto;
+}
+
+.roster-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #052938;
+  margin-bottom: 0.5rem;
+}
+
+.roster-counts {
+  text-align: right;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* Catering counts. Ticket-type names are long ("Entrance + Traditional Asado Buffet
+   (Argentine Style BBQ)"), so they get a full-width wrapping row of their own rather
+   than being squeezed beside the title, where they ran off the edge of the page. */
+.roster-catering {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  list-style: none;
+  padding: 0 0 6px;
+  margin: 0 0 4px;
+  border-bottom: 1px solid #d7dde1;
+  font-size: 9pt;
+  color: #33505e;
+}
+.roster-catering strong {
+  color: #052938;
+}
+
+.roster-table {
+  width: 100%;
+  table-layout: fixed; /* long ticket names must wrap, not widen the sheet */
+  border-collapse: collapse;
+  font-size: 11pt;
+}
+
+.roster-table th.col-tick,
+.roster-table td.col-tick {
+  width: 20px;
+}
+.roster-table th.col-name,
+.roster-table td.col-name {
+  width: 32%;
+}
+.roster-table th.col-type,
+.roster-table td.col-type {
+  width: 34%;
+}
+.roster-table th.col-contact,
+.roster-table td.col-contact {
+  width: 17%;
+}
+.roster-table th.col-ref,
+.roster-table td.col-ref {
+  width: 15%;
+}
+
+.roster-table thead th {
+  text-align: left;
+  font-size: 8pt;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5a6b75;
+  padding: 4px 6px;
+  border-bottom: 1px solid #d7dde1;
+}
+
+.roster-table td {
+  padding: 5px 6px;
+  vertical-align: middle;
+}
+
+/* A hairline between parties — the visual grouping that makes a block one booking. */
+.roster-party + .roster-party td {
+  border-top: 1px solid #d7dde1;
+}
+
+/* The lead: uppercase surname, bold, marine. The anchor you scan for. */
+.roster-lead .name-lead {
+  font-weight: 700;
+  color: #052938;
+}
+.roster-lead .surname {
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* Guests sit indented under their lead, in a lighter weight. */
+.roster-guest .col-name {
+  padding-left: 22px;
+}
+.roster-guest .name-guest {
+  font-weight: 400;
+  color: #052938;
+}
+
+/* A ticket nobody has been named on: a rule to write the name on at the door. */
+.name-blank {
+  display: inline-block;
+  width: 58mm;
+  border-bottom: 1px dotted #97a4ac;
+  height: 1em;
+  vertical-align: baseline;
+}
+
+.tickbox {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid #052938;
+  border-radius: 2px;
+}
+
+.col-type {
+  color: #33505e;
+  font-size: 9.5pt;
+  line-height: 1.25;
+}
+.col-contact {
+  color: #5a6b75;
+  font-size: 9pt;
+  white-space: nowrap;
+}
+.col-ref {
+  text-align: right;
+  color: #5a6b75;
+  font-size: 9pt;
+  white-space: nowrap;
+}
+.col-ref .qty {
+  font-weight: 600;
+  color: #052938;
+}
+
 @media print {
   @page {
     size: A4;
@@ -31,6 +183,23 @@
 
   /* Keep an event from splitting across a page break. */
   .flyer-event {
+    break-inside: avoid;
+  }
+
+  .roster {
+    width: auto;
+    padding: 0;
+    margin: 0;
+  }
+
+  /* Column headings repeat at the top of every printed page. */
+  .roster-table thead {
+    display: table-header-group;
+  }
+
+  /* Never split a party across a page break — a guest stranded on the next page has
+     lost the lead they are a guest of, which is the one thing the sheet must not do. */
+  .roster-party {
     break-inside: avoid;
   }
 
