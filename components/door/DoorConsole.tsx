@@ -33,11 +33,32 @@ interface DoorParty {
   slots: DoorSlot[];
 }
 
-interface Arrival {
+/**
+ * One ticket as the arrivals / not-arrived lists show it. Contact fields ride along
+ * because the arrivals search matches on them exactly as the Pre-registered tab's
+ * does (R15) — they are never displayed.
+ */
+interface TicketRow {
   id: string;
+  /** null for an unnamed open slot — rendered as "Open slot" (KTD8). */
+  name: string | null;
+  partyName: string;
+  referenceCode: string | null;
+  ticketTypeTitle: string;
+  isChild: boolean;
+  email: string;
+  phone: string;
+}
+
+interface Arrival extends TicketRow {
   name: string;
   arrivedAt: string;
 }
+
+type NotArrived = TicketRow;
+
+/** What the arrivals list renders: a ticket row, with a time when it has arrived. */
+type ListRow = TicketRow & { arrivedAt?: string };
 
 interface Props {
   eventId: string;
@@ -46,8 +67,11 @@ interface Props {
   baseUrl: string;
   parties: DoorParty[];
   arrivals: Arrival[];
+  notArrived: NotArrived[];
   arrivedCount: number;
   expectedCount: number;
+  /** expected − arrived. Equals notArrived.length, because open slots are listed. */
+  outstandingCount: number;
 }
 
 const searchInputClass =
@@ -55,14 +79,25 @@ const searchInputClass =
 const fieldClass =
   "w-full px-4 py-3 rounded-lg border-2 border-marine/20 bg-white text-marine font-body text-base focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky disabled:bg-cream disabled:text-marine/60 disabled:cursor-not-allowed disabled:border-border";
 
-function partyMatches(p: DoorParty, q: string): boolean {
+/**
+ * The one matcher behind every search box on this screen (R15). The Pre-registered tab
+ * and both arrivals views feed it their own fields, so what a volunteer can search for
+ * cannot drift between tabs. `q` is already trimmed + lowercased.
+ */
+function matchesQuery(fields: (string | null)[], q: string): boolean {
   if (!q) return true;
-  const hay = [
-    p.leadName,
-    p.referenceCode ?? "",
-    ...p.slots.flatMap((s) => [s.name, s.email, s.phone]),
-  ];
-  return hay.some((s) => s && s.toLowerCase().includes(q));
+  return fields.some((s) => s && s.toLowerCase().includes(q));
+}
+
+function partyMatches(p: DoorParty, q: string): boolean {
+  return matchesQuery(
+    [p.leadName, p.referenceCode, ...p.slots.flatMap((s) => [s.name, s.email, s.phone])],
+    q
+  );
+}
+
+function ticketMatches(t: TicketRow, q: string): boolean {
+  return matchesQuery([t.name, t.partyName, t.referenceCode, t.email, t.phone], q);
 }
 
 export default function DoorConsole({
@@ -72,8 +107,10 @@ export default function DoorConsole({
   baseUrl,
   parties,
   arrivals,
+  notArrived,
   arrivedCount,
   expectedCount,
+  outstandingCount,
 }: Props) {
   const router = useRouter();
 
@@ -82,7 +119,11 @@ export default function DoorConsole({
     if (!baseUrl && typeof window !== "undefined") setOrigin(window.location.origin);
   }, [baseUrl]);
 
-  const [tab, setTab] = useState<"registered" | "checkedin">("registered");
+  const [tab, setTab] = useState<"registered" | "arrivals">("registered");
+  // Which list the Arrivals tab is showing. "Who is still missing?" lives under the
+  // same tab as "who is in", so a volunteer never has to look for it elsewhere.
+  const [view, setView] = useState<"arrived" | "notarrived">("arrived");
+  // One query behind both tabs, so a search carries across a tab switch.
   const [query, setQuery] = useState("");
   const [shownQr, setShownQr] = useState<Set<string>>(new Set());
   // Per-party resend status (keyed by registrationId): in-flight, success, or error.
@@ -98,6 +139,20 @@ export default function DoorConsole({
 
   const q = query.trim().toLowerCase();
   const visible = useMemo(() => parties.filter((p) => partyMatches(p, q)), [parties, q]);
+  const visibleArrivals = useMemo(
+    () => arrivals.filter((a) => ticketMatches(a, q)),
+    [arrivals, q]
+  );
+  const visibleNotArrived = useMemo(
+    () => notArrived.filter((a) => ticketMatches(a, q)),
+    [notArrived, q]
+  );
+  // Both views draw the same row shape; only the arrived one carries a time.
+  const rows: ListRow[] = view === "arrived" ? visibleArrivals : visibleNotArrived;
+  // The same query against the other view — a guest searched for from the wrong side
+  // gets a tappable jump instead of a dead end.
+  const otherRows: ListRow[] = view === "arrived" ? visibleNotArrived : visibleArrivals;
+  const otherLabel = view === "arrived" ? "Not arrived" : "Arrived";
 
   function toggleQr(id: string) {
     setShownQr((prev) => {
@@ -174,10 +229,10 @@ export default function DoorConsole({
         </button>
         <button
           type="button"
-          onClick={() => setTab("checkedin")}
-          className={tabClass(tab === "checkedin")}
+          onClick={() => setTab("arrivals")}
+          className={tabClass(tab === "arrivals")}
         >
-          Checked in{arrivedCount > 0 ? ` (${arrivedCount})` : ""}
+          Arrivals{arrivedCount > 0 ? ` (${arrivedCount})` : ""}
         </button>
       </div>
 
@@ -311,45 +366,142 @@ export default function DoorConsole({
         </div>
       )}
 
-      {tab === "checkedin" && (
-        <div className="rounded-xl border border-border bg-white p-5">
-          <div className="flex items-baseline justify-between gap-3 mb-3">
-            <p className="font-body text-sm text-marine/70">
-              <span className="font-heading text-2xl font-bold text-marine">
-                {arrivedCount}
-              </span>{" "}
-              / {expectedCount} arrived
-            </p>
-            <div className="flex items-center gap-3">
-              <span className="font-body text-sm text-marine/60">{pct}%</span>
-              <button
-                type="button"
-                onClick={() => router.refresh()}
-                className="text-xs font-body text-marine hover:underline cursor-pointer"
-              >
-                Refresh
-              </button>
+      {tab === "arrivals" && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border bg-white p-5">
+            <div className="flex items-baseline justify-between gap-3 mb-3">
+              {/* Counts reconcile exactly: outstanding === the not-arrived list's
+                  length, because that list renders open slots too (KTD8). */}
+              <p data-testid="arrival-counts" className="font-body text-sm text-marine/70">
+                <span className="font-heading text-2xl font-bold text-marine">
+                  {arrivedCount}
+                </span>{" "}
+                arrived · {expectedCount} expected · {outstandingCount} outstanding
+              </p>
+              <div className="flex items-center gap-3">
+                <span className="font-body text-sm text-marine/60">{pct}%</span>
+                <button
+                  type="button"
+                  onClick={() => router.refresh()}
+                  className="text-xs font-body text-marine hover:underline cursor-pointer"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+            <div className="h-2 w-full rounded-full bg-cream overflow-hidden">
+              <div className="h-full bg-marine transition-all" style={{ width: `${pct}%` }} />
             </div>
           </div>
-          <div className="h-2 w-full rounded-full bg-cream overflow-hidden">
-            <div className="h-full bg-marine transition-all" style={{ width: `${pct}%` }} />
+
+          <div className="flex border-b border-border">
+            <button
+              type="button"
+              onClick={() => setView("arrived")}
+              className={tabClass(view === "arrived")}
+            >
+              Arrived ({arrivedCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("notarrived")}
+              className={tabClass(view === "notarrived")}
+            >
+              Not arrived ({outstandingCount})
+            </button>
           </div>
 
-          {arrivals.length > 0 && (
-            <ul className="mt-4 divide-y divide-border">
-              {arrivals.slice(0, 8).map((a) => (
-                <li key={a.id} className="flex items-center justify-between gap-3 py-2">
-                  <span className="font-body text-sm text-marine">{a.name || "—"}</span>
-                  <span className="font-body text-xs text-marine/50">
-                    {formatDateTime(a.arrivedAt)}
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search a guest or party"
+            className={searchInputClass}
+            autoComplete="off"
+          />
+
+          {rows.length === 0 ? (
+            <div className="font-body text-base text-marine/70 bg-white border border-border rounded-xl px-4 py-4">
+              {q && otherRows.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setView(view === "arrived" ? "notarrived" : "arrived")}
+                  className="w-full text-left cursor-pointer"
+                >
+                  <span className="text-marine">
+                    {view === "arrived"
+                      ? "Not in arrivals."
+                      : "Not in the not-arrived list."}
+                  </span>{" "}
+                  <span className="font-semibold text-marine underline">
+                    {otherRows.length} {otherRows.length === 1 ? "match" : "matches"} in{" "}
+                    {otherLabel}
                   </span>
-                </li>
+                </button>
+              ) : q ? (
+                "No match. Ask the guest which name the booking is under, or send them to the welcome desk."
+              ) : view === "arrived" ? (
+                "No arrivals yet."
+              ) : (
+                "Everyone expected is in."
+              )}
+            </div>
+          ) : (
+            <ul
+              data-testid="arrivals-list"
+              className="divide-y divide-border bg-white border border-border rounded-xl px-4"
+            >
+              {rows.map((row) => (
+                <TicketRowItem key={row.id} row={row} />
               ))}
             </ul>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * One arrivals-list row. Two lines, never more: the volunteer reads this on a phone in
+ * the dark, and the shell caps at max-w-2xl. Line 1 is the guest name with the arrival
+ * time right-aligned; line 2 is the party (truncated) plus the ticket-type and child
+ * pills. An unnamed open slot still shows its party and type so the door knows what it
+ * is holding.
+ */
+function TicketRowItem({ row }: { row: ListRow }) {
+  return (
+    <li className="py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <span
+          className={`min-w-0 truncate font-body text-lg ${
+            row.name ? "text-marine" : "italic text-marine/50"
+          }`}
+        >
+          {row.name || "Open slot"}
+        </span>
+        {row.arrivedAt && (
+          <span className="shrink-0 font-body text-xs text-marine/50">
+            {formatDateTime(row.arrivedAt)}
+          </span>
+        )}
+      </div>
+      <div className="mt-1 flex min-w-0 items-center gap-2">
+        <span className="min-w-0 truncate font-body text-sm text-marine/60">
+          {row.partyName || "—"}
+        </span>
+        {row.ticketTypeTitle && (
+          <span className="shrink-0 px-2 py-0.5 rounded-full text-[11px] font-body bg-marine/10 text-marine">
+            {row.ticketTypeTitle}
+          </span>
+        )}
+        {row.isChild && (
+          <span className="shrink-0 px-2 py-0.5 rounded-full text-[11px] font-body bg-purple-100 text-purple-800">
+            child
+          </span>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -373,10 +525,17 @@ function SlotRow({
   const [language, setLanguage] = useState<WaiverLanguage>("en");
   const [marketingConsent, setMarketingConsent] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // New open slots are editable immediately; claimed (live) rows start locked.
-  const [editing, setEditing] = useState(slot.attendeeId === null);
 
   const isOpen = slot.attendeeId === null;
+  // R13. A claimed adult holding neither email nor phone — a name-only comp guest —
+  // would otherwise be admitted with no contact at all unless the volunteer thought to
+  // tap "Edit details" first. Open its fields so contact is captured as part of the
+  // check-in, not behind an extra tap. (Children are name-only by design.)
+  const needsContact = !isOpen && !slot.isChild && !slot.email && !slot.phone;
+  // New open slots are editable immediately; claimed (live) rows start locked, unless
+  // they are missing the contact we came here to capture.
+  const [editing, setEditing] = useState(isOpen || needsContact);
+
   const locked = !editing;
   const dirty = isOpen
     ? name.trim() !== ""
@@ -579,6 +738,12 @@ function SlotRow({
         )}
       </div>
 
+      {needsContact && (
+        <p className="mt-2 font-body text-sm text-amber-700">
+          No contact on file — take an email or phone as you check them in.
+        </p>
+      )}
+
       {error && (
         <p className="mt-2 text-sm font-body text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
           {error}
@@ -651,7 +816,9 @@ function SlotRow({
               {saving ? "Saving…" : isOpen ? "Save guest" : "Save changes"}
             </button>
           )}
-          {!isOpen && (
+          {/* No Cancel on a contactless claimed slot: re-locking it is exactly the
+              state R13 exists to prevent. */}
+          {!isOpen && !needsContact && (
             <button
               type="button"
               onClick={() => {

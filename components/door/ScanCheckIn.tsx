@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { useRouter } from "next/navigation";
 import CredentialScanner from "./CredentialScanner";
 import PhoneInput from "@/components/common/PhoneInput";
 import WaiverText from "@/components/events/WaiverText";
@@ -53,6 +54,7 @@ function timeLabel(iso?: string | null): string {
 }
 
 export default function ScanCheckIn({ eventId }: { eventId: string }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("scan");
   const [token, setToken] = useState("");
@@ -111,13 +113,18 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
         setResult(data);
         if (data.status === "needs_name") setPhase("needs_name");
         else if (data.status === "needs_waiver") setPhase("needs_waiver");
-        else setPhase("result");
+        else {
+          setPhase("result");
+          // A scan is a check-in: pull the roster and the arrivals counts forward now
+          // rather than leaving them stale until the console's 20s poll fires.
+          if (data.status === "checked_in") router.refresh();
+        }
       } catch {
         setError("Could not reach the server. Try again.");
         setPhase("scan");
       }
     },
-    [eventId]
+    [eventId, router]
   );
 
   const onDecode = useCallback(
