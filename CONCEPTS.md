@@ -22,6 +22,11 @@ An individual admission slot belonging to a Registration — one per attendee. A
 ### Lead
 The person who created a Registration and manages it afterward — adding Tickets, assigning guests — through a private manage link. The Lead normally holds one of the Registration's Tickets.
 
+### Guest List
+A sponsor's comp list, held as a zero-price Registration — a Lead plus any number of named guests, each with a Ticket Type. Built by an admin, never bought.
+
+Guests are name-only: contact details and waiver are collected at the door on check-in. Unlike a bought Registration, a Guest List has no quantity ceiling — an admin adds or removes guests at any time, and each addition mints a Ticket. Its guests consume seats and may take an Event past its cap. Because a Guest List is an ordinary Registration underneath, the Door Console sees it as a normal party with no special handling.
+
 ### Top-up
 Adding further Tickets to an existing confirmed Registration after booking — the "Buy more tickets" flow. A Top-up is priced at the Registration's original Rate Class and, when it costs money, runs its own checkout before the new Tickets are minted.
 
