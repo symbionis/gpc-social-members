@@ -244,6 +244,38 @@ export type Database = {
           },
         ]
       }
+      comp_guest_batches: {
+        Row: {
+          created_at: string
+          guests_added: number
+          id: string
+          idempotency_key: string
+          registration_id: string
+        }
+        Insert: {
+          created_at?: string
+          guests_added?: number
+          id?: string
+          idempotency_key: string
+          registration_id: string
+        }
+        Update: {
+          created_at?: string
+          guests_added?: number
+          id?: string
+          idempotency_key?: string
+          registration_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comp_guest_batches_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "event_registrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cron_job_runs: {
         Row: {
           finished_at: string | null
@@ -489,6 +521,7 @@ export type Database = {
           email: string
           event_id: string
           id: string
+          is_guest_list: boolean
           is_member: boolean
           lead_ticket_type_id: string | null
           manage_token: string | null
@@ -512,6 +545,7 @@ export type Database = {
           email: string
           event_id: string
           id?: string
+          is_guest_list?: boolean
           is_member: boolean
           lead_ticket_type_id?: string | null
           manage_token?: string | null
@@ -535,6 +569,7 @@ export type Database = {
           email?: string
           event_id?: string
           id?: string
+          is_guest_list?: boolean
           is_member?: boolean
           lead_ticket_type_id?: string | null
           manage_token?: string | null
@@ -1467,6 +1502,7 @@ export type Database = {
           event_id: string
           id: string
           is_child: boolean
+          is_comp: boolean
           is_lead: boolean
           language: string | null
           marketing_consent: boolean | null
@@ -1489,6 +1525,7 @@ export type Database = {
           event_id: string
           id?: string
           is_child?: boolean
+          is_comp?: boolean
           is_lead?: boolean
           language?: string | null
           marketing_consent?: boolean | null
@@ -1511,6 +1548,7 @@ export type Database = {
           event_id?: string
           id?: string
           is_child?: boolean
+          is_comp?: boolean
           is_lead?: boolean
           language?: string | null
           marketing_consent?: boolean | null
@@ -1566,6 +1604,7 @@ export type Database = {
           event_id: string | null
           id: string | null
           is_child: boolean | null
+          is_comp: boolean | null
           is_lead: boolean | null
           language: string | null
           marketing_consent: boolean | null
@@ -1587,6 +1626,7 @@ export type Database = {
           event_id?: string | null
           id?: string | null
           is_child?: boolean | null
+          is_comp?: boolean | null
           is_lead?: boolean | null
           language?: string | null
           marketing_consent?: boolean | null
@@ -1608,6 +1648,7 @@ export type Database = {
           event_id?: string | null
           id?: string | null
           is_child?: boolean | null
+          is_comp?: boolean | null
           is_lead?: boolean | null
           language?: string | null
           marketing_consent?: boolean | null
@@ -1654,6 +1695,14 @@ export type Database = {
       }
     }
     Functions: {
+      add_comp_guests: {
+        Args: {
+          p_guests: Json
+          p_idempotency_key: string
+          p_registration_id: string
+        }
+        Returns: number
+      }
       add_self_registration_children: {
         Args: { p_names: string[]; p_token: string }
         Returns: Json
@@ -1701,6 +1750,16 @@ export type Database = {
           p_waiver_version: string
         }
         Returns: Json
+      }
+      create_comp_guest_list: {
+        Args: {
+          p_converted_by: string
+          p_event_id: string
+          p_guests: Json
+          p_lead: Json
+          p_reference_code: string
+        }
+        Returns: string
       }
       create_event_registration: {
         Args: {
@@ -1763,6 +1822,10 @@ export type Database = {
       }
       release_ticket: {
         Args: { p_event_id: string; p_ticket_id: string }
+        Returns: Json
+      }
+      remove_comp_guest: {
+        Args: { p_registration_id: string; p_ticket_id: string }
         Returns: Json
       }
       seats_used: { Args: { eid: string }; Returns: number }
