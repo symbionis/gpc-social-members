@@ -253,11 +253,13 @@ Replace `groups parties by their lead's creation time regardless of input order`
 
 ---
 
-## Open Questions
+## Resolved Decisions
 
-- **Does the sheet index parties or people?** The surname sort files each *party* under its lead. A named guest who arrives alone (Giulia Bianchi in the sample above) is filed under `Andersson`, so a door staffer who does not know she booked under Lars still scans for her. A printed sheet cannot be ordered by party and by person at once, and R3's party blocks are what make the blank guest rows tickable — so this is a real trade-off, not an oversight. U3 alphabetizes named guests within their party to soften it. If lone-guest lookup turns out to be the common case, the answer is a second sheet (or a second tab) sorted flat by every attendee's own surname, not a change to this one.
-- **Should the export be audit-logged?** This change makes the sheet the most complete single dump of member and guest names, emails, and phones the club produces. The route already knows the admin's identity in `assertAdmin`; one `console.info` on success would give an after-the-fact answer to "who exported this". Cheap, but a deliberate choice rather than an obvious one.
-- **Should padded lines be visually marked?** A padded row has no ticket row and therefore no QR credential, which sits awkwardly against the "no QR, no bracelet" door policy. Is a padded printed line sufficient to admit someone, or should it be flagged for a manual check against the booking record?
+These three were carried as open questions during planning and were settled by the owner on 2026-07-11. All three resolve to *no change* — the shipped shape is correct.
+
+- **The sheet indexes parties, not people — and that is right.** The surname sort files each *party* under its lead, so a named guest is found under their lead's surname rather than their own. **Decision: keep it.** Guests know who invited them, so a lone arrival can name their lead and staff go straight to that block. A printed sheet cannot be ordered by party and by person at once, and R3's party blocks are what make the blank guest rows tickable. No second flat A–Z sheet is needed. (U3 still alphabetizes named guests within their party, which costs nothing.)
+- **No audit log on the export.** The route knows the admin's identity and could log one line per export. **Decision: no.** Not warranted for the club's current posture; revisit if the roster is ever handled outside the committee.
+- **Padded lines are not visually marked.** A padded row has no ticket row and therefore no QR credential, which sits against the "no QR, no bracelet" policy. **Decision: no marking.** The printed sheet is the backup precisely for the case where the scanner has no record — flagging those lines would undercut the reason the sheet exists.
 
 ---
 
