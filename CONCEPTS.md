@@ -10,6 +10,8 @@ A scheduled club happening that members and guests can register to attend. An Ev
 ### Ticket Type
 A named, separately-priced category of admission for an Event — for example a standard adult ticket, a children's ticket, or a no-meal option. Each Ticket Type carries a distinct price for every Rate Class, and may or may not consume a seat against the Event's capacity.
 
+A Ticket Type is either **enabled** or **disabled**. A disabled Type is offered on no self-serve sale surface — it disappears from the Event pages, registration, waitlist signup, Top-up, and as a Conversion target — while everyone already holding one keeps a fully working Ticket, and staff may still issue it at the Door Console. Disabling is reversible, and an Event must always keep at least one enabled Type. A Type removed while still referenced by a Registration or waitlist entry becomes disabled rather than deleted, so "disabled" and "removed but preserved for history" are the same state.
+
 ### Registration
 A confirmed booking made by one Lead for one Event, holding one or more Tickets. A Registration records whether the Lead booked as a member and the rate it was priced at. At most one active Registration exists per person per Event.
 
