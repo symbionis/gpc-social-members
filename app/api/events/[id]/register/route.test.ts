@@ -548,6 +548,19 @@ describe("U2 — shared email across a household (distinct-email guard removed, 
     expect(cfg.capturedClaims![0]).toMatchObject({ p_email: "lead@x.ch" });
   });
 
+  it("covers R1 bypass: 400s two attendees with the same name AND email (would collapse in claim_ticket)", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 3 }],
+      attendees: [
+        { ticket_type_id: "t1", name: "Sam Twin", email: "twins@x.ch" },
+        { ticket_type_id: "t1", name: "Sam  TWIN ", email: "twins@x.ch" }, // case + whitespace variant
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(cfg.capturedClaims).toBeUndefined();
+  });
+
   it("no longer returns the removed distinct-email error message", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
     const res = await publicPost(cfg, {

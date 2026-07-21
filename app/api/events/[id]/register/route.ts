@@ -15,7 +15,7 @@ import {
   fillRegistrationRoster,
   type RosterFillAttendee,
 } from "@/lib/events/roster";
-import { isFullName } from "@/lib/names";
+import { isFullName, normalizeName } from "@/lib/names";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_TICKETS = 20;
@@ -214,6 +214,13 @@ export async function POST(
   }
   const normalizedAttendees: RosterFillAttendee[] = [];
   const namedPerType = new Map<string, number>();
+  // Two attendees that normalize to the same (name, email) would collapse into one
+  // ticket at claim time — claim_ticket's replay guard keys on the same case-folded,
+  // whitespace-collapsed name plus contact — silently leaving the sibling slot
+  // unnamed and defeating mandatory naming (R1). A shared email is fine (households,
+  // R2); the same person named twice is not. Reject the exact-duplicate loudly rather
+  // than drop a guest quietly. The key mirrors claim_ticket's normalization.
+  const seenIdentities = new Set<string>();
   for (const raw of rawAttendees) {
     const rec = (raw ?? {}) as { ticket_type_id?: unknown; name?: unknown; email?: unknown };
     const ttId = typeof rec.ticket_type_id === "string" ? rec.ticket_type_id : "";
@@ -229,6 +236,11 @@ export async function POST(
     const e = typeof rec.email === "string" ? rec.email.trim().toLowerCase() : "";
     if (!e || !EMAIL_RE.test(e)) return bad("Each named guest needs a valid email", 400);
     if (e.length > MAX_ATTENDEE_EMAIL) return bad("An attendee email is too long", 400);
+    const identity = `${normalizeName(nm).toLowerCase()}|${e}`;
+    if (seenIdentities.has(identity)) {
+      return bad("Two guests have the same name and email — give each guest a distinct name", 400);
+    }
+    seenIdentities.add(identity);
     namedPerType.set(ttId, (namedPerType.get(ttId) ?? 0) + 1);
     normalizedAttendees.push({ ticket_type_id: ttId, name: nm, email: e });
   }
