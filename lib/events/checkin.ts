@@ -4,11 +4,12 @@
 // docs/plans/2026-06-22-001-feat-event-ticket-qr-credentials-plan.md (U7).
 //
 // All check-in now flows through the staffed door console: a scan resolves a ticket
-// credential (checkInByCredential), a lost-QR guest is checked in by id
-// (recordAttendeeCheckin), and a party's children are checked in alongside an adult
-// (checkInChildren). The ticket row is the per-person source of truth for identity,
-// waiver acceptance, and arrival. The legacy phone/email self-service matching was
-// retired with the public kiosk (FEAT-41 / U8).
+// credential (checkInByCredential) and a lost-QR guest is checked in by id
+// (recordAttendeeCheckin). Every ticket carries a credential regardless of type, so the
+// former child-only bypass (checkInChildren) is retired — former child tickets check in
+// via their credential like everyone else. The ticket row is the per-person source of
+// truth for identity, waiver acceptance, and arrival. The legacy phone/email
+// self-service matching was retired with the public kiosk (FEAT-41 / U8).
 
 import { WAIVER_VERSION, type WaiverLanguage } from "@/lib/events/waiver";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -169,51 +170,4 @@ export async function checkInByCredential(
   });
   if (error) throw error;
   return (data ?? { status: "not_recognised" }) as CredentialCheckinResult;
-}
-
-/**
- * Mark the given children arrived (kiosk "checking in with me" / door fallback).
- * Strictly scoped: only is_child rows in this event that aren't already checked in.
- * Children skip the waiver, so this only stamps the arrival. Returns the count
- * actually flipped (a row already arrived or not a child is silently skipped).
- */
-export async function checkInChildren(
-  eventId: string,
-  attendeeIds: string[]
-): Promise<number> {
-  if (attendeeIds.length === 0) return 0;
-  const supabase = createAdminClient();
-  // Resolve which of the requested ids are genuinely children before flipping them,
-  // by the attendee's own is_child flag OR its ticket type's (the row flag can be
-  // stale — see listPartyChildrenToCheckIn). This keeps the "children only" safety
-  // scope while tolerating that drift; an adult id passed in is still rejected.
-  const { data: rows, error: selError } = await supabase
-    .from("tickets")
-    .select("id, is_child, event_ticket_types(is_child)")
-    .in("id", attendeeIds)
-    .eq("event_id", eventId)
-    .eq("slot_status", "claimed")
-    .is("released_at", null)
-    .is("checked_in_at", null);
-  if (selError) throw selError;
-  const childIds = (rows ?? [])
-    .filter((r) => {
-      const raw = (r as { event_ticket_types?: unknown }).event_ticket_types;
-      const tt = (Array.isArray(raw) ? raw[0] : raw) as { is_child?: boolean | null } | null | undefined;
-      return Boolean((r as { is_child?: boolean | null }).is_child) || Boolean(tt?.is_child);
-    })
-    .map((r) => r.id as string);
-  if (childIds.length === 0) return 0;
-
-  // Flip only the resolved child ids. The checked_in_at IS NULL guard keeps a
-  // concurrent double-tap from double-stamping the arrival.
-  const { data, error } = await supabase
-    .from("tickets")
-    .update({ checked_in_at: new Date().toISOString() })
-    .in("id", childIds)
-    .eq("event_id", eventId)
-    .is("checked_in_at", null)
-    .select("id");
-  if (error) throw error;
-  return (data ?? []).length;
 }

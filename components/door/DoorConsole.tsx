@@ -581,41 +581,7 @@ function SlotRow({
     }
   }
 
-  async function checkInChild() {
-    setError(null);
-    setCheckingIn(true);
-    try {
-      const res = await fetch(`/api/events/${eventId}/check-in/children`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attendeeIds: [slot.attendeeId] }),
-        signal: AbortSignal.timeout(10000),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error || "Could not check in.");
-        return;
-      }
-      // The route silently skips ids that are already arrived or no longer on the
-      // list, returning checkedIn: 0 — don't flash a false success in that case.
-      if (!data.checkedIn) {
-        setError("Already checked in, or no longer on the list.");
-        return;
-      }
-      onSaved();
-    } catch (err) {
-      console.error("[door/check-in-children] request failed", err);
-      setError(
-        err instanceof DOMException && err.name === "TimeoutError"
-          ? "Timed out — check the connection and try again."
-          : "Could not check in. Try again."
-      );
-    } finally {
-      setCheckingIn(false);
-    }
-  }
-
-  // Adult lost-QR check-in: a named ticket found in the roster is checked in by id.
+  // Lost-QR check-in: a named ticket found in the roster is checked in by id.
   // If the waiver is unsigned the route returns needs_waiver — we surface a one-tap
   // accept, then re-submit. Idempotent on the server.
   async function checkInAdult(waiverAccepted: boolean) {
@@ -697,7 +663,7 @@ function SlotRow({
         {!slot.checkedIn && !isOpen && (
           <button
             type="button"
-            onClick={() => (slot.isChild ? checkInChild() : checkInAdult(false))}
+            onClick={() => checkInAdult(false)}
             disabled={checkingIn}
             className="shrink-0 px-3 py-1 rounded-lg border border-marine text-marine text-xs font-body font-semibold hover:bg-marine hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
           >
