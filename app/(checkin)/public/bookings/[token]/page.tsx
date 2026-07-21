@@ -186,7 +186,6 @@ export default async function BookingPage({
       quantity={(registration.quantity as number) ?? tickets.length}
       tickets={tickets}
       fillEndpoint={`/api/public/bookings/${token}/fill`}
-      forwardEndpoint={`/api/public/bookings/${token}/forward`}
       topupEndpoint={`/api/public/bookings/${token}/topup`}
       buyableTypes={buyableTypes}
       convertEndpoint={`/api/public/bookings/${token}/convert`}
