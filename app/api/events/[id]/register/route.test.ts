@@ -400,23 +400,6 @@ describe("nominative attendees (U4)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("400s duplicate attendee emails, and reuse of the lead email", async () => {
-    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
-    const dup = await publicPost(cfg, {
-      items: [{ ticket_type_id: "t1", quantity: 3 }],
-      attendees: [
-        { ticket_type_id: "t1", name: "A", email: "same@x.ch" },
-        { ticket_type_id: "t1", name: "B", email: "same@x.ch" },
-      ],
-    });
-    expect(dup.status).toBe(400);
-    const reuseLead = await publicPost(cfg, {
-      items: [{ ticket_type_id: "t1", quantity: 2 }],
-      attendees: [{ ticket_type_id: "t1", name: "A", email: "lead@x.ch" }],
-    });
-    expect(reuseLead.status).toBe(400);
-  });
-
   it("400s an over-length attendee name", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
     const res = await publicPost(cfg, {
@@ -453,5 +436,64 @@ describe("nominative attendees (U4)", () => {
     expect((await res.json()).checkout_url).toBe("https://stripe/checkout");
     expect(cfg.capturedRosterUpdate).toBeUndefined();
     expect(cfg.capturedClaims).toBeUndefined();
+  });
+});
+
+describe("U2 — shared email across a household (distinct-email guard removed, R2)", () => {
+  const publicEvent = { ...membersOnlyEvent, visibility: "public" };
+  const adultFree: TicketType = { id: "t1", title: "Asado", price_member: 0, price_non_member: 0, invite_price: null, counts_as_seat: true, archived_at: null };
+  const adultPaid: TicketType = { id: "t1", title: "Asado", price_member: 80, price_non_member: 80, invite_price: null, counts_as_seat: true, archived_at: null };
+
+  function publicPost(cfg: Cfg, body: Record<string, unknown>) {
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+    return post({ name: "Lead Booker", email: "lead@x.ch", ...body });
+  }
+
+  it("covers AE1: three differently-named guests sharing one email all reach claimed", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 4 }], // lead + 3 guests
+      attendees: [
+        { ticket_type_id: "t1", name: "Anna Household", email: "family@x.ch" },
+        { ticket_type_id: "t1", name: "Ben Household", email: "family@x.ch" },
+        { ticket_type_id: "t1", name: "Clara Household", email: "family@x.ch" },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(cfg.capturedClaims).toHaveLength(3);
+    expect(cfg.capturedClaims!.every((c) => c.p_email === "family@x.ch")).toBe(true);
+  });
+
+  it("covers AE2: a guest may reuse the booker's own email", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      attendees: [{ ticket_type_id: "t1", name: "Guest Person", email: "lead@x.ch" }],
+    });
+    expect(res.status).toBe(200);
+    expect(cfg.capturedClaims).toHaveLength(1);
+    expect(cfg.capturedClaims![0]).toMatchObject({ p_email: "lead@x.ch" });
+  });
+
+  it("no longer returns the removed distinct-email error message", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 3 }],
+      attendees: [
+        { ticket_type_id: "t1", name: "Anna Household", email: "same@x.ch" },
+        { ticket_type_id: "t1", name: "Ben Household", email: "same@x.ch" },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(cfg.capturedRosterUpdate?.pending_roster).toEqual([
+      { ticket_type_id: "t1", name: "Anna Household", email: "same@x.ch" },
+      { ticket_type_id: "t1", name: "Ben Household", email: "same@x.ch" },
+    ]);
+  });
+
+  it("covers AE7: the booker-level registration guard still blocks a second registration on the same email", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree], existingReg: [{ id: "reg-0" }] };
+    const res = await publicPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(409);
   });
 });

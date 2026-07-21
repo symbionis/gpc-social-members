@@ -146,8 +146,6 @@ export default function EventRegistrationForm({
   } {
     const errs: Record<string, string> = {};
     const attendees: { ticket_type_id: string; name: string; email?: string }[] = [];
-    const seenEmails = new Set<string>();
-    if (email.trim()) seenEmails.add(email.trim().toLowerCase());
 
     for (const row of guestRows) {
       const g = guests[row.key];
@@ -168,11 +166,6 @@ export default function EventRegistrationForm({
         errs[row.key] = "Add a valid email for this guest.";
         continue;
       }
-      if (seenEmails.has(e)) {
-        errs[row.key] = "Each guest needs a different email.";
-        continue;
-      }
-      seenEmails.add(e);
       attendees.push({ ticket_type_id: row.ticketTypeId, name: nm, email: e });
     }
     setRowErrors(errs);

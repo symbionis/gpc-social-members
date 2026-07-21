@@ -198,15 +198,15 @@ export async function POST(
 
   // Parse the OPTIONAL nominative roster: booker-entered names for GUEST tickets
   // (the lead is seeded separately from leadType). Never trust a client is_child —
-  // derive it from the ticket type. Adults need a valid distinct email; children are
-  // name-only. Bounds + distinctness close abuse paths on this unauthenticated route.
+  // derive it from the ticket type. Adults need a valid email; any number of
+  // tickets may share one address (R2) — only the booker-level registration guard
+  // below (KTD7) still rejects a duplicate. Bounds close abuse paths on this
+  // unauthenticated route.
   const rawAttendees = Array.isArray(body.attendees) ? body.attendees : [];
   if (rawAttendees.length > MAX_TICKETS) {
     return bad("Too many attendees for one order", 400);
   }
   const normalizedAttendees: RosterFillAttendee[] = [];
-  const seenEmails = new Set<string>();
-  if (email) seenEmails.add(email); // the lead's email — guests must differ (R9)
   const namedPerType = new Map<string, number>();
   for (const raw of rawAttendees) {
     const rec = (raw ?? {}) as { ticket_type_id?: unknown; name?: unknown; email?: unknown };
@@ -226,10 +226,6 @@ export async function POST(
       const e = typeof rec.email === "string" ? rec.email.trim().toLowerCase() : "";
       if (!e || !EMAIL_RE.test(e)) return bad("Each named adult needs a valid email", 400);
       if (e.length > MAX_ATTENDEE_EMAIL) return bad("An attendee email is too long", 400);
-      if (seenEmails.has(e)) {
-        return bad("Each attendee needs a different email address", 400);
-      }
-      seenEmails.add(e);
       attEmail = e;
     }
     namedPerType.set(ttId, (namedPerType.get(ttId) ?? 0) + 1);
