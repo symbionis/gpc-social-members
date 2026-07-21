@@ -85,6 +85,19 @@ describe("POST /api/admin/events/create", () => {
     expect(types[1]).toMatchObject({ title: "Kids", sort_order: 1 });
   });
 
+  it("passes each type's description through to the RPC (null when omitted)", async () => {
+    await req({
+      ...baseEvent,
+      ticket_types: [
+        { title: "VIP", price_member: "120", price_non_member: "180", description: "  Includes dinner  " },
+        { title: "Standard", price_member: "80", price_non_member: "120" },
+      ],
+    });
+    const types = rpc.args?.p_types as { description: string | null }[];
+    expect(types[0].description).toBe("Includes dinner");
+    expect(types[1].description).toBeNull();
+  });
+
   it("forces non-member price null on a members-only event (invite price is valid there)", async () => {
     await req({
       ...baseEvent,

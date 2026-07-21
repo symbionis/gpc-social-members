@@ -210,6 +210,7 @@ async function handleImageUpload(file: File) {
             price_non_member: number | null;
             invite_price: number | null;
             counts_as_seat: boolean;
+            description: string | null;
             archived_at: string | null;
           }[];
         };
@@ -225,6 +226,7 @@ async function handleImageUpload(file: File) {
               // (Settings owns editing it; the editor must not null it).
               invite_price: t.invite_price === null ? "" : String(t.invite_price),
               counts_as_seat: t.counts_as_seat,
+              description: t.description ?? "",
             }))
           );
           setOriginalTicketTypeIds(active.map((t) => t.id));
@@ -248,6 +250,11 @@ async function handleImageUpload(file: File) {
     const isMembersOnly = formData.visibility === "members_only";
     for (const t of ticketTypes) {
       if (!t.title.trim()) return "Every ticket type needs a name.";
+      // Match the server rule (normalizeTicketType trims, then caps at 500) so
+      // an over-cap description surfaces as an inline error, not an opaque 400.
+      if (t.description.trim().length > 500) {
+        return `"${t.title.trim() || "Untitled"}" description must be 500 characters or fewer.`;
+      }
     }
     if (formData.registration_enabled) {
       for (const t of ticketTypes) {
@@ -276,6 +283,7 @@ async function handleImageUpload(file: File) {
       // from this editor never nulls it.
       invite_price: t.invite_price,
       counts_as_seat: t.counts_as_seat,
+      description: t.description,
     };
   }
 

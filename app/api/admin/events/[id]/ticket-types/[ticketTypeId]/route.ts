@@ -54,7 +54,7 @@ export async function PATCH(
   // price — as the Settings tab does — silently cleared counts_as_seat.)
   const { data: existing } = await adminClient
     .from("event_ticket_types")
-    .select("title, price_member, price_non_member, invite_price, counts_as_seat")
+    .select("title, price_member, price_non_member, invite_price, counts_as_seat, description")
     .eq("id", ticketTypeId)
     .eq("event_id", eventId)
     .maybeSingle();

@@ -10,6 +10,8 @@ export interface TicketTypeOption {
   title: string;
   /** Price resolved for THIS viewer's rate class; null = not open yet (not selectable). */
   price: number | null;
+  /** Optional buyer-facing blurb (what's included). Rendered as escaped plain text. */
+  description?: string | null;
 }
 
 interface Props {
@@ -332,6 +334,11 @@ export default function EventRegistrationForm({
                     <p className="font-body text-xs text-muted-foreground">
                       {notOpen ? "Not open yet" : priceLabel(t.price as number)}
                     </p>
+                    {t.description && (
+                      <p className="font-body text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                        {t.description}
+                      </p>
+                    )}
                   </div>
                   {!notOpen && (
                     <div className="flex items-center gap-2 shrink-0">

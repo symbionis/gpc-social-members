@@ -18,7 +18,7 @@ describe("normalizeTicketType", () => {
     );
     expect(r).toEqual({
       ok: true,
-      value: { title: "Standard", price_member: 80, price_non_member: 120, invite_price: null, counts_as_seat: true },
+      value: { title: "Standard", price_member: 80, price_non_member: 120, invite_price: null, counts_as_seat: true, description: null },
     });
   });
 
@@ -57,6 +57,55 @@ describe("normalizeTicketType", () => {
 
   it("rejects a negative price", () => {
     expect(normalizeTicketType({ title: "X", price_member: -1 }, "public").ok).toBe(false);
+  });
+
+  it("trims a description and returns it", () => {
+    const r = normalizeTicketType(
+      { title: "VIP", price_member: 80, description: "  Includes welcome drink + seated dinner  " },
+      "public"
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.description).toBe("Includes welcome drink + seated dinner");
+  });
+
+  it("treats an empty or whitespace-only description as null", () => {
+    const empty = normalizeTicketType({ title: "X", price_member: 10, description: "" }, "public");
+    const blank = normalizeTicketType({ title: "X", price_member: 10, description: "   \n  " }, "public");
+    expect(empty.ok && empty.value.description).toBeNull();
+    expect(blank.ok && blank.value.description).toBeNull();
+  });
+
+  it("defaults an absent description to null", () => {
+    const r = normalizeTicketType({ title: "X", price_member: 10 }, "public");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.description).toBeNull();
+  });
+
+  it("ignores a non-string description rather than coercing it", () => {
+    const r = normalizeTicketType(
+      { title: "X", price_member: 10, description: { evil: true } as unknown },
+      "public"
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.description).toBeNull();
+  });
+
+  it("rejects a description over the 500-character cap", () => {
+    const r = normalizeTicketType(
+      { title: "X", price_member: 10, description: "a".repeat(501) },
+      "public"
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/description/i);
+  });
+
+  it("accepts a description exactly at the 500-character cap", () => {
+    const r = normalizeTicketType(
+      { title: "X", price_member: 10, description: "a".repeat(500) },
+      "public"
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.description).toHaveLength(500);
   });
 });
 

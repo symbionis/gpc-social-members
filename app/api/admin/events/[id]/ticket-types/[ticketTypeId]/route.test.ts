@@ -30,6 +30,7 @@ type Cfg = {
         price_non_member?: number | null;
         invite_price?: number | null;
         counts_as_seat?: boolean;
+        description?: string | null;
       }
     | null;
   event?: { visibility: string } | null;
@@ -205,5 +206,68 @@ describe("PATCH ticket type — IDOR + update", () => {
     // The omitted counts_as_seat is taken from the stored row, not reset to true.
     expect(cfg.capture?.updated?.counts_as_seat).toBe(false);
     expect(cfg.capture?.updated?.invite_price).toBe(30);
+  });
+
+  it("preserves description when a partial body omits it", async () => {
+    // Same omitted-field-reset trap as counts_as_seat: a PATCH that changes only
+    // the member price must not wipe a stored description back to null.
+    const cfg: Cfg = {
+      admins: superAdmin,
+      event: { visibility: "public" },
+      existing: {
+        id: "tt-1",
+        archived_at: null,
+        title: "VIP",
+        price_member: 80,
+        price_non_member: 120,
+        invite_price: null,
+        counts_as_seat: true,
+        description: "Includes welcome drink + seated dinner",
+      },
+    };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+    const res = await patch({ price_member: 90 });
+    expect(res.status).toBe(200);
+    expect(cfg.capture?.updated?.description).toBe("Includes welcome drink + seated dinner");
+  });
+
+  it("clears description when the body sets it to an empty string", async () => {
+    const cfg: Cfg = {
+      admins: superAdmin,
+      event: { visibility: "public" },
+      existing: {
+        id: "tt-1",
+        archived_at: null,
+        title: "VIP",
+        price_member: 80,
+        price_non_member: 120,
+        counts_as_seat: true,
+        description: "old blurb",
+      },
+    };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+    const res = await patch({ description: "  " });
+    expect(res.status).toBe(200);
+    expect(cfg.capture?.updated?.description).toBeNull();
+  });
+
+  it("updates a description to a new value", async () => {
+    const cfg: Cfg = {
+      admins: superAdmin,
+      event: { visibility: "public" },
+      existing: {
+        id: "tt-1",
+        archived_at: null,
+        title: "VIP",
+        price_member: 80,
+        price_non_member: 120,
+        counts_as_seat: true,
+        description: null,
+      },
+    };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+    const res = await patch({ description: "Now with terrace access" });
+    expect(res.status).toBe(200);
+    expect(cfg.capture?.updated?.description).toBe("Now with terrace access");
   });
 });
