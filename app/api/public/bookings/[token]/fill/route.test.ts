@@ -14,13 +14,13 @@ const mockedQr = vi.mocked(sendTicketQrEmail);
 let updates: Record<string, unknown>[] = [];
 
 // The route delegates to fill_ticket; the mock returns its result. Before the RPC it
-// always looks up the registration (by manage_token) and the ticket (for is_child, the
-// prior email, and qr_email_sent_at) — the mock serves those from `reg` / `ticket`.
+// always looks up the registration (by manage_token) and the ticket (for the prior
+// email and qr_email_sent_at) — the mock serves those from `reg` / `ticket`.
 function adminClient(
   fill: Record<string, unknown> | null,
   opts: { reg?: Record<string, unknown> | null; ticket?: Record<string, unknown> | null } = {}
 ) {
-  const { reg = { id: "reg1" }, ticket = { is_child: false } } = opts;
+  const { reg = { id: "reg1" }, ticket = {} } = opts;
   const table = (row: Record<string, unknown> | null) => {
     const builder = {
       select: () => builder,
@@ -102,7 +102,7 @@ describe("POST /api/public/bookings/[token]/fill", () => {
     mockedAdmin.mockReturnValue(
       adminClient(
         { status: "claimed", attendee_id: TICKET, name: "Ann" },
-        { ticket: { is_child: false, email: "ann@x.com", qr_email_sent_at: "2026-07-01T00:00:00Z" } }
+        { ticket: { email: "ann@x.com", qr_email_sent_at: "2026-07-01T00:00:00Z" } }
       )
     );
     await post({ ticketId: TICKET, name: "Ann", email: "ann@x.com" });
@@ -114,7 +114,7 @@ describe("POST /api/public/bookings/[token]/fill", () => {
     mockedAdmin.mockReturnValue(
       adminClient(
         { status: "claimed", attendee_id: TICKET, name: "Ann" },
-        { ticket: { is_child: false, email: "typo@x.com", qr_email_sent_at: "2026-07-01T00:00:00Z" } }
+        { ticket: { email: "typo@x.com", qr_email_sent_at: "2026-07-01T00:00:00Z" } }
       )
     );
     await post({ ticketId: TICKET, name: "Ann", email: "ann@x.com" });

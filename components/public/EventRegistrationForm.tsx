@@ -10,8 +10,6 @@ export interface TicketTypeOption {
   title: string;
   /** Price resolved for THIS viewer's rate class; null = not open yet (not selectable). */
   price: number | null;
-  /** A children's ticket — bought as a guest quantity, named without an email. */
-  is_child: boolean;
 }
 
 interface Props {

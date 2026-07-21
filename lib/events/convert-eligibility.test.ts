@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { eligibleConvertTargets, type ConvertType } from "@/lib/events/convert-eligibility";
 
 const TYPES: ConvertType[] = [
-  { id: "std", title: "Standard", price: 0, isChild: false },
-  { id: "food", title: "With food", price: 25, isChild: false },
-  { id: "vip", title: "VIP", price: 80, isChild: false },
-  { id: "kid", title: "Child", price: 10, isChild: true },
+  { id: "std", title: "Standard", price: 0 },
+  { id: "food", title: "With food", price: 25 },
+  { id: "vip", title: "VIP", price: 80 },
+  { id: "kid", title: "Child", price: 10 },
 ];
 
 describe("eligibleConvertTargets", () => {
@@ -18,8 +18,8 @@ describe("eligibleConvertTargets", () => {
 
   it("includes an equal-priced target (delta 0 is allowed)", () => {
     const types: ConvertType[] = [
-      { id: "a", title: "A", price: 25, isChild: false },
-      { id: "b", title: "B", price: 25, isChild: false },
+      { id: "a", title: "A", price: 25 },
+      { id: "b", title: "B", price: 25 },
     ];
     expect(eligibleConvertTargets("a", types).map((t) => t.id)).toEqual(["b"]);
   });

@@ -21,7 +21,7 @@ function adminClient(opts: {
   items: Item[] | null;
   tickets?: { credential_token: string | null; name: string | null; is_lead?: boolean }[];
   /** Rows returned for the guest QR fan-out query (is_lead=false), distinct from `tickets` (the lead-QR query). */
-  guestTickets?: { id: string; is_child?: boolean; email?: string | null; qr_email_sent_at?: string | null }[];
+  guestTickets?: { id: string; email?: string | null; qr_email_sent_at?: string | null }[];
   /** Records each event_registrations.update({...}) payload (the success stamp). */
   updateCalls?: Record<string, unknown>[];
   /** Forces the stamp update to fail, to test best-effort logging. */
@@ -188,13 +188,13 @@ describe("sendEventRegistrationConfirmation — booking link + lead QR (FEAT-41)
 });
 
 describe("sendEventRegistrationConfirmation — guest QR fan-out (R6/R8)", () => {
-  it("covers R6/R8: emails a former child-type guest ticket its QR — no more child skip", async () => {
+  it("covers R6/R8: emails every guest ticket with an email its QR", async () => {
     mockedAdmin.mockReturnValue(
       adminClient({
         registration: baseReg,
         event: baseEvent,
         items: [],
-        guestTickets: [{ id: "tkt-kid", is_child: true, email: "kid@x.ch", qr_email_sent_at: null }],
+        guestTickets: [{ id: "tkt-kid", email: "kid@x.ch", qr_email_sent_at: null }],
       })
     );
     await sendEventRegistrationConfirmation("reg-1");
@@ -207,7 +207,7 @@ describe("sendEventRegistrationConfirmation — guest QR fan-out (R6/R8)", () =>
         registration: baseReg,
         event: baseEvent,
         items: [],
-        guestTickets: [{ id: "tkt-noemail", is_child: false, email: null, qr_email_sent_at: null }],
+        guestTickets: [{ id: "tkt-noemail", email: null, qr_email_sent_at: null }],
       })
     );
     await sendEventRegistrationConfirmation("reg-1");
@@ -220,7 +220,7 @@ describe("sendEventRegistrationConfirmation — guest QR fan-out (R6/R8)", () =>
         registration: baseReg,
         event: baseEvent,
         items: [],
-        guestTickets: [{ id: "tkt-sent", is_child: false, email: "g@x.ch", qr_email_sent_at: "2026-07-01T00:00:00Z" }],
+        guestTickets: [{ id: "tkt-sent", email: "g@x.ch", qr_email_sent_at: "2026-07-01T00:00:00Z" }],
       })
     );
     await sendEventRegistrationConfirmation("reg-1");

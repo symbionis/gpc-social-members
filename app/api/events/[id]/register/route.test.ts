@@ -32,7 +32,6 @@ type TicketType = {
   invite_price: number | null;
   counts_as_seat: boolean;
   archived_at: string | null;
-  is_child?: boolean;
 };
 
 type RpcArgs = { p_status: string; p_is_member: boolean; p_member_id: string | null; p_items: { ticket_type_id: string; unit_amount_chf: number; line_total_chf: number; quantity: number }[] };
@@ -291,7 +290,7 @@ describe("basket validation + IDOR / archived guards", () => {
 describe("multi-type basket + Stripe lines", () => {
   const publicEvent = { ...membersOnlyEvent, visibility: "public" };
   const adult: TicketType = { id: "t1", title: "Standard", price_member: 80, price_non_member: 120, invite_price: null, counts_as_seat: true, archived_at: null };
-  const kidsFree: TicketType = { id: "t2", title: "Kids", price_member: 0, price_non_member: 0, invite_price: null, counts_as_seat: true, archived_at: null, is_child: true };
+  const kidsFree: TicketType = { id: "t2", title: "Kids", price_member: 0, price_non_member: 0, invite_price: null, counts_as_seat: true, archived_at: null };
 
   it("prices a public non-member per type and omits free lines from Stripe", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adult, kidsFree] };
@@ -331,7 +330,7 @@ describe("nominative attendees (U4)", () => {
   const adultPaid: TicketType = { id: "t1", title: "Asado", price_member: 80, price_non_member: 80, invite_price: null, counts_as_seat: true, archived_at: null };
   const adultFree: TicketType = { ...adultPaid, price_member: 0, price_non_member: 0 };
   const veg: TicketType = { id: "t2", title: "Veg", price_member: 40, price_non_member: 40, invite_price: null, counts_as_seat: true, archived_at: null };
-  const kidFree: TicketType = { id: "tk", title: "Kids", price_member: 0, price_non_member: 0, invite_price: null, counts_as_seat: true, archived_at: null, is_child: true };
+  const kidFree: TicketType = { id: "tk", title: "Kids", price_member: 0, price_non_member: 0, invite_price: null, counts_as_seat: true, archived_at: null };
 
   it("free path: fills each named guest inline via claim_ticket", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree] };
@@ -446,11 +445,11 @@ describe("nominative attendees (U4)", () => {
     expect(res.status).toBe(200);
   });
 
-  it("ignores a client is_child flag on an adult type (still requires email)", async () => {
+  it("requires an email for every named guest", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultPaid] };
     const res = await publicPost(cfg, {
       items: [{ ticket_type_id: "t1", quantity: 2 }],
-      attendees: [{ ticket_type_id: "t1", name: "Ana", is_child: true }],
+      attendees: [{ ticket_type_id: "t1", name: "Ana" }],
     });
     expect(res.status).toBe(400);
   });

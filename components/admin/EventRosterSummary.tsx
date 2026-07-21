@@ -14,7 +14,6 @@ export interface TicketTypeSummaryRow {
   priceMember: number | null;
   priceNonMember: number | null;
   countsAsSeat: boolean;
-  isChild: boolean;
   /** Tickets purchased of this type (event_registration_items by ticket_type_id). */
   sold: number;
 }
@@ -110,11 +109,6 @@ export default function EventRosterSummary({
                 label={tt.title || "Untitled"}
                 sub={priceLabel(tt.priceMember, tt.priceNonMember)}
               >
-                {tt.isChild && (
-                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-body text-purple-800">
-                    Child
-                  </span>
-                )}
                 {!tt.countsAsSeat && (
                   <span className="rounded-full bg-sky/10 px-2 py-0.5 text-[10px] font-body text-sky-dark">
                     No seat

@@ -18,7 +18,7 @@ describe("normalizeTicketType", () => {
     );
     expect(r).toEqual({
       ok: true,
-      value: { title: "Standard", price_member: 80, price_non_member: 120, invite_price: null, counts_as_seat: true, is_child: false },
+      value: { title: "Standard", price_member: 80, price_non_member: 120, invite_price: null, counts_as_seat: true },
     });
   });
 

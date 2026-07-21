@@ -14,7 +14,7 @@ export interface DoorEvent {
 /**
  * One ticket slot in a party: a filled pre-registration (attendeeId set) or an open
  * slot the door can fill in (attendeeId null). Each slot carries its ticket type so
- * the door knows the bracelet and whether contact is needed (kids are name-only).
+ * the door knows the bracelet to hand over.
  */
 export interface DoorSlot {
   attendeeId: string | null;
@@ -23,7 +23,6 @@ export interface DoorSlot {
   phone: string;
   ticketTypeId: string | null;
   ticketTypeTitle: string;
-  isChild: boolean;
   isLead: boolean;
   checkedIn: boolean;
   arrivedAt: string | null;
@@ -58,7 +57,6 @@ interface DoorTicketRow {
   partyName: string;
   referenceCode: string | null;
   ticketTypeTitle: string;
-  isChild: boolean;
   email: string;
   phone: string;
 }
@@ -129,7 +127,6 @@ type AttRow = {
   phone_e164: string | null;
   is_lead: boolean;
   ticket_type_id: string | null;
-  is_child: boolean | null;
   checked_in_at: string | null;
   created_at: string;
   slot_status: string;
@@ -203,7 +200,7 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
     supabase
       .from("tickets")
       .select(
-        "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, is_child, checked_in_at, created_at, slot_status"
+        "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, checked_in_at, created_at, slot_status"
       )
       .eq("event_id", eventId)
       .in("slot_status", ["claimed", "issued"])
@@ -212,19 +209,17 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
       .range(from, to)
   );
 
-  // Active ticket types → titles + the per-type child flag for empty slots.
+  // Active ticket types → titles + sort order for empty slots.
   const { data: ttRows } = await supabase
     .from("event_ticket_types")
-    .select("id, title, is_child, sort_order")
+    .select("id, title, sort_order")
     .eq("event_id", eventId)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
   const ticketTitleById = new Map<string, string>();
-  const ticketIsChildById = new Map<string, boolean>();
   const ticketSortById = new Map<string, number>();
   for (const t of ttRows ?? []) {
     ticketTitleById.set(t.id as string, (t.title as string | null) ?? "");
-    ticketIsChildById.set(t.id as string, Boolean(t.is_child));
     ticketSortById.set(t.id as string, (t.sort_order as number | null) ?? 0);
   }
 
@@ -246,11 +241,6 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
     phone: a.phone_e164 ?? "",
     ticketTypeId: a.ticket_type_id,
     ticketTypeTitle: a.ticket_type_id ? ticketTitleById.get(a.ticket_type_id) ?? "" : "",
-    // Child if the row flag OR the live ticket type says so — the row flag is a
-    // point-in-time copy that can go stale (see listPartyChildrenToCheckIn).
-    isChild:
-      (a.is_child ?? false) ||
-      (a.ticket_type_id ? ticketIsChildById.get(a.ticket_type_id) ?? false : false),
     isLead: a.is_lead,
     checkedIn: a.checked_in_at !== null,
     arrivedAt: a.checked_in_at,
@@ -281,7 +271,6 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
         phone: "",
         ticketTypeId: a.ticket_type_id,
         ticketTypeTitle: a.ticket_type_id ? ticketTitleById.get(a.ticket_type_id) ?? "" : "",
-        isChild: a.ticket_type_id ? ticketIsChildById.get(a.ticket_type_id) ?? false : false,
         isLead: false,
         checkedIn: false,
         arrivedAt: null,
@@ -314,10 +303,6 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
     partyName: party.leadName,
     referenceCode: party.referenceCode,
     ticketTypeTitle: a.ticket_type_id ? ticketTitleById.get(a.ticket_type_id) ?? "" : "",
-    // Same stale-flag guard as toSlot: trust the row flag OR the live ticket type.
-    isChild:
-      (a.is_child ?? false) ||
-      (a.ticket_type_id ? ticketIsChildById.get(a.ticket_type_id) ?? false : false),
     email: a.email ?? "",
     phone: a.phone_e164 ?? "",
   });

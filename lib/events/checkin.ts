@@ -138,7 +138,6 @@ export type CredentialCheckinResult = {
   ticket_type_id?: string | null;
   ticket_type_title?: string | null;
   checked_in_at?: string | null;
-  is_child?: boolean;
 };
 
 export type CheckInByCredentialInput = {

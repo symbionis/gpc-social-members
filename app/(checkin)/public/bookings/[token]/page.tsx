@@ -87,7 +87,7 @@ export default async function BookingPage({
   const { data: ticketRows } = await supabase
     .from("tickets")
     .select(
-      "id, name, email, phone_e164, ticket_type_id, slot_status, credential_token, is_child, checked_in_at, is_lead, batch_token, created_at"
+      "id, name, email, phone_e164, ticket_type_id, slot_status, credential_token, checked_in_at, is_lead, batch_token, created_at"
     )
     .eq("registration_id", registration.id)
     .in("slot_status", ["issued", "claimed"])
@@ -95,14 +95,12 @@ export default async function BookingPage({
 
   const { data: typeRows } = await supabase
     .from("event_ticket_types")
-    .select("id, title, is_child, sort_order, price_member, price_non_member, invite_price, archived_at")
+    .select("id, title, sort_order, price_member, price_non_member, invite_price, archived_at")
     .eq("event_id", registration.event_id);
   const titleById = new Map<string, string>();
-  const isChildById = new Map<string, boolean>();
   const sortById = new Map<string, number>();
   for (const t of typeRows ?? []) {
     titleById.set(t.id as string, (t.title as string | null) ?? "");
-    isChildById.set(t.id as string, Boolean(t.is_child));
     sortById.set(t.id as string, (t.sort_order as number | null) ?? 0);
   }
 
@@ -130,8 +128,8 @@ export default async function BookingPage({
     .filter((t) => t.priceLabel !== "—");
 
   // Convert targets: active types priced at the booking's rate, with the same invite_price
-  // fallback. The client filters these per ticket to same-or-higher priced, matching
-  // is_child (see eligibleConvertTargets).
+  // fallback. The client filters these per ticket to same-or-higher priced
+  // (see eligibleConvertTargets).
   const convertTypes = (typeRows ?? [])
     .filter((t) => !t.archived_at)
     .map((t) => {
@@ -141,10 +139,9 @@ export default async function BookingPage({
         id: t.id as string,
         title: (t.title as string | null) ?? "Ticket",
         price,
-        isChild: Boolean(t.is_child),
       };
     })
-    .filter((t): t is { id: string; title: string; price: number; isChild: boolean } =>
+    .filter((t): t is { id: string; title: string; price: number } =>
       t.price !== null && Number.isFinite(t.price)
     );
 
@@ -167,7 +164,6 @@ export default async function BookingPage({
         phone: (t.phone_e164 as string | null) ?? "",
         typeId: typeId ?? "",
         typeTitle: typeId ? titleById.get(typeId) ?? "" : "",
-        isChild: (t.is_child as boolean | null) ?? (typeId ? isChildById.get(typeId) ?? false : false),
         status: t.slot_status as string,
         checkedIn: t.checked_in_at !== null,
         credentialUrl: credentialUrl((t.credential_token as string | null) ?? ""),

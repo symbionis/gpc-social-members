@@ -110,7 +110,7 @@ export default async function EventDetailPage({
   // its member price; a null member price means "not open yet".
   const { data: rawTicketTypes } = await adminClient
     .from("event_ticket_types")
-    .select("id, title, price_member, is_child, sort_order")
+    .select("id, title, price_member, sort_order")
     .eq("event_id", id)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
@@ -118,7 +118,6 @@ export default async function EventDetailPage({
     id: t.id,
     title: t.title,
     price: t.price_member,
-    is_child: Boolean(t.is_child),
   }));
   const priceableValues = ticketTypeOptions
     .map((o) => o.price)

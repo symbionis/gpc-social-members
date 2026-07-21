@@ -38,7 +38,7 @@ export default async function ManageEventPage({
   // Active ticket types — the Settings tab edits per-type guest (invite) prices.
   const { data: rawTicketTypes, error: ticketTypesError } = await supabase
     .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat, is_child")
+    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat")
     .eq("event_id", id)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
@@ -239,7 +239,6 @@ export default async function ManageEventPage({
       priceMember: (tt.price_member as number | null) ?? null,
       priceNonMember: (tt.price_non_member as number | null) ?? null,
       countsAsSeat: Boolean(tt.counts_as_seat),
-      isChild: Boolean(tt.is_child),
       sold: soldByTicketType.get(typeId) ?? 0,
     };
   });

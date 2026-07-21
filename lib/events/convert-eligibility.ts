@@ -12,8 +12,6 @@ export interface ConvertType {
   title: string;
   /** Numeric price at the booking's rate class (member vs non-member, invite fallback). */
   price: number;
-  /** Retained until the is_child column sweep (U7) removes it; no longer filtered on. */
-  isChild: boolean;
 }
 
 /**

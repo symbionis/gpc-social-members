@@ -6,7 +6,6 @@ export interface NormalizedTicketType {
   price_non_member: number | null;
   invite_price: number | null;
   counts_as_seat: boolean;
-  is_child: boolean;
 }
 
 function parsePrice(
@@ -69,7 +68,6 @@ export function normalizeTicketType(
       // Accept a real boolean; anything else (absent, or a stray non-boolean)
       // defaults to true rather than being silently coerced.
       counts_as_seat: typeof o.counts_as_seat === "boolean" ? o.counts_as_seat : true,
-      is_child: typeof o.is_child === "boolean" ? o.is_child : false,
     },
   };
 }

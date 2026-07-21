@@ -12,7 +12,6 @@ export interface ForwardedTicket {
   email: string;
   phone: string;
   typeTitle: string;
-  isChild: boolean;
   checkedIn: boolean;
   /** Already named/validated (slot_status 'claimed'). */
   validated: boolean;
@@ -83,7 +82,7 @@ function TicketRow({
       setError("Enter the guest’s name.");
       return;
     }
-    if (!ticket.isChild && !email.trim() && !phone.trim()) {
+    if (!email.trim() && !phone.trim()) {
       setError("Add an email or phone so we can find you at the door.");
       return;
     }
@@ -96,8 +95,8 @@ function TicketRow({
         body: JSON.stringify({
           ticketId: ticket.id,
           name,
-          email: ticket.isChild ? "" : email,
-          phone: ticket.isChild ? "" : phone,
+          email,
+          phone,
           waiverAccepted: Boolean(waiver),
           language: waiver?.language,
           marketingConsent: waiver?.marketingConsent ?? false,
@@ -175,39 +174,35 @@ function TicketRow({
             className={inputClass}
             autoComplete="name"
           />
-          {!ticket.isChild && (
-            <>
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Email"
-                inputMode="email"
-                className={inputClass}
-                autoComplete="email"
-              />
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="Phone (+41…)"
-                inputMode="tel"
-                className={inputClass}
-              />
-              <button
-                type="button"
-                onClick={() => setModalOpen(true)}
-                className={`w-full rounded-xl border-2 px-4 py-3 text-base font-body font-semibold ${
-                  waiver
-                    ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                    : "border-marine/30 bg-white text-marine"
-                }`}
-              >
-                {waiver ? "Terms accepted ✓" : "Agree to terms & waiver"}
-              </button>
-              <p className="font-body text-sm text-marine/60">
-                Optional now — you can also sign the waiver at the door.
-              </p>
-            </>
-          )}
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Email"
+            inputMode="email"
+            className={inputClass}
+            autoComplete="email"
+          />
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="Phone (+41…)"
+            inputMode="tel"
+            className={inputClass}
+          />
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            className={`w-full rounded-xl border-2 px-4 py-3 text-base font-body font-semibold ${
+              waiver
+                ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                : "border-marine/30 bg-white text-marine"
+            }`}
+          >
+            {waiver ? "Terms accepted ✓" : "Agree to terms & waiver"}
+          </button>
+          <p className="font-body text-sm text-marine/60">
+            Optional now — you can also sign the waiver at the door.
+          </p>
           {error && <p className="font-body text-sm text-red-600">{error}</p>}
           <button
             type="button"

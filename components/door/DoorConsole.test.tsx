@@ -32,7 +32,6 @@ const slot = (over: Partial<Slot> = {}): Slot => ({
   phone: "+41790000001",
   ticketTypeId: "tt-1",
   ticketTypeTitle: "Asado",
-  isChild: false,
   isLead: true,
   checkedIn: false,
   arrivedAt: null,
@@ -59,7 +58,6 @@ const arrival = (over: Partial<Arrival> = {}): Arrival => ({
   partyName: "Ana Vidal",
   referenceCode: "GPC-001",
   ticketTypeTitle: "Asado",
-  isChild: false,
   email: "ana@x.ch",
   phone: "+41790000001",
   arrivedAt: "2026-07-11T16:30:00Z", // 18:30 Geneva
@@ -72,7 +70,6 @@ const notArrived = (over: Partial<NotArrived> = {}): NotArrived => ({
   partyName: "Keller Party",
   referenceCode: "GPC-002",
   ticketTypeTitle: "Asado",
-  isChild: false,
   email: "bruno@x.ch",
   phone: "",
   ...over,
@@ -204,14 +201,6 @@ describe("R16 — an arrival row carries party, ticket type and time", () => {
     expect(within(row).getByText(/18:30/)).toBeInTheDocument();
   });
 
-  it("marks a child arrival with the child pill", async () => {
-    const user = userEvent.setup();
-    renderConsole({
-      arrivals: [arrival({ name: "Leo Vidal", isChild: true, ticketTypeTitle: "Kids" })],
-    });
-    await user.click(arrivalsTab());
-    expect(within(rows()[0]).getByText("child")).toBeInTheDocument();
-  });
 });
 
 describe("R17 — the not-arrived view", () => {
@@ -221,7 +210,7 @@ describe("R17 — the not-arrived view", () => {
       arrivals: [arrival({ name: "Ana Vidal" })],
       notArrived: [
         notArrived({ id: "n1", name: "Bruno Keller", partyName: "Keller Party" }),
-        notArrived({ id: "n2", name: null, partyName: "Zoe Blanc", ticketTypeTitle: "Kids", isChild: true }),
+        notArrived({ id: "n2", name: null, partyName: "Zoe Blanc", ticketTypeTitle: "Kids" }),
       ],
     });
     await user.click(arrivalsTab());

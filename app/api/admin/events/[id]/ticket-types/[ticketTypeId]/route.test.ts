@@ -30,7 +30,6 @@ type Cfg = {
         price_non_member?: number | null;
         invite_price?: number | null;
         counts_as_seat?: boolean;
-        is_child?: boolean;
       }
     | null;
   event?: { visibility: string } | null;
@@ -178,35 +177,33 @@ describe("PATCH ticket type — IDOR + update", () => {
     expect(res.status).toBe(403);
   });
 
-  it("preserves is_child (and counts_as_seat) when a partial body omits them", async () => {
-    // The Settings tab saves only the guest price — title/prices/counts_as_seat/
-    // invite_price, with no is_child. A child ticket type must stay flagged, or
-    // check-in stops offering the party's kids.
+  it("preserves counts_as_seat when a partial body omits it", async () => {
+    // The Settings tab saves only the guest price — title/prices/invite_price, with
+    // no counts_as_seat. A no-seat ticket type must stay unflagged, not reset to the
+    // normalizeTicketType default of true.
     const cfg: Cfg = {
       admins: superAdmin,
       event: { visibility: "members_only" },
       existing: {
         id: "tt-1",
         archived_at: null,
-        title: "Asado Kids",
+        title: "Parking",
         price_member: 25,
         price_non_member: null,
         invite_price: null,
-        counts_as_seat: true,
-        is_child: true,
+        counts_as_seat: false,
       },
     };
     mockedAdmin.mockReturnValue(adminClient(cfg));
     const res = await patch({
-      title: "Asado Kids",
+      title: "Parking",
       price_member: 25,
       price_non_member: null,
-      counts_as_seat: true,
       invite_price: 30,
     });
     expect(res.status).toBe(200);
-    // The omitted is_child is taken from the stored row, not reset to false.
-    expect(cfg.capture?.updated?.is_child).toBe(true);
+    // The omitted counts_as_seat is taken from the stored row, not reset to true.
+    expect(cfg.capture?.updated?.counts_as_seat).toBe(false);
     expect(cfg.capture?.updated?.invite_price).toBe(30);
   });
 });

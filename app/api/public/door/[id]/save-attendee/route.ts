@@ -7,10 +7,8 @@ import { resolveDoorEvent } from "@/lib/events/door-access";
 // Public, keyed on the event id (KTD1). With an attendeeId it edits that person's
 // name/contact; without one it creates a person for an open slot of a ticket type
 // (race-checked against the per-type allotment). The EDIT branch requires an email
-// or phone for every slot (no former-child exemption, R6, app-layer half). The
-// CREATE branch still delegates to claim_ticket, whose own is_child contact
-// exemption is removed later in the deploy-ordered sequence (plan U5) — so a
-// contactless former-child slot can still be created there until that ships.
+// or phone for every slot (R6, app-layer half). The CREATE branch delegates to
+// claim_ticket.
 
 const MAX_LEN = 200;
 const MAX_EMAIL_LEN = 254;

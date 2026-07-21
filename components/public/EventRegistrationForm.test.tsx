@@ -15,10 +15,10 @@ vi.mock("@/components/common/PhoneInput", () => ({
 
 import EventRegistrationForm, { type TicketTypeOption } from "@/components/public/EventRegistrationForm";
 
-const asado: TicketTypeOption = { id: "a", title: "Asado", price: 80, is_child: false };
-const veg: TicketTypeOption = { id: "v", title: "Veg", price: 40, is_child: false };
-const kids: TicketTypeOption = { id: "k", title: "Kids", price: 0, is_child: true };
-const soon: TicketTypeOption = { id: "n", title: "Soon", price: null, is_child: false };
+const asado: TicketTypeOption = { id: "a", title: "Asado", price: 80 };
+const veg: TicketTypeOption = { id: "v", title: "Veg", price: 40 };
+const kids: TicketTypeOption = { id: "k", title: "Kids", price: 0 };
+const soon: TicketTypeOption = { id: "n", title: "Soon", price: null };
 
 function renderForm(ticketTypes: TicketTypeOption[], props: Partial<React.ComponentProps<typeof EventRegistrationForm>> = {}) {
   return render(<EventRegistrationForm eventId="evt-1" ticketTypes={ticketTypes} {...props} />);
