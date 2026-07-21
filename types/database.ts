@@ -1693,10 +1693,6 @@ export type Database = {
         }
         Returns: number
       }
-      add_self_registration_children: {
-        Args: { p_names: string[]; p_token: string }
-        Returns: Json
-      }
       apply_pending_roster: {
         Args: { p_registration_id: string }
         Returns: undefined
