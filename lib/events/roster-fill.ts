@@ -49,8 +49,8 @@ export interface PartyFill {
   guests: PartyGuest[];
 }
 
-/** A lead row's party fill plus the registration's self-reg token (for link/QR). */
-export type PartyDetail = PartyFill & { selfRegToken: string | null };
+/** A lead row's party fill. (Self-registration was retired in U16.) */
+export type PartyDetail = PartyFill;
 
 function toGuest(
   a: RosterAttendeeInput,

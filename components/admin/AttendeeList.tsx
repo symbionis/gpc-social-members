@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { QRCodeCanvas } from "qrcode.react";
 import { formatDateTime } from "@/lib/format";
 import { formatTicketBreakdown, type TicketTypeLine } from "@/lib/events/tickets";
 import type { PartyDetail } from "@/lib/events/roster-fill";
@@ -25,7 +24,7 @@ interface Attendee {
   ticketBreakdown: TicketTypeLine[];
   /** This person's own ticket-type title (asado meal); "" when none. Shown on guests. */
   ticketTypeTitle: string;
-  /** Party self-reg detail (fill + token) on lead rows; null otherwise. */
+  /** Party fill detail on lead rows (claimed/purchased); null otherwise. */
   party: PartyDetail | null;
   /** The lead's "My Booking" manage_token (lead rows only) → booking-page link. */
   manageToken: string | null;
@@ -55,15 +54,11 @@ interface Props {
 type MemberFilter = "all" | "members" | "non_members";
 type PartyFilter = "all" | "incomplete";
 
-const COLSPAN = 8;
-
 export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [memberFilter, setMemberFilter] = useState<MemberFilter>("all");
   const [partyFilter, setPartyFilter] = useState<PartyFilter>("all");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -141,25 +136,6 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
 
   const isFiltering =
     query.trim() !== "" || memberFilter !== "all" || partyFilter !== "all";
-
-  function toggle(id: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  async function copyLink(id: string, url: string) {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedId(id);
-      setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 2000);
-    } catch {
-      /* clipboard blocked — the link is still selectable in the field */
-    }
-  }
 
   async function removeGuest(id: string, name: string) {
     if (!window.confirm(`Remove ${name || "this guest"} and free their slot?`)) return;
@@ -350,12 +326,6 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
               <tbody>
                 {filtered.map((row) => {
                   const isGuest = !row.isLead && !!row.registrationId;
-                  const isOpen = expanded.has(row.id);
-                  const party = row.party;
-                  const selfRegUrl =
-                    party?.selfRegToken
-                      ? `${origin}/public/registrations/${party.selfRegToken}`
-                      : "";
                   const bookingUrl = row.manageToken
                     ? `${origin}/public/bookings/${row.manageToken}`
                     : "";
@@ -364,14 +334,9 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
                       key={row.id}
                       row={row}
                       isGuest={isGuest}
-                      isOpen={isOpen}
-                      selfRegUrl={selfRegUrl}
                       bookingUrl={bookingUrl}
-                      copiedId={copiedId}
                       removing={removing.has(row.id)}
                       resending={!!row.registrationId && resending.has(row.registrationId)}
-                      onToggle={() => toggle(row.id)}
-                      onCopy={copyLink}
                       onRemove={removeGuest}
                       onResend={resendTickets}
                     />
@@ -389,59 +354,30 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
 function RosterRow({
   row,
   isGuest,
-  isOpen,
-  selfRegUrl,
   bookingUrl,
-  copiedId,
   removing,
   resending,
-  onToggle,
-  onCopy,
   onRemove,
   onResend,
 }: {
   row: Attendee;
   isGuest: boolean;
-  isOpen: boolean;
-  selfRegUrl: string;
   bookingUrl: string;
-  copiedId: string | null;
   removing: boolean;
   resending: boolean;
-  onToggle: () => void;
-  onCopy: (id: string, url: string) => void;
   onRemove: (id: string, name: string) => void;
   onResend: (registrationId: string, name: string) => void;
 }) {
   const party = row.party;
-  const canExpand = party !== null && !!selfRegUrl && party.remaining > 0;
 
   return (
-    <>
-      <tr className={`border-t border-border ${isGuest ? "bg-cream/20" : ""}`}>
-        <td className={`px-4 py-3 text-marine ${isGuest ? "pl-10" : ""}`}>
-          {canExpand ? (
-            <button
-              type="button"
-              onClick={onToggle}
-              aria-expanded={isOpen}
-              className="flex items-center gap-2 text-left cursor-pointer hover:text-marine-light"
-            >
-              <span
-                aria-hidden
-                className={`text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
-              >
-                ▸
-              </span>
-              <span>{row.name || "—"}</span>
-            </button>
-          ) : (
-            <span className="flex items-center gap-2">
-              {isGuest && <span aria-hidden className="text-muted-foreground">↳</span>}
-              {row.name || "—"}
-            </span>
-          )}
-        </td>
+    <tr className={`border-t border-border ${isGuest ? "bg-cream/20" : ""}`}>
+      <td className={`px-4 py-3 text-marine ${isGuest ? "pl-10" : ""}`}>
+        <span className="flex items-center gap-2">
+          {isGuest && <span aria-hidden className="text-muted-foreground">↳</span>}
+          {row.name || "—"}
+        </span>
+      </td>
         <td className="px-4 py-3 text-muted-foreground">
           <div className="flex flex-col gap-0.5">
             {row.email && <span>{row.email}</span>}
@@ -554,39 +490,5 @@ function RosterRow({
           )}
         </td>
       </tr>
-
-      {isOpen && party && selfRegUrl && (
-        <tr className="bg-cream/30 border-t border-border">
-          <td colSpan={COLSPAN} className="px-4 py-4">
-            <div className="grid gap-5 sm:grid-cols-[1fr_auto] sm:items-start">
-              <div>
-                <p className="text-xs font-body text-muted-foreground mb-1">
-                  Share this link so guests pre-register themselves
-                  {party.remaining > 0 ? ` (${party.remaining} open):` : ":"}
-                </p>
-                <div className="flex gap-2 max-w-md">
-                  <input
-                    readOnly
-                    value={selfRegUrl}
-                    onFocus={(e) => e.currentTarget.select()}
-                    className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-border bg-white text-marine font-mono text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onCopy(row.id, selfRegUrl)}
-                    className="px-3 py-2 bg-marine text-white rounded-lg text-xs font-body font-medium hover:bg-marine-light transition-colors cursor-pointer"
-                  >
-                    {copiedId === row.id ? "Copied" : "Copy"}
-                  </button>
-                </div>
-              </div>
-              <div className="bg-white p-3 rounded-lg border border-border w-fit">
-                <QRCodeCanvas value={selfRegUrl} size={120} marginSize={2} />
-              </div>
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
   );
 }

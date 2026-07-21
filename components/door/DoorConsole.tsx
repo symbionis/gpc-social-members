@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { QRCodeCanvas } from "qrcode.react";
 import { formatDateTime } from "@/lib/format";
 import PhoneInput from "@/components/common/PhoneInput";
 import WaiverText from "@/components/events/WaiverText";
@@ -30,7 +29,6 @@ interface Props {
   eventId: string;
   eventTitle: string;
   eventDate: string;
-  baseUrl: string;
   parties: DoorParty[];
   arrivals: DoorArrival[];
   notArrived: DoorNotArrived[];
@@ -77,7 +75,6 @@ export default function DoorConsole({
   eventId,
   eventTitle,
   eventDate,
-  baseUrl,
   parties,
   arrivals,
   notArrived,
@@ -88,18 +85,12 @@ export default function DoorConsole({
 }: Props) {
   const router = useRouter();
 
-  const [origin, setOrigin] = useState(baseUrl);
-  useEffect(() => {
-    if (!baseUrl && typeof window !== "undefined") setOrigin(window.location.origin);
-  }, [baseUrl]);
-
   const [tab, setTab] = useState<"registered" | "arrivals">("registered");
   // Which list the Arrivals tab is showing. "Who is still missing?" lives under the
   // same tab as "who is in", so a volunteer never has to look for it elsewhere.
   const [view, setView] = useState<"arrived" | "notarrived">("arrived");
   // One query behind both tabs, so a search carries across a tab switch.
   const [query, setQuery] = useState("");
-  const [shownQr, setShownQr] = useState<Set<string>>(new Set());
   // Per-party resend status (keyed by registrationId): in-flight, success, or error.
   const [resend, setResend] = useState<
     Record<string, { sending?: boolean; ok?: boolean; error?: string }>
@@ -127,15 +118,6 @@ export default function DoorConsole({
   // gets a tappable jump instead of a dead end.
   const otherRows: ListRow[] = view === "arrived" ? visibleNotArrived : visibleArrivals;
   const otherLabel = view === "arrived" ? "Not arrived" : "Arrived";
-
-  function toggleQr(id: string) {
-    setShownQr((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
 
   // Resend the booking email (lead QR + booking page) to a party's lead — for a guest
   // who arrives without their QR. The email goes to the registrant, not the operator.
@@ -230,11 +212,6 @@ export default function DoorConsole({
               </p>
             ) : (
               visible.map((p) => {
-                const url =
-                  p.selfRegToken && origin
-                    ? `${origin}/public/registrations/${p.selfRegToken}`
-                    : "";
-                const showQr = shownQr.has(p.registrationId);
                 return (
                   <div
                     key={p.registrationId}
@@ -256,7 +233,7 @@ export default function DoorConsole({
                             : "bg-emerald-100 text-emerald-800"
                         }`}
                       >
-                        {p.claimedCount} / {p.quantity} pre-registered
+                        {p.claimedCount} / {p.quantity} named
                       </span>
                     </div>
 
@@ -274,47 +251,19 @@ export default function DoorConsole({
 
                     {p.remaining === 0 ? (
                       <p className="mt-4 font-body text-sm text-marine/60">
-                        This party is full — everyone is pre-registered.
+                        This party is full — everyone is named.
                       </p>
-                    ) : url ? (
-                      <div className="mt-4">
-                        <button
-                          type="button"
-                          onClick={() => toggleQr(p.registrationId)}
-                          className="w-full px-4 py-4 rounded-xl bg-marine text-white font-body font-semibold text-lg hover:bg-marine-light transition-colors cursor-pointer"
-                        >
-                          {showQr
-                            ? "Hide QR"
-                            : `Show pre-registration QR (${p.remaining} ${p.remaining === 1 ? "spot" : "spots"} left)`}
-                        </button>
-                        {showQr && (
-                          <div className="mt-3 flex flex-col items-center gap-2">
-                            <div className="bg-white p-3 rounded-lg border border-border">
-                              <QRCodeCanvas value={url} size={200} marginSize={2} />
-                            </div>
-                            <p className="font-body text-sm text-marine/60 text-center">
-                              Have the guest scan this to pre-register on their own
-                              phone — then scan their ticket QR here to check them in.
-                            </p>
-                          </div>
-                        )}
-                      </div>
                     ) : p.isGuestList ? (
-                      // A comp party's self_reg_token is NULL deliberately — it must not
-                      // expose a public self-registration link. Saying the link is
-                      // "missing" would be a lie, and inviting a volunteer to fill an
-                      // open comp seat gives away one of the sponsor's seats.
+                      // A comp party's open seats belong to the sponsor — filling one gives
+                      // away one of their seats, so route staff to the welcome desk first.
                       <p className="mt-4 font-body text-sm text-amber-700">
-                        Comped seats — this party has no self-registration link by design.
-                        {" "}
-                        {p.remaining} {p.remaining === 1 ? "seat is" : "seats are"} still
-                        unnamed. Check with the welcome desk before filling one.
+                        Comped seats — {p.remaining} {p.remaining === 1 ? "seat is" : "seats are"}{" "}
+                        still unnamed. Check with the welcome desk before filling one.
                       </p>
                     ) : (
                       <p className="mt-4 font-body text-sm text-amber-700">
-                        {p.remaining} {p.remaining === 1 ? "spot" : "spots"} open, but
-                        this booking has no pre-registration link (it predates the
-                        feature). Fill the details above or use the welcome desk.
+                        {p.remaining} {p.remaining === 1 ? "seat" : "seats"} still to name — fill the
+                        details above or use the welcome desk.
                       </p>
                     )}
 

@@ -167,14 +167,15 @@ export async function POST(
     return bad("Could not create registration", 500);
   }
 
-  // Give the comped party a self-registration token (U9) so its guests can self-
-  // register too. Best-effort: a failure only leaves this party without a link.
+  // Give the comped party a manage token so its lead can open the "My Booking" page to
+  // name/manage the party (self-registration is retired, U16 — the manage surface replaces
+  // it). Best-effort: a failure only leaves this party without a link.
   const { error: tokenErr } = await adminClient
     .from("event_registrations")
-    .update({ self_reg_token: generateSelfRegToken() })
+    .update({ manage_token: generateSelfRegToken() })
     .eq("id", registrationId);
   if (tokenErr) {
-    console.error("[waitlist-convert] failed to persist self_reg_token", {
+    console.error("[waitlist-convert] failed to persist manage_token", {
       registrationId,
       err: tokenErr,
     });

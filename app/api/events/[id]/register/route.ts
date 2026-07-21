@@ -343,20 +343,18 @@ export async function POST(
     return bad("Could not create registration", 500);
   }
 
-  // Persist the captured phone (U12) and a self-registration token (U9) on the
-  // registration. The phone is matched at the door; the token scopes the party's
-  // self-registration link (sent in the confirmation email, U10). Best-effort:
-  // both are non-blocking — a failure here never fails an already-created
-  // registration, it only leaves that party without phone / a shareable link.
+  // Persist the captured phone and the registration's manage token. The phone is matched
+  // at the door; the manage_token scopes the party's lead "My Booking" link (sent in the
+  // confirmation email). Best-effort and non-blocking — a failure here never fails an
+  // already-created registration, it only leaves that party without phone / a manage link.
+  // Self-registration is retired (U16), so no self_reg_token is issued.
   const regPatch: {
     phone_e164?: string;
-    self_reg_token: string;
     manage_token: string;
     lead_ticket_type_id?: string;
   } = {
-    self_reg_token: generateSelfRegToken(),
-    // Path-secret for the lead "My Booking" page (U4). Same CSPRNG shape as the
-    // self-reg token; sent in the confirmation email (U9) as manage_url.
+    // Path-secret for the lead "My Booking" page (U4). Sent in the confirmation email as
+    // manage_url. generateSelfRegToken is kept for its CSPRNG shape (name is historical).
     manage_token: generateSelfRegToken(),
   };
   if (phone) regPatch.phone_e164 = phone;
@@ -366,7 +364,7 @@ export async function POST(
     .update(regPatch)
     .eq("id", registrationId);
   if (patchErr) {
-    console.error("[event-register] failed to persist phone/self_reg_token", {
+    console.error("[event-register] failed to persist phone/manage_token", {
       registrationId,
       err: patchErr,
     });
@@ -380,8 +378,8 @@ export async function POST(
     await seedLeadAttendee(registrationId, phone || null);
     // Mint a credentialled (QR) ticket for every remaining purchased slot (U2).
     await mintRegistrationTickets(registrationId);
-    // Name the guest tickets the booker filled in at checkout (best-effort; any
-    // un-filled slot stays issued and is reachable via the self-registration link).
+    // Name the guest tickets the booker filled in at checkout (best-effort; any un-filled
+    // slot stays issued and can be named later from the lead's manage page or the door).
     await fillRegistrationRoster(registrationId, normalizedAttendees);
     sendEventRegistrationConfirmation(registrationId).catch((err) =>
       console.error("[event-register] confirmation email failed", err)

@@ -48,7 +48,7 @@ export default async function ManageEventPage({
   const { data: registrations, error: registrationsError } = await supabase
     .from("event_registrations")
     .select(
-      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, self_reg_token, manage_token, ticket_email_sent_at, is_guest_list, created_at"
+      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, manage_token, ticket_email_sent_at, is_guest_list, created_at"
     )
     .eq("event_id", id)
     .in("status", ["paid", "free"])
@@ -140,7 +140,6 @@ export default async function ManageEventPage({
   }));
   const partyFills = computePartyFills(regsForFill, roster);
   const guestSummary = rosterGuestSummary(regsForFill, roster);
-  const selfRegTokenByReg = new Map<string, string | null>();
   // Per-booking manage_token → the lead's "My Booking" page link, surfaced on the
   // admin roster so staff can open/manage a party exactly as the lead sees it.
   const manageTokenByReg = new Map<string, string | null>();
@@ -149,10 +148,6 @@ export default async function ManageEventPage({
   // sent → "not yet notified", drives the lead-row resend indicator + bulk count).
   const ticketEmailSentAtByReg = new Map<string, string | null>();
   for (const r of registrations ?? []) {
-    selfRegTokenByReg.set(
-      r.id,
-      (r as { self_reg_token?: string | null }).self_reg_token ?? null
-    );
     manageTokenByReg.set(
       r.id,
       (r as { manage_token?: string | null }).manage_token ?? null
@@ -193,11 +188,8 @@ export default async function ManageEventPage({
       ticketTypeTitle: a.ticket_type_id
         ? ticketTitleById.get(a.ticket_type_id) ?? ""
         : "",
-      // Party self-reg detail for the expandable lead drawer (null on guest rows).
-      party:
-        fill && ticketRegId
-          ? { ...fill, selfRegToken: selfRegTokenByReg.get(ticketRegId) ?? null }
-          : null,
+      // Party fill for the expandable lead drawer (null on guest rows).
+      party: fill && ticketRegId ? fill : null,
       // The lead's "My Booking" manage_token → booking-page link on lead rows (guests
       // share the lead's booking, so it's attributed to the lead only).
       manageToken: ticketRegId ? manageTokenByReg.get(ticketRegId) ?? null : null,

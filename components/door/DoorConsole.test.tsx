@@ -46,7 +46,6 @@ const party = (over: Partial<Party> = {}): Party => ({
   claimedCount: 1,
   remaining: 0,
   complete: true,
-  selfRegToken: null,
   isGuestList: false,
   slots: [slot()],
   ...over,
@@ -83,7 +82,6 @@ function renderConsole(over: Partial<Props> = {}) {
       eventId="evt-1"
       eventTitle="Summer Asado"
       eventDate="11 Jul 2026"
-      baseUrl="https://gpc.test"
       parties={over.parties ?? []}
       arrivals={arrivals}
       notArrived={missing}
@@ -352,33 +350,30 @@ describe("R12 — comp guests are findable in the Pre-registered tab", () => {
   });
 });
 
-describe("open slots with no self-registration link", () => {
-  // A comp party's self_reg_token is NULL by design, so the "predates the feature" copy
-  // is a lie for it — and it must not read as an invitation to fill a sponsor's seat.
+describe("open slots (self-registration retired, U16)", () => {
+  // Self-registration is gone; open slots are named via the door's own SlotRow forms. A
+  // comp party's open seats still route staff to the welcome desk (they're the sponsor's).
   const withOpenSlot = (over: Partial<Party>) =>
     party({
       quantity: 2,
       claimedCount: 1,
       remaining: 1,
       complete: false,
-      selfRegToken: null,
       slots: [slot(), slot({ attendeeId: null, name: "", email: "", phone: "", isLead: false })],
       ...over,
     });
 
-  it("tells the volunteer a comp party has no link BY DESIGN", () => {
+  it("routes staff to the welcome desk before filling a comp party's open seat", () => {
     renderConsole({ parties: [withOpenSlot({ isGuestList: true })] });
-    expect(screen.getByText(/no self-registration link by design/i)).toBeInTheDocument();
     expect(screen.getByText(/welcome desk/i)).toBeInTheDocument();
-    expect(screen.queryByText(/predates the feature/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/comped seats/i)).toBeInTheDocument();
   });
 
-  it("keeps the legacy-booking copy for a non-comp party", () => {
+  it("prompts staff to name a non-comp party's open seats, with no self-reg link", () => {
     renderConsole({ parties: [withOpenSlot({ isGuestList: false })] });
-    expect(screen.getByText(/predates the feature/i)).toBeInTheDocument();
-    expect(
-      screen.queryByText(/no self-registration link by design/i)
-    ).not.toBeInTheDocument();
+    expect(screen.getByText(/still to name/i)).toBeInTheDocument();
+    expect(screen.queryByText(/pre-registration/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/self-registration/i)).not.toBeInTheDocument();
   });
 });
 
