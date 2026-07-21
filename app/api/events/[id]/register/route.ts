@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
+import { priceForRateClass, isUsablePrice } from "@/lib/events/pricing";
 import {
   generateReferenceCode,
   generateSelfRegToken,
@@ -270,13 +271,8 @@ export async function POST(
 
   for (const p of parsed) {
     const t = typeById.get(p.ticket_type_id)!;
-    const unit =
-      rateClass === "member"
-        ? t.price_member
-        : rateClass === "invite"
-          ? t.invite_price
-          : t.price_non_member;
-    if (unit === null || !Number.isFinite(Number(unit)) || Number(unit) < 0) {
+    const unit = priceForRateClass(t, rateClass);
+    if (!isUsablePrice(unit)) {
       return bad("Event pricing is misconfigured", 500);
     }
     const unitAmount = Number(unit);

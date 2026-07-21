@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { mintRegistrationTickets } from "@/lib/events/roster";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
+import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
 
 // Buy-more top-up from the lead booking page (U6). Adds tickets UNDER the existing
 // registration (the one-reg-per-email index blocks a second one). We record a pending
@@ -83,8 +84,8 @@ export async function POST(
     // Non-members fall back to invite_price when price_non_member is unset — on a
     // members-only event there is no non-member price, so an invited guest's top-up
     // must use the same invite_price they paid at booking (else unit is null → 500).
-    const unit = reg.is_member ? t.price_member : (t.price_non_member ?? t.invite_price);
-    if (unit === null || !Number.isFinite(Number(unit)) || Number(unit) < 0) {
+    const unit = resolvePrice(t, reg);
+    if (!isUsablePrice(unit)) {
       return bad("Event pricing is misconfigured", 500);
     }
     const unitAmount = Number(unit);

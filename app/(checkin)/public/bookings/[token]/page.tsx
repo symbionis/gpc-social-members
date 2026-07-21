@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
 import BookingManager, { type BookingTicket } from "@/components/public/BookingManager";
 import { credentialUrl } from "@/lib/events/credential";
+import { resolvePrice } from "@/lib/events/pricing";
 import { formatDate, formatCurrency } from "@/lib/format";
 
 // Don't leak the secret manage_token to outbound links / analytics via Referer.
@@ -112,7 +113,7 @@ export default async function BookingPage({
     .filter((t) => !t.archived_at)
     .sort((a, b) => ((a.sort_order as number) ?? 0) - ((b.sort_order as number) ?? 0))
     .map((t) => {
-      const unit = registration.is_member ? t.price_member : (t.price_non_member ?? t.invite_price);
+      const unit = resolvePrice(t, registration);
       const amount = unit === null ? null : Number(unit);
       return {
         id: t.id as string,
@@ -133,7 +134,7 @@ export default async function BookingPage({
   const convertTypes = (typeRows ?? [])
     .filter((t) => !t.archived_at)
     .map((t) => {
-      const unit = registration.is_member ? t.price_member : (t.price_non_member ?? t.invite_price);
+      const unit = resolvePrice(t, registration);
       const price = unit === null ? null : Number(unit);
       return {
         id: t.id as string,
