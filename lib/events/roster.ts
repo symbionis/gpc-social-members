@@ -168,8 +168,8 @@ export type SelfRegistrationClaimResult =
   | { status: "invalid_input"; reason?: string };
 
 // The self-registration "add children by name" flow was retired with the is_child
-// concept (U7): its UI and route are gone. The add_self_registration_children RPC it
-// wrapped is dropped in the deploy-ordered DB step alongside the other is_child writers.
+// concept: its UI and route went in U7a, and the add_self_registration_children RPC it
+// wrapped was dropped in U7b. The is_child columns themselves were dropped in U8.
 
 /**
  * Claim a self-registration slot via the RPC. Query errors throw (the route maps
