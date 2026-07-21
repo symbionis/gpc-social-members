@@ -726,6 +726,7 @@ export type Database = {
           archived_at: string | null
           counts_as_seat: boolean
           created_at: string
+          description: string | null
           event_id: string
           id: string
           invite_price: number | null
@@ -739,6 +740,7 @@ export type Database = {
           archived_at?: string | null
           counts_as_seat?: boolean
           created_at?: string
+          description?: string | null
           event_id: string
           id?: string
           invite_price?: number | null
@@ -752,6 +754,7 @@ export type Database = {
           archived_at?: string | null
           counts_as_seat?: boolean
           created_at?: string
+          description?: string | null
           event_id?: string
           id?: string
           invite_price?: number | null

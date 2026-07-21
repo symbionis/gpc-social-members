@@ -1,11 +1,18 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
+// Buyer-facing description cap. Kept numerically identical to the DB CHECK in
+// migration 20260721160000_ticket_type_description.sql — if they drift, an
+// over-cap value surfaces as a 500 constraint error instead of the 400 field
+// error below.
+export const TICKET_TYPE_DESCRIPTION_MAX = 500;
+
 export interface NormalizedTicketType {
   title: string;
   price_member: number | null;
   price_non_member: number | null;
   invite_price: number | null;
   counts_as_seat: boolean;
+  description: string | null;
 }
 
 function parsePrice(
@@ -55,6 +62,17 @@ export function normalizeTicketType(
     return { ok: false, error: `Guest price for "${title}" must be 0 or a positive amount` };
   }
 
+  // Optional plain-text description. Non-strings are ignored (treated as absent)
+  // rather than coerced; empty/whitespace-only becomes null so we never store "".
+  const rawDescription = typeof o.description === "string" ? o.description.trim() : "";
+  if (rawDescription.length > TICKET_TYPE_DESCRIPTION_MAX) {
+    return {
+      ok: false,
+      error: `Description for "${title}" must be ${TICKET_TYPE_DESCRIPTION_MAX} characters or fewer`,
+    };
+  }
+  const description = rawDescription === "" ? null : rawDescription;
+
   const isMembersOnly = visibility === "members_only";
   return {
     ok: true,
@@ -68,6 +86,7 @@ export function normalizeTicketType(
       // Accept a real boolean; anything else (absent, or a stray non-boolean)
       // defaults to true rather than being silently coerced.
       counts_as_seat: typeof o.counts_as_seat === "boolean" ? o.counts_as_seat : true,
+      description,
     },
   };
 }
