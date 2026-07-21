@@ -250,6 +250,11 @@ async function handleImageUpload(file: File) {
     const isMembersOnly = formData.visibility === "members_only";
     for (const t of ticketTypes) {
       if (!t.title.trim()) return "Every ticket type needs a name.";
+      // Match the server rule (normalizeTicketType trims, then caps at 500) so
+      // an over-cap description surfaces as an inline error, not an opaque 400.
+      if (t.description.trim().length > 500) {
+        return `"${t.title.trim() || "Untitled"}" description must be 500 characters or fewer.`;
+      }
     }
     if (formData.registration_enabled) {
       for (const t of ticketTypes) {

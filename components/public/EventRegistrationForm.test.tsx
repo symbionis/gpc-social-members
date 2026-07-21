@@ -86,6 +86,18 @@ describe("ticket-type description display", () => {
     // The type still renders normally.
     expect(screen.getByRole("button", { name: "Add one Veg ticket" })).toBeInTheDocument();
   });
+
+  it("renders a script-like description as inert escaped text (no HTML injection)", () => {
+    // Locks the escaping invariant: the admin-authored description must render as
+    // plain text via JSX interpolation, never as parsed HTML. Guards against a
+    // future refactor to dangerouslySetInnerHTML / a markdown sink.
+    const payload = '<img src=x onerror="alert(1)">';
+    const { container } = renderForm([{ ...asado, description: payload }]);
+    // The literal string is visible as text...
+    expect(screen.getByText(payload)).toBeInTheDocument();
+    // ...and no actual <img> element was created from it.
+    expect(container.querySelector("img")).toBeNull();
+  });
 });
 
 describe("U2 — attendee naming step", () => {
