@@ -78,11 +78,11 @@ export async function sendEventRegistrationConfirmation(
   const isFree = registration.status === "free" || Number(registration.total_amount_chf) === 0;
   const amountLabel = formatAmount(Number(registration.total_amount_chf), isFree);
 
-  // Per-type breakdown. Render as a Mustachio section in the template:
-  //   {{#ticket_lines}} {{title}} × {{quantity}} — {{line_label}} {{/ticket_lines}}
+  // Per-type breakdown — an itemised receipt (R12/U13). Render as a Mustachio section:
+  //   {{#ticket_lines}} {{quantity}} × {{title}} @ {{unit_label}} — {{line_label}} {{/ticket_lines}}
   const { data: items, error: itemsErr } = await supabase
     .from("event_registration_items")
-    .select("title_snapshot, quantity, line_total_chf")
+    .select("title_snapshot, quantity, unit_amount_chf, line_total_chf")
     .eq("registration_id", registrationId)
     .order("created_at", { ascending: true });
 
@@ -93,18 +93,27 @@ export async function sendEventRegistrationConfirmation(
     console.error("[event-registration-email] items lookup failed", { registrationId, err: itemsErr });
   }
 
+  const priceLabel = (chf: number) => (chf === 0 ? "Free" : `CHF ${chf.toFixed(2)}`);
   const ticketLines =
     items && items.length > 0
       ? items.map((i) => ({
           title: i.title_snapshot,
           quantity: i.quantity,
-          line_label:
-            Number(i.line_total_chf) === 0 ? "Free" : `CHF ${Number(i.line_total_chf).toFixed(2)}`,
+          // Unit price each (receipt line); null on the fallback below omits the "@ x each".
+          unit_label: priceLabel(Number(i.unit_amount_chf)),
+          line_label: priceLabel(Number(i.line_total_chf)),
         }))
       : // Itemless fallback (legacy rows, or deploy-window pending→paid rows the
         // webhook promoted without items): synthesize one line so the breakdown
-        // is never blank.
-        [{ title: "Registration", quantity: registration.quantity, line_label: amountLabel }];
+        // is never blank. No per-unit price to show, so unit_label is null.
+        [
+          {
+            title: "Registration",
+            quantity: registration.quantity,
+            unit_label: null,
+            line_label: amountLabel,
+          },
+        ];
 
   const eventDateLabel = formatDate(event.start_date);
   const eventTime = formatTime(event.start_time);

@@ -25,9 +25,9 @@ Location:     {{.}}
 {{/event_location}}
 Reference:    {{reference_code}}
 
-Tickets:
+Receipt:
 {{#each ticket_lines}}
-  {{quantity}} x {{title}} - {{line_label}}
+  {{quantity}} x {{title}}{{#unit_label}} · {{.}} each{{/unit_label}} - {{line_label}}
 {{/each}}
 Total:        {{amount_label}}
 

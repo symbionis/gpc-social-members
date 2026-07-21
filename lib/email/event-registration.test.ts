@@ -13,7 +13,7 @@ const mockedAdmin = vi.mocked(createAdminClient);
 const mockedSend = vi.mocked(sendEmail);
 const mockedHousehold = vi.mocked(sendHouseholdTicketEmails);
 
-type Item = { title_snapshot: string; quantity: number; line_total_chf: number };
+type Item = { title_snapshot: string; quantity: number; unit_amount_chf: number; line_total_chf: number };
 
 function adminClient(opts: {
   registration: Record<string, unknown>;
@@ -101,30 +101,32 @@ describe("sendEventRegistrationConfirmation — ticket_lines breakdown", () => {
         registration: baseReg,
         event: baseEvent,
         items: [
-          { title_snapshot: "Standard", quantity: 2, line_total_chf: 160 },
-          { title_snapshot: "Kids", quantity: 2, line_total_chf: 80 },
-          { title_snapshot: "Welcome drink", quantity: 1, line_total_chf: 0 },
+          { title_snapshot: "Standard", quantity: 2, unit_amount_chf: 80, line_total_chf: 160 },
+          { title_snapshot: "Kids", quantity: 2, unit_amount_chf: 40, line_total_chf: 80 },
+          { title_snapshot: "Welcome drink", quantity: 1, unit_amount_chf: 0, line_total_chf: 0 },
         ],
       })
     );
     await sendEventRegistrationConfirmation("reg-1");
     const model = lastModel();
+    // Covers R12: itemised receipt — per-line unit price + line total + total + reference.
     expect(model.ticket_lines).toEqual([
-      { title: "Standard", quantity: 2, line_label: "CHF 160.00" },
-      { title: "Kids", quantity: 2, line_label: "CHF 80.00" },
-      { title: "Welcome drink", quantity: 1, line_label: "Free" },
+      { title: "Standard", quantity: 2, unit_label: "CHF 80.00", line_label: "CHF 160.00" },
+      { title: "Kids", quantity: 2, unit_label: "CHF 40.00", line_label: "CHF 80.00" },
+      { title: "Welcome drink", quantity: 1, unit_label: "Free", line_label: "Free" },
     ]);
     expect(model.amount_label).toBe("CHF 240.00");
+    expect(model.reference_code).toBe(baseReg.reference_code);
   });
 
-  it("falls back to a single synthesized line when the registration has no items", async () => {
+  it("falls back to a single synthesized line (no unit price) when the registration has no items", async () => {
     mockedAdmin.mockReturnValue(
       adminClient({ registration: baseReg, event: baseEvent, items: [] })
     );
     await sendEventRegistrationConfirmation("reg-1");
     const model = lastModel();
     expect(model.ticket_lines).toEqual([
-      { title: "Registration", quantity: 4, line_label: "CHF 240.00" },
+      { title: "Registration", quantity: 4, unit_label: null, line_label: "CHF 240.00" },
     ]);
   });
 
@@ -133,7 +135,7 @@ describe("sendEventRegistrationConfirmation — ticket_lines breakdown", () => {
       adminClient({
         registration: { ...baseReg, total_amount_chf: 0, status: "free" },
         event: baseEvent,
-        items: [{ title_snapshot: "Standard", quantity: 2, line_total_chf: 0 }],
+        items: [{ title_snapshot: "Standard", quantity: 2, unit_amount_chf: 0, line_total_chf: 0 }],
       })
     );
     await sendEventRegistrationConfirmation("reg-1");
