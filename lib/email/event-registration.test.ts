@@ -2,16 +2,16 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/postmark", () => ({ sendEmail: vi.fn() }));
-vi.mock("@/lib/email/ticket-qr", () => ({ sendTicketQrEmail: vi.fn() }));
+vi.mock("@/lib/email/household-tickets", () => ({ sendHouseholdTicketEmails: vi.fn() }));
 
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
-import { sendTicketQrEmail } from "@/lib/email/ticket-qr";
+import { sendHouseholdTicketEmails } from "@/lib/email/household-tickets";
 
 const mockedAdmin = vi.mocked(createAdminClient);
 const mockedSend = vi.mocked(sendEmail);
-const mockedGuestQr = vi.mocked(sendTicketQrEmail);
+const mockedHousehold = vi.mocked(sendHouseholdTicketEmails);
 
 type Item = { title_snapshot: string; quantity: number; line_total_chf: number };
 
@@ -91,7 +91,7 @@ function lastModel() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockedSend.mockResolvedValue({ success: true });
-  mockedGuestQr.mockResolvedValue({ success: true });
+  mockedHousehold.mockResolvedValue({ groups: 0, sent: 0 });
 });
 
 describe("sendEventRegistrationConfirmation — ticket_lines breakdown", () => {
@@ -187,44 +187,19 @@ describe("sendEventRegistrationConfirmation — booking link + lead QR (FEAT-41)
   });
 });
 
-describe("sendEventRegistrationConfirmation — guest QR fan-out (R6/R8)", () => {
-  it("covers R6/R8: emails every guest ticket with an email its QR", async () => {
-    mockedAdmin.mockReturnValue(
-      adminClient({
-        registration: baseReg,
-        event: baseEvent,
-        items: [],
-        guestTickets: [{ id: "tkt-kid", email: "kid@x.ch", qr_email_sent_at: null }],
-      })
-    );
+describe("sendEventRegistrationConfirmation — grouped guest delivery (U12)", () => {
+  it("delegates guest QR delivery to the grouped household send", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ registration: baseReg, event: baseEvent, items: [] }));
     await sendEventRegistrationConfirmation("reg-1");
-    expect(mockedGuestQr).toHaveBeenCalledWith("tkt-kid");
+    // Per-guest fan-out is retired; grouping + idempotency live in sendHouseholdTicketEmails
+    // (covered in household-tickets.test.ts). Here we only assert the delegation.
+    expect(mockedHousehold).toHaveBeenCalledWith("reg-1");
   });
 
-  it("still skips a guest ticket with no email", async () => {
-    mockedAdmin.mockReturnValue(
-      adminClient({
-        registration: baseReg,
-        event: baseEvent,
-        items: [],
-        guestTickets: [{ id: "tkt-noemail", email: null, qr_email_sent_at: null }],
-      })
-    );
-    await sendEventRegistrationConfirmation("reg-1");
-    expect(mockedGuestQr).not.toHaveBeenCalled();
-  });
-
-  it("still skips a guest ticket whose QR was already sent", async () => {
-    mockedAdmin.mockReturnValue(
-      adminClient({
-        registration: baseReg,
-        event: baseEvent,
-        items: [],
-        guestTickets: [{ id: "tkt-sent", email: "g@x.ch", qr_email_sent_at: "2026-07-01T00:00:00Z" }],
-      })
-    );
-    await sendEventRegistrationConfirmation("reg-1");
-    expect(mockedGuestQr).not.toHaveBeenCalled();
+  it("a grouped-send failure never rejects the confirmation", async () => {
+    mockedHousehold.mockRejectedValueOnce(new Error("postmark down"));
+    mockedAdmin.mockReturnValue(adminClient({ registration: baseReg, event: baseEvent, items: [] }));
+    await expect(sendEventRegistrationConfirmation("reg-1")).resolves.toBeDefined();
   });
 });
 
