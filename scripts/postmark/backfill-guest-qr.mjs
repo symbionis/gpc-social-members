@@ -36,10 +36,10 @@ const [event] = await sb(
 );
 if (!event) { console.error("event not found"); process.exit(1); }
 
-// Target set: claimed, non-lead, non-child, live, has email, not yet QR-emailed.
+// Target set: claimed, non-lead, live, has email, not yet QR-emailed.
 const tickets = await sb(
   `tickets?event_id=eq.${eventId}` +
-    `&slot_status=eq.claimed&is_lead=eq.false&is_child=eq.false` +
+    `&slot_status=eq.claimed&is_lead=eq.false` +
     `&released_at=is.null&qr_email_sent_at=is.null&email=not.is.null` +
     `&select=id,name,email,credential_token,event_registrations(name,reference_code)`
 );

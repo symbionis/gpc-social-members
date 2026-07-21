@@ -702,13 +702,6 @@ export type Database = {
             foreignKeyName: "event_ticket_type_conversions_ticket_id_fkey"
             columns: ["ticket_id"]
             isOneToOne: false
-            referencedRelation: "event_attendees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_ticket_type_conversions_ticket_id_fkey"
-            columns: ["ticket_id"]
-            isOneToOne: false
             referencedRelation: "tickets"
             referencedColumns: ["id"]
           },
@@ -729,7 +722,6 @@ export type Database = {
           event_id: string
           id: string
           invite_price: number | null
-          is_child: boolean
           price_member: number | null
           price_non_member: number | null
           sort_order: number
@@ -742,7 +734,6 @@ export type Database = {
           event_id: string
           id?: string
           invite_price?: number | null
-          is_child?: boolean
           price_member?: number | null
           price_non_member?: number | null
           sort_order?: number
@@ -755,7 +746,6 @@ export type Database = {
           event_id?: string
           id?: string
           invite_price?: number | null
-          is_child?: boolean
           price_member?: number | null
           price_non_member?: number | null
           sort_order?: number
@@ -1491,7 +1481,6 @@ export type Database = {
           email: string | null
           event_id: string
           id: string
-          is_child: boolean
           is_comp: boolean
           is_lead: boolean
           language: string | null
@@ -1515,7 +1504,6 @@ export type Database = {
           email?: string | null
           event_id: string
           id?: string
-          is_child?: boolean
           is_comp?: boolean
           is_lead?: boolean
           language?: string | null
@@ -1539,7 +1527,6 @@ export type Database = {
           email?: string | null
           event_id?: string
           id?: string
-          is_child?: boolean
           is_comp?: boolean
           is_lead?: boolean
           language?: string | null
@@ -1588,101 +1575,7 @@ export type Database = {
       }
     }
     Views: {
-      event_attendees: {
-        Row: {
-          checked_in_at: string | null
-          created_at: string | null
-          credential_token: string | null
-          email: string | null
-          event_id: string | null
-          id: string | null
-          is_child: boolean | null
-          is_lead: boolean | null
-          language: string | null
-          marketing_consent: boolean | null
-          member_id: string | null
-          name: string | null
-          phone_e164: string | null
-          registration_id: string | null
-          released_at: string | null
-          slot_status: string | null
-          ticket_type_id: string | null
-          waiver_accepted_at: string | null
-          waiver_version: string | null
-        }
-        Insert: {
-          checked_in_at?: string | null
-          created_at?: string | null
-          credential_token?: string | null
-          email?: string | null
-          event_id?: string | null
-          id?: string | null
-          is_child?: boolean | null
-          is_lead?: boolean | null
-          language?: string | null
-          marketing_consent?: boolean | null
-          member_id?: string | null
-          name?: string | null
-          phone_e164?: string | null
-          registration_id?: string | null
-          released_at?: string | null
-          slot_status?: string | null
-          ticket_type_id?: string | null
-          waiver_accepted_at?: string | null
-          waiver_version?: string | null
-        }
-        Update: {
-          checked_in_at?: string | null
-          created_at?: string | null
-          credential_token?: string | null
-          email?: string | null
-          event_id?: string | null
-          id?: string | null
-          is_child?: boolean | null
-          is_lead?: boolean | null
-          language?: string | null
-          marketing_consent?: boolean | null
-          member_id?: string | null
-          name?: string | null
-          phone_e164?: string | null
-          registration_id?: string | null
-          released_at?: string | null
-          slot_status?: string | null
-          ticket_type_id?: string | null
-          waiver_accepted_at?: string | null
-          waiver_version?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "event_attendees_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_attendees_member_id_fkey"
-            columns: ["member_id"]
-            isOneToOne: false
-            referencedRelation: "members"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_attendees_registration_id_fkey"
-            columns: ["registration_id"]
-            isOneToOne: false
-            referencedRelation: "event_registrations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_attendees_ticket_type_id_fkey"
-            columns: ["ticket_type_id"]
-            isOneToOne: false
-            referencedRelation: "event_ticket_types"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
+      [_ in never]: never
     }
     Functions: {
       add_comp_guests: {
