@@ -176,32 +176,29 @@ export async function POST(
   }
   const typeById = new Map(types.map((t) => [t.id, t]));
 
-  // The lead's own ticket must be one of the basket's non-child types.
+  // The lead's own ticket must be one of the basket's types. is_child no longer
+  // branches any behaviour here (R6) — a former child type is as eligible as any
+  // other for the buyer's own slot.
   let leadType: string | null = leadTicketTypeId || null;
   if (leadType && !ids.includes(leadType)) {
     return bad("Your ticket must be one of the selected tickets", 400);
   }
-  // The buyer's own ticket can't be a children's ticket.
-  if (leadType && typeById.get(leadType)?.is_child) {
-    return bad("Your ticket can't be a children's ticket", 400);
-  }
   // Resolve the lead's ticket type from the basket when the client didn't send one:
-  // a single adult type implies it; 2+ adult types are genuinely ambiguous and must
-  // be chosen (mirrors the client "You"-row gate) rather than seeding an untyped lead.
-  const adultTypeIds = ids.filter((id) => !typeById.get(id)?.is_child);
-  if (!leadType && adultTypeIds.length === 1) {
-    leadType = adultTypeIds[0];
+  // a single selected type implies it; 2+ selected types are genuinely ambiguous and
+  // must be chosen (mirrors the client "You"-row gate) rather than seeding an untyped
+  // lead.
+  if (!leadType && ids.length === 1) {
+    leadType = ids[0];
   }
-  if (!leadType && adultTypeIds.length >= 2) {
+  if (!leadType && ids.length >= 2) {
     return bad("Please choose which ticket is yours", 400);
   }
 
-  // Parse the OPTIONAL nominative roster: booker-entered names for GUEST tickets
-  // (the lead is seeded separately from leadType). Never trust a client is_child —
-  // derive it from the ticket type. Adults need a valid email; any number of
-  // tickets may share one address (R2) — only the booker-level registration guard
-  // below (KTD7) still rejects a duplicate. Bounds close abuse paths on this
-  // unauthenticated route.
+  // Every purchased guest slot needs a name and an email before checkout can
+  // complete (R1) — no path may create an unnamed ticket, and a former child type
+  // is no longer exempt (R6, R8). Any number of tickets may share one address (R2)
+  // — only the booker-level registration guard below (KTD7) still rejects a
+  // duplicate. Bounds close abuse paths on this unauthenticated route.
   const rawAttendees = Array.isArray(body.attendees) ? body.attendees : [];
   if (rawAttendees.length > MAX_TICKETS) {
     return bad("Too many attendees for one order", 400);
@@ -216,28 +213,25 @@ export async function POST(
     const nm = typeof rec.name === "string" ? rec.name.trim() : "";
     if (!nm) return bad("Each named ticket needs a name", 400);
     if (nm.length > MAX_ATTENDEE_NAME) return bad("An attendee name is too long", 400);
-    // Adults need a surname to be filed under; a child is named by an adult and is
-    // often mononymous ("Emma"), so children keep the single-name path.
-    if (!t.is_child && !isFullName(nm)) {
+    // Every guest needs a surname to be filed under (R8) — no more name-only path.
+    if (!isFullName(nm)) {
       return bad("Each named guest needs a first and last name", 400);
     }
-    let attEmail: string | null = null;
-    if (!t.is_child) {
-      const e = typeof rec.email === "string" ? rec.email.trim().toLowerCase() : "";
-      if (!e || !EMAIL_RE.test(e)) return bad("Each named adult needs a valid email", 400);
-      if (e.length > MAX_ATTENDEE_EMAIL) return bad("An attendee email is too long", 400);
-      attEmail = e;
-    }
+    const e = typeof rec.email === "string" ? rec.email.trim().toLowerCase() : "";
+    if (!e || !EMAIL_RE.test(e)) return bad("Each named guest needs a valid email", 400);
+    if (e.length > MAX_ATTENDEE_EMAIL) return bad("An attendee email is too long", 400);
     namedPerType.set(ttId, (namedPerType.get(ttId) ?? 0) + 1);
-    normalizedAttendees.push({ ticket_type_id: ttId, name: nm, email: attEmail });
+    normalizedAttendees.push({ ticket_type_id: ttId, name: nm, email: e });
   }
-  // A type's named guests can't exceed the purchased quantity minus the lead's own
-  // slot of that type (the lead is seeded, not in this list).
+  // A type's named guests must exactly cover the purchased quantity minus the lead's
+  // own slot of that type (the lead is seeded, not in this list) — mandatory naming
+  // (R1) means neither fewer nor more named guests than purchased is acceptable.
   const purchasedPerType = new Map(parsed.map((p) => [p.ticket_type_id, p.quantity]));
-  for (const [ttId, named] of namedPerType) {
-    const capacity = (purchasedPerType.get(ttId) ?? 0) - (leadType === ttId ? 1 : 0);
-    if (named > capacity) {
-      return bad("More named guests than tickets for a ticket type", 400);
+  for (const [ttId, purchasedQty] of purchasedPerType) {
+    const capacity = purchasedQty - (leadType === ttId ? 1 : 0);
+    const named = namedPerType.get(ttId) ?? 0;
+    if (named !== capacity) {
+      return bad("Every ticket needs a name and email before checkout can complete", 400);
     }
   }
 

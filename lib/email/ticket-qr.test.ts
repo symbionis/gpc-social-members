@@ -104,11 +104,11 @@ describe("sendTicketQrEmail", () => {
     expect(mockedSend).not.toHaveBeenCalled();
   });
 
-  it("skips a name-only child ticket", async () => {
-    mockedAdmin.mockReturnValue(adminClient({ ticket: { ...liveAdultTicket, is_child: true } }));
+  it("covers R6/R8: sends a former child-type ticket its QR — no more child skip", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ ticket: { ...liveAdultTicket, is_child: true }, event }));
     const res = await sendTicketQrEmail("tkt-1");
-    expect(res.skipped).toBe("child");
-    expect(mockedSend).not.toHaveBeenCalled();
+    expect(res.success).toBe(true);
+    expect(mockedSend).toHaveBeenCalledOnce();
   });
 
   it("skips a ticket already sent (idempotent — no double-send)", async () => {

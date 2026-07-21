@@ -2,13 +2,16 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/postmark", () => ({ sendEmail: vi.fn() }));
+vi.mock("@/lib/email/ticket-qr", () => ({ sendTicketQrEmail: vi.fn() }));
 
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
+import { sendTicketQrEmail } from "@/lib/email/ticket-qr";
 
 const mockedAdmin = vi.mocked(createAdminClient);
 const mockedSend = vi.mocked(sendEmail);
+const mockedGuestQr = vi.mocked(sendTicketQrEmail);
 
 type Item = { title_snapshot: string; quantity: number; line_total_chf: number };
 
@@ -17,6 +20,8 @@ function adminClient(opts: {
   event: Record<string, unknown>;
   items: Item[] | null;
   tickets?: { credential_token: string | null; name: string | null; is_lead?: boolean }[];
+  /** Rows returned for the guest QR fan-out query (is_lead=false), distinct from `tickets` (the lead-QR query). */
+  guestTickets?: { id: string; is_child?: boolean; email?: string | null; qr_email_sent_at?: string | null }[];
   /** Records each event_registrations.update({...}) payload (the success stamp). */
   updateCalls?: Record<string, unknown>[];
   /** Forces the stamp update to fail, to test best-effort logging. */
@@ -35,13 +40,17 @@ function adminClient(opts: {
       }
       if (table === "tickets") {
         const c: Record<string, unknown> = {};
+        let filteringByLead = false;
         c.select = () => c;
-        c.eq = () => c;
+        c.eq = (col: string, val: unknown) => {
+          if (col === "is_lead") filteringByLead = val === false;
+          return c;
+        };
         c.in = () => c;
         c.is = () => c;
         c.order = () => c;
         (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
-          resolve({ data: opts.tickets ?? [], error: null });
+          resolve({ data: (filteringByLead ? opts.guestTickets : opts.tickets) ?? [], error: null });
         return c;
       }
       const c: Record<string, unknown> = {};
@@ -82,6 +91,7 @@ function lastModel() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockedSend.mockResolvedValue({ success: true });
+  mockedGuestQr.mockResolvedValue({ success: true });
 });
 
 describe("sendEventRegistrationConfirmation — ticket_lines breakdown", () => {
@@ -174,6 +184,47 @@ describe("sendEventRegistrationConfirmation — booking link + lead QR (FEAT-41)
     await sendEventRegistrationConfirmation("reg-1");
     expect(lastModel().manage_url).toBeNull();
     expect(lastModel().tickets).toEqual([]);
+  });
+});
+
+describe("sendEventRegistrationConfirmation — guest QR fan-out (R6/R8)", () => {
+  it("covers R6/R8: emails a former child-type guest ticket its QR — no more child skip", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        registration: baseReg,
+        event: baseEvent,
+        items: [],
+        guestTickets: [{ id: "tkt-kid", is_child: true, email: "kid@x.ch", qr_email_sent_at: null }],
+      })
+    );
+    await sendEventRegistrationConfirmation("reg-1");
+    expect(mockedGuestQr).toHaveBeenCalledWith("tkt-kid");
+  });
+
+  it("still skips a guest ticket with no email", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        registration: baseReg,
+        event: baseEvent,
+        items: [],
+        guestTickets: [{ id: "tkt-noemail", is_child: false, email: null, qr_email_sent_at: null }],
+      })
+    );
+    await sendEventRegistrationConfirmation("reg-1");
+    expect(mockedGuestQr).not.toHaveBeenCalled();
+  });
+
+  it("still skips a guest ticket whose QR was already sent", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        registration: baseReg,
+        event: baseEvent,
+        items: [],
+        guestTickets: [{ id: "tkt-sent", is_child: false, email: "g@x.ch", qr_email_sent_at: "2026-07-01T00:00:00Z" }],
+      })
+    );
+    await sendEventRegistrationConfirmation("reg-1");
+    expect(mockedGuestQr).not.toHaveBeenCalled();
   });
 });
 

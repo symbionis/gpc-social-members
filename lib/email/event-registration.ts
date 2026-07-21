@@ -226,7 +226,7 @@ export async function sendEventRegistrationConfirmation(
       .eq("slot_status", "claimed")
       .is("released_at", null);
     for (const g of guestTickets ?? []) {
-      if (g.is_child || !g.email || g.qr_email_sent_at) continue;
+      if (!g.email || g.qr_email_sent_at) continue;
       await sendTicketQrEmail(g.id as string).catch((err) =>
         console.error("[event-registration-email] guest QR send failed", {
           ticketId: g.id,

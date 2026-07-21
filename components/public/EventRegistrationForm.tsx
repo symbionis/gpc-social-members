@@ -38,7 +38,6 @@ interface GuestRow {
   key: string;
   ticketTypeId: string;
   title: string;
-  isChild: boolean;
 }
 
 export default function EventRegistrationForm({
@@ -51,7 +50,6 @@ export default function EventRegistrationForm({
 }: Props) {
   const cap = Math.max(1, Math.min(MAX_QUANTITY_HARD_CAP, maxQuantity ?? MAX_QUANTITY_HARD_CAP));
   const selectable = useMemo(() => ticketTypes.filter((t) => t.price !== null), [ticketTypes]);
-  const adultTypes = useMemo(() => selectable.filter((t) => !t.is_child), [selectable]);
 
   const [firstName, setFirstName] = useState(() => splitName(defaultName).first);
   const [lastName, setLastName] = useState(() => splitName(defaultName).last);
@@ -84,29 +82,29 @@ export default function EventRegistrationForm({
   const atCap = totalQuantity >= cap;
   const allFree = selectable.length > 0 && selectable.every((t) => t.price === 0);
 
-  const selectedAdultTypes = useMemo(
-    () => adultTypes.filter((t) => (quantities[t.id] ?? 0) > 0),
-    [adultTypes, quantities]
+  const selectedTypes = useMemo(
+    () => selectable.filter((t) => (quantities[t.id] ?? 0) > 0),
+    [selectable, quantities]
   );
-  const hasAdultSelected = selectedAdultTypes.length > 0;
 
-  // Resolve the buyer's own meal from the basket. One selected adult type implies it;
-  // 0 or 2+ adult types leave it empty so the "You" row forces an explicit pick. This
+  // Resolve the buyer's own meal from the basket. One selected type implies it; 0 or
+  // 2+ selected types leave it empty so the "You" row forces an explicit pick. This
   // runs only when the basket changes, so a radio choice the user makes afterwards
   // persists (the effect doesn't clobber it).
   useEffect(() => {
-    setLeadTicketTypeId(selectedAdultTypes.length === 1 ? selectedAdultTypes[0].id : "");
-  }, [selectedAdultTypes]);
+    setLeadTicketTypeId(selectedTypes.length === 1 ? selectedTypes[0].id : "");
+  }, [selectedTypes]);
 
   // The rows to name in step 2: one per purchased ticket EXCEPT the buyer's own slot
-  // (the lead is seeded server-side from leadTicketTypeId).
+  // (the lead is seeded server-side from leadTicketTypeId). Every ticket is mandatory
+  // naming (R1) — no path leaves a slot unfilled.
   const guestRows = useMemo<GuestRow[]>(() => {
     const rows: GuestRow[] = [];
     for (const t of selectable) {
       const qty = quantities[t.id] ?? 0;
       const guestSlots = qty - (t.id === leadTicketTypeId ? 1 : 0);
       for (let i = 0; i < guestSlots; i++) {
-        rows.push({ key: `${t.id}#${i}`, ticketTypeId: t.id, title: t.title, isChild: t.is_child });
+        rows.push({ key: `${t.id}#${i}`, ticketTypeId: t.id, title: t.title });
       }
     }
     return rows;
@@ -147,17 +145,13 @@ export default function EventRegistrationForm({
     const errs: Record<string, string> = {};
     const attendees: { ticket_type_id: string; name: string; email?: string }[] = [];
 
+    // Every ticket requires a name and an email before checkout can complete (R1) —
+    // no exemption for a former child type (R8). A blank row is now an error, not a
+    // deferral to a self-registration link.
     for (const row of guestRows) {
       const g = guests[row.key];
-      // A child is named by an adult and is often mononymous ("Emma"), so only the
-      // first-name box shows for a child ticket and its name is that box alone.
       const nm = joinName(g?.firstName ?? "", g?.lastName ?? "");
-      if (!nm) continue; // blank rows are allowed — left for the self-reg link
-      if (row.isChild) {
-        attendees.push({ ticket_type_id: row.ticketTypeId, name: nm });
-        continue;
-      }
-      if (!isFullName(nm)) {
+      if (!nm || !isFullName(nm)) {
         errs[row.key] = "Enter this guest's first and last name.";
         continue;
       }
@@ -169,7 +163,7 @@ export default function EventRegistrationForm({
       attendees.push({ ticket_type_id: row.ticketTypeId, name: nm, email: e });
     }
     setRowErrors(errs);
-    return { attendees, ok: Object.keys(errs).length === 0 };
+    return { attendees, ok: Object.keys(errs).length === 0 && attendees.length === guestRows.length };
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -178,7 +172,7 @@ export default function EventRegistrationForm({
     if (!firstName.trim() || !lastName.trim())
       return setError("Please enter your first and last name.");
     if (!email.trim()) return setError("Please enter your email.");
-    if (!hasAdultSelected) return setError("Add at least one adult ticket.");
+    if (totalQuantity < 1) return setError("Add at least one ticket.");
     if (!leadTicketTypeId) return setError("Please choose which ticket is yours.");
     if (totalQuantity > cap) return setError(`A maximum of ${cap} tickets can be booked at once.`);
 
@@ -377,12 +371,6 @@ export default function EventRegistrationForm({
             </p>
           )}
 
-          {totalQuantity > 0 && !hasAdultSelected && (
-            <p className="font-body text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-              Add at least one adult ticket — the person booking attends.
-            </p>
-          )}
-
           <div className="flex items-center justify-between border-t border-border pt-3">
             <span className="font-body text-sm text-muted-foreground">Total</span>
             <span className="font-heading text-lg font-bold text-marine">{totalDisplay}</span>
@@ -396,7 +384,7 @@ export default function EventRegistrationForm({
             ref={continueBtnRef}
             type="button"
             onClick={goToAttendees}
-            disabled={totalQuantity < 1 || !hasAdultSelected}
+            disabled={totalQuantity < 1}
             className="w-full px-4 py-3 bg-marine text-white rounded-lg text-sm font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             Continue
@@ -412,17 +400,17 @@ export default function EventRegistrationForm({
           <p className="font-body text-xs text-muted-foreground">
             Every guest needs their own QR code to get in — <strong>no QR code, no
             bracelet.</strong> Add each guest’s name and email and we’ll email them their QR
-            code. Leave a guest blank and they’ll get a link to register themselves.
+            code.
           </p>
 
           {/* The buyer's own ticket. */}
           <div className="rounded-lg border border-sky/40 bg-sky/5 px-3 py-3 space-y-2">
             <p className="font-body text-xs font-semibold text-marine uppercase tracking-wide">Your ticket</p>
             <p className="font-body text-sm text-marine">{name || "You"}{email ? ` · ${email}` : ""}</p>
-            {selectedAdultTypes.length > 1 ? (
+            {selectedTypes.length > 1 ? (
               <fieldset className="space-y-1">
                 <legend className="font-body text-xs text-muted-foreground mb-1">Which ticket is yours?</legend>
-                {selectedAdultTypes.map((t) => (
+                {selectedTypes.map((t) => (
                   <label key={t.id} className="flex items-center gap-2 font-body text-sm text-marine cursor-pointer">
                     <input
                       type="radio"
@@ -437,8 +425,8 @@ export default function EventRegistrationForm({
               </fieldset>
             ) : (
               <p className="font-body text-xs text-muted-foreground">
-                {selectedAdultTypes[0]?.title}
-                {selectedAdultTypes[0] ? ` — ${priceLabel(selectedAdultTypes[0].price as number)}` : ""}
+                {selectedTypes[0]?.title}
+                {selectedTypes[0] ? ` — ${priceLabel(selectedTypes[0].price as number)}` : ""}
               </p>
             )}
           </div>
@@ -457,51 +445,36 @@ export default function EventRegistrationForm({
                     <p className="font-body text-xs text-muted-foreground">
                       Guest {idx + 1} · {row.title}
                     </p>
-                    {row.isChild ? (
-                      // A child is named by an adult and is often mononymous ("Emma").
+                    <div className="grid grid-cols-2 gap-2">
                       <input
                         id={nameId}
                         type="text"
                         value={g.firstName}
                         onChange={(e) => setGuestField(row.key, "firstName", e.target.value)}
-                        placeholder="Child's name"
-                        aria-label={`Guest ${idx + 1} name — ${row.title}`}
+                        placeholder="First name"
+                        aria-label={`Guest ${idx + 1} first name — ${row.title}`}
                         className={inputClass}
+                        autoComplete="off"
                       />
-                    ) : (
-                      <div className="grid grid-cols-2 gap-2">
-                        <input
-                          id={nameId}
-                          type="text"
-                          value={g.firstName}
-                          onChange={(e) => setGuestField(row.key, "firstName", e.target.value)}
-                          placeholder="First name"
-                          aria-label={`Guest ${idx + 1} first name — ${row.title}`}
-                          className={inputClass}
-                          autoComplete="off"
-                        />
-                        <input
-                          type="text"
-                          value={g.lastName}
-                          onChange={(e) => setGuestField(row.key, "lastName", e.target.value)}
-                          placeholder="Last name"
-                          aria-label={`Guest ${idx + 1} last name — ${row.title}`}
-                          className={inputClass}
-                          autoComplete="off"
-                        />
-                      </div>
-                    )}
-                    {!row.isChild && (
                       <input
-                        type="email"
-                        value={g.email}
-                        onChange={(e) => setGuestField(row.key, "email", e.target.value)}
-                        placeholder="Email (for their QR code)"
-                        aria-label={`Guest ${idx + 1} email — ${row.title}`}
-                        aria-describedby={err ? `${emailId}-err` : undefined}
+                        type="text"
+                        value={g.lastName}
+                        onChange={(e) => setGuestField(row.key, "lastName", e.target.value)}
+                        placeholder="Last name"
+                        aria-label={`Guest ${idx + 1} last name — ${row.title}`}
                         className={inputClass}
+                        autoComplete="off"
                       />
-                    )}
+                    </div>
+                    <input
+                      type="email"
+                      value={g.email}
+                      onChange={(e) => setGuestField(row.key, "email", e.target.value)}
+                      placeholder="Email (for their QR code)"
+                      aria-label={`Guest ${idx + 1} email — ${row.title}`}
+                      aria-describedby={err ? `${emailId}-err` : undefined}
+                      className={inputClass}
+                    />
                     {err && (
                       <p id={`${emailId}-err`} className="font-body text-xs text-red-700">{err}</p>
                     )}

@@ -6,8 +6,8 @@ import { resolveDoorEvent } from "@/lib/events/door-access";
 // capture a guest's details on the spot instead of waiting for self-registration.
 // Public, keyed on the event id (KTD1). With an attendeeId it edits that person's
 // name/contact; without one it creates a person for an open slot of a ticket type
-// (race-checked against the per-type allotment). A children's-ticket slot is name
-// only (contactless); an adult slot needs an email or phone so they match at the door.
+// (race-checked against the per-type allotment). Every slot needs an email or phone
+// so they match at the door — no exemption for a former child type (R6).
 
 const MAX_LEN = 200;
 const MAX_EMAIL_LEN = 254;
@@ -75,10 +75,11 @@ export async function POST(
     }
     if (!existing) return bad("Slot not found", 404);
 
-    // An adult who hasn't arrived must keep a contact (so they match at the door).
-    const isChild = Boolean(existing.is_child);
+    // A guest who hasn't arrived must keep a contact (so they match at the door) —
+    // no more exemption for a former child type (R6). An arrived guest is already
+    // physically present and verified, so that exemption is unrelated and stays.
     const checkedIn = existing.checked_in_at !== null;
-    if (!isChild && !checkedIn && !email && !phone) {
+    if (!checkedIn && !email && !phone) {
       return bad("Add an email or phone, or use the QR code", 400);
     }
 

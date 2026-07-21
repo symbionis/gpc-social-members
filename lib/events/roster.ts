@@ -62,10 +62,9 @@ export async function mintRegistrationTickets(
   }
 }
 
-// One booker-entered guest ticket to name at checkout. `email` is null for
-// children (name-only); is_child is NEVER carried from the client — claim_ticket
-// derives it from the ticket type. The lead is excluded (seeded from
-// lead_ticket_type_id), so this list is guests only.
+// One booker-entered guest ticket to name at checkout. Every ticket now requires an
+// email (naming is mandatory, no exemption for a former child type). The lead is
+// excluded (seeded from lead_ticket_type_id), so this list is guests only.
 export interface RosterFillAttendee {
   ticket_type_id: string;
   name: string;

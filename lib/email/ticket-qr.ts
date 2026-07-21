@@ -38,7 +38,6 @@ export interface SendTicketQrResult {
   /** Set when the send was intentionally skipped (not an error) — e.g. no email. */
   skipped?:
     | "released"
-    | "child"
     | "no_email"
     | "no_credential"
     | "already_sent"
@@ -49,8 +48,9 @@ export interface SendTicketQrResult {
 
 /**
  * Email one guest their own entry QR. Best-effort and idempotent: it only sends when the
- * ticket is live, has an email, isn't a name-only child, and hasn't already been sent
- * (qr_email_sent_at). Callers fire-and-forget — the return value is for tests/logging.
+ * ticket is live, has an email, and hasn't already been sent (qr_email_sent_at). Every
+ * ticket now carries an email (R8) — no more name-only child exemption. Callers
+ * fire-and-forget — the return value is for tests/logging.
  */
 export async function sendTicketQrEmail(ticketId: string): Promise<SendTicketQrResult> {
   const supabase = createAdminClient();
@@ -65,7 +65,6 @@ export async function sendTicketQrEmail(ticketId: string): Promise<SendTicketQrR
     .maybeSingle();
   if (error || !ticket) return { success: false, skipped: "not_found", error };
   if (ticket.released_at) return { success: false, skipped: "released" };
-  if (ticket.is_child) return { success: false, skipped: "child" };
   if (!ticket.email) return { success: false, skipped: "no_email" };
   if (!ticket.credential_token) return { success: false, skipped: "no_credential" };
   if (ticket.qr_email_sent_at) return { success: false, skipped: "already_sent" };
