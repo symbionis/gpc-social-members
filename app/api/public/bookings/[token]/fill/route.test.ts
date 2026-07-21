@@ -140,3 +140,93 @@ describe("POST /api/public/bookings/[token]/fill", () => {
     expect(res.status).toBe(404);
   });
 });
+
+// U11: a household member corrects from the manage page with a PER-TICKET manage_token.
+// fill_ticket authorises on the registration token, so the route resolves the ticket's
+// registration and uses ITS token — but only for tickets sharing the caller's email.
+function holderAdmin(opts: {
+  self?: Record<string, unknown> | null;
+  reg?: Record<string, unknown> | null;
+  ticket?: Record<string, unknown> | null;
+  fill?: Record<string, unknown> | null;
+  rpcSpy?: (args: unknown) => void;
+}) {
+  const from = (name: string) => {
+    const filters: Record<string, unknown> = {};
+    const b: Record<string, unknown> = {};
+    b.select = () => b;
+    b.is = () => b;
+    b.update = () => b;
+    b.eq = (c: string, v: unknown) => {
+      filters[c] = v;
+      return b;
+    };
+    b.maybeSingle = async () => {
+      if (name === "event_registrations")
+        return { data: "manage_token" in filters ? null : opts.reg ?? null, error: null };
+      if (name === "tickets")
+        return { data: "manage_token" in filters ? opts.self ?? null : opts.ticket ?? null, error: null };
+      return { data: null, error: null };
+    };
+    return b;
+  };
+  return {
+    from,
+    rpc: async (_fn: string, args: unknown) => {
+      opts.rpcSpy?.(args);
+      return { data: opts.fill ?? null, error: null };
+    },
+  } as unknown as ReturnType<typeof createAdminClient>;
+}
+
+describe("POST /api/public/bookings/[token]/fill (household member via per-ticket token)", () => {
+  it("corrects a same-email household ticket, authorising fill_ticket with the registration token", async () => {
+    const spy = vi.fn();
+    mockedAdmin.mockReturnValue(
+      holderAdmin({
+        self: { registration_id: "reg1", email: "House@x.com" },
+        reg: { id: "reg1", manage_token: "REGTOK" },
+        ticket: { email: "house@x.com", qr_email_sent_at: null },
+        fill: { status: "claimed", attendee_id: TICKET, name: "Ann" },
+        rpcSpy: spy,
+      })
+    );
+    const res = await post({ ticketId: TICKET, name: "Ann", email: "ann@x.com" }, "ptoken");
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ p_manage_token: "REGTOK", p_ticket_id: TICKET })
+    );
+  });
+
+  it("404s a ticket outside the caller's email household", async () => {
+    mockedAdmin.mockReturnValue(
+      holderAdmin({
+        self: { registration_id: "reg1", email: "house@x.com" },
+        reg: { id: "reg1", manage_token: "REGTOK" },
+        ticket: { email: "someone@else.com", qr_email_sent_at: null },
+        fill: { status: "claimed", attendee_id: TICKET, name: "Ann" },
+      })
+    );
+    const res = await post({ ticketId: TICKET, name: "Ann", email: "ann@x.com" }, "ptoken");
+    expect(res.status).toBe(404);
+  });
+
+  it("404s an unknown per-ticket token", async () => {
+    mockedAdmin.mockReturnValue(holderAdmin({ self: null, reg: null }));
+    const res = await post({ ticketId: TICKET, name: "Ann", email: "ann@x.com" }, "nope");
+    expect(res.status).toBe(404);
+  });
+
+  it("404s a blank-email token correcting a DIFFERENT blank-email ticket (solo fallback)", async () => {
+    mockedAdmin.mockReturnValue(
+      holderAdmin({
+        self: { id: "SELF", registration_id: "reg1", email: "" },
+        reg: { id: "reg1", manage_token: "REGTOK" },
+        ticket: { email: "", qr_email_sent_at: null },
+        fill: { status: "claimed", attendee_id: TICKET, name: "Ann" },
+      })
+    );
+    const res = await post({ ticketId: TICKET, name: "Ann", email: "ann@x.com" }, "ptoken");
+    expect(res.status).toBe(404);
+  });
+});
