@@ -68,20 +68,18 @@ export async function POST(
   const fromTypeId = ticket.ticket_type_id as string;
   if (fromTypeId === toTicketTypeId) return bad("This ticket is already that type");
 
-  // Load both types (scoped to the event). `to` must be active; child↔adult conversion
-  // is out of scope (KTD6) because it changes waiver/contact invariants.
+  // Load both types (scoped to the event). `to` must be active. Child↔adult conversion
+  // is allowed now (R9) — every ticket carries a name, email, and waiver regardless of
+  // type, so the invariants that made the boundary matter are gone.
   const { data: types } = await supabase
     .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, invite_price, archived_at, counts_as_seat, is_child")
+    .select("id, title, price_member, price_non_member, invite_price, archived_at, counts_as_seat")
     .eq("event_id", reg.event_id as string)
     .in("id", [fromTypeId, toTicketTypeId]);
   const from = (types ?? []).find((t) => t.id === fromTypeId);
   const to = (types ?? []).find((t) => t.id === toTicketTypeId);
   if (!from || !to) return bad("Ticket type not available", 400);
   if (to.archived_at) return bad("That ticket type is no longer available", 400);
-  if (Boolean(to.is_child) !== Boolean(from.is_child)) {
-    return bad("Can’t change between adult and child ticket types", 400);
-  }
 
   // Re-derive both prices server-side from the booking's rate class (R3) — never trust
   // client input. Non-members fall back to invite_price when price_non_member is unset

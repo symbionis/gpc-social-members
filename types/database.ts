@@ -1813,6 +1813,7 @@ export type Database = {
         Args: { p_manage_token: string; p_ticket_ids: string[] }
         Returns: Json
       }
+      gen_url_token: { Args: never; Returns: string }
       import_event_attendees: {
         Args: { p_event_id: string; p_rows: Json }
         Returns: Json

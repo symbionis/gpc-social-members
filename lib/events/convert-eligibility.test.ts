@@ -9,9 +9,11 @@ const TYPES: ConvertType[] = [
 ];
 
 describe("eligibleConvertTargets", () => {
-  it("offers only same-or-higher priced adult types, cheapest-first", () => {
+  it("offers every same-or-higher priced type, cheapest-first (child/adult boundary removed, R9)", () => {
+    // From Standard (0): kid (10), food (25), vip (80) — the former child type is now
+    // a valid target, price-gated like any other.
     const targets = eligibleConvertTargets("std", TYPES);
-    expect(targets.map((t) => t.id)).toEqual(["food", "vip"]);
+    expect(targets.map((t) => t.id)).toEqual(["kid", "food", "vip"]);
   });
 
   it("includes an equal-priced target (delta 0 is allowed)", () => {
@@ -27,11 +29,10 @@ describe("eligibleConvertTargets", () => {
     expect(eligibleConvertTargets("vip", TYPES)).toEqual([]);
   });
 
-  it("never crosses the child/adult boundary", () => {
-    // Child ticket (10) sees no adult types even though food (25) is pricier.
-    expect(eligibleConvertTargets("kid", TYPES)).toEqual([]);
-    // Adult standard never offers the child type.
-    expect(eligibleConvertTargets("std", TYPES).some((t) => t.isChild)).toBe(false);
+  it("covers R9: a former child type can convert up to a pricier adult type", () => {
+    // Child ticket (10) now sees the pricier adult types (food 25, vip 80); std (0) is
+    // cheaper so it stays excluded by the price gate, not by a child/adult rule.
+    expect(eligibleConvertTargets("kid", TYPES).map((t) => t.id)).toEqual(["food", "vip"]);
   });
 
   it("excludes the current type itself", () => {
