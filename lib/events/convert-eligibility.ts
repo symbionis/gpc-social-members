@@ -3,21 +3,22 @@
 //
 // The server (POST .../convert) is the authority on eligibility, pricing, and seat cap;
 // this only decides what to OFFER so the lead isn't shown targets that would be rejected.
-// Upgrade-only: a target must be same-or-higher priced (delta >= 0), match is_child
-// (KTD6 — child<->adult is out of scope), and not be the ticket's current type.
+// Upgrade-only: a target must be same-or-higher priced (delta >= 0) and not be the
+// ticket's current type. The child<->adult restriction is gone (R9) — any same-or-higher
+// priced type is a valid target regardless of the former child flag.
 
 export interface ConvertType {
   id: string;
   title: string;
   /** Numeric price at the booking's rate class (member vs non-member, invite fallback). */
   price: number;
+  /** Retained until the is_child column sweep (U7) removes it; no longer filtered on. */
   isChild: boolean;
 }
 
 /**
- * Same-or-higher priced target types with matching is_child, excluding the current type,
- * sorted cheapest-first. Returns [] when the current type is unknown (e.g. archived) so
- * no conversion is offered.
+ * Same-or-higher priced target types, excluding the current type, sorted cheapest-first.
+ * Returns [] when the current type is unknown (e.g. archived) so no conversion is offered.
  */
 export function eligibleConvertTargets(
   currentTypeId: string,
@@ -26,6 +27,6 @@ export function eligibleConvertTargets(
   const current = types.find((t) => t.id === currentTypeId);
   if (!current) return [];
   return types
-    .filter((t) => t.id !== current.id && t.isChild === current.isChild && t.price >= current.price)
+    .filter((t) => t.id !== current.id && t.price >= current.price)
     .sort((a, b) => a.price - b.price);
 }

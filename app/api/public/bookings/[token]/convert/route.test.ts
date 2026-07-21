@@ -165,10 +165,13 @@ describe("POST /api/public/bookings/[token]/convert", () => {
     expect(await res.json()).toMatchObject({ ok: true, checkoutUrl: expect.any(String) });
   });
 
-  it("rejects a child↔adult conversion (KTD6)", async () => {
+  it("covers R9: allows a former child↔adult conversion (boundary removed)", async () => {
+    // Formerly rejected (KTD6). The route no longer reads is_child, so a differing
+    // former-child flag on the fixtures is irrelevant and the upgrade proceeds.
     mockedAdmin.mockReturnValue(adminClient({ toChild: true, fromChild: false }));
     const res = await post({ ticketId: TICKET, toTicketTypeId: TO });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, checkoutUrl: expect.any(String) });
   });
 
   it("409s a seat-consuming conversion when the event is full", async () => {
