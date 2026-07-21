@@ -71,36 +71,28 @@ describe("POST /api/public/door/[id]/save-attendee", () => {
     expect(res.status).toBe(400);
   });
 
-  it("edits an existing adult slot (name + email)", async () => {
+  it("edits an existing slot (name + email)", async () => {
     mockedAdmin.mockReturnValue(
-      adminClient({ existing: { id: UID, is_child: false, checked_in_at: null } })
+      adminClient({ existing: { id: UID, checked_in_at: null } })
     );
     const res = await post({ attendeeId: UID, name: "Ann Lead", email: "ann@x.com" });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, created: false });
   });
 
-  it("rejects editing an adult slot down to no contact", async () => {
+  it("covers R6: rejects editing any slot down to no contact (no per-type exemption)", async () => {
     mockedAdmin.mockReturnValue(
-      adminClient({ existing: { id: UID, is_child: false, checked_in_at: null } })
+      adminClient({ existing: { id: UID, checked_in_at: null } })
     );
     const res = await post({ attendeeId: UID, name: "Ann" });
     expect(res.status).toBe(400);
   });
 
-  it("covers R6: rejects editing a former child-type slot down to no contact (no more exemption)", async () => {
+  it("still allows editing a checked-in slot's name with no contact (arrived-guest exemption)", async () => {
     mockedAdmin.mockReturnValue(
-      adminClient({ existing: { id: UID, is_child: true, checked_in_at: null } })
+      adminClient({ existing: { id: UID, checked_in_at: "2026-07-21T18:00:00Z" } })
     );
-    const res = await post({ attendeeId: UID, name: "Kid" });
-    expect(res.status).toBe(400);
-  });
-
-  it("still allows editing a checked-in slot's name with no contact (arrived guest exemption unrelated to is_child)", async () => {
-    mockedAdmin.mockReturnValue(
-      adminClient({ existing: { id: UID, is_child: true, checked_in_at: "2026-07-21T18:00:00Z" } })
-    );
-    const res = await post({ attendeeId: UID, name: "Kid Corrected" });
+    const res = await post({ attendeeId: UID, name: "Guest Corrected" });
     expect(res.status).toBe(200);
   });
 

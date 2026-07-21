@@ -185,9 +185,8 @@ export async function POST(
   }
   const typeById = new Map(types.map((t) => [t.id, t]));
 
-  // The lead's own ticket must be one of the basket's types. is_child no longer
-  // branches any behaviour here (R6) — a former child type is as eligible as any
-  // other for the buyer's own slot.
+  // The lead's own ticket must be one of the basket's types. Every ticket type is
+  // equally eligible for the buyer's own slot (R6).
   let leadType: string | null = leadTicketTypeId || null;
   if (leadType && !ids.includes(leadType)) {
     return bad("Your ticket must be one of the selected tickets", 400);

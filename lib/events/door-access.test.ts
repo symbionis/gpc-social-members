@@ -73,7 +73,6 @@ const ticketTypes: Row[] = [
     id: "tt-adult",
     event_id: EVENT,
     title: "Adult",
-    is_child: false,
     sort_order: 1,
     archived_at: null,
   },
@@ -81,7 +80,6 @@ const ticketTypes: Row[] = [
     id: "tt-kid",
     event_id: EVENT,
     title: "Child",
-    is_child: true,
     sort_order: 2,
     archived_at: null,
   },
@@ -119,7 +117,6 @@ function ticket(over: Row): Row {
     phone_e164: null,
     is_lead: false,
     ticket_type_id: "tt-adult",
-    is_child: null,
     checked_in_at: null,
     created_at: "2026-07-01T08:00:00Z",
     slot_status: "claimed",
@@ -182,7 +179,6 @@ describe("buildDoorRoster", () => {
       partyName: "Alice Lead",
       referenceCode: "GPC-0001",
       ticketTypeTitle: "Adult",
-      isChild: false,
       email: "alice@example.com",
       phone: "+41791112233",
       arrivedAt: "2026-07-01T10:00:00Z",
@@ -249,7 +245,6 @@ describe("buildDoorRoster", () => {
       name: null,
       partyName: "Alice Lead",
       ticketTypeTitle: "Child",
-      isChild: true,
     });
   });
 

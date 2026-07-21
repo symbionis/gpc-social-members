@@ -30,8 +30,6 @@ interface Opts {
   toInvite?: number | null;
   fromSeat?: boolean;
   toSeat?: boolean;
-  fromChild?: boolean;
-  toChild?: boolean;
   toArchived?: string | null;
   seatCap?: number | null;
   rpcStatus?: string;
@@ -41,13 +39,13 @@ function adminClient(opts: Opts) {
   const fromType = {
     id: FROM, title: "Standard",
     price_member: opts.fromMember ?? 0, price_non_member: 0, invite_price: null,
-    archived_at: null, counts_as_seat: opts.fromSeat ?? false, is_child: opts.fromChild ?? false,
+    archived_at: null, counts_as_seat: opts.fromSeat ?? false,
   };
   const toType = {
     id: TO, title: "With food",
     price_member: opts.toMember === undefined ? 25 : opts.toMember,
     price_non_member: opts.toNon ?? 40, invite_price: opts.toInvite ?? null,
-    archived_at: opts.toArchived ?? null, counts_as_seat: opts.toSeat ?? false, is_child: opts.toChild ?? false,
+    archived_at: opts.toArchived ?? null, counts_as_seat: opts.toSeat ?? false,
   };
   return {
     from: (table: string) => {
@@ -165,10 +163,10 @@ describe("POST /api/public/bookings/[token]/convert", () => {
     expect(await res.json()).toMatchObject({ ok: true, checkoutUrl: expect.any(String) });
   });
 
-  it("covers R9: allows a former child↔adult conversion (boundary removed)", async () => {
-    // Formerly rejected (KTD6). The route no longer reads is_child, so a differing
-    // former-child flag on the fixtures is irrelevant and the upgrade proceeds.
-    mockedAdmin.mockReturnValue(adminClient({ toChild: true, fromChild: false }));
+  it("covers R9: allows conversion between any two types (former child/adult boundary removed)", async () => {
+    // Formerly rejected (KTD6). The child/adult distinction is retired, so any
+    // same-or-higher priced upgrade now proceeds.
+    mockedAdmin.mockReturnValue(adminClient({}));
     const res = await post({ ticketId: TICKET, toTicketTypeId: TO });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, checkoutUrl: expect.any(String) });

@@ -51,11 +51,10 @@ export async function PATCH(
   // Event-scoped existence check (IDOR guard). Load the current values too: this is
   // a PATCH, so any field the caller omits must keep its stored value rather than be
   // reset to normalizeTicketType's default. (Without this, saving only the guest
-  // price — as the Settings tab does — silently cleared is_child / counts_as_seat,
-  // un-flagging children's tickets so check-in stopped offering the party's kids.)
+  // price — as the Settings tab does — silently cleared counts_as_seat.)
   const { data: existing } = await adminClient
     .from("event_ticket_types")
-    .select("title, price_member, price_non_member, invite_price, counts_as_seat, is_child")
+    .select("title, price_member, price_non_member, invite_price, counts_as_seat")
     .eq("id", ticketTypeId)
     .eq("event_id", eventId)
     .maybeSingle();

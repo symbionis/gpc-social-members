@@ -16,8 +16,6 @@ export interface RosterAttendeeInput {
   checked_in_at: string | null;
   /** The event_ticket_types row this person holds (resolved to a title for display). */
   ticket_type_id?: string | null;
-  /** A name-only child (contactless) — checked in via their adult, not the kiosk. */
-  is_child?: boolean;
 }
 
 /** One registration's purchased quantity. */
@@ -37,8 +35,6 @@ export interface PartyGuest {
   arrivedAt: string | null;
   /** The guest's ticket-type title (asado meal), or "" when none/unknown. */
   ticketTypeTitle: string;
-  /** True for a name-only child (no contact; checked in via their adult). */
-  isChild: boolean;
 }
 
 /** Per-party fill: tickets bought, how many claimed, how many still open, guests. */
@@ -71,7 +67,6 @@ function toGuest(
     ticketTypeTitle: a.ticket_type_id
       ? ticketTitleById?.get(a.ticket_type_id) ?? ""
       : "",
-    isChild: a.is_child ?? false,
   };
 }
 

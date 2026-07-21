@@ -12,7 +12,6 @@ interface CheckinResult {
   name?: string | null;
   ticket_type_title?: string | null;
   checked_in_at?: string | null;
-  is_child?: boolean;
 }
 
 type Phase = "scan" | "busy" | "needs_name" | "needs_waiver" | "result";
@@ -135,10 +134,9 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
     [submit]
   );
 
-  const isChild = Boolean(result?.is_child);
-  // Adults must give a contact (email OR phone); children are name-only.
+  // Every guest must give a contact (email OR phone).
   const canContinue =
-    name.trim() !== "" && (isChild || email.trim() !== "" || Boolean(phone));
+    name.trim() !== "" && (email.trim() !== "" || Boolean(phone));
   const copy = WAIVER_COPY[language];
 
   return (
@@ -215,33 +213,29 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
                       className={bigField}
                     />
                   </div>
-                  {!isChild && (
-                    <>
-                      <div>
-                        <label className={labelText} htmlFor="scan-email">
-                          Email
-                        </label>
-                        <input
-                          id="scan-email"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          placeholder="name@example.com"
-                          inputMode="email"
-                          autoComplete="off"
-                          className={bigField}
-                        />
-                      </div>
-                      <div>
-                        <label className={labelText} htmlFor="phone">
-                          Phone
-                        </label>
-                        <PhoneInput large onChange={setPhone} />
-                      </div>
-                      <p className="font-body text-base text-marine/60">
-                        Enter at least an email or a phone number.
-                      </p>
-                    </>
-                  )}
+                  <div>
+                    <label className={labelText} htmlFor="scan-email">
+                      Email
+                    </label>
+                    <input
+                      id="scan-email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      inputMode="email"
+                      autoComplete="off"
+                      className={bigField}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelText} htmlFor="phone">
+                      Phone
+                    </label>
+                    <PhoneInput large onChange={setPhone} />
+                  </div>
+                  <p className="font-body text-base text-marine/60">
+                    Enter at least an email or a phone number.
+                  </p>
                   {error && (
                     <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 font-body text-base text-red-700">
                       {error}

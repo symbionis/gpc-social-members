@@ -15,7 +15,6 @@ export interface BookingTicket {
   /** The ticket's current ticket_type_id — used to compute convertible target types. */
   typeId: string;
   typeTitle: string;
-  isChild: boolean;
   status: string; // 'issued' | 'claimed'
   checkedIn: boolean;
   credentialUrl: string;
@@ -371,8 +370,8 @@ function TicketCard({
       body: JSON.stringify({
         ticketId: ticket.id,
         name,
-        email: ticket.isChild ? "" : email,
-        phone: ticket.isChild ? "" : phone,
+        email,
+        phone,
         marketingConsent: false,
       }),
     });
@@ -380,15 +379,14 @@ function TicketCard({
     if (!res.ok || !data.ok) throw new Error(data.error ?? "Could not save. Please try again.");
   };
 
-  // Save the guest's details. The route emails an adult guest their own QR (no QR, no
-  // entry) — so an adult needs a deliverable email, not just any non-empty string.
-  // Children are name-only: they come in with their guardian, so no email, no QR.
+  // Save the guest's details. The route emails a guest their own QR (no QR, no entry)
+  // — so a guest needs a deliverable email, not just any non-empty string.
   const save = async () => {
     if (!name.trim()) {
-      setError(ticket.isChild ? "Enter the child’s name." : "Enter the guest’s name.");
+      setError("Enter the guest’s name.");
       return;
     }
-    if (!ticket.isChild && !EMAIL_RE.test(email.trim())) {
+    if (!EMAIL_RE.test(email.trim())) {
       setError("Add the guest’s email — that’s where we send their QR code.");
       return;
     }
@@ -484,24 +482,22 @@ function TicketCard({
             placeholder="Guest name"
             className="w-full rounded-lg border border-marine/20 bg-white px-3 py-2.5 text-base font-body"
           />
-          {!ticket.isChild && (
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Email (for their QR code)"
-                inputMode="email"
-                className="w-full rounded-lg border border-marine/20 bg-white px-3 py-2.5 text-base font-body"
-              />
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="Phone (+41…)"
-                inputMode="tel"
-                className="w-full rounded-lg border border-marine/20 bg-white px-3 py-2.5 text-base font-body"
-              />
-            </div>
-          )}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email (for their QR code)"
+              inputMode="email"
+              className="w-full rounded-lg border border-marine/20 bg-white px-3 py-2.5 text-base font-body"
+            />
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="Phone (+41…)"
+              inputMode="tel"
+              className="w-full rounded-lg border border-marine/20 bg-white px-3 py-2.5 text-base font-body"
+            />
+          </div>
           {error && <p className="text-sm font-body text-red-600">{error}</p>}
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -510,7 +506,7 @@ function TicketCard({
               disabled={busy}
               className="rounded-lg bg-marine px-4 py-2.5 text-base font-body font-semibold text-white disabled:opacity-50"
             >
-              {busy ? "Saving…" : ticket.isChild ? "Save" : "Save & send QR to guest"}
+              {busy ? "Saving…" : "Save & send QR to guest"}
             </button>
             <button
               type="button"
@@ -524,14 +520,8 @@ function TicketCard({
             </button>
           </div>
           <p className="font-body text-sm text-marine/70">
-            {ticket.isChild ? (
-              <>Children don’t need their own QR code — they come in with their guardian.</>
-            ) : (
-              <>
-                We’ll email this guest their own QR code — they show it at the door.{" "}
-                <strong>No QR code, no bracelet.</strong>
-              </>
-            )}
+            We’ll email this guest their own QR code — they show it at the door.{" "}
+            <strong>No QR code, no bracelet.</strong>
           </p>
         </div>
       )}

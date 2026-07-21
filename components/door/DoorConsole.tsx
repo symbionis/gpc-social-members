@@ -495,11 +495,6 @@ function TicketRowItem({ row }: { row: ListRow }) {
             {row.ticketTypeTitle}
           </span>
         )}
-        {row.isChild && (
-          <span className="shrink-0 px-2 py-0.5 rounded-full text-[11px] font-body bg-purple-100 text-purple-800">
-            child
-          </span>
-        )}
       </div>
     </li>
   );
@@ -527,11 +522,11 @@ function SlotRow({
   const [error, setError] = useState<string | null>(null);
 
   const isOpen = slot.attendeeId === null;
-  // R13. A claimed adult holding neither email nor phone — a name-only comp guest —
-  // would otherwise be admitted with no contact at all unless the volunteer thought to
-  // tap "Edit details" first. Open its fields so contact is captured as part of the
-  // check-in, not behind an extra tap. (Children are name-only by design.)
-  const needsContact = !isOpen && !slot.isChild && !slot.email && !slot.phone;
+  // R13. A claimed guest holding neither email nor phone would otherwise be admitted
+  // with no contact at all unless the volunteer thought to tap "Edit details" first.
+  // Open its fields so contact is captured as part of the check-in, not behind an
+  // extra tap.
+  const needsContact = !isOpen && !slot.email && !slot.phone;
   // New open slots are editable immediately; claimed (live) rows start locked, unless
   // they are missing the contact we came here to capture.
   const [editing, setEditing] = useState(isOpen || needsContact);
@@ -543,7 +538,7 @@ function SlotRow({
 
   async function save() {
     if (!name.trim()) return setError("Name is required.");
-    if (!slot.isChild && !email.trim() && !phone) {
+    if (!email.trim() && !phone) {
       return setError("Add an email or phone, or use the QR code below.");
     }
     setSaving(true);
@@ -640,11 +635,6 @@ function SlotRow({
               lead
             </span>
           )}
-          {slot.isChild && (
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-purple-100 text-purple-800">
-              child
-            </span>
-          )}
           {/* "Arrived" (green) means this ticket has been scanned/checked in by the
               door clerk — never just pre-registered. A filled-but-not-scanned slot
               shows a muted "Not arrived" so pre-registration isn't mistaken for it. */}
@@ -677,31 +667,27 @@ function SlotRow({
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder={slot.isChild ? "Child's name" : "Full name"}
+          placeholder="Full name"
           className={fieldClass}
           autoComplete="off"
           disabled={locked}
         />
-        {!slot.isChild && (
-          <>
-            <input
-              type="email"
-              inputMode="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-              className={fieldClass}
-              autoComplete="off"
-              disabled={locked}
-            />
-            <PhoneInput
-              key={editing ? "edit" : "view"}
-              defaultValue={slot.phone || null}
-              onChange={setPhone}
-              disabled={locked}
-            />
-          </>
-        )}
+        <input
+          type="email"
+          inputMode="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email"
+          className={fieldClass}
+          autoComplete="off"
+          disabled={locked}
+        />
+        <PhoneInput
+          key={editing ? "edit" : "view"}
+          defaultValue={slot.phone || null}
+          onChange={setPhone}
+          disabled={locked}
+        />
       </div>
 
       {needsContact && (

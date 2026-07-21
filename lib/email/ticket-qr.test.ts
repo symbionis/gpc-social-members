@@ -48,7 +48,6 @@ const liveAdultTicket = {
   registration_id: "reg-1",
   name: "Bo Guest",
   email: "bo@example.com",
-  is_child: false,
   released_at: null,
   credential_token: "credXYZ",
   qr_email_sent_at: null,
@@ -104,8 +103,8 @@ describe("sendTicketQrEmail", () => {
     expect(mockedSend).not.toHaveBeenCalled();
   });
 
-  it("covers R6/R8: sends a former child-type ticket its QR — no more child skip", async () => {
-    mockedAdmin.mockReturnValue(adminClient({ ticket: { ...liveAdultTicket, is_child: true }, event }));
+  it("covers R6/R8: sends every ticket type its QR (no per-type skip)", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ ticket: liveAdultTicket, event }));
     const res = await sendTicketQrEmail("tkt-1");
     expect(res.success).toBe(true);
     expect(mockedSend).toHaveBeenCalledOnce();
