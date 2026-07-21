@@ -1,0 +1,47 @@
+<h1>{{motivation_label}}</h1>
+
+<p>Hello {{first_name}},</p>
+
+<p>A quick reminder that <strong>{{event_title}}</strong> is happening <strong>{{time_until_label}}</strong>. We're looking forward to seeing you there.</p>
+
+<!-- Event card -->
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 32px 0;">
+  <tr>
+    <td align="center" style="background-color: #052938; border-radius: 8px; padding: 28px 32px;">
+      <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 3px;"><font color="#95CEE1">Reminder</font></p>
+      <p style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600;"><font color="#ffffff">{{event_title}}</font></p>
+      {{#event_date_label}}
+      <p style="margin: 0 0 4px 0; font-size: 14px;"><font color="#ffffff">{{.}}</font></p>
+      {{/event_date_label}}
+      {{#event_time_label}}
+      <p style="margin: 0 0 4px 0; font-size: 14px;"><font color="#ffffff">Starts at {{.}}</font></p>
+      {{/event_time_label}}
+      {{#event_location}}
+      <p style="margin: 0 0 16px 0; font-size: 14px;"><font color="#c8dfe8">{{.}}</font></p>
+      {{/event_location}}
+      <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 2px;"><font color="#7aafc4">Your reference</font></p>
+      <p style="margin: 0; font-size: 14px; letter-spacing: 2px; font-weight: 600;"><font color="#ffffff">{{reference_code}}</font></p>
+    </td>
+  </tr>
+</table>
+
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 16px 0;">
+  <tr>
+    <td style="padding: 6px 0; font-size: 14px;"><strong>Tickets:</strong> {{quantity}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 6px 0; font-size: 14px;"><strong>Amount:</strong> {{amount_label}}</td>
+  </tr>
+</table>
+
+{{#event_url}}
+<p style="text-align: center; margin: 32px 0;">
+  <a href="{{.}}" class="button" style="color: #FFFFFF !important; text-decoration: none; display: inline-block; background-color: #052938; border-radius: 3px; font-family: 'Poppins', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 500; letter-spacing: 1px; text-align: center; padding: 12px 32px; -webkit-text-size-adjust: none;">View Event Details</a>
+</p>
+{{/event_url}}
+
+<p>Please bring this email (or your reference code) with you. We'll check you in at the door.</p>
+
+<p>If you can no longer attend, please reply to this email so we can free up your place.</p>
+
+<p>Warm regards,<br><strong>The Geneva Polo Social Club Team</strong></p>

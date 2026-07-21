@@ -1,0 +1,48 @@
+{
+  "version": "5",
+  "remote": {
+    "https://esm.sh/standardwebhooks@1.0.0": "b8cafcb7e9a890c14c0eb74cb093f36333000122e2276cc204818f6a680c8ba9"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@eslint/eslintrc@3",
+        "npm:@playwright/test@^1.58.2",
+        "npm:@posthog/nextjs-config@^1.7.6",
+        "npm:@stripe/react-stripe-js@^6.1.0",
+        "npm:@stripe/stripe-js@^9.1.0",
+        "npm:@supabase/ssr@0.5",
+        "npm:@supabase/supabase-js@2",
+        "npm:@tailwindcss/postcss@4",
+        "npm:@tiptap/extension-link@^3.22.5",
+        "npm:@tiptap/react@^3.22.5",
+        "npm:@tiptap/starter-kit@^3.22.5",
+        "npm:@types/node-cron@^3.0.11",
+        "npm:@types/node@22",
+        "npm:@types/react-dom@19",
+        "npm:@types/react@19",
+        "npm:class-variance-authority@0.7",
+        "npm:clsx@2",
+        "npm:dotenv@^17.3.1",
+        "npm:eslint-config-next@15",
+        "npm:eslint@9",
+        "npm:libphonenumber-js@^1.13.5",
+        "npm:lucide-react@0.468",
+        "npm:next@15",
+        "npm:node-cron@^4.2.1",
+        "npm:posthog-js@^1.372.8",
+        "npm:posthog-node@^5.21.2",
+        "npm:postmark@4",
+        "npm:qrcode.react@4",
+        "npm:react-dom@19",
+        "npm:react@19",
+        "npm:stripe@20",
+        "npm:supabase@1",
+        "npm:tailwind-merge@3",
+        "npm:tailwindcss@4",
+        "npm:typescript@5",
+        "npm:vitest@^4.1.7"
+      ]
+    }
+  }
+}

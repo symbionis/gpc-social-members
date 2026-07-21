@@ -49,3 +49,12 @@ next-env.d.ts
 supabase/.localbaseline/
 supabase/.branches/
 supabase/config.toml
+
+# Compound Engineering machine-local config
+.compound-engineering/config.local.yaml
+
+# Member data exports / PII — keep local, out of version control
+/GPC_Platform_Progress_Report_April_May_2026.pdf
+/may-2026-paid-subscriptions.csv
+/docs/2026 Liste membres.pdf
+/docs/player 2025 LIST.xlsx

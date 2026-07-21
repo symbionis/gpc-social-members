@@ -1,0 +1,37 @@
+{{motivation_label}}
+
+Hello {{first_name}},
+
+A quick reminder that {{event_title}} is happening {{time_until_label}}. We're looking forward to seeing you there.
+
+REMINDER
+--------
+Event:        {{event_title}}
+{{#event_date_label}}
+Date:         {{.}}
+{{/event_date_label}}
+{{#event_time_label}}
+Start time:   {{.}}
+{{/event_time_label}}
+{{#event_location}}
+Location:     {{.}}
+{{/event_location}}
+Reference:    {{reference_code}}
+
+Tickets:      {{quantity}}
+Amount:       {{amount_label}}
+
+{{#event_url}}
+View event details:
+{{.}}
+{{/event_url}}
+
+Please bring this email (or your reference code) with you. We'll check you in at the door.
+
+If you can no longer attend, please reply to this email so we can free up your place.
+
+Warm regards,
+The Geneva Polo Social Club Team
+
+---
+Geneva Polo Social Club
