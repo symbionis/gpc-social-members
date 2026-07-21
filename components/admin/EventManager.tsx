@@ -210,6 +210,7 @@ async function handleImageUpload(file: File) {
             price_non_member: number | null;
             invite_price: number | null;
             counts_as_seat: boolean;
+            description: string | null;
             archived_at: string | null;
           }[];
         };
@@ -225,6 +226,7 @@ async function handleImageUpload(file: File) {
               // (Settings owns editing it; the editor must not null it).
               invite_price: t.invite_price === null ? "" : String(t.invite_price),
               counts_as_seat: t.counts_as_seat,
+              description: t.description ?? "",
             }))
           );
           setOriginalTicketTypeIds(active.map((t) => t.id));
@@ -276,6 +278,7 @@ async function handleImageUpload(file: File) {
       // from this editor never nulls it.
       invite_price: t.invite_price,
       counts_as_seat: t.counts_as_seat,
+      description: t.description,
     };
   }
 

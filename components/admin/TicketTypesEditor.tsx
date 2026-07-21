@@ -16,10 +16,17 @@ export interface TicketTypeDraft {
   // instead of nulling it on the per-type PATCH.
   invite_price: string;
   counts_as_seat: boolean;
+  // Optional buyer-facing blurb shown beside the type at registration. "" = unset.
+  description: string;
 }
 
+// Mirror of the server cap in lib/events/ticket-types.ts (TICKET_TYPE_DESCRIPTION_MAX)
+// and the DB CHECK. Kept as a literal so this client component doesn't import the
+// server-only ticket-types module. Keep the three numerically identical.
+const DESCRIPTION_MAX = 500;
+
 export function makeStandardDraft(): TicketTypeDraft {
-  return { title: "Standard", price_member: "", price_non_member: "", invite_price: "", counts_as_seat: true };
+  return { title: "Standard", price_member: "", price_non_member: "", invite_price: "", counts_as_seat: true, description: "" };
 }
 
 interface Props {
@@ -44,7 +51,7 @@ export default function TicketTypesEditor({
     onChange(value.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
   }
   function add() {
-    onChange([...value, { title: "", price_member: "", price_non_member: "", invite_price: "", counts_as_seat: true }]);
+    onChange([...value, { title: "", price_member: "", price_non_member: "", invite_price: "", counts_as_seat: true, description: "" }]);
   }
   function remove(i: number) {
     if (value.length <= 1) return; // keep >=1
@@ -106,6 +113,23 @@ export default function TicketTypesEditor({
                   placeholder="Ticket type name (e.g. Standard, Kids)"
                   aria-label="Ticket type name"
                 />
+              </div>
+              <div className="sm:col-span-2">
+                <textarea
+                  value={row.description}
+                  onChange={(e) => update(i, { description: e.target.value })}
+                  className={`${inputClass} resize-y min-h-[2.5rem]`}
+                  rows={2}
+                  placeholder="Description (optional) — what's included, shown to buyers"
+                  aria-label="Ticket type description"
+                />
+                <p
+                  className={`mt-1 text-right text-xs ${
+                    row.description.length > DESCRIPTION_MAX ? "text-red-600" : "text-muted-foreground"
+                  }`}
+                >
+                  {row.description.length}/{DESCRIPTION_MAX}
+                </p>
               </div>
               <div>
                 <input
