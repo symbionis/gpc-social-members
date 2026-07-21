@@ -14,6 +14,7 @@ export interface HouseholdTicket {
   id: string;
   name: string;
   email: string;
+  typeId: string;
   typeTitle: string;
   status: string; // 'issued' | 'claimed'
   checkedIn: boolean;
@@ -38,6 +39,8 @@ export interface Household {
   status: string;
   eventPublished: boolean;
   referenceCode: string | null;
+  /** The registration's rate class — drives self-serve upgrade pricing (U11). */
+  isMember: boolean;
   event: HouseholdEvent;
   tickets: HouseholdTicket[];
 }
@@ -71,16 +74,18 @@ export async function resolveHousehold(token: string): Promise<Household | null>
 
   let status = "free";
   let referenceCode: string | null = null;
+  let isMember = false;
   let siblingRows: Record<string, unknown>[];
 
   if (self.registration_id) {
     const { data: reg } = await supabase
       .from("event_registrations")
-      .select("id, status, reference_code")
+      .select("id, status, reference_code, is_member")
       .eq("id", self.registration_id as string)
       .maybeSingle();
     status = (reg?.status as string | null) ?? "free";
     referenceCode = (reg?.reference_code as string | null) ?? null;
+    isMember = Boolean(reg?.is_member);
 
     const { data: rows } = await supabase
       .from("tickets")
@@ -115,6 +120,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
         id: r.id as string,
         name: (r.name as string | null) ?? "",
         email: (r.email as string | null) ?? "",
+        typeId: typeId ?? "",
         typeTitle: typeId ? typeTitleById.get(typeId) ?? "" : "",
         status: r.slot_status as string,
         checkedIn: r.checked_in_at !== null,
@@ -127,6 +133,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
     status,
     eventPublished: Boolean(event.is_published),
     referenceCode,
+    isMember,
     event: {
       id: event.id as string,
       title: (event.title as string | null) ?? "",

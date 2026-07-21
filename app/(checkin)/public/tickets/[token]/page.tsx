@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveHousehold } from "@/lib/events/household";
 import { googleCalendarUrl } from "@/lib/events/calendar";
+import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
+import type { ConvertType } from "@/lib/events/convert-eligibility";
 import TicketManager, { type ManageTicket } from "@/components/public/TicketManager";
 import { formatDate } from "@/lib/format";
 
@@ -75,11 +78,28 @@ export default async function TicketManagePage({
   const tickets: ManageTicket[] = household.tickets.map((t) => ({
     id: t.id,
     name: t.name,
+    email: t.email,
+    typeId: t.typeId,
     typeTitle: t.typeTitle,
     checkedIn: t.checkedIn,
     credentialUrl: t.credentialUrl,
     isSelf: t.isSelf,
   }));
+
+  // Upgrade targets: active types priced at the household's rate (member/non-member with
+  // the invite fallback, U11). The client filters per ticket to same-or-higher priced.
+  const supabase = createAdminClient();
+  const { data: typeRows } = await supabase
+    .from("event_ticket_types")
+    .select("id, title, price_member, price_non_member, invite_price, archived_at")
+    .eq("event_id", household.event.id);
+  const convertTypes: ConvertType[] = (typeRows ?? [])
+    .filter((t) => !t.archived_at)
+    .map((t) => {
+      const unit = resolvePrice(t, { is_member: household.isMember });
+      return { id: t.id as string, title: (t.title as string | null) ?? "Ticket", price: unit };
+    })
+    .filter((t): t is ConvertType => isUsablePrice(t.price));
 
   return shell(
     <TicketManager
@@ -96,6 +116,9 @@ export default async function TicketManagePage({
         description: household.event.description,
       })}
       tickets={tickets}
+      fillEndpoint={`/api/public/bookings/${token}/fill`}
+      convertEndpoint={`/api/public/bookings/${token}/convert`}
+      convertTypes={convertTypes}
     />
   );
 }

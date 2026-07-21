@@ -1,15 +1,23 @@
 "use client";
 
+import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { formatCurrency } from "@/lib/format";
+import { eligibleConvertTargets, type ConvertType } from "@/lib/events/convert-eligibility";
 
-// Guest manage page view (U10). Reached via a per-ticket manage_token link. Shows every
-// SAME-EMAIL ticket in the booking (the household) — each with its own admission QR — plus
-// the event details and an add-to-calendar link. Read-only here; the upgrade / correction /
-// cancellation affordances are wired in U11 / U14.
+// Guest manage page view (U10 + U11). Reached via a per-ticket manage_token link. Shows
+// every SAME-EMAIL ticket in the booking (the household) — each with its own admission QR
+// — plus the event details and an add-to-calendar link. A holder can also correct a
+// ticket's name/email and upgrade its type (self-serve, U11); both post to the per-ticket
+// endpoints, which authorise on the manage_token and restrict changes to this household.
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export interface ManageTicket {
   id: string;
   name: string;
+  email: string;
+  typeId: string;
   typeTitle: string;
   checkedIn: boolean;
   /** QR admission URL (/c/<credential_token>). */
@@ -25,6 +33,12 @@ interface Props {
   referenceCode: string | null;
   calendarUrl: string | null;
   tickets: ManageTicket[];
+  /** POST { ticketId, name, email } — correct a ticket's details. */
+  fillEndpoint: string;
+  /** POST { ticketId, toTicketTypeId } — upgrade a ticket's type. */
+  convertEndpoint: string;
+  /** All active types priced at the booking's rate — filtered per ticket to upgrade targets. */
+  convertTypes: ConvertType[];
 }
 
 export default function TicketManager({
@@ -33,9 +47,16 @@ export default function TicketManager({
   eventLocation,
   referenceCode,
   calendarUrl,
-  tickets,
+  tickets: initialTickets,
+  fillEndpoint,
+  convertEndpoint,
+  convertTypes,
 }: Props) {
+  const [tickets, setTickets] = useState<ManageTicket[]>(initialTickets);
   const many = tickets.length > 1;
+
+  const onSaved = (updated: ManageTicket) =>
+    setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
 
   return (
     <div className="space-y-7">
@@ -83,48 +104,284 @@ export default function TicketManager({
 
       <ul className="space-y-4">
         {tickets.map((t, i) => (
-          <li key={t.id} className="rounded-2xl border border-border/70 bg-white p-5 shadow-sm">
-            <div className="flex gap-4">
-              <div className="shrink-0 rounded-lg border border-border/60 bg-white p-2">
-                <QRCodeSVG
-                  value={t.credentialUrl}
-                  size={112}
-                  fgColor="#052938"
-                  bgColor="#FFFFFF"
-                  level="M"
-                />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-heading text-base font-bold text-marine">
-                    {many ? `Ticket ${i + 1}` : "Ticket"}
-                  </span>
-                  <span className="rounded-full bg-marine/10 px-2.5 py-0.5 text-sm font-body text-marine/80">
-                    {t.typeTitle || "Ticket"}
-                  </span>
-                  {t.isSelf && many && (
-                    <span className="rounded-full bg-marine/10 px-2.5 py-0.5 text-sm font-body font-semibold text-marine">
-                      This link
-                    </span>
-                  )}
-                  {t.checkedIn && (
-                    <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-sm font-body font-semibold text-emerald-800">
-                      Checked in
-                    </span>
-                  )}
-                </div>
-                <p className="mt-1.5 font-body text-base text-marine">
-                  {t.name ? (
-                    t.name
-                  ) : (
-                    <span className="text-marine/60">Unnamed ticket</span>
-                  )}
-                </p>
-              </div>
-            </div>
-          </li>
+          <TicketCard
+            key={t.id}
+            ticket={t}
+            index={i + 1}
+            many={many}
+            fillEndpoint={fillEndpoint}
+            convertEndpoint={convertEndpoint}
+            convertTypes={convertTypes}
+            onSaved={onSaved}
+          />
         ))}
       </ul>
+    </div>
+  );
+}
+
+function TicketCard({
+  ticket,
+  index,
+  many,
+  fillEndpoint,
+  convertEndpoint,
+  convertTypes,
+  onSaved,
+}: {
+  ticket: ManageTicket;
+  index: number;
+  many: boolean;
+  fillEndpoint: string;
+  convertEndpoint: string;
+  convertTypes: ConvertType[];
+  onSaved: (t: ManageTicket) => void;
+}) {
+  const targets = eligibleConvertTargets(ticket.typeId, convertTypes);
+  const currentPrice = convertTypes.find((t) => t.id === ticket.typeId)?.price ?? 0;
+  const canEdit = !ticket.checkedIn;
+
+  return (
+    <li className="rounded-2xl border border-border/70 bg-white p-5 shadow-sm">
+      <div className="flex gap-4">
+        <div className="shrink-0 rounded-lg border border-border/60 bg-white p-2">
+          <QRCodeSVG value={ticket.credentialUrl} size={112} fgColor="#052938" bgColor="#FFFFFF" level="M" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-heading text-base font-bold text-marine">
+              {many ? `Ticket ${index}` : "Ticket"}
+            </span>
+            <span className="rounded-full bg-marine/10 px-2.5 py-0.5 text-sm font-body text-marine/80">
+              {ticket.typeTitle || "Ticket"}
+            </span>
+            {ticket.isSelf && many && (
+              <span className="rounded-full bg-marine/10 px-2.5 py-0.5 text-sm font-body font-semibold text-marine">
+                This link
+              </span>
+            )}
+            {ticket.checkedIn && (
+              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-sm font-body font-semibold text-emerald-800">
+                Checked in
+              </span>
+            )}
+          </div>
+          <p className="mt-1.5 font-body text-base text-marine">
+            {ticket.name ? ticket.name : <span className="text-marine/60">Unnamed ticket</span>}
+          </p>
+          {ticket.email && <p className="font-body text-sm text-marine/70">{ticket.email}</p>}
+
+          {canEdit && (
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+              <EditControl ticket={ticket} endpoint={fillEndpoint} onSaved={onSaved} />
+              {targets.length > 0 && (
+                <ConvertControl
+                  endpoint={convertEndpoint}
+                  ticketId={ticket.id}
+                  currentPrice={currentPrice}
+                  targets={targets}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+/** Correct a ticket's name / email (posts to the per-ticket fill endpoint). */
+function EditControl({
+  ticket,
+  endpoint,
+  onSaved,
+}: {
+  ticket: ManageTicket;
+  endpoint: string;
+  onSaved: (t: ManageTicket) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(ticket.name);
+  const [email, setEmail] = useState(ticket.email);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!name.trim()) return setError("Enter a name.");
+    if (!EMAIL_RE.test(email.trim())) return setError("Enter a valid email.");
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ticketId: ticket.id, name: name.trim(), email: email.trim() }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? "Could not save. Please try again.");
+        return;
+      }
+      onSaved({ ...ticket, name: name.trim(), email: email.trim().toLowerCase() });
+      setOpen(false);
+    } catch {
+      setError("Could not save. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-sm font-body font-semibold text-marine underline underline-offset-2"
+      >
+        Edit name / email
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 w-full space-y-2 rounded-xl border border-marine/15 bg-marine/5 p-3">
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Full name"
+        className="w-full rounded-lg border border-border/70 px-3 py-2 text-base font-body text-marine"
+      />
+      <input
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        type="email"
+        placeholder="Email"
+        className="w-full rounded-lg border border-border/70 px-3 py-2 text-base font-body text-marine"
+      />
+      {error && <p className="text-sm font-body text-red-600">{error}</p>}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={submit}
+          disabled={busy}
+          className="flex-1 rounded-lg bg-marine px-4 py-2.5 text-base font-body font-semibold text-white disabled:opacity-50"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="rounded-lg border border-border/70 px-4 py-2.5 text-base font-body text-marine"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Upgrade a ticket to a same-or-higher priced type (posts to the per-ticket convert endpoint). */
+function ConvertControl({
+  endpoint,
+  ticketId,
+  currentPrice,
+  targets,
+}: {
+  endpoint: string;
+  ticketId: string;
+  currentPrice: number;
+  targets: ConvertType[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [choice, setChoice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!choice) return setError("Choose a ticket type.");
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ticketId, toTicketTypeId: choice }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        checkoutUrl?: string;
+        redirectUrl?: string;
+      };
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? "Could not change the ticket type.");
+        return;
+      }
+      const next = data.checkoutUrl ?? data.redirectUrl;
+      if (next) window.location.href = next;
+    } catch {
+      setError("Could not change the ticket type.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-sm font-body font-semibold text-marine underline underline-offset-2"
+      >
+        Change ticket type
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 w-full space-y-2 rounded-xl border border-marine/15 bg-marine/5 p-3">
+      <p className="font-body text-sm text-marine/80">Upgrade this ticket — you’ll pay any price difference.</p>
+      <ul className="space-y-1">
+        {targets.map((t) => {
+          const delta = Number((t.price - currentPrice).toFixed(2));
+          return (
+            <li key={t.id}>
+              <label className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-base font-body text-marine">
+                <input
+                  type="radio"
+                  name={`convert-${ticketId}`}
+                  checked={choice === t.id}
+                  onChange={() => setChoice(t.id)}
+                />
+                <span>
+                  {t.title}{" "}
+                  <span className="text-marine/70">
+                    · {delta === 0 ? "no extra cost" : `+${formatCurrency(delta)}`}
+                  </span>
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+      {error && <p className="text-sm font-body text-red-600">{error}</p>}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={submit}
+          disabled={busy || !choice}
+          className="flex-1 rounded-lg bg-marine px-4 py-2.5 text-base font-body font-semibold text-white disabled:opacity-50"
+        >
+          {busy ? "Starting…" : "Continue"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="rounded-lg border border-border/70 px-4 py-2.5 text-base font-body text-marine"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

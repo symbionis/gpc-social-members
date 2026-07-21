@@ -61,23 +61,62 @@ export async function POST(
 
   const supabase = createAdminClient();
 
-  // Resolve the ticket within THIS booking (via the manage_token) so the prior email
-  // read reflects the real row, not a client claim. The QR is delivered by email, so
-  // a ticket saved with only a phone can never receive its QR: every ticket needs an
-  // email (R8) — no more child exemption.
-  const { data: reg } = await supabase
+  // Dual-token (U11): the path token is EITHER the booking's registration manage_token
+  // (lead "My Booking" flow) OR a per-ticket manage_token (a household member correcting
+  // from the manage page). fill_ticket authorises on the REGISTRATION manage_token, so for
+  // the holder flow we resolve the ticket's registration and use its token; a household
+  // member may correct only tickets sharing their email. `householdEmail` null ⇒ lead.
+  let regId: string;
+  let regToken: string; // the registration manage_token passed to fill_ticket
+  let householdEmail: string | null = null;
+  let selfTicketId: string | null = null; // set in the holder flow (the token's own ticket)
+
+  const { data: regByToken } = await supabase
     .from("event_registrations")
     .select("id")
     .eq("manage_token", token)
     .maybeSingle();
-  if (!reg) return bad("Ticket not found", 404);
+  if (regByToken) {
+    regId = regByToken.id as string;
+    regToken = token;
+  } else {
+    const { data: self } = await supabase
+      .from("tickets")
+      .select("id, registration_id, email")
+      .eq("manage_token", token)
+      .is("released_at", null)
+      .maybeSingle();
+    if (!self || !self.registration_id) return bad("Ticket not found", 404);
+    selfTicketId = self.id as string;
+    const { data: r } = await supabase
+      .from("event_registrations")
+      .select("id, manage_token")
+      .eq("id", self.registration_id as string)
+      .maybeSingle();
+    if (!r) return bad("Ticket not found", 404);
+    regId = r.id as string;
+    regToken = r.manage_token as string;
+    householdEmail = ((self.email as string | null) ?? "").trim().toLowerCase();
+  }
+
+  // Resolve the ticket within THIS booking so the prior email read reflects the real row,
+  // not a client claim. The QR is delivered by email, so every ticket needs an email (R8).
   const { data: tk } = await supabase
     .from("tickets")
     .select("email, qr_email_sent_at")
     .eq("id", ticketId)
-    .eq("registration_id", reg.id)
+    .eq("registration_id", regId)
     .maybeSingle();
   if (!tk) return bad("Ticket not found", 404);
+  // A household member can only correct tickets on their own email (what the manage page
+  // shows them). Mirror lib/events/household.ts: a blank self-email household is SOLO — fall
+  // back to the caller's own ticket id so blank-email tickets don't collapse together.
+  if (householdEmail !== null) {
+    const targetEmail = ((tk.email as string | null) ?? "").trim().toLowerCase();
+    const sameHousehold =
+      householdEmail !== "" ? targetEmail === householdEmail : ticketId === selfTicketId;
+    if (!sameHousehold) return bad("Ticket not found", 404);
+  }
   if (!email) {
     return bad("an email is required so we can send the guest their QR code");
   }
@@ -86,10 +125,10 @@ export async function POST(
   // idempotent on qr_email_sent_at, so a changed email needs that stamp cleared or the
   // QR would stay stuck at the wrong inbox. Same address → no clear, no double-send.
   const emailChanged =
-    Boolean(email) && ((tk.email as string | null) ?? "").toLowerCase() !== email;
+    Boolean(email) && ((tk.email as string | null) ?? "").trim().toLowerCase() !== email;
 
   const { data: result, error } = await supabase.rpc("fill_ticket", {
-    p_manage_token: token,
+    p_manage_token: regToken,
     p_ticket_id: ticketId,
     p_name: name,
     p_email: email || null,

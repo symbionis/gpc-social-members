@@ -41,31 +41,80 @@ export async function POST(
 
   const supabase = createAdminClient();
 
-  const { data: reg } = await supabase
+  // Dual-token (U11): the path token is EITHER the booking's registration manage_token
+  // (the lead "My Booking" flow) OR a per-ticket manage_token (a household member acting
+  // from the manage page). The lead may change any ticket in the booking; a household
+  // member may change only tickets sharing their email — the same set the manage page
+  // shows them. `householdEmail` null ⇒ lead ⇒ no email restriction.
+  interface RegRow {
+    id: string;
+    event_id: string;
+    is_member: boolean;
+    status: string;
+    email: string | null;
+  }
+  let reg: RegRow;
+  let householdEmail: string | null = null;
+  let selfTicketId: string | null = null; // set in the holder flow (the token's own ticket)
+  let redirectBase: string;
+
+  const { data: regByToken } = await supabase
     .from("event_registrations")
     .select("id, event_id, is_member, status, email")
     .eq("manage_token", token)
     .limit(1)
     .maybeSingle();
-  if (!reg) return bad("Booking not found", 404);
+  if (regByToken) {
+    reg = regByToken as RegRow;
+    redirectBase = `/public/bookings/${token}`;
+  } else {
+    const { data: self } = await supabase
+      .from("tickets")
+      .select("id, registration_id, email")
+      .eq("manage_token", token)
+      .is("released_at", null)
+      .limit(1)
+      .maybeSingle();
+    if (!self || !self.registration_id) return bad("Booking not found", 404);
+    selfTicketId = self.id as string;
+    const { data: r } = await supabase
+      .from("event_registrations")
+      .select("id, event_id, is_member, status, email")
+      .eq("id", self.registration_id as string)
+      .limit(1)
+      .maybeSingle();
+    if (!r) return bad("Booking not found", 404);
+    reg = r as RegRow;
+    householdEmail = ((self.email as string | null) ?? "").trim().toLowerCase();
+    redirectBase = `/public/tickets/${token}`;
+  }
   if (reg.status !== "paid" && reg.status !== "free") {
     return bad("This booking isn’t confirmed yet", 409);
   }
 
   // The ticket must belong to THIS booking and be eligible (R6): issued/claimed, not
-  // checked-in, not released, not forwarded. Its current type is the `from` side.
+  // checked-in, not released. Its current type is the `from` side. (The retired forward
+  // flow's batch_token filter is dropped — a forwarded ticket is just a ticket now.)
   const { data: ticket } = await supabase
     .from("tickets")
-    .select("id, ticket_type_id, slot_status, checked_in_at, released_at, batch_token")
+    .select("id, ticket_type_id, slot_status, checked_in_at, released_at, email")
     .eq("id", ticketId)
     .eq("registration_id", reg.id as string)
     .is("released_at", null)
     .is("checked_in_at", null)
-    .is("batch_token", null)
     .in("slot_status", ["issued", "claimed"])
     .limit(1)
     .maybeSingle();
   if (!ticket || !ticket.ticket_type_id) return bad("This ticket can’t be changed", 409);
+  // A household member can only change tickets on their own email (what the manage page
+  // shows them). Mirror lib/events/household.ts: a blank self-email household is SOLO — it
+  // must not match other blank-email tickets, so fall back to the caller's own ticket id.
+  if (householdEmail !== null) {
+    const targetEmail = ((ticket.email as string | null) ?? "").trim().toLowerCase();
+    const sameHousehold =
+      householdEmail !== "" ? targetEmail === householdEmail : ticket.id === selfTicketId;
+    if (!sameHousehold) return bad("This ticket can’t be changed", 409);
+  }
   const fromTypeId = ticket.ticket_type_id as string;
   if (fromTypeId === toTicketTypeId) return bad("This ticket is already that type");
 
@@ -141,7 +190,7 @@ export async function POST(
   const conversionId = conversion.id as string;
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const successUrl = `${appUrl}/public/bookings/${token}?converted=1`;
+  const successUrl = `${appUrl}${redirectBase}?converted=1`;
 
   // Free upgrade (delta 0): apply immediately — no checkout. Nothing to mint (quantity
   // is unchanged), so this is just the type swap + line-item reconciliation.
@@ -181,7 +230,7 @@ export async function POST(
         conversion_id: conversionId,
       },
       success_url: successUrl,
-      cancel_url: `${appUrl}/public/bookings/${token}?convert=cancelled`,
+      cancel_url: `${appUrl}${redirectBase}?convert=cancelled`,
     });
   } catch (err) {
     console.error("[booking-convert] Stripe session create failed", { conversionId, err });
