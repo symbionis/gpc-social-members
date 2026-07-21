@@ -37,11 +37,10 @@ export interface DoorParty {
   claimedCount: number;
   remaining: number;
   complete: boolean;
-  selfRegToken: string | null;
   /**
-   * A sponsor's comp guest list. Its selfRegToken is NULL BY DESIGN (a comp party must
-   * not expose a public self-registration link), so the console must not tell the
-   * volunteer the link is merely missing.
+   * A sponsor's comp guest list — its open seats belong to the sponsor, so the door must
+   * route staff to the welcome desk before filling one rather than treating it as a normal
+   * open slot.
    */
   isGuestList: boolean;
   slots: DoorSlot[];
@@ -115,7 +114,6 @@ type RegRow = {
   reference_code: string | null;
   name: string | null;
   quantity: number | null;
-  self_reg_token: string | null;
   is_guest_list: boolean | null;
 };
 
@@ -186,7 +184,7 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
   const registrations = await readAllRows<RegRow>("registrations", (from, to) =>
     supabase
       .from("event_registrations")
-      .select("id, reference_code, name, quantity, self_reg_token, is_guest_list")
+      .select("id, reference_code, name, quantity, is_guest_list")
       .eq("event_id", eventId)
       .in("status", ["paid", "free"])
       .order("id", { ascending: true })
@@ -286,7 +284,6 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
       claimedCount: claimed.length,
       remaining: Math.max(0, quantity - claimed.length),
       complete: claimed.length >= quantity,
-      selfRegToken: reg.self_reg_token,
       isGuestList: Boolean(reg.is_guest_list),
       slots: [...filled, ...openSlots],
     };

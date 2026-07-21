@@ -92,7 +92,6 @@ const registrations: Row[] = [
     reference_code: "GPC-0001",
     name: "Alice Lead",
     quantity: 3,
-    self_reg_token: "tok-1",
     status: "paid",
   },
   // A comp guest list (U1): a free registration whose lead ticket was never claimed,
@@ -103,7 +102,6 @@ const registrations: Row[] = [
     reference_code: "GPC-0002",
     name: "Sponsor Co",
     quantity: 2,
-    self_reg_token: "tok-2",
     status: "free",
   },
 ];
@@ -311,7 +309,6 @@ describe("buildDoorRoster", () => {
       reference_code: `GPC-${i}`,
       name: `Party ${i}`,
       quantity: 1,
-      self_reg_token: null,
       status: "paid",
     }));
     mockedCreateAdminClient.mockReturnValue(
@@ -340,7 +337,6 @@ describe("buildDoorRoster", () => {
             reference_code: "GPC-0009",
             name: "Legacy Party",
             quantity: 3,
-            self_reg_token: null,
             status: "paid",
           },
         ],

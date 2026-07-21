@@ -44,7 +44,7 @@ export async function sendEventRegistrationConfirmation(
   const { data: registration, error: regErr } = await supabase
     .from("event_registrations")
     .select(
-      "id, name, email, quantity, total_amount_chf, reference_code, status, event_id, self_reg_token, manage_token"
+      "id, name, email, quantity, total_amount_chf, reference_code, status, event_id, manage_token"
     )
     .eq("id", registrationId)
     .limit(1)
@@ -125,15 +125,6 @@ export async function sendEventRegistrationConfirmation(
       ? `${appUrl}/public/events/${event.id}`
       : `${appUrl}/events/${event.id}`;
 
-  // Self-registration link (U9/U10): present only for a party with room for guests
-  // (more than the lead's own ticket) and a token on the row. `string | null`, never
-  // "" — Postmark/Mustachio renders the share block with {{#self_registration_url}}…
-  // {{/self_registration_url}} (no {{#if}}); a null value omits the block.
-  const selfRegUrl =
-    registration.self_reg_token && registration.quantity > 1
-      ? `${appUrl}/public/registrations/${registration.self_reg_token}`
-      : null;
-
   // Lead "My Booking" page (FEAT-41): name/forward tickets, see every QR, buy more.
   // null (never "") so the Mustachio block is omitted when there's no token.
   const manageUrl = registration.manage_token
@@ -181,9 +172,6 @@ export async function sendEventRegistrationConfirmation(
       reference_code: registration.reference_code,
       is_free: isFree,
       event_url: eventUrl,
-      // Lead shares this so the rest of their party self-registers (null = solo
-      // booking / no token → the template's share block is omitted).
-      self_registration_url: selfRegUrl,
       // Lead booking page: name tickets, share each QR, forward batches, buy more.
       manage_url: manageUrl,
       // Per-ticket QR codes (FEAT-41). Empty array → the {{#tickets}} block renders

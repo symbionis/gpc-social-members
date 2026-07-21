@@ -50,7 +50,6 @@ export default async function DoorConsolePage({
     outstanding,
     unaccounted,
   } = await buildDoorRoster(id);
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
   return shell(
     <div className="space-y-6">
@@ -61,7 +60,6 @@ export default async function DoorConsolePage({
         eventId={event.id}
         eventTitle={event.title}
         eventDate={event.startDate ? formatDate(event.startDate) : ""}
-        baseUrl={baseUrl}
         parties={parties}
         arrivals={arrivals}
         notArrived={notArrived}
