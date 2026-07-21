@@ -35,7 +35,7 @@ test.describe("Public event registration — per-type quantity grid", () => {
     await expect(page.getByText(/From\s+CHF\s*60\.00/)).toBeVisible();
 
     // Open the registration drawer.
-    await page.getByRole("button", { name: /^Register$/ }).click();
+    await page.getByRole("button", { name: /Reserve your spot/ }).click();
     const dialog = page.getByRole("dialog", { name: /Register for/i });
 
     // Both types listed at non-member prices.
