@@ -6,8 +6,11 @@ import { resolveDoorEvent } from "@/lib/events/door-access";
 // capture a guest's details on the spot instead of waiting for self-registration.
 // Public, keyed on the event id (KTD1). With an attendeeId it edits that person's
 // name/contact; without one it creates a person for an open slot of a ticket type
-// (race-checked against the per-type allotment). Every slot needs an email or phone
-// so they match at the door — no exemption for a former child type (R6).
+// (race-checked against the per-type allotment). The EDIT branch requires an email
+// or phone for every slot (no former-child exemption, R6, app-layer half). The
+// CREATE branch still delegates to claim_ticket, whose own is_child contact
+// exemption is removed later in the deploy-ordered sequence (plan U5) — so a
+// contactless former-child slot can still be created there until that ships.
 
 const MAX_LEN = 200;
 const MAX_EMAIL_LEN = 254;
@@ -125,8 +128,9 @@ export async function POST(
 
   // The RPC holds the registration lock, enforces the per-type cap on CLAIMED rows
   // (issued rows are capacity, not redemptions), flips one issued row to claimed, and
-  // is idempotent on contact. It allows a child ticket name-only and requires contact
-  // otherwise — mirroring the old route guard.
+  // is idempotent on contact. It still allows a former-child ticket name-only and
+  // requires contact otherwise; that lingering exemption is retired in the RPC
+  // re-declaration (plan U5).
   const { data: result, error: claimErr } = await supabase.rpc("claim_ticket", {
     p_registration_id: registrationId,
     p_name: name,

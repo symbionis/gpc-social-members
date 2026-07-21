@@ -264,6 +264,14 @@ describe("basket validation + IDOR / archived guards", () => {
   it("400s a total over the 20-ticket cap", async () => {
     expect((await post({ ...guest, items: [{ ticket_type_id: "t1", quantity: 21 }] })).status).toBe(400);
   });
+  it("covers R1 bypass: 400s duplicate lines for the same ticket type", async () => {
+    // A crafted items:[{t1,19},{t1,1}] would sum to 20 minted tickets while the
+    // per-type naming-capacity Map (last-write-wins) only sees quantity 1 —
+    // silently skipping mandatory naming. Reject the duplicate outright.
+    const res = await post({ ...guest, code: INVITE, items: [{ ticket_type_id: "t1", quantity: 19 }, { ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(400);
+    expect(stripeCreate).not.toHaveBeenCalled();
+  });
   it("400s a lead ticket type that is not in the basket", async () => {
     const res = await post({ ...guest, code: INVITE, leadTicketTypeId: "tX" });
     expect(res.status).toBe(400);

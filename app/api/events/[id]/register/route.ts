@@ -158,6 +158,15 @@ export async function POST(
   // Load the submitted types, SCOPED to this event (IDOR guard) and rejecting
   // archived types. A foreign or unknown id shrinks the returned set → 400.
   const ids = [...new Set(parsed.map((p) => p.ticket_type_id))];
+  // A type may appear at most once in the basket — the client always sends one line
+  // per type. Two positive lines for the same type would let the naming-capacity
+  // check (keyed on a per-type Map, last-write-wins) under-count the required names
+  // while the line-items and minted tickets sum across both lines — a crafted
+  // `items:[{t,19},{t,1}]` would buy 20 tickets while requiring 0 to be named,
+  // silently defeating mandatory naming (R1) on this unauthenticated route.
+  if (ids.length !== parsed.length) {
+    return bad("Each ticket type may appear only once in your order", 400);
+  }
   const { data: types, error: typesErr } = await supabase
     .from("event_ticket_types")
     .select("id, title, price_member, price_non_member, invite_price, counts_as_seat, archived_at")

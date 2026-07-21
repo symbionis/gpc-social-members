@@ -127,7 +127,7 @@ export async function POST(
       return NextResponse.json({ ok: true, ticketId: fill.attendee_id, name: fill.name });
     }
     case "invalid_input":
-      return bad("Enter a name, and an email or phone for adult tickets.");
+      return bad("Enter a name and a valid email so we can send this guest their QR code.");
     case "not_found":
       return bad("Ticket not found", 404);
     case "inactive":

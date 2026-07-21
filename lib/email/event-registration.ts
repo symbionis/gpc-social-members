@@ -219,13 +219,23 @@ export async function sendEventRegistrationConfirmation(
   // Idempotent per ticket (qr_email_sent_at), so a re-fired Stripe webhook or an
   // admin resend won't double-send; it only fills gaps.
   try {
-    const { data: guestTickets } = await supabase
+    const { data: guestTickets, error: guestErr } = await supabase
       .from("tickets")
       .select("id, email, qr_email_sent_at")
       .eq("registration_id", registrationId)
       .eq("is_lead", false)
       .eq("slot_status", "claimed")
       .is("released_at", null);
+    // supabase-js returns { data: null, error } on a query failure — it does not
+    // throw — so without this check a DB error would silently become "0 guests need
+    // a QR" and drop the whole party's entry codes. Log it so the two are
+    // distinguishable (and the row stays eligible for an admin resend).
+    if (guestErr) {
+      console.error("[event-registration-email] guest ticket lookup failed", {
+        registrationId,
+        err: guestErr,
+      });
+    }
     await Promise.allSettled(
       (guestTickets ?? [])
         .filter((g) => g.email && !g.qr_email_sent_at)

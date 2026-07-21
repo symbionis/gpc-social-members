@@ -41,16 +41,17 @@ describe("fillRegistrationRoster", () => {
     }));
   });
 
-  it("passes null email for a child and never sends a p_is_child key", async () => {
+  it("passes the attendee's email and never sends a p_is_child key", async () => {
     const client = adminWithRpc(() => ({ data: { status: "claimed" }, error: null }));
     mockedAdmin.mockReturnValue(client);
 
+    // Every ticket now carries an email (mandatory naming, no former-child exemption).
     await fillRegistrationRoster("reg-1", [
-      { ticket_type_id: "t-kid", name: "Kid", email: null },
+      { ticket_type_id: "t-kid", name: "Kid Guest", email: "kid@x.ch" },
     ]);
 
     const [, args] = client.rpc.mock.calls[0];
-    expect(args.p_email).toBeNull();
+    expect(args.p_email).toBe("kid@x.ch");
     expect(args).not.toHaveProperty("p_is_child");
     expect(args.p_marketing_consent).toBe(false);
   });
