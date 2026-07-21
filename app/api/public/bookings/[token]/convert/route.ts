@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
+import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
 
 // Convert-ticket-type from the lead booking page. A lead changes ONE of their tickets
 // to a same-or-higher priced ticket type, paying the difference. Mirrors the top-up
@@ -82,16 +83,10 @@ export async function POST(
   if (to.archived_at) return bad("That ticket type is no longer available", 400);
 
   // Re-derive both prices server-side from the booking's rate class (R3) — never trust
-  // client input. Non-members fall back to invite_price when price_non_member is unset
-  // (members-only events), matching the top-up route.
-  const priceAt = (t: { price_member: number | null; price_non_member: number | null; invite_price: number | null }) =>
-    reg.is_member ? t.price_member : (t.price_non_member ?? t.invite_price);
-  const fromRaw = priceAt(from);
-  const toRaw = priceAt(to);
-  if (
-    fromRaw === null || !Number.isFinite(Number(fromRaw)) || Number(fromRaw) < 0 ||
-    toRaw === null || !Number.isFinite(Number(toRaw)) || Number(toRaw) < 0
-  ) {
+  // client input. resolvePrice applies the members-only invite_price fallback (U11/KTD5).
+  const fromRaw = resolvePrice(from, reg);
+  const toRaw = resolvePrice(to, reg);
+  if (!isUsablePrice(fromRaw) || !isUsablePrice(toRaw)) {
     return bad("Event pricing is misconfigured", 500);
   }
   const fromUnit = Number(fromRaw);
