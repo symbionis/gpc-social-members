@@ -1484,6 +1484,7 @@ export type Database = {
           is_comp: boolean
           is_lead: boolean
           language: string | null
+          manage_token: string | null
           marketing_consent: boolean | null
           member_id: string | null
           name: string | null
@@ -1507,6 +1508,7 @@ export type Database = {
           is_comp?: boolean
           is_lead?: boolean
           language?: string | null
+          manage_token?: string | null
           marketing_consent?: boolean | null
           member_id?: string | null
           name?: string | null
@@ -1530,6 +1532,7 @@ export type Database = {
           is_comp?: boolean
           is_lead?: boolean
           language?: string | null
+          manage_token?: string | null
           marketing_consent?: boolean | null
           member_id?: string | null
           name?: string | null
@@ -1717,6 +1720,10 @@ export type Database = {
       }
       remove_comp_guest: {
         Args: { p_registration_id: string; p_ticket_id: string }
+        Returns: Json
+      }
+      rotate_ticket_manage_token: {
+        Args: { p_manage_token: string }
         Returns: Json
       }
       seats_used: { Args: { eid: string }; Returns: number }
