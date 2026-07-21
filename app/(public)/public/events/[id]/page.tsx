@@ -143,7 +143,7 @@ export default async function PublicEventDetailPage({
   // resolved price means "not open yet" (the register API is authoritative).
   const { data: rawTicketTypes } = await supabase
     .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, invite_price, sort_order")
+    .select("id, title, price_member, price_non_member, invite_price, description, sort_order")
     .eq("event_id", id)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
@@ -151,6 +151,7 @@ export default async function PublicEventDetailPage({
   const ticketTypeOptions = (rawTicketTypes ?? []).map((t) => ({
     id: t.id,
     title: t.title,
+    description: t.description,
     price: isMembersOnly
       ? isActiveMember
         ? t.price_member

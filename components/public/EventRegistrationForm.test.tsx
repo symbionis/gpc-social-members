@@ -73,6 +73,21 @@ describe("U1 — unified ticket list + step 1 gating", () => {
   });
 });
 
+describe("ticket-type description display", () => {
+  it("renders a type's description beside its title", () => {
+    renderForm([{ ...asado, description: "Includes welcome drink + seated dinner" }]);
+    expect(screen.getByText("Includes welcome drink + seated dinner")).toBeInTheDocument();
+  });
+
+  it("renders no description element when a type has none", () => {
+    // asado carries no description; null/undefined must produce no stray node.
+    renderForm([{ ...veg, description: null }]);
+    expect(screen.queryByText(/includes/i)).not.toBeInTheDocument();
+    // The type still renders normally.
+    expect(screen.getByRole("button", { name: "Add one Veg ticket" })).toBeInTheDocument();
+  });
+});
+
 describe("U2 — attendee naming step", () => {
   async function goToStep2(user: ReturnType<typeof userEvent.setup>) {
     await user.type(screen.getByLabelText("First name"), "Frank");
