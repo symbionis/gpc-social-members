@@ -58,7 +58,7 @@ export async function sendTicketQrEmail(ticketId: string): Promise<SendTicketQrR
   const { data: ticket, error } = await supabase
     .from("tickets")
     .select(
-      "id, event_id, registration_id, name, email, is_child, released_at, credential_token, qr_email_sent_at"
+      "id, event_id, registration_id, name, email, released_at, credential_token, qr_email_sent_at"
     )
     .eq("id", ticketId)
     .limit(1)

@@ -131,6 +131,14 @@ function post(body: unknown, eventId = "evt-1") {
   return POST(req as never, { params: Promise.resolve({ id: eventId }) });
 }
 
+// Shared by the public-event describe blocks below (nominative attendees, U2):
+// posts as a booker named "Lead Booker" <lead@x.ch>, the fixed identity those
+// scenarios book against.
+function publicPost(cfg: Cfg, body: Record<string, unknown>) {
+  mockedAdmin.mockReturnValue(adminClient(cfg));
+  return post({ name: "Lead Booker", email: "lead@x.ch", ...body });
+}
+
 const membersOnlyEvent = {
   id: "evt-1",
   is_published: true,
@@ -316,11 +324,6 @@ describe("nominative attendees (U4)", () => {
   const adultFree: TicketType = { ...adultPaid, price_member: 0, price_non_member: 0 };
   const veg: TicketType = { id: "t2", title: "Veg", price_member: 40, price_non_member: 40, invite_price: null, counts_as_seat: true, archived_at: null };
   const kidFree: TicketType = { id: "tk", title: "Kids", price_member: 0, price_non_member: 0, invite_price: null, counts_as_seat: true, archived_at: null, is_child: true };
-
-  function publicPost(cfg: Cfg, body: Record<string, unknown>) {
-    mockedAdmin.mockReturnValue(adminClient(cfg));
-    return post({ name: "Lead Booker", email: "lead@x.ch", ...body });
-  }
 
   it("free path: fills each named guest inline via claim_ticket", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree] };
@@ -510,11 +513,6 @@ describe("U2 — shared email across a household (distinct-email guard removed, 
   const publicEvent = { ...membersOnlyEvent, visibility: "public" };
   const adultFree: TicketType = { id: "t1", title: "Asado", price_member: 0, price_non_member: 0, invite_price: null, counts_as_seat: true, archived_at: null };
   const adultPaid: TicketType = { id: "t1", title: "Asado", price_member: 80, price_non_member: 80, invite_price: null, counts_as_seat: true, archived_at: null };
-
-  function publicPost(cfg: Cfg, body: Record<string, unknown>) {
-    mockedAdmin.mockReturnValue(adminClient(cfg));
-    return post({ name: "Lead Booker", email: "lead@x.ch", ...body });
-  }
 
   it("covers AE1: three differently-named guests sharing one email all reach claimed", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree] };

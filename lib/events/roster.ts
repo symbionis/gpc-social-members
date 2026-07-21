@@ -94,10 +94,10 @@ export async function applyPendingRoster(registrationId: string): Promise<void> 
 
 /**
  * Apply booker-entered guest names to a confirmed registration's issued tickets by
- * calling claim_ticket once per attendee. Use this ONLY on the synchronous free
- * path, where there is no webhook replay — it is NOT replay-safe for children (they
- * carry no contact, so claim_ticket cannot dedupe them). The paid path must use
- * applyPendingRoster instead.
+ * calling claim_ticket once per attendee, in parallel (each targets a distinct
+ * ticket type/slot, so the calls are independent). Use this ONLY on the synchronous
+ * free path, where there is no webhook replay — it is not atomic across attendees,
+ * unlike applyPendingRoster (which the paid path must use instead).
  */
 export async function fillRegistrationRoster(
   registrationId: string,
@@ -105,26 +105,28 @@ export async function fillRegistrationRoster(
 ): Promise<void> {
   if (attendees.length === 0) return;
   const supabase = createAdminClient();
-  for (const a of attendees) {
-    const { error } = await supabase.rpc("claim_ticket", {
-      p_registration_id: registrationId,
-      p_name: a.name,
-      p_email: a.email,
-      p_phone_e164: null,
-      p_language: null,
-      p_waiver_version: null,
-      p_waiver_accepted: false,
-      p_marketing_consent: false,
-      p_ticket_type_id: a.ticket_type_id,
-    });
-    if (error) {
-      console.error("[roster] claim_ticket (checkout fill) failed", {
-        registrationId,
-        ticketTypeId: a.ticket_type_id,
-        err: error,
+  await Promise.allSettled(
+    attendees.map(async (a) => {
+      const { error } = await supabase.rpc("claim_ticket", {
+        p_registration_id: registrationId,
+        p_name: a.name,
+        p_email: a.email,
+        p_phone_e164: null,
+        p_language: null,
+        p_waiver_version: null,
+        p_waiver_accepted: false,
+        p_marketing_consent: false,
+        p_ticket_type_id: a.ticket_type_id,
       });
-    }
-  }
+      if (error) {
+        console.error("[roster] claim_ticket (checkout fill) failed", {
+          registrationId,
+          ticketTypeId: a.ticket_type_id,
+          err: error,
+        });
+      }
+    }),
+  );
 }
 
 // The admin bulk-import wrapper lived here until the Guest list tab replaced the Import

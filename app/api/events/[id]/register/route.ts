@@ -160,7 +160,7 @@ export async function POST(
   const ids = [...new Set(parsed.map((p) => p.ticket_type_id))];
   const { data: types, error: typesErr } = await supabase
     .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat, is_child, archived_at")
+    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat, archived_at")
     .eq("event_id", eventId)
     .in("id", ids);
 

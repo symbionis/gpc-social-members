@@ -62,7 +62,7 @@ export async function POST(
   if (attendeeId) {
     const { data: existing, error: exErr } = await supabase
       .from("tickets")
-      .select("id, is_child, checked_in_at")
+      .select("id, checked_in_at")
       .eq("id", attendeeId)
       .eq("event_id", eventId)
       .eq("slot_status", "claimed")

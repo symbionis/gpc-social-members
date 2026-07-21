@@ -212,28 +212,32 @@ export async function sendEventRegistrationConfirmation(
     });
   }
 
-  // Auto-send each NAMED guest their own entry QR ("no QR, no bracelet"). The lead's
-  // confirmation above carries only the lead's QR; guests named at checkout get theirs
-  // here. Best-effort and fully independent — a guest-email failure never affects the
-  // lead's email or the registration. Idempotent per ticket (qr_email_sent_at), so a
-  // re-fired Stripe webhook or an admin resend won't double-send; it only fills gaps.
+  // Auto-send each NAMED guest their own entry QR ("no QR, no bracelet"), in
+  // parallel — each send is independent and best-effort. The lead's confirmation
+  // above carries only the lead's QR; guests named at checkout get theirs here. A
+  // guest-email failure never affects the lead's email or the registration.
+  // Idempotent per ticket (qr_email_sent_at), so a re-fired Stripe webhook or an
+  // admin resend won't double-send; it only fills gaps.
   try {
     const { data: guestTickets } = await supabase
       .from("tickets")
-      .select("id, is_child, email, qr_email_sent_at")
+      .select("id, email, qr_email_sent_at")
       .eq("registration_id", registrationId)
       .eq("is_lead", false)
       .eq("slot_status", "claimed")
       .is("released_at", null);
-    for (const g of guestTickets ?? []) {
-      if (!g.email || g.qr_email_sent_at) continue;
-      await sendTicketQrEmail(g.id as string).catch((err) =>
-        console.error("[event-registration-email] guest QR send failed", {
-          ticketId: g.id,
-          err,
-        })
-      );
-    }
+    await Promise.allSettled(
+      (guestTickets ?? [])
+        .filter((g) => g.email && !g.qr_email_sent_at)
+        .map((g) =>
+          sendTicketQrEmail(g.id as string).catch((err) =>
+            console.error("[event-registration-email] guest QR send failed", {
+              ticketId: g.id,
+              err,
+            })
+          )
+        ),
+    );
   } catch (err) {
     console.error("[event-registration-email] guest QR batch failed", { registrationId, err });
   }
