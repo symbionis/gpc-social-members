@@ -1,10 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendTicketQrEmail } from "@/lib/email/ticket-qr";
 
 // Lead "My Booking" page: name one ticket by id (U4). Public, authorised by the
 // booking's manage_token in the path — the fill_ticket RPC re-validates the token,
 // scopes the ticket to that booking, enforces the child/contact rule, and names the
 // exact ticket so its QR stays bound to that person. The token is never echoed back.
+//
+// Naming an adult ticket also emails that guest their own entry QR ("no QR, no
+// bracelet"). This is the lead's whole delivery mechanism — the lead names the party,
+// each guest gets their QR, and the ticket stays with the booking (never forwarded),
+// so the lead can still upgrade it. Children are name-only and get no email; they come
+// in with their guardian.
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
@@ -55,29 +62,32 @@ export async function POST(
 
   const supabase = createAdminClient();
 
-  // The QR code is delivered by email, so an adult ticket saved with only a phone can
-  // never receive its QR. Require an email for adult tickets; children are name-only
-  // (contactless). Only pay the lookup when no email was sent — the happy path adds no
-  // round-trips. Resolve the ticket within THIS booking (via the manage_token) so the
-  // is_child decision reads the real row, not a client claim.
-  if (!email) {
-    const { data: reg } = await supabase
-      .from("event_registrations")
-      .select("id")
-      .eq("manage_token", token)
-      .maybeSingle();
-    if (!reg) return bad("Ticket not found", 404);
-    const { data: tk } = await supabase
-      .from("tickets")
-      .select("is_child")
-      .eq("id", ticketId)
-      .eq("registration_id", reg.id)
-      .maybeSingle();
-    if (!tk) return bad("Ticket not found", 404);
-    if (!tk.is_child) {
-      return bad("an email is required so we can send the guest their QR code");
-    }
+  // Resolve the ticket within THIS booking (via the manage_token) so both the is_child
+  // decision and the prior email read the real row, not a client claim. The QR is
+  // delivered by email, so an adult ticket saved with only a phone can never receive
+  // its QR: require an email for adult tickets; children are name-only (contactless).
+  const { data: reg } = await supabase
+    .from("event_registrations")
+    .select("id")
+    .eq("manage_token", token)
+    .maybeSingle();
+  if (!reg) return bad("Ticket not found", 404);
+  const { data: tk } = await supabase
+    .from("tickets")
+    .select("is_child, email, qr_email_sent_at")
+    .eq("id", ticketId)
+    .eq("registration_id", reg.id)
+    .maybeSingle();
+  if (!tk) return bad("Ticket not found", 404);
+  if (!email && !tk.is_child) {
+    return bad("an email is required so we can send the guest their QR code");
   }
+
+  // A lead correcting a typo'd address must be able to re-send: sendTicketQrEmail is
+  // idempotent on qr_email_sent_at, so a changed email needs that stamp cleared or the
+  // QR would stay stuck at the wrong inbox. Same address → no clear, no double-send.
+  const emailChanged =
+    Boolean(email) && ((tk.email as string | null) ?? "").toLowerCase() !== email;
 
   const { data: result, error } = await supabase.rpc("fill_ticket", {
     p_manage_token: token,
@@ -97,8 +107,26 @@ export async function POST(
 
   const fill = (result ?? {}) as { status?: string; attendee_id?: string; name?: string };
   switch (fill.status) {
-    case "claimed":
+    case "claimed": {
+      // Email this guest their own entry QR. Best-effort: a send failure never fails the
+      // save — the name is already on the roster, and a NULL qr_email_sent_at leaves the
+      // ticket eligible for a retry on the next save.
+      if (email && fill.attendee_id) {
+        if (emailChanged && tk.qr_email_sent_at) {
+          const { error: clearErr } = await supabase
+            .from("tickets")
+            .update({ qr_email_sent_at: null })
+            .eq("id", ticketId);
+          if (clearErr) {
+            console.error("[booking-fill] could not clear qr_email_sent_at", { err: clearErr });
+          }
+        }
+        await sendTicketQrEmail(fill.attendee_id).catch((err) =>
+          console.error("[booking-fill] guest QR send failed", { err })
+        );
+      }
       return NextResponse.json({ ok: true, ticketId: fill.attendee_id, name: fill.name });
+    }
     case "invalid_input":
       return bad("Enter a name, and an email or phone for adult tickets.");
     case "not_found":

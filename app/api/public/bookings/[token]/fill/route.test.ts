@@ -1,15 +1,21 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
+vi.mock("@/lib/email/ticket-qr", () => ({ sendTicketQrEmail: vi.fn() }));
 
 import { POST } from "@/app/api/public/bookings/[token]/fill/route";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendTicketQrEmail } from "@/lib/email/ticket-qr";
 
 const mockedAdmin = vi.mocked(createAdminClient);
+const mockedQr = vi.mocked(sendTicketQrEmail);
 
-// The route delegates to fill_ticket; the mock returns its result. When an email is
-// missing the route first looks up the registration (by manage_token) and the ticket
-// (for is_child) before the RPC — the mock serves those from `reg` / `ticket`.
+/** Updates written via `.from(...).update(...)`, so tests can assert the stamp clear. */
+let updates: Record<string, unknown>[] = [];
+
+// The route delegates to fill_ticket; the mock returns its result. Before the RPC it
+// always looks up the registration (by manage_token) and the ticket (for is_child, the
+// prior email, and qr_email_sent_at) — the mock serves those from `reg` / `ticket`.
 function adminClient(
   fill: Record<string, unknown> | null,
   opts: { reg?: Record<string, unknown> | null; ticket?: Record<string, unknown> | null } = {}
@@ -19,7 +25,12 @@ function adminClient(
     const builder = {
       select: () => builder,
       eq: () => builder,
+      update: (patch: Record<string, unknown>) => {
+        updates.push(patch);
+        return builder;
+      },
       maybeSingle: async () => ({ data: row, error: null }),
+      then: (resolve: (v: { error: null }) => unknown) => resolve({ error: null }),
     };
     return builder;
   };
@@ -42,6 +53,8 @@ function post(body: unknown, token = "mtok") {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  updates = [];
+  mockedQr.mockResolvedValue({ success: true });
   mockedAdmin.mockReturnValue(adminClient({ status: "claimed", attendee_id: TICKET, name: "Ann" }));
 });
 
@@ -77,10 +90,53 @@ describe("POST /api/public/bookings/[token]/fill", () => {
     expect(res.status).toBe(200);
   });
 
-  it("404s when the ticket isn't in this booking (email-less path)", async () => {
+  it("404s when the ticket isn't in this booking", async () => {
     mockedAdmin.mockReturnValue(adminClient(null, { ticket: null }));
     const res = await post({ ticketId: TICKET, name: "Ann" });
     expect(res.status).toBe(404);
+  });
+
+  it("emails the named adult guest their own QR", async () => {
+    await post({ ticketId: TICKET, name: "Ann", email: "ann@x.com" });
+    expect(mockedQr).toHaveBeenCalledWith(TICKET);
+  });
+
+  it("sends no QR for a child ticket (they come in with their guardian)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ status: "claimed", attendee_id: TICKET, name: "Kid" }, { ticket: { is_child: true } })
+    );
+    await post({ ticketId: TICKET, name: "Kid" });
+    expect(mockedQr).not.toHaveBeenCalled();
+  });
+
+  it("sends no QR when the RPC didn't claim the ticket", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ status: "not_found" }));
+    await post({ ticketId: TICKET, name: "Ann", email: "ann@x.com" });
+    expect(mockedQr).not.toHaveBeenCalled();
+  });
+
+  it("keeps the sent stamp when re-saving the same email (no double-send)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient(
+        { status: "claimed", attendee_id: TICKET, name: "Ann" },
+        { ticket: { is_child: false, email: "ann@x.com", qr_email_sent_at: "2026-07-01T00:00:00Z" } }
+      )
+    );
+    await post({ ticketId: TICKET, name: "Ann", email: "ann@x.com" });
+    // Stamp untouched — sendTicketQrEmail's own idempotency guard then skips the send.
+    expect(updates).toEqual([]);
+  });
+
+  it("clears the sent stamp when the lead corrects a typo'd email, so the QR re-sends", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient(
+        { status: "claimed", attendee_id: TICKET, name: "Ann" },
+        { ticket: { is_child: false, email: "typo@x.com", qr_email_sent_at: "2026-07-01T00:00:00Z" } }
+      )
+    );
+    await post({ ticketId: TICKET, name: "Ann", email: "ann@x.com" });
+    expect(updates).toEqual([{ qr_email_sent_at: null }]);
+    expect(mockedQr).toHaveBeenCalledWith(TICKET);
   });
 
   it("400s when the RPC rejects missing contact (invalid_input)", async () => {
