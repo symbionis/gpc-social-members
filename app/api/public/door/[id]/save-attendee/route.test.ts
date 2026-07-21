@@ -88,6 +88,22 @@ describe("POST /api/public/door/[id]/save-attendee", () => {
     expect(res.status).toBe(400);
   });
 
+  it("covers R6: rejects editing a former child-type slot down to no contact (no more exemption)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ existing: { id: UID, is_child: true, checked_in_at: null } })
+    );
+    const res = await post({ attendeeId: UID, name: "Kid" });
+    expect(res.status).toBe(400);
+  });
+
+  it("still allows editing a checked-in slot's name with no contact (arrived guest exemption unrelated to is_child)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ existing: { id: UID, is_child: true, checked_in_at: "2026-07-21T18:00:00Z" } })
+    );
+    const res = await post({ attendeeId: UID, name: "Kid Corrected" });
+    expect(res.status).toBe(200);
+  });
+
   it("fills an open adult slot by flipping an issued ticket (claim_ticket → claimed)", async () => {
     mockedAdmin.mockReturnValue(
       adminClient({

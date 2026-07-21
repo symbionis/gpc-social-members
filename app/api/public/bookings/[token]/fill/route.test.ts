@@ -75,19 +75,10 @@ describe("POST /api/public/bookings/[token]/fill", () => {
     expect(await res.json()).toMatchObject({ ok: true, ticketId: TICKET, name: "Ann" });
   });
 
-  it("400s an adult ticket named with no email (QR can't be delivered)", async () => {
-    // Default mock ticket is an adult (is_child: false); phone-only must be rejected.
+  it("400s a ticket named with no email (QR can't be delivered) — no child exemption", async () => {
     const res = await post({ ticketId: TICKET, name: "Ann", phone: "+41791112233" });
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: expect.stringContaining("email") });
-  });
-
-  it("allows a child ticket to be named with no email (name-only)", async () => {
-    mockedAdmin.mockReturnValue(
-      adminClient({ status: "claimed", attendee_id: TICKET, name: "Kid" }, { ticket: { is_child: true } })
-    );
-    const res = await post({ ticketId: TICKET, name: "Kid" });
-    expect(res.status).toBe(200);
   });
 
   it("404s when the ticket isn't in this booking", async () => {
@@ -99,14 +90,6 @@ describe("POST /api/public/bookings/[token]/fill", () => {
   it("emails the named adult guest their own QR", async () => {
     await post({ ticketId: TICKET, name: "Ann", email: "ann@x.com" });
     expect(mockedQr).toHaveBeenCalledWith(TICKET);
-  });
-
-  it("sends no QR for a child ticket (they come in with their guardian)", async () => {
-    mockedAdmin.mockReturnValue(
-      adminClient({ status: "claimed", attendee_id: TICKET, name: "Kid" }, { ticket: { is_child: true } })
-    );
-    await post({ ticketId: TICKET, name: "Kid" });
-    expect(mockedQr).not.toHaveBeenCalled();
   });
 
   it("sends no QR when the RPC didn't claim the ticket", async () => {

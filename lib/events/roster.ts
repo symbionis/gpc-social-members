@@ -62,14 +62,14 @@ export async function mintRegistrationTickets(
   }
 }
 
-// One booker-entered guest ticket to name at checkout. `email` is null for
-// children (name-only); is_child is NEVER carried from the client — claim_ticket
-// derives it from the ticket type. The lead is excluded (seeded from
-// lead_ticket_type_id), so this list is guests only.
+// One booker-entered guest ticket to name at checkout. Every ticket now requires an
+// email (naming is mandatory, no exemption for a former child type), so email is
+// non-null. The lead is excluded (seeded from lead_ticket_type_id), so this list is
+// guests only.
 export interface RosterFillAttendee {
   ticket_type_id: string;
   name: string;
-  email: string | null;
+  email: string;
 }
 
 /**
@@ -96,9 +96,14 @@ export async function applyPendingRoster(registrationId: string): Promise<void> 
 /**
  * Apply booker-entered guest names to a confirmed registration's issued tickets by
  * calling claim_ticket once per attendee. Use this ONLY on the synchronous free
- * path, where there is no webhook replay — it is NOT replay-safe for children (they
- * carry no contact, so claim_ticket cannot dedupe them). The paid path must use
- * applyPendingRoster instead.
+ * path, where there is no webhook replay — it is not atomic across attendees, unlike
+ * applyPendingRoster (which the paid path must use instead).
+ *
+ * Sequential on purpose: claim_ticket takes `SELECT ... FOR UPDATE` on the
+ * registration row as its first statement, so concurrent calls for one registration
+ * serialize at the DB anyway. Firing them in parallel would only open N connections
+ * all blocked on the same lock, with no latency gain — so we keep the connection
+ * footprint to one at a time and let each call's error be logged and skipped.
  */
 export async function fillRegistrationRoster(
   registrationId: string,

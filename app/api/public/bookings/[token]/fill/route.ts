@@ -4,14 +4,13 @@ import { sendTicketQrEmail } from "@/lib/email/ticket-qr";
 
 // Lead "My Booking" page: name one ticket by id (U4). Public, authorised by the
 // booking's manage_token in the path — the fill_ticket RPC re-validates the token,
-// scopes the ticket to that booking, enforces the child/contact rule, and names the
-// exact ticket so its QR stays bound to that person. The token is never echoed back.
+// scopes the ticket to that booking, enforces the contact rule, and names the exact
+// ticket so its QR stays bound to that person. The token is never echoed back.
 //
-// Naming an adult ticket also emails that guest their own entry QR ("no QR, no
-// bracelet"). This is the lead's whole delivery mechanism — the lead names the party,
-// each guest gets their QR, and the ticket stays with the booking (never forwarded),
-// so the lead can still upgrade it. Children are name-only and get no email; they come
-// in with their guardian.
+// Naming a ticket also emails that guest their own entry QR ("no QR, no bracelet") —
+// every ticket, no exemption (R8). This is the lead's whole delivery mechanism — the
+// lead names the party, each guest gets their QR, and the ticket stays with the
+// booking (never forwarded), so the lead can still upgrade it.
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
@@ -62,10 +61,10 @@ export async function POST(
 
   const supabase = createAdminClient();
 
-  // Resolve the ticket within THIS booking (via the manage_token) so both the is_child
-  // decision and the prior email read the real row, not a client claim. The QR is
-  // delivered by email, so an adult ticket saved with only a phone can never receive
-  // its QR: require an email for adult tickets; children are name-only (contactless).
+  // Resolve the ticket within THIS booking (via the manage_token) so the prior email
+  // read reflects the real row, not a client claim. The QR is delivered by email, so
+  // a ticket saved with only a phone can never receive its QR: every ticket needs an
+  // email (R8) — no more child exemption.
   const { data: reg } = await supabase
     .from("event_registrations")
     .select("id")
@@ -74,12 +73,12 @@ export async function POST(
   if (!reg) return bad("Ticket not found", 404);
   const { data: tk } = await supabase
     .from("tickets")
-    .select("is_child, email, qr_email_sent_at")
+    .select("email, qr_email_sent_at")
     .eq("id", ticketId)
     .eq("registration_id", reg.id)
     .maybeSingle();
   if (!tk) return bad("Ticket not found", 404);
-  if (!email && !tk.is_child) {
+  if (!email) {
     return bad("an email is required so we can send the guest their QR code");
   }
 
@@ -128,7 +127,7 @@ export async function POST(
       return NextResponse.json({ ok: true, ticketId: fill.attendee_id, name: fill.name });
     }
     case "invalid_input":
-      return bad("Enter a name, and an email or phone for adult tickets.");
+      return bad("Enter a name and a valid email so we can send this guest their QR code.");
     case "not_found":
       return bad("Ticket not found", 404);
     case "inactive":

@@ -32,7 +32,7 @@ test.describe("Public invite link — members-only event gating", () => {
   }) => {
     await page.goto(`/public/events/${eventId}`);
     await expect(page.getByRole("link", { name: /Apply for membership/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Register$/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Reserve your spot/ })).toHaveCount(0);
     // The stored invite_code is read server-side only — it must never reach the client.
     expect(await page.content()).not.toContain(VALID_CODE);
   });
@@ -41,7 +41,7 @@ test.describe("Public invite link — members-only event gating", () => {
     page,
   }) => {
     await page.goto(`/public/events/${eventId}?code=${VALID_CODE}`);
-    await expect(page.getByRole("button", { name: /^Register$/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Reserve your spot/ })).toBeVisible();
     await expect(page.getByText(/member rate/i)).toBeVisible();
     await expect(page.getByText(/CHF\s*50\.00/)).toBeVisible();
     await expect(page.getByRole("link", { name: /Apply for membership/i })).toHaveCount(0);
@@ -53,7 +53,7 @@ test.describe("Public invite link — members-only event gating", () => {
     await page.goto(`/public/events/${eventId}?code=WRONGCODE123`);
     await expect(page.getByText(/no longer valid/i)).toBeVisible();
     await expect(page.getByRole("link", { name: /Apply for membership/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Register$/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Reserve your spot/ })).toHaveCount(0);
   });
 
   test("valid code but guest price unset → 'not open yet', no free form", async ({
@@ -68,7 +68,7 @@ test.describe("Public invite link — members-only event gating", () => {
     try {
       await page.goto(`/public/events/${noPriceId}?code=E2ENOPRICE7777AB`);
       await expect(page.getByText(/isn.t open for this event yet/i)).toBeVisible();
-      await expect(page.getByRole("button", { name: /^Register$/ })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: /Reserve your spot/ })).toHaveCount(0);
       await expect(page.getByText(/^Free$/)).toHaveCount(0);
     } finally {
       await deleteEvent(db, noPriceId);

@@ -9,9 +9,10 @@
 // shared by the forms and by the API routes behind them, so the client and the server
 // can never disagree about what counts as a full name.
 //
-// Deliberately NOT applied to: children (named by an adult, often mononymous — "Emma"),
-// and the door console, where staff type what a person says under time pressure and
-// must not be blocked.
+// Deliberately NOT applied to the door console, where staff type what a person says
+// under time pressure and must not be blocked. (Formerly also exempted a children's
+// ticket type, named name-only by an adult — that exemption was retired: naming is
+// now mandatory and identical for every ticket type.)
 
 /** Collapse whitespace so " Ann   Marie  Lead " → "Ann Marie Lead". */
 export function normalizeName(raw: string): string {

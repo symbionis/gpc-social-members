@@ -54,15 +54,12 @@ describe("U1 — unified ticket list + step 1 gating", () => {
     expect(screen.getByText("CHF 80.00", { selector: "span.font-heading" })).toBeInTheDocument();
   });
 
-  it("keeps Continue disabled until an adult ticket is selected", async () => {
+  it("covers R6: keeps Continue disabled until any ticket is selected — a former child type is no longer special-cased", async () => {
     const user = userEvent.setup();
     renderForm([asado, kids]);
     const cont = screen.getByRole("button", { name: "Continue" });
     expect(cont).toBeDisabled();
-    await user.click(addBtn("Kids")); // child only
-    expect(cont).toBeDisabled();
-    expect(screen.getByText(/at least one adult ticket/i)).toBeInTheDocument();
-    await user.click(addBtn("Asado"));
+    await user.click(addBtn("Kids")); // a former child type, alone, is now sufficient
     expect(cont).toBeEnabled();
   });
 
@@ -108,15 +105,20 @@ describe("U2 — attendee naming step", () => {
     expect(screen.getByRole("button", { name: /Reserve your spot/ })).toBeEnabled();
   });
 
-  it("child guest row has a name field but no email field", async () => {
+  it("covers AE3: a former child-type guest row shows first, last, and email like any other (R8)", async () => {
     const user = userEvent.setup();
     renderForm([asado, kids]);
     await user.click(addBtn("Asado"));
     await user.click(addBtn("Kids"));
     await goToStep2(user);
+    // 2 selected types (a former child type is no longer excluded from the "which is
+    // yours" split, R6) — pick Asado as the buyer's own before the Kids slot resolves
+    // to a guest row.
+    await user.click(screen.getByRole("radio", { name: /Asado/ }));
     const kidRow = screen.getByText(/Guest 1 · Kids/).closest("div")!;
-    expect(within(kidRow).getByLabelText(/Guest 1 name — Kids/)).toBeInTheDocument();
-    expect(within(kidRow).queryByLabelText(/Guest 1 email/)).not.toBeInTheDocument();
+    expect(within(kidRow).getByLabelText(/Guest 1 first name — Kids/)).toBeInTheDocument();
+    expect(within(kidRow).getByLabelText(/Guest 1 last name — Kids/)).toBeInTheDocument();
+    expect(within(kidRow).getByLabelText(/Guest 1 email — Kids/)).toBeInTheDocument();
   });
 
   it("adult guest with a name but no email blocks submit with an inline error", async () => {
@@ -132,21 +134,18 @@ describe("U2 — attendee naming step", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it("submits with no attendees when all guest rows are blank", async () => {
+  it("covers R1: a blank guest row blocks submit with an inline error, no request sent", async () => {
     const user = userEvent.setup();
     renderForm([asado]);
     await user.click(addBtn("Asado"));
     await user.click(addBtn("Asado"));
     await goToStep2(user);
     await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
-    expect(global.fetch).toHaveBeenCalledOnce();
-    const body = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.attendees).toBeUndefined();
-    expect(body.leadTicketTypeId).toBe("a");
-    expect(body.items).toEqual([{ ticket_type_id: "a", quantity: 2 }]);
+    expect(screen.getByText(/first and last name/i)).toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it("submits only the named guest, tagged with its ticket type", async () => {
+  it("submits every named guest, tagged with its ticket type", async () => {
     const user = userEvent.setup();
     renderForm([asado]);
     await user.click(addBtn("Asado"));
@@ -156,10 +155,15 @@ describe("U2 — attendee naming step", () => {
     await user.type(screen.getByLabelText(/Guest 1 first name — Asado/), "Ana");
     await user.type(screen.getByLabelText(/Guest 1 last name — Asado/), "Adult");
     await user.type(screen.getByLabelText(/Guest 1 email — Asado/), "ana@x.ch");
-    // Guest 2 left blank.
+    await user.type(screen.getByLabelText(/Guest 2 first name — Asado/), "Ben");
+    await user.type(screen.getByLabelText(/Guest 2 last name — Asado/), "Adult");
+    await user.type(screen.getByLabelText(/Guest 2 email — Asado/), "ben@x.ch");
     await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
     const body = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.attendees).toEqual([{ ticket_type_id: "a", name: "Ana Adult", email: "ana@x.ch" }]);
+    expect(body.attendees).toEqual([
+      { ticket_type_id: "a", name: "Ana Adult", email: "ana@x.ch" },
+      { ticket_type_id: "a", name: "Ben Adult", email: "ben@x.ch" },
+    ]);
   });
 
   it("Back preserves quantities and typed guest names", async () => {
