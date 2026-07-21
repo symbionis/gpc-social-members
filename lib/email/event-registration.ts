@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
-import { sendTicketQrEmail } from "@/lib/email/ticket-qr";
+import { sendHouseholdTicketEmails } from "@/lib/email/household-tickets";
 
 const TEMPLATE_ALIAS = "event-registration-confirmed";
 
@@ -212,44 +212,17 @@ export async function sendEventRegistrationConfirmation(
     });
   }
 
-  // Auto-send each NAMED guest their own entry QR ("no QR, no bracelet"), in
-  // parallel — each send is independent and best-effort. The lead's confirmation
-  // above carries only the lead's QR; guests named at checkout get theirs here. A
-  // guest-email failure never affects the lead's email or the registration.
-  // Idempotent per ticket (qr_email_sent_at), so a re-fired Stripe webhook or an
-  // admin resend won't double-send; it only fills gaps.
+  // Auto-send each NAMED guest their entry QR ("no QR, no bracelet"). The lead's
+  // confirmation above carries only the lead's own QR; guests named at checkout get theirs
+  // here — GROUPED (U12): guests booked to the same email address receive ONE email with
+  // all their QRs plus a single manage link, instead of one email each. Best-effort and
+  // idempotent per ticket (qr_email_sent_at), so a re-fired Stripe webhook or an admin
+  // resend won't double-send. A guest-email failure never affects the lead's email or the
+  // registration.
   try {
-    const { data: guestTickets, error: guestErr } = await supabase
-      .from("tickets")
-      .select("id, email, qr_email_sent_at")
-      .eq("registration_id", registrationId)
-      .eq("is_lead", false)
-      .eq("slot_status", "claimed")
-      .is("released_at", null);
-    // supabase-js returns { data: null, error } on a query failure — it does not
-    // throw — so without this check a DB error would silently become "0 guests need
-    // a QR" and drop the whole party's entry codes. Log it so the two are
-    // distinguishable (and the row stays eligible for an admin resend).
-    if (guestErr) {
-      console.error("[event-registration-email] guest ticket lookup failed", {
-        registrationId,
-        err: guestErr,
-      });
-    }
-    await Promise.allSettled(
-      (guestTickets ?? [])
-        .filter((g) => g.email && !g.qr_email_sent_at)
-        .map((g) =>
-          sendTicketQrEmail(g.id as string).catch((err) =>
-            console.error("[event-registration-email] guest QR send failed", {
-              ticketId: g.id,
-              err,
-            })
-          )
-        ),
-    );
+    await sendHouseholdTicketEmails(registrationId);
   } catch (err) {
-    console.error("[event-registration-email] guest QR batch failed", { registrationId, err });
+    console.error("[event-registration-email] grouped guest QR send failed", { registrationId, err });
   }
 
   return result;
