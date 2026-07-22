@@ -1,10 +1,11 @@
 "use client";
 
-import type { RosterEvent, RosterParty } from "@/lib/events/door-roster";
+import { Fragment } from "react";
+import type { RosterEvent, RosterRow } from "@/lib/events/door-roster";
 
 interface Props {
   event: RosterEvent;
-  parties: RosterParty[];
+  rows: RosterRow[];
   typeTotals: Array<{ title: string; qty: number }>;
 }
 
@@ -19,19 +20,27 @@ function formatDate(iso: string | null): string {
 }
 
 /**
- * The printed door sheet: every ticket sold, one line each, parties A→Z by the lead's
- * surname with their guests indented beneath. Staff tick the box as each person
- * arrives, so a ticket with no line is a person who cannot be admitted — which is why
- * unnamed guests still get a line, with a rule to write the name on.
+ * The printed door sheet: every ticket sold, one line each, in a single flat A→Z list
+ * by surname across the whole event — leads and named guests intermixed, so staff can
+ * find any named person by their own surname. Each row is self-sufficient (name, ticket
+ * type, contact, ref, and a "guest of X" / "lead" label), because a guest now sorts away
+ * from their lead. Staff tick the box as each person arrives, so a ticket with no line is
+ * a person who cannot be admitted — which is why unnamed guests still get a line, with a
+ * rule to write the name on. Those unnamed lines have no surname to sort on, so they
+ * trail at the end under a "To fill in" divider.
  *
  * The same rows, in the same order, back the CSV export (lib/events/door-roster).
  */
-export default function DoorRosterSheet({ event, parties, typeTotals }: Props) {
-  const totalTickets = parties.reduce((n, p) => n + p.rows.length, 0);
-  const named = parties.reduce(
-    (n, p) => n + p.rows.filter((r) => r.named).length,
-    0
-  );
+export default function DoorRosterSheet({ event, rows, typeTotals }: Props) {
+  const totalTickets = rows.length;
+  const named = rows.filter((r) => r.named).length;
+
+  // The trailing run of unnamed lines is fenced off with a "To fill in" divider — but
+  // only when the sheet actually mixes named and unnamed rows. An all-named sheet needs
+  // no divider; an all-unnamed sheet (early sales) would show the divider as a stray
+  // header above nothing but blanks, so suppress it there too.
+  const firstUnnamedIndex = rows.findIndex((r) => !r.named);
+  const showDivider = named > 0 && firstUnnamedIndex !== -1;
 
   return (
     <>
@@ -95,15 +104,20 @@ export default function DoorRosterSheet({ event, parties, typeTotals }: Props) {
             </tr>
           </thead>
 
-          {/* One tbody per party: keeps a party from splitting across a page break. */}
-          {parties.map((party, i) => (
-            <tbody className="roster-party" key={`${party.rows[0]?.bookingRef}-${i}`}>
-              {party.rows.map((row, j) => {
-                const lead = row.isLead;
-                return (
+          {/* One flat tbody: the list is A→Z across the whole event, no party grouping. */}
+          <tbody>
+            {rows.map((row, i) => {
+              const lead = row.isLead;
+              return (
+                <Fragment key={i}>
+                  {showDivider && i === firstUnnamedIndex && (
+                    <tr className="roster-divider">
+                      <td className="col-tick" aria-hidden />
+                      <td colSpan={4}>To fill in</td>
+                    </tr>
+                  )}
                   <tr
                     className={lead ? "roster-lead" : "roster-guest"}
-                    key={`${i}-${j}`}
                     style={
                       row.cancelled
                         ? { textDecoration: "line-through", opacity: 0.55 }
@@ -138,27 +152,26 @@ export default function DoorRosterSheet({ event, parties, typeTotals }: Props) {
                         // Nobody has been named on this ticket — a rule to write on.
                         <span className="name-blank" aria-label="unnamed guest" />
                       )}
-                    </td>
-                    <td className="col-type">{row.ticketType}</td>
-                    <td className="col-contact">{lead ? row.phone : ""}</td>
-                    <td className="col-ref">
-                      {lead && (
-                        <>
-                          {row.bookingRef}
-                          {row.tickets && (
-                            <span className="qty"> ({row.tickets})</span>
-                          )}
-                        </>
+                      {/* The party link, muted, under the name — so a guest that sorts
+                          away from its lead is still attributable at the door. */}
+                      {row.partyLead && (
+                        <span className="party-label">{row.partyLead}</span>
                       )}
                     </td>
+                    <td className="col-type">{row.ticketType}</td>
+                    <td className="col-contact">{row.phone}</td>
+                    <td className="col-ref">
+                      {row.bookingRef}
+                      {row.tickets && <span className="qty"> ({row.tickets})</span>}
+                    </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          ))}
+                </Fragment>
+              );
+            })}
+          </tbody>
         </table>
 
-        {parties.length === 0 && (
+        {rows.length === 0 && (
           <p className="font-body text-sm text-marine/60">
             No tickets sold for this event yet.
           </p>

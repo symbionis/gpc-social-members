@@ -1,7 +1,8 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 
-// The door roster: every ticket sold for an event, as one row each, grouped into
-// parties and ordered by the lead's surname. Shared by the CSV export
+// The door roster: every ticket sold for an event, as one row each, in a single flat
+// A–Z list by surname across the whole event — leads and named guests intermixed, so
+// any named person can be found directly by their own surname. Shared by the CSV export
 // (app/api/admin/events/[id]/attendees) and the printed door sheet
 // (app/(print)/print/door-roster/[id]) so the two surfaces can never drift — the
 // printed page and the spreadsheet must list the same people in the same order.
@@ -9,7 +10,9 @@ import type { createAdminClient } from "@/lib/supabase/admin";
 // A row exists for a ticket whether or not anyone has been named on it: tickets are
 // minted `issued` (carrying their own ticket type and QR credential) and flipped to
 // `claimed` when someone self-registers. An unnamed ticket still has to be a line on
-// the sheet, because staff at the door cannot tick off a person who has no line.
+// the sheet, because staff at the door cannot tick off a person who has no line. Rows
+// with no surname to sort on (the unnamed/padded lines) trail at the end, grouped by
+// booking ref; the printed sheet fences them off under a "To fill in" divider.
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -38,10 +41,6 @@ export interface RosterRow {
   cancelled: boolean;
 }
 
-export interface RosterParty {
-  rows: RosterRow[];
-}
-
 export interface RosterEvent {
   id: string;
   title: string;
@@ -49,7 +48,7 @@ export interface RosterEvent {
 }
 
 export type DoorRosterResult =
-  | { status: "ok"; event: RosterEvent; parties: RosterParty[] }
+  | { status: "ok"; event: RosterEvent; rows: RosterRow[] }
   | { status: "not_found" }
   | { status: "error"; scope: string; error: unknown };
 
@@ -67,11 +66,18 @@ export function splitFullName(name: string | null): { first: string; last: strin
 // Surname sort, case- and accent-aware (Ärnström, Öberg file where a Swiss reader
 // expects them). A row with no surname to sort on goes last, rather than silently
 // landing at the top of the sheet under an empty string.
+//
+// Within the surname-less tail, a genuinely *named* row (a one-word name like
+// "Madonna": last === "", named === true) must outrank the blank unnamed lines, so it
+// never sinks below the "To fill in" divider and gets read as an unfilled slot. Named
+// one-word names therefore sort ahead of the true blanks; the blanks then order by
+// booking ref, clustering a booking's fill-in lines together at the very end.
 export function bySurname(
-  a: { last: string; first: string; bookingRef: string },
-  b: { last: string; first: string; bookingRef: string }
+  a: { last: string; first: string; bookingRef: string; named?: boolean },
+  b: { last: string; first: string; bookingRef: string; named?: boolean }
 ): number {
   if (!a.last !== !b.last) return a.last ? -1 : 1;
+  if (!a.last && !b.last && a.named !== b.named) return a.named ? -1 : 1;
   const last = a.last.localeCompare(b.last, undefined, { sensitivity: "base" });
   if (last !== 0) return last;
   const first = a.first.localeCompare(b.first, undefined, { sensitivity: "base" });
@@ -275,7 +281,7 @@ export async function buildDoorRoster(
   };
 
   const today = new Date().toISOString().slice(0, 10);
-  const parties: Array<{ sortKey: { last: string; first: string; bookingRef: string }; rows: RosterRow[] }> = [];
+  const rows: RosterRow[] = [];
 
   for (const reg of regs) {
     const bookingRef = reg.reference_code ?? "";
@@ -338,10 +344,11 @@ export async function buildDoorRoster(
     }
 
     const guestTickets = live.filter((t) => t !== leadTicket);
+    // No local sort: every row is sorted globally into one flat A–Z list below, so a
+    // per-party sort here would only be immediately undone.
     const namedGuests = guestTickets
       .filter(isClaimed)
-      .map((t) => rowFromTicket(t, bookingRef, guestOf))
-      .sort(bySurname);
+      .map((t) => rowFromTicket(t, bookingRef, guestOf));
     const unnamedGuests = guestTickets
       .filter((t) => !isClaimed(t))
       .map((t) => rowFromTicket(t, bookingRef, guestOf));
@@ -382,43 +389,32 @@ export async function buildDoorRoster(
       });
     }
 
-    parties.push({
-      sortKey: { last: leadRow.last, first: leadRow.first, bookingRef },
-      rows: [leadRow, ...namedGuests, ...unnamedGuests, ...padded],
-    });
+    rows.push(leadRow, ...namedGuests, ...unnamedGuests, ...padded);
   }
 
-  // Ops/bulk-imported tickets belong to no registration. Each is its own one-person
-  // party, filed under its own surname among the leads.
+  // Ops/bulk-imported tickets belong to no registration. Each files under its own
+  // surname among everyone else — not at the end.
   for (const t of tickets) {
     if (t.registration_id) continue;
-    const row = rowFromTicket(t, "", "");
-    parties.push({
-      sortKey: { last: row.last, first: row.first, bookingRef: "" },
-      rows: [row],
-    });
+    rows.push(rowFromTicket(t, "", ""));
   }
 
-  parties.sort((a, b) => bySurname(a.sortKey, b.sortKey));
+  // One global A–Z sort produces the whole flat list; the extended `bySurname` keeps
+  // named one-word names ahead of the blank fill-in lines (see its comment).
+  rows.sort(bySurname);
 
-  return {
-    status: "ok",
-    event,
-    parties: parties.map((p) => ({ rows: p.rows })),
-  };
+  return { status: "ok", event, rows };
 }
 
 /** Every ticket type on the sheet with its count — the catering line, in roster order. */
-export function rosterTypeTotals(parties: RosterParty[]): Array<{ title: string; qty: number }> {
+export function rosterTypeTotals(rows: RosterRow[]): Array<{ title: string; qty: number }> {
   const byTitle = new Map<string, number>();
-  for (const p of parties) {
-    for (const r of p.rows) {
-      // A cancelled ticket isn't attending — don't cater for it.
-      if (r.cancelled) continue;
-      const title = r.ticketType.trim();
-      if (!title) continue;
-      byTitle.set(title, (byTitle.get(title) ?? 0) + 1);
-    }
+  for (const r of rows) {
+    // A cancelled ticket isn't attending — don't cater for it.
+    if (r.cancelled) continue;
+    const title = r.ticketType.trim();
+    if (!title) continue;
+    byTitle.set(title, (byTitle.get(title) ?? 0) + 1);
   }
   return [...byTitle.entries()]
     .map(([title, qty]) => ({ title, qty }))

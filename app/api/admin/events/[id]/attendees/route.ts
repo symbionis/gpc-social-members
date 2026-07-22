@@ -75,7 +75,8 @@ function emit(r: RosterRow): string {
 
 // The spreadsheet view of the door roster. The printed view of the same rows lives at
 // app/(print)/print/door-roster/[id]; both read lib/events/door-roster, so the sheet on
-// paper and the sheet in Excel can never list different people in a different order.
+// paper and the sheet in Excel can never list different people in a different order —
+// one flat A–Z list by surname across the whole event.
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -106,8 +107,8 @@ export async function GET(
     );
   }
 
-  const { event, parties } = roster;
-  const csv = [HEADERS.join(","), ...parties.flatMap((p) => p.rows.map(emit))].join("\n");
+  const { event, rows } = roster;
+  const csv = [HEADERS.join(","), ...rows.map(emit)].join("\n");
 
   const slug =
     event.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") ||

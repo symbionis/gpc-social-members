@@ -235,25 +235,30 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
     expect(header).toBe(HEADER);
     // 5 tickets sold → 5 lines, regardless of who pre-registered.
     expect(rows).toHaveLength(5);
-    // Lead: member's authoritative name, party quantity, signed waiver, arrived. The
-    // E.164 phone's leading + is neutralized against formula injection.
-    expect(rows[0]).toBe(
-      "EV-AB12,Leader,Ann,Asado Standard,ann@x.com,'+41781234567,yes,lead,5,signed,yes,"
-    );
+    // Flat A–Z: guest "Guest,Bo" sorts ahead of lead "Leader,Ann" (G < L), so on the
+    // flat sheet the guest is row 0 and the lead row 1 — that is the whole point.
     // Named guest: heuristic split, own ticket type, attributed to the lead.
-    expect(rows[1]).toBe(
+    expect(rows[0]).toBe(
       "EV-AB12,Guest,Bo,Asado Vegetarian,bo@x.com,,no,guest of Ann Lead,,unsigned,no,"
     );
-    // The issued ticket + 2 padded ones: blank person, real ticket type. 4 Standards
-    // were bought and only 2 live rows carry Standard, so the remainder is Standard.
+    // Lead: member's authoritative name, party quantity, signed waiver, arrived. The
+    // E.164 phone's leading + is neutralized against formula injection.
+    expect(rows[1]).toBe(
+      "EV-AB12,Leader,Ann,Asado Standard,ann@x.com,'+41781234567,yes,lead,5,signed,yes,"
+    );
+    // The issued ticket + 2 padded ones: blank person, real ticket type, sorted to the
+    // end (no surname). 4 Standards were bought and only 2 live rows carry Standard, so
+    // the remainder is Standard.
     expect(rows[2]).toBe("EV-AB12,,,Asado Standard,,,,guest of Ann Lead,,,,");
     expect(rows[3]).toBe("EV-AB12,,,Asado Standard,,,,guest of Ann Lead,,,,");
     expect(rows[4]).toBe("EV-AB12,,,Asado Standard,,,,guest of Ann Lead,,,,");
   });
 
-  it("orders parties by the lead's surname, not by purchase time", async () => {
+  it("orders everyone by surname globally, not by purchase time", async () => {
     // Zimmer bought first, Ace second. A creation-time sort would print Zoe first;
-    // the sheet must print Ace first so a door staffer can scan surnames A→Z.
+    // the sheet must print Ace first so a door staffer can scan surnames A→Z. (Here
+    // Zimmer sorts after all of Ace's people either way — the cross-party interleaving
+    // proof is the next test.)
     mockedCreateAdminClient.mockReturnValue(
       adminClient({
         admins: superAdmin,
@@ -291,7 +296,7 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
     );
     const { rows } = sheet(await (await get()).text());
     const cells = rows.map((r) => r.split(","));
-    // Ace's party first (lead, then guests alphabetised within it), Zimmer's last.
+    // Ace, Crow, Wolf (Ace's party, alphabetised globally), then Zimmer.
     expect(cells.map((c) => c[1])).toEqual(["Ace", "Crow", "Wolf", "Zimmer"]);
     expect(cells.map((c) => c[0])).toEqual([
       "EV-AAAA",
@@ -299,6 +304,59 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
       "EV-AAAA",
       "EV-ZZZZ",
     ]);
+  });
+
+  it("interleaves guests from different parties into one A–Z list", async () => {
+    // The proof the sheet is flat, not grouped: Smith's guest "Adams" sorts to the TOP
+    // by her own surname — above solo lead "Brown" and above her own lead "Smith". On the
+    // old party-grouped sheet she'd sit beneath Smith near the bottom.
+    mockedCreateAdminClient.mockReturnValue(
+      adminClient({
+        admins: superAdmin,
+        event,
+        tickets: [
+          ticket({ registration_id: "rS", name: "Sam Smith", is_lead: true }),
+          ticket({ registration_id: "rS", name: "Jane Adams" }),
+          ticket({ registration_id: "rB", name: "Amir Brown", is_lead: true }),
+        ],
+        registrations: [
+          reg({ id: "rS", status: "paid", quantity: 2, reference_code: "EV-S", name: "Sam Smith" }),
+          reg({ id: "rB", status: "paid", quantity: 1, reference_code: "EV-B", name: "Amir Brown" }),
+        ],
+      })
+    );
+    const { rows } = sheet(await (await get()).text());
+    const cells = rows.map((r) => r.split(","));
+    expect(cells.map((c) => c[1])).toEqual(["Adams", "Brown", "Smith"]);
+    // Adams keeps her lead's booking ref and "guest of" label even sorted away from him.
+    expect(cells[0][0]).toBe("EV-S");
+    expect(cells[0][7]).toBe("guest of Sam Smith");
+  });
+
+  it("sorts a named one-word name above the blank fill-in lines", async () => {
+    // "Madonna" has no surname, so she sorts into the tail with the blanks — but she is a
+    // real, named guest, so the `named` tiebreak keeps her ABOVE the unnamed line (and
+    // thus above the printed "To fill in" divider), never mistaken for a slot to fill.
+    mockedCreateAdminClient.mockReturnValue(
+      adminClient({
+        admins: superAdmin,
+        event,
+        tickets: [
+          ticket({ registration_id: "r1", name: "Ann Ace", is_lead: true }),
+          ticket({ registration_id: "r1", name: "Madonna" }),
+        ],
+        registrations: [
+          reg({ id: "r1", status: "paid", quantity: 3, reference_code: "EV-M", name: "Ann Ace" }),
+        ],
+      })
+    );
+    const { rows } = sheet(await (await get()).text());
+    expect(rows).toHaveLength(3);
+    expect(rows[0].split(",")[1]).toBe("Ace"); // surname-bearing lead first
+    // Named one-word name next — above the blank, not among it: last empty, first "Madonna".
+    expect(rows[1].split(",").slice(1, 3)).toEqual(["", "Madonna"]);
+    // The unnamed padded line sorts last.
+    expect(rows[2].split(",").slice(1, 3)).toEqual(["", ""]);
   });
 
   it("rebuilds a missing lead from the purchase record", async () => {
