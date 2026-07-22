@@ -29,6 +29,8 @@ interface Waitlist {
 interface Props {
   eventId: string;
   attendees: Attendee[];
+  /** Stripe test mode → the roster's refund deep links target the test dashboard. */
+  stripeTestMode: boolean;
   checkedInCount: number;
   /** Claimed attendees on the roster (for the "X of Y guests registered" summary). */
   guestsRegistered: number;
@@ -55,6 +57,7 @@ interface Props {
 export default function ManageEventTabs({
   eventId,
   attendees,
+  stripeTestMode,
   checkedInCount,
   guestsRegistered,
   ticketTypeSummary,
@@ -201,7 +204,12 @@ export default function ManageEventTabs({
                 </a>
               </div>
             </div>
-            <AttendeeList attendees={attendees} baseUrl={baseUrl} eventId={eventId} />
+            <AttendeeList
+              attendees={attendees}
+              baseUrl={baseUrl}
+              eventId={eventId}
+              stripeTestMode={stripeTestMode}
+            />
           </div>
         </div>
       )}

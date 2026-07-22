@@ -18,6 +18,8 @@ export interface HouseholdTicket {
   typeTitle: string;
   status: string; // 'issued' | 'claimed'
   checkedIn: boolean;
+  /** Holder cancellation (U14): null = live; 'requested'/'refunded' = cancelled. */
+  cancellationStatus: "requested" | "refunded" | null;
   /** QR admission URL (/c/<credential_token>) — admission only, never the manage_token. */
   credentialUrl: string;
   /** True for the ticket whose manage_token opened this page. */
@@ -89,7 +91,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
 
     const { data: rows } = await supabase
       .from("tickets")
-      .select("id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at")
+      .select("id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status")
       .eq("registration_id", self.registration_id as string)
       .in("slot_status", LIVE_SLOTS)
       .is("released_at", null);
@@ -103,7 +105,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
     status = "free";
     const { data: solo } = await supabase
       .from("tickets")
-      .select("id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at")
+      .select("id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status")
       .eq("id", self.id as string)
       .maybeSingle();
     siblingRows = solo ? [solo] : [];
@@ -124,6 +126,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
         typeTitle: typeId ? typeTitleById.get(typeId) ?? "" : "",
         status: r.slot_status as string,
         checkedIn: r.checked_in_at !== null,
+        cancellationStatus: (r.cancellation_status as "requested" | "refunded" | null) ?? null,
         credentialUrl: credentialUrl((r.credential_token as string | null) ?? ""),
         isSelf: r.id === self.id,
       };

@@ -83,7 +83,7 @@ function adminClient(opts: {
 }
 
 const HEADER =
-  "booking_ref,last_name,first_name,ticket_type,email,phone,is_member,party_lead,tickets,waiver,arrived";
+  "booking_ref,last_name,first_name,ticket_type,email,phone,is_member,party_lead,tickets,waiver,arrived,cancelled";
 
 /** The header is line 1 — the sheet has no TOTALS block above it any more. */
 function sheet(csv: string) {
@@ -238,17 +238,17 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
     // Lead: member's authoritative name, party quantity, signed waiver, arrived. The
     // E.164 phone's leading + is neutralized against formula injection.
     expect(rows[0]).toBe(
-      "EV-AB12,Leader,Ann,Asado Standard,ann@x.com,'+41781234567,yes,lead,5,signed,yes"
+      "EV-AB12,Leader,Ann,Asado Standard,ann@x.com,'+41781234567,yes,lead,5,signed,yes,"
     );
     // Named guest: heuristic split, own ticket type, attributed to the lead.
     expect(rows[1]).toBe(
-      "EV-AB12,Guest,Bo,Asado Vegetarian,bo@x.com,,no,guest of Ann Lead,,unsigned,no"
+      "EV-AB12,Guest,Bo,Asado Vegetarian,bo@x.com,,no,guest of Ann Lead,,unsigned,no,"
     );
     // The issued ticket + 2 padded ones: blank person, real ticket type. 4 Standards
     // were bought and only 2 live rows carry Standard, so the remainder is Standard.
-    expect(rows[2]).toBe("EV-AB12,,,Asado Standard,,,,guest of Ann Lead,,,");
-    expect(rows[3]).toBe("EV-AB12,,,Asado Standard,,,,guest of Ann Lead,,,");
-    expect(rows[4]).toBe("EV-AB12,,,Asado Standard,,,,guest of Ann Lead,,,");
+    expect(rows[2]).toBe("EV-AB12,,,Asado Standard,,,,guest of Ann Lead,,,,");
+    expect(rows[3]).toBe("EV-AB12,,,Asado Standard,,,,guest of Ann Lead,,,,");
+    expect(rows[4]).toBe("EV-AB12,,,Asado Standard,,,,guest of Ann Lead,,,,");
   });
 
   it("orders parties by the lead's surname, not by purchase time", async () => {
@@ -338,10 +338,10 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
     // there is no ticket row to read those from, so the sheet must not claim she is
     // unsigned — only that it does not know.
     expect(rows[0]).toBe(
-      "EV-1104,Schmidt,Anna,Asado Standard,anna@x.com,'+41797778899,no,lead,2,,"
+      "EV-1104,Schmidt,Anna,Asado Standard,anna@x.com,'+41797778899,no,lead,2,,,"
     );
     // Her unsold-to-a-name second ticket, typed from the purchase record.
-    expect(rows[1]).toBe("EV-1104,,,Asado Vegetarian,,,,guest of Anna Schmidt,,,");
+    expect(rows[1]).toBe("EV-1104,,,Asado Vegetarian,,,,guest of Anna Schmidt,,,,");
   });
 
   it("resolves a reconstructed lead's name from the members table", async () => {
@@ -432,7 +432,7 @@ describe("GET /api/admin/events/[id]/attendees (CSV)", () => {
     );
     const { rows } = sheet(await (await get()).text());
     // Marsh before Zimmer; no booking ref, no party, phone's + neutralized.
-    expect(rows[0]).toBe(",Marsh,Mia,,,'+390612345678,no,,,unsigned,no");
+    expect(rows[0]).toBe(",Marsh,Mia,,,'+390612345678,no,,,unsigned,no,");
     expect(rows[1].split(",")[1]).toBe("Zimmer");
   });
 

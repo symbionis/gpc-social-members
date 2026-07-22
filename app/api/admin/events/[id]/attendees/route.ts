@@ -51,6 +51,7 @@ const HEADERS = [
   "tickets",
   "waiver",
   "arrived",
+  "cancelled",
 ];
 
 function emit(r: RosterRow): string {
@@ -66,6 +67,7 @@ function emit(r: RosterRow): string {
     r.tickets,
     r.waiver,
     r.arrived,
+    r.cancelled ? "yes" : "",
   ]
     .map(csvEscape)
     .join(",");

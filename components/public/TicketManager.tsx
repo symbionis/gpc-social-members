@@ -20,6 +20,8 @@ export interface ManageTicket {
   typeId: string;
   typeTitle: string;
   checkedIn: boolean;
+  /** Holder cancellation (U14): null = live; 'requested'/'refunded' = cancelled. */
+  cancellationStatus: "requested" | "refunded" | null;
   /** QR admission URL (/c/<credential_token>). */
   credentialUrl: string;
   /** The ticket whose link opened this page. */
@@ -37,6 +39,8 @@ interface Props {
   fillEndpoint: string;
   /** POST { ticketId, toTicketTypeId } — upgrade a ticket's type. */
   convertEndpoint: string;
+  /** POST { ticketId } — request cancellation of a ticket (final; frees the seat). */
+  cancelEndpoint: string;
   /** All active types priced at the booking's rate — filtered per ticket to upgrade targets. */
   convertTypes: ConvertType[];
 }
@@ -50,6 +54,7 @@ export default function TicketManager({
   tickets: initialTickets,
   fillEndpoint,
   convertEndpoint,
+  cancelEndpoint,
   convertTypes,
 }: Props) {
   const [tickets, setTickets] = useState<ManageTicket[]>(initialTickets);
@@ -111,6 +116,7 @@ export default function TicketManager({
             many={many}
             fillEndpoint={fillEndpoint}
             convertEndpoint={convertEndpoint}
+            cancelEndpoint={cancelEndpoint}
             convertTypes={convertTypes}
             onSaved={onSaved}
           />
@@ -126,6 +132,7 @@ function TicketCard({
   many,
   fillEndpoint,
   convertEndpoint,
+  cancelEndpoint,
   convertTypes,
   onSaved,
 }: {
@@ -134,12 +141,15 @@ function TicketCard({
   many: boolean;
   fillEndpoint: string;
   convertEndpoint: string;
+  cancelEndpoint: string;
   convertTypes: ConvertType[];
   onSaved: (t: ManageTicket) => void;
 }) {
   const targets = eligibleConvertTargets(ticket.typeId, convertTypes);
   const currentPrice = convertTypes.find((t) => t.id === ticket.typeId)?.price ?? 0;
-  const canEdit = !ticket.checkedIn;
+  const cancelled = ticket.cancellationStatus !== null;
+  // A cancelled ticket is spent — no editing, upgrading, or re-cancelling it.
+  const canEdit = !ticket.checkedIn && !cancelled;
 
   return (
     <li className="rounded-2xl border border-border/70 bg-white p-5 shadow-sm">
@@ -165,11 +175,22 @@ function TicketCard({
                 Checked in
               </span>
             )}
+            {cancelled && (
+              <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-sm font-body font-semibold text-red-800">
+                Cancelled
+              </span>
+            )}
           </div>
-          <p className="mt-1.5 font-body text-base text-marine">
+          <p className={`mt-1.5 font-body text-base text-marine ${cancelled ? "line-through text-marine/60" : ""}`}>
             {ticket.name ? ticket.name : <span className="text-marine/60">Unnamed ticket</span>}
           </p>
           {ticket.email && <p className="font-body text-sm text-marine/70">{ticket.email}</p>}
+
+          {cancelled && (
+            <p className="mt-2 font-body text-sm text-red-700">
+              This ticket has been cancelled. A refund will follow from the organiser.
+            </p>
+          )}
 
           {canEdit && (
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
@@ -182,6 +203,11 @@ function TicketCard({
                   targets={targets}
                 />
               )}
+              <CancelControl
+                endpoint={cancelEndpoint}
+                ticketId={ticket.id}
+                onCancelled={() => onSaved({ ...ticket, cancellationStatus: "requested" })}
+              />
             </div>
           )}
         </div>
@@ -380,6 +406,87 @@ function ConvertControl({
           className="rounded-lg border border-border/70 px-4 py-2.5 text-base font-body text-marine"
         >
           Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Request cancellation of a ticket (U14). Two-step so a stray tap can't cancel: the first
+ * click reveals a "this is final" confirmation. On success the seat is freed immediately and
+ * the card flips to its cancelled state.
+ */
+function CancelControl({
+  endpoint,
+  ticketId,
+  onCancelled,
+}: {
+  endpoint: string;
+  ticketId: string;
+  onCancelled: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ticketId }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? "Could not cancel. Please try again.");
+        return;
+      }
+      onCancelled();
+    } catch {
+      setError("Could not cancel. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="text-sm font-body font-semibold text-red-700 underline underline-offset-2"
+      >
+        Cancel ticket
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 w-full space-y-2 rounded-xl border border-red-200 bg-red-50 p-3">
+      <p className="font-body text-sm text-red-800">
+        Cancelling is final — this ticket will be void and its place released. A refund follows
+        from the organiser.
+      </p>
+      {error && <p className="text-sm font-body text-red-600">{error}</p>}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={submit}
+          disabled={busy}
+          className="flex-1 rounded-lg bg-red-700 px-4 py-2.5 text-base font-body font-semibold text-white disabled:opacity-50"
+        >
+          {busy ? "Cancelling…" : "Cancel this ticket"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirming(false)}
+          disabled={busy}
+          className="rounded-lg border border-border/70 px-4 py-2.5 text-base font-body text-marine"
+        >
+          Keep it
         </button>
       </div>
     </div>

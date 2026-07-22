@@ -58,12 +58,16 @@ export async function recordAttendeeCheckin(
 
   const { data: attendee, error } = await supabase
     .from("tickets")
-    .select("id, name, registration_id, ticket_type_id, waiver_accepted_at, language, marketing_consent, checked_in_at")
+    .select("id, name, registration_id, ticket_type_id, waiver_accepted_at, language, marketing_consent, checked_in_at, cancellation_status")
     .eq("id", input.attendeeId)
     .eq("event_id", input.eventId)
     .maybeSingle();
   if (error) throw error;
   if (!attendee) return { ok: false, reason: "not_found" };
+  // A cancelled ticket (U14) is void — its seat was freed and may have been resold, so
+  // admitting its holder would re-create the overbooking the release prevents. Refuse it as
+  // not-a-valid-ticket (the door route maps this to "not recognised").
+  if (attendee.cancellation_status != null) return { ok: false, reason: "not_found" };
 
   const name = (attendee.name as string | null) ?? null;
   const registrationId = (attendee.registration_id as string | null) ?? null;

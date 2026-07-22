@@ -106,6 +106,7 @@ describe("ManageEventTabs — Guest list replaces Import", () => {
       <ManageEventTabs
         eventId="ev-1"
         attendees={[]}
+        stripeTestMode={false}
         checkedInCount={0}
         guestsRegistered={0}
         ticketTypeSummary={[]}

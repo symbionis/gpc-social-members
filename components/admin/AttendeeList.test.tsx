@@ -34,13 +34,22 @@ function ticket(overrides: Partial<Attendee> = {}): Attendee {
     createdAt: `2026-01-01T00:00:0${seq}Z`,
     isComp: false,
     named: true,
-    cancelled: false,
+    cancellationStatus: null,
+    cancellationRequestedAt: null,
+    stripePaymentIntentId: null,
     ...overrides,
   };
 }
 
 function renderList(attendees: Attendee[]) {
-  return render(<AttendeeList attendees={attendees} baseUrl="https://app.test" eventId="evt-1" />);
+  return render(
+    <AttendeeList
+      attendees={attendees}
+      baseUrl="https://app.test"
+      eventId="evt-1"
+      stripeTestMode={false}
+    />
+  );
 }
 
 const groups = () => screen.queryAllByTestId("address-group");
@@ -123,17 +132,66 @@ describe("U15 — every ticket sold is shown (R25)", () => {
   });
 });
 
-describe("U15 — cancelled tickets render distinctly", () => {
-  it("marks a cancelled ticket and offers it no Remove button", () => {
+describe("U14 — cancelled tickets render distinctly + refund workflow", () => {
+  it("marks a cancel-requested ticket and offers it no Remove button", () => {
     renderList([
       ticket({ id: "t-live", name: "Ana Adult", email: "house@x.ch" }),
-      ticket({ id: "t-cancelled", name: "Ben Adult", email: "house@x.ch", cancelled: true }),
+      ticket({ id: "t-cancelled", name: "Ben Adult", email: "house@x.ch", cancellationStatus: "requested" }),
     ]);
-    expect(screen.getByText("Cancelled")).toBeInTheDocument();
+    expect(screen.getByText("Cancel requested")).toBeInTheDocument();
     // The cancelled name is struck through.
     expect(screen.getByText("Ben Adult")).toHaveClass("line-through");
     // A cancelled ticket gets no Remove affordance; the live guest still does.
     expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(1);
+  });
+
+  it("links a cancelled ticket out to Stripe and marks it refunded", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderList([
+      ticket({
+        id: "t-cancelled",
+        name: "Ben Adult",
+        email: "house@x.ch",
+        cancellationStatus: "requested",
+        stripePaymentIntentId: "pi_123",
+      }),
+    ]);
+    // Stripe deep link (live mode → no /test/ segment).
+    const link = screen.getByRole("link", { name: "Stripe ↗" });
+    expect(link).toHaveAttribute("href", "https://dashboard.stripe.com/payments/pi_123");
+
+    await user.click(screen.getByRole("button", { name: "Mark refunded" }));
+    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe("/api/admin/events/evt-1/tickets/t-cancelled/refund");
+  });
+
+  it("shows a refunded ticket as Refunded with no Mark-refunded button", () => {
+    renderList([
+      ticket({ name: "Ben Adult", email: "house@x.ch", cancellationStatus: "refunded", stripePaymentIntentId: "pi_9" }),
+    ]);
+    expect(screen.getByText("Refunded")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mark refunded" })).toBeNull();
+  });
+
+  it("marks a fully-cancelled address group 'All cancelled' with no Resend", () => {
+    renderList([
+      ticket({ email: "gone@x.ch", cancellationStatus: "requested" }),
+      ticket({ email: "gone@x.ch", cancellationStatus: "refunded" }),
+    ]);
+    const group = screen.getByLabelText("gone@x.ch");
+    expect(within(group).getByText("All cancelled")).toBeInTheDocument();
+    expect(within(group).queryByRole("button", { name: /Resend tickets to/ })).toBeNull();
+  });
+
+  it("does not let a cancelled ticket hold its address group back from Notified", () => {
+    renderList([
+      ticket({ email: "house@x.ch", notified: true }),
+      ticket({ email: "house@x.ch", notified: false, cancellationStatus: "requested" }),
+    ]);
+    // The only live ticket is notified → the group reads Notified despite the cancelled one.
+    expect(screen.getByText("Notified")).toBeInTheDocument();
+    expect(screen.queryByText("Not notified")).toBeNull();
   });
 });
 

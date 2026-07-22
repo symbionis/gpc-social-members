@@ -82,6 +82,7 @@ export default async function TicketManagePage({
     typeId: t.typeId,
     typeTitle: t.typeTitle,
     checkedIn: t.checkedIn,
+    cancellationStatus: t.cancellationStatus,
     credentialUrl: t.credentialUrl,
     isSelf: t.isSelf,
   }));
@@ -118,6 +119,7 @@ export default async function TicketManagePage({
       tickets={tickets}
       fillEndpoint={`/api/public/bookings/${token}/fill`}
       convertEndpoint={`/api/public/bookings/${token}/convert`}
+      cancelEndpoint={`/api/public/bookings/${token}/cancel`}
       convertTypes={convertTypes}
     />
   );

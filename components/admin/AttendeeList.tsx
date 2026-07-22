@@ -39,11 +39,15 @@ export interface Attendee {
   /** Whether anyone is named on this ticket yet (slot_status === 'claimed'). */
   named: boolean;
   /**
-   * A holder-cancelled ticket (U14). Rendered struck-through and excluded from the Remove /
-   * resend affordances. Always false until cancellation ships; the roster is built to show it
-   * distinctly the moment it does.
+   * Holder cancellation (U14): null = live; 'requested' = seat freed, refund pending;
+   * 'refunded' = admin completed the Stripe refund. Rendered struck-through and excluded from
+   * the Remove affordance; 'requested' rows offer the admin a Stripe link + "Mark refunded".
    */
-  cancelled: boolean;
+  cancellationStatus: "requested" | "refunded" | null;
+  /** When cancellation was requested — shown on the cancelled row. */
+  cancellationRequestedAt: string | null;
+  /** The booking's Stripe PaymentIntent → the admin "refund in Stripe" deep link (R24). */
+  stripePaymentIntentId: string | null;
 }
 
 interface Props {
@@ -51,6 +55,8 @@ interface Props {
   /** Absolute base URL (NEXT_PUBLIC_APP_URL); falls back to window origin. */
   baseUrl: string;
   eventId: string;
+  /** Stripe test mode → the refund deep link targets dashboard.stripe.com/test/…. */
+  stripeTestMode: boolean;
 }
 
 type MemberFilter = "all" | "members" | "non_members";
@@ -107,7 +113,7 @@ function buildGroups(attendees: Attendee[]): RosterGroup[] {
         : "booking";
     // A group counts as notified only if every live ticket in it has been emailed — a
     // cancelled ticket carries no obligation, so it doesn't hold the group back.
-    const live = rows.filter((r) => !r.cancelled);
+    const live = rows.filter((r) => !r.cancellationStatus);
     groups.push({
       key,
       kind,
@@ -131,13 +137,15 @@ function buildGroups(attendees: Attendee[]): RosterGroup[] {
   return groups;
 }
 
-export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
+export default function AttendeeList({ attendees, baseUrl, eventId, stripeTestMode }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [memberFilter, setMemberFilter] = useState<MemberFilter>("all");
   const [removing, setRemoving] = useState<Set<string>>(new Set());
   // Addresses whose grouped email is being resent — keyed by lowercased email.
   const [resending, setResending] = useState<Set<string>>(new Set());
+  // Tickets whose refund is being marked — keyed by ticket id.
+  const [refunding, setRefunding] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -193,6 +201,37 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
       setRemoving((prev) => {
         const next = new Set(prev);
         next.delete(id);
+        return next;
+      });
+    }
+  }
+
+  // Mark a holder-cancelled ticket as refunded (U14). The refund itself is done by hand in
+  // Stripe (the row links out); this only advances the status so the roster reflects it.
+  async function markRefunded(ticketId: string, name: string) {
+    if (!window.confirm(`Mark ${name || "this ticket"} as refunded? Do the refund in Stripe first.`))
+      return;
+    setError(null);
+    setNotice(null);
+    setRefunding((prev) => new Set(prev).add(ticketId));
+    try {
+      const res = await fetch(`/api/admin/events/${eventId}/tickets/${ticketId}/refund`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not update the ticket.");
+        return;
+      }
+      setNotice(`Marked ${name || "the ticket"} refunded.`);
+      router.refresh();
+    } catch {
+      setError("Could not update the ticket.");
+    } finally {
+      setRefunding((prev) => {
+        const next = new Set(prev);
+        next.delete(ticketId);
         return next;
       });
     }
@@ -285,9 +324,12 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
               group={group}
               origin={origin}
               removing={removing}
+              refunding={refunding}
               resending={resending.has(group.email.trim().toLowerCase())}
+              stripeTestMode={stripeTestMode}
               onRemove={removeGuest}
               onResend={resendAddress}
+              onRefund={markRefunded}
             />
           ))}
         </div>
@@ -300,18 +342,27 @@ function AddressCard({
   group,
   origin,
   removing,
+  refunding,
   resending,
+  stripeTestMode,
   onRemove,
   onResend,
+  onRefund,
 }: {
   group: RosterGroup;
   origin: string;
   removing: Set<string>;
+  refunding: Set<string>;
   resending: boolean;
+  stripeTestMode: boolean;
   onRemove: (id: string, name: string) => void;
   onResend: (email: string) => void;
+  onRefund: (ticketId: string, name: string) => void;
 }) {
-  const isAddress = group.kind === "address";
+  // An address whose every ticket is cancelled has nothing to notify or resend — treat it as
+  // a spent group rather than badging it "Not notified" and offering a pointless Resend.
+  const allCancelled = group.rows.every((r) => r.cancellationStatus !== null);
+  const isAddress = group.kind === "address" && !allCancelled;
   const manageUrl =
     isAddress && group.manageToken ? `${origin}/public/tickets/${group.manageToken}` : "";
   const label =
@@ -338,7 +389,11 @@ function AddressCard({
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
-          {group.kind === "unnamed" ? (
+          {allCancelled ? (
+            <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 whitespace-nowrap">
+              All cancelled
+            </span>
+          ) : group.kind === "unnamed" ? (
             <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 whitespace-nowrap">
               Not named
             </span>
@@ -403,7 +458,10 @@ function AddressCard({
                 key={row.id}
                 row={row}
                 removing={removing.has(row.id)}
+                refunding={refunding.has(row.id)}
+                stripeTestMode={stripeTestMode}
                 onRemove={onRemove}
+                onRefund={onRefund}
               />
             ))}
           </tbody>
@@ -416,12 +474,19 @@ function AddressCard({
 function TicketRow({
   row,
   removing,
+  refunding,
+  stripeTestMode,
   onRemove,
+  onRefund,
 }: {
   row: Attendee;
   removing: boolean;
+  refunding: boolean;
+  stripeTestMode: boolean;
   onRemove: (id: string, name: string) => void;
+  onRefund: (ticketId: string, name: string) => void;
 }) {
+  const cancelled = row.cancellationStatus !== null;
   // The door Remove (free-slot) frees a named guest's slot. Never a lead, a comp seat, a
   // checked-in person, a still-unnamed slot, or a cancelled ticket.
   const canRemove =
@@ -430,13 +495,16 @@ function TicketRow({
     !!row.registrationId &&
     !row.checkedIn &&
     !row.isComp &&
-    !row.cancelled;
+    !cancelled;
+  const stripeUrl = row.stripePaymentIntentId
+    ? `https://dashboard.stripe.com/${stripeTestMode ? "test/" : ""}payments/${row.stripePaymentIntentId}`
+    : "";
 
   return (
     <tr data-testid="ticket-row" className="border-t border-border">
       <td className="px-4 py-3 text-marine">
         <span className="flex items-center gap-2">
-          <span className={row.cancelled ? "line-through text-muted-foreground" : ""}>
+          <span className={cancelled ? "line-through text-muted-foreground" : ""}>
             {row.name || <span className="text-muted-foreground italic">Unnamed</span>}
           </span>
           {row.isLead && (
@@ -444,9 +512,14 @@ function TicketRow({
               Buyer
             </span>
           )}
-          {row.cancelled && (
+          {row.cancellationStatus === "requested" && (
             <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-red-50 text-red-700">
-              Cancelled
+              Cancel requested
+            </span>
+          )}
+          {row.cancellationStatus === "refunded" && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-100 text-gray-600">
+              Refunded
             </span>
           )}
         </span>
@@ -490,15 +563,41 @@ function TicketRow({
         )}
       </td>
       <td className="px-4 py-3 text-right">
-        {canRemove && (
-          <button
-            type="button"
-            onClick={() => onRemove(row.id, row.name)}
-            disabled={removing}
-            className="px-2.5 py-1 rounded-lg border border-red-200 text-red-700 text-xs font-body hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {removing ? "…" : "Remove"}
-          </button>
+        {cancelled ? (
+          <div className="flex items-center justify-end gap-2">
+            {stripeUrl && (
+              <a
+                href={stripeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open this booking's payment in Stripe to issue the refund"
+                className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors whitespace-nowrap"
+              >
+                Stripe ↗
+              </a>
+            )}
+            {row.cancellationStatus === "requested" && (
+              <button
+                type="button"
+                onClick={() => onRefund(row.id, row.name)}
+                disabled={refunding}
+                className="px-2.5 py-1 rounded-lg border border-emerald-300 text-emerald-800 text-xs font-body hover:bg-emerald-50 transition-colors disabled:opacity-50 cursor-pointer whitespace-nowrap"
+              >
+                {refunding ? "…" : "Mark refunded"}
+              </button>
+            )}
+          </div>
+        ) : (
+          canRemove && (
+            <button
+              type="button"
+              onClick={() => onRemove(row.id, row.name)}
+              disabled={removing}
+              className="px-2.5 py-1 rounded-lg border border-red-200 text-red-700 text-xs font-body hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {removing ? "…" : "Remove"}
+            </button>
+          )
         )}
       </td>
     </tr>

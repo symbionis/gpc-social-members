@@ -34,6 +34,8 @@ export interface RosterRow {
   isLead: boolean;
   /** False when nobody has been named on this ticket: print a blank line to write on. */
   named: boolean;
+  /** A holder-cancelled ticket (U14) — do not admit. Struck on the sheet, tagged in the CSV. */
+  cancelled: boolean;
 }
 
 export interface RosterParty {
@@ -87,6 +89,7 @@ interface TicketRow {
   is_lead: boolean;
   slot_status: string;
   ticket_type_id: string | null;
+  cancellation_status: string | null;
   waiver_accepted_at: string | null;
   checked_in_at: string | null;
   created_at: string;
@@ -139,7 +142,7 @@ export async function buildDoorRoster(
   const { data: ticketData, error: ticketsError } = await adminClient
     .from("tickets")
     .select(
-      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, cancellation_status, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", eventId)
     .in("slot_status", ["issued", "claimed"])
@@ -242,6 +245,7 @@ export async function buildDoorRoster(
       partyLead,
       tickets: "",
       isLead: t.is_lead && isClaimed(t),
+      cancelled: t.cancellation_status != null,
     };
     if (!isClaimed(t)) {
       return {
@@ -329,6 +333,7 @@ export async function buildDoorRoster(
         arrived: "",
         isLead: true,
         named: Boolean(last || first),
+        cancelled: false,
       };
     }
 
@@ -361,6 +366,7 @@ export async function buildDoorRoster(
       arrived: "",
       isLead: false,
       named: false,
+      cancelled: false,
     }));
 
     // On a current-generation event, minting should have produced these rows. Padding
@@ -407,6 +413,8 @@ export function rosterTypeTotals(parties: RosterParty[]): Array<{ title: string;
   const byTitle = new Map<string, number>();
   for (const p of parties) {
     for (const r of p.rows) {
+      // A cancelled ticket isn't attending — don't cater for it.
+      if (r.cancelled) continue;
       const title = r.ticketType.trim();
       if (!title) continue;
       byTitle.set(title, (byTitle.get(title) ?? 0) + 1);
