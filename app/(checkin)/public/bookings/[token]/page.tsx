@@ -88,7 +88,7 @@ export default async function BookingPage({
   const { data: ticketRows } = await supabase
     .from("tickets")
     .select(
-      "id, name, email, phone_e164, ticket_type_id, slot_status, credential_token, checked_in_at, is_lead, batch_token, created_at"
+      "id, name, email, phone_e164, ticket_type_id, slot_status, credential_token, checked_in_at, is_lead, created_at"
     )
     .eq("registration_id", registration.id)
     .in("slot_status", ["issued", "claimed"])
@@ -169,9 +169,6 @@ export default async function BookingPage({
         checkedIn: t.checked_in_at !== null,
         credentialUrl: credentialUrl((t.credential_token as string | null) ?? ""),
         isLead: Boolean(t.is_lead),
-        // A forwarded ticket carries a batch_token (stamped by forward_ticket_batch);
-        // it's now the delegate's to name — the lead sees it read-only with an indicator.
-        forwarded: (t.batch_token as string | null) != null,
       };
     });
 
@@ -187,7 +184,6 @@ export default async function BookingPage({
       buyableTypes={buyableTypes}
       convertEndpoint={`/api/public/bookings/${token}/convert`}
       convertTypes={convertTypes}
-      variant="booking"
     />
   );
 }

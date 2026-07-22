@@ -20,12 +20,6 @@ export interface BookingTicket {
   credentialUrl: string;
   /** This is the lead booker's own ticket — it stays with them, read-only. */
   isLead: boolean;
-  /**
-   * Handed to a delegate by the (retired) forward flow — shown read-only with an
-   * indicator. The lead page no longer forwards, but tickets forwarded before that
-   * change still exist and remain the delegate's to name.
-   */
-  forwarded: boolean;
 }
 
 interface Props {
@@ -36,8 +30,6 @@ interface Props {
   tickets: BookingTicket[];
   /** Endpoint that names a ticket by id ({ ticketId, name, email, phone, marketingConsent }). */
   fillEndpoint: string;
-  /** Heading/intro variant: the lead's whole booking vs a delegate's forwarded batch. */
-  variant?: "booking" | "batch";
   /** When set, show the "buy more tickets" panel posting to this endpoint (lead only). */
   topupEndpoint?: string;
   /** Ticket types the lead can buy more of (with a display price label). */
@@ -55,7 +47,6 @@ export default function BookingManager({
   quantity,
   tickets: initialTickets,
   fillEndpoint,
-  variant = "booking",
   topupEndpoint,
   buyableTypes,
   convertEndpoint,
@@ -88,7 +79,7 @@ export default function BookingManager({
 
       <div className="flex items-center justify-between rounded-xl border border-border/70 bg-white px-4 py-3.5 text-base font-body">
         <span className="text-marine/80">
-          {variant === "batch" ? "Forwarded tickets" : "Booking"}{" "}
+          Booking{" "}
           {referenceCode && <span className="font-semibold text-marine">{referenceCode}</span>}
         </span>
         <span className="text-marine/80">
@@ -178,7 +169,7 @@ function BuyMorePanel({
         <div className="mt-4 space-y-4">
           <p className="font-body text-base text-marine/80">
             Add tickets to this booking. After payment they appear here with their own QR
-            codes, ready to name or forward.
+            codes, ready to name.
           </p>
           <ul className="space-y-3">
             {types.map((t) => (
@@ -350,13 +341,13 @@ function TicketCard({
   const [error, setError] = useState<string | null>(null);
 
   const named = ticket.name.trim().length > 0;
-  // The lead's own ticket stays with them; forwarded/checked-in tickets are read-only.
-  const editable = !ticket.isLead && !ticket.forwarded && !ticket.checkedIn;
+  // The lead's own ticket stays with them; a checked-in ticket is read-only.
+  const editable = !ticket.isLead && !ticket.checkedIn;
 
-  // Convert (upgrade) is allowed on the lead's own ticket too — it preserves is_lead. Only
-  // forwarded / checked-in tickets are excluded. Offer only same-or-higher priced targets.
+  // Convert (upgrade) is allowed on the lead's own ticket too — it preserves is_lead. Only a
+  // checked-in ticket is excluded. Offer only same-or-higher priced targets.
   const convertTargets =
-    convertEndpoint && convertTypes && !ticket.forwarded && !ticket.checkedIn
+    convertEndpoint && convertTypes && !ticket.checkedIn
       ? eligibleConvertTargets(ticket.typeId, convertTypes)
       : [];
   const currentPrice = convertTypes?.find((t) => t.id === ticket.typeId)?.price ?? 0;
@@ -420,24 +411,15 @@ function TicketCard({
                 Your ticket
               </span>
             )}
-            {ticket.forwarded && (
-              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-sm font-body font-semibold text-emerald-800">
-                QR sent to guest ✓
-              </span>
-            )}
             {ticket.checkedIn && (
               <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-sm font-body font-semibold text-emerald-800">
                 Checked in
               </span>
             )}
           </div>
-          {/* A forwarded ticket is the guest's to edit, but the lead still sees whatever
-              details are on it — they're managing the party and need to know who's who. */}
           <p className="mt-1.5 font-body text-base text-marine">
             {named ? (
               ticket.name
-            ) : ticket.forwarded ? (
-              <span className="text-marine/60">Awaiting the guest’s details</span>
             ) : (
               <span className="text-marine/60">Unnamed — add a name to make this ticket valid</span>
             )}

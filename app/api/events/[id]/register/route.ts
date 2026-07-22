@@ -347,7 +347,7 @@ export async function POST(
   // at the door; the manage_token scopes the party's lead "My Booking" link (sent in the
   // confirmation email). Best-effort and non-blocking — a failure here never fails an
   // already-created registration, it only leaves that party without phone / a manage link.
-  // Self-registration is retired (U16), so no self_reg_token is issued.
+  // Self-registration is retired (U16); its token and column have since been dropped (R28).
   const regPatch: {
     phone_e164?: string;
     manage_token: string;
