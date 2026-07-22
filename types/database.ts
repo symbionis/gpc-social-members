@@ -512,7 +512,6 @@ export type Database = {
           phone_e164: string | null
           quantity: number
           reference_code: string
-          self_reg_token: string | null
           status: string
           stripe_checkout_session_id: string | null
           stripe_payment_intent_id: string | null
@@ -537,7 +536,6 @@ export type Database = {
           phone_e164?: string | null
           quantity: number
           reference_code: string
-          self_reg_token?: string | null
           status?: string
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
@@ -562,7 +560,6 @@ export type Database = {
           phone_e164?: string | null
           quantity?: number
           reference_code?: string
-          self_reg_token?: string | null
           status?: string
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
@@ -1628,20 +1625,6 @@ export type Database = {
         Args: { p_caller: string; p_guest: Json; p_registration_id: string }
         Returns: undefined
       }
-      claim_self_registration: {
-        Args: {
-          p_email: string
-          p_language: string
-          p_marketing_consent: boolean
-          p_name: string
-          p_phone_e164: string
-          p_ticket_type_id?: string
-          p_token: string
-          p_waiver_accepted: boolean
-          p_waiver_version: string
-        }
-        Returns: Json
-      }
       claim_ticket: {
         Args: {
           p_email: string
@@ -1685,20 +1668,6 @@ export type Database = {
         Args: { p_event: Json; p_types: Json }
         Returns: string
       }
-      fill_batch_ticket: {
-        Args: {
-          p_batch_token: string
-          p_email: string
-          p_language: string
-          p_marketing_consent: boolean
-          p_name: string
-          p_phone_e164: string
-          p_ticket_id: string
-          p_waiver_accepted: boolean
-          p_waiver_version: string
-        }
-        Returns: Json
-      }
       fill_ticket: {
         Args: {
           p_email: string
@@ -1711,10 +1680,6 @@ export type Database = {
           p_waiver_accepted: boolean
           p_waiver_version: string
         }
-        Returns: Json
-      }
-      forward_ticket_batch: {
-        Args: { p_manage_token: string; p_ticket_ids: string[] }
         Returns: Json
       }
       gen_url_token: { Args: never; Returns: string }
