@@ -12,12 +12,15 @@ symptoms:
   - The pending_roster presence-gate does not prevent re-application because the clear runs after the fill in the same invocation, so a crash-before-clear re-runs the whole fill
 root_cause: logic_error
 resolution_type: migration
+last_updated: 2026-07-22
 severity: high
 related_components: [database, background_job]
 tags: [stripe, webhook, idempotency, postgres, security-definer, roster, race-condition, events]
 ---
 
 # Non-atomic roster fill+clear re-applies name-only guests on Stripe webhook redelivery
+
+> **Update (2026-07-22):** The specific amplifier described here — **name-only children** (no email/phone, so `claim_ticket`'s contact-based idempotency branch was skipped) — no longer exists. Mandatory nominative checkout (Phase A / PR #76) now requires a name **and email** on every ticket, and `is_child` was retired entirely (PR #81), so no ticket is name-only. Self-registration was also retired (PR #88). This exact replay-duplication vector is therefore closed. The **core lesson and the fix remain current**: `apply_pending_roster` performs the fill+clear atomically in one transaction under a row lock, and idempotency belongs at the transaction boundary — not per-item on data (names) that has no natural key. Note also that the shared contact-vs-identity dedup trap it touches is documented at [`./contact-only-replay-guard-swallows-people-sharing-an-email.md`](./contact-only-replay-guard-swallows-people-sharing-an-email.md).
 
 ## Problem
 
