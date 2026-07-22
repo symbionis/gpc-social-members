@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import AttendeeList from "@/components/admin/AttendeeList";
+import AttendeeList, { type Attendee } from "@/components/admin/AttendeeList";
 import GuestList, { type GuestListEntry } from "@/components/admin/GuestList";
 import EventCheckInPanel from "@/components/admin/EventCheckInPanel";
 import EventCheckInSettings from "@/components/admin/EventCheckInSettings";
@@ -16,42 +16,8 @@ import EventMessaging, {
 } from "@/components/admin/EventMessaging";
 import { formatDateTime } from "@/lib/format";
 import type { ReminderEntry } from "@/lib/events/reminder-schedule";
-import type { TicketTypeLine } from "@/lib/events/tickets";
-import type { PartyDetail } from "@/lib/events/roster-fill";
 
 type Tab = "roster" | "checkin" | "guestlist" | "messaging" | "waitlist" | "settings";
-
-/** One person on the roster (event_attendees, claimed slots). */
-interface Attendee {
-  id: string;
-  registrationId: string | null;
-  referenceCode: string | null;
-  name: string;
-  email: string;
-  phone_e164: string;
-  isMember: boolean;
-  isLead: boolean;
-  /** The lead's name for this party when the attendee is a guest, else "". */
-  leadName: string;
-  /** Tickets purchased for this party — present on the lead row only (null elsewhere). */
-  ticketCount: number | null;
-  /** Per-ticket-type breakdown for the lead's party; empty for guests / no party. */
-  ticketBreakdown: TicketTypeLine[];
-  /** This person's own ticket-type title (asado meal); "" when none. Shown on guests. */
-  ticketTypeTitle: string;
-  /** Party self-reg detail (fill + claimed guests + token) on lead rows; null otherwise. */
-  party: PartyDetail | null;
-  /** The lead's "My Booking" manage_token (lead rows only) → booking-page link. */
-  manageToken: string | null;
-  /** When this party's ticket email was last sent (lead rows); null = never sent. */
-  ticketEmailSentAt: string | null;
-  waiverSigned: boolean;
-  checkedIn: boolean;
-  arrivedAt: string | null;
-  createdAt: string;
-  /** A comped seat on a guest list — the roster tab offers no Remove button for one. */
-  isComp: boolean;
-}
 
 interface Waitlist {
   id: string;
