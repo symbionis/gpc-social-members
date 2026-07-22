@@ -1,6 +1,7 @@
 ---
 title: "Race-safe slot-claim RPC: enforce a capacity cap at claim time"
 date: 2026-06-07
+last_updated: 2026-07-22
 category: design-patterns
 module: events
 problem_type: design_pattern
@@ -28,6 +29,8 @@ related_components:
 ---
 
 # Race-safe slot-claim RPC: enforce a capacity cap at claim time
+
+> **Update (2026-07-22):** The concrete example below — the self-registration flow, the `claim_self_registration` RPC, and the `event_registrations.self_reg_token` column/index — has been **retired** (self-registration removed in U16 / PR #88; the RPC, column, and unique index dropped in R28 / PR #92). The `event_attendees` table it references was **renamed to `tickets`**. The **pattern is unchanged and still in force**: the surviving `claim_ticket` RPC (checkout roster-fill + door walk-up) enforces the same race-safe, `SELECT … FOR UPDATE`-locked, no-pre-provisioning capacity cap on `tickets`, and event capacity is now also computed in SQL by `seats_used` (`purchased − cancelled`). Read the `claim_self_registration` / `event_attendees` / `self_reg_token` snippets below as the historical form of a pattern that today lives in `claim_ticket`.
 
 ## Context
 

@@ -8,7 +8,7 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 A scheduled club happening that members and guests can register to attend. An Event has a visibility — public or members-only — and exposes one or more Ticket Types.
 
 ### Ticket Type
-A named, separately-priced category of admission for an Event — for example a standard adult ticket, a children's ticket, or a no-meal option. Each Ticket Type carries a distinct price for every Rate Class, and may or may not consume a seat against the Event's capacity.
+A named, separately-priced category of admission for an Event — for example a standard ticket or a no-meal option. Each Ticket Type carries a distinct price for every Rate Class, and may or may not consume a seat against the Event's capacity.
 
 ### Registration
 A confirmed booking made by one Lead for one Event, holding one or more Tickets. A Registration records whether the Lead booked as a member and the rate it was priced at. At most one active Registration exists per person per Event.
@@ -33,7 +33,7 @@ Adding further Tickets to an existing confirmed Registration after booking — t
 ### Conversion
 Changing one existing Ticket to a different Ticket Type on the same Registration — the "Change ticket type" flow — as opposed to a Top-up, which adds new Tickets. Priced at the Registration's original Rate Class.
 
-Upgrade-only: the target Ticket Type must cost the same or more, and the Lead pays the difference (applied immediately when the difference is zero, otherwise through its own checkout first). A Conversion preserves the Ticket's Credential, its Lead-held status, and its named person — it changes only the Ticket Type; the Registration's Ticket count is unchanged, and the Event's seat usage changes only when converting from a non-seat to a seat-consuming Type. A Ticket cannot be converted between a child and an adult Ticket Type.
+Upgrade-only: the target Ticket Type must cost the same or more, and the Lead pays the difference (applied immediately when the difference is zero, otherwise through its own checkout first). A Conversion preserves the Ticket's Credential, its Lead-held status, and its named person — it changes only the Ticket Type; the Registration's Ticket count is unchanged, and the Event's seat usage changes only when converting from a non-seat to a seat-consuming Type. Any Ticket Type may be converted to any other of equal or higher price — there is no restriction between categories of Type.
 
 ### Cancellation
 A holder's request to void one of their own Tickets from the manage link — final on the holder's side — that frees the Ticket's seat immediately and moves it toward a refund. A Cancellation carries its own status, separate from Slot Status: **requested** (voided, seat released, refund pending) then **refunded** (an admin has completed the refund in the payment provider).
@@ -50,6 +50,12 @@ A Ticket can also be *released* — freed by staff before arrival — which tomb
 
 ### Booking Page
 The Lead's self-service page for a Registration, reached by a private manage link, where they name each Ticket, share Tickets with guests, see every QR, and buy more.
+
+### Household
+The set of live Tickets within one Registration that share the same email address — a couple or a family who booked together on one address. The Household is the unit of Ticket delivery and self-service: its Tickets arrive as one grouped email carrying every QR, and are managed together through any one member's Manage Link.
+
+### Manage Link
+The private, rotatable per-Ticket link that opens a Ticket's Household — letting whoever holds it view every QR at that address, correct a name or email, upgrade (see Conversion), or cancel (see Cancellation). Distinct from the Ticket Credential: the Manage Link governs the booking, the Credential only admits at the door. Rotating a Manage Link revokes the old one for the whole Household.
 
 ### Door Console
 The public, no-login check-in surface for an Event, opened by staff at a hard-to-guess per-Event link, used to scan Ticket QRs, fill in missing names and waivers, admit walk-ups against unredeemed Tickets, and resend a party's Tickets to its Lead.
