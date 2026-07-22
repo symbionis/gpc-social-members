@@ -1478,6 +1478,9 @@ export type Database = {
       tickets: {
         Row: {
           batch_token: string | null
+          cancellation_refunded_at: string | null
+          cancellation_requested_at: string | null
+          cancellation_status: string | null
           checked_in_at: string | null
           created_at: string
           credential_token: string | null
@@ -1502,6 +1505,9 @@ export type Database = {
         }
         Insert: {
           batch_token?: string | null
+          cancellation_refunded_at?: string | null
+          cancellation_requested_at?: string | null
+          cancellation_status?: string | null
           checked_in_at?: string | null
           created_at?: string
           credential_token?: string | null
@@ -1526,6 +1532,9 @@ export type Database = {
         }
         Update: {
           batch_token?: string | null
+          cancellation_refunded_at?: string | null
+          cancellation_requested_at?: string | null
+          cancellation_status?: string | null
           checked_in_at?: string | null
           created_at?: string
           credential_token?: string | null

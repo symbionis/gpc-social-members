@@ -64,6 +64,28 @@ describe("recordAttendeeCheckin", () => {
     });
   });
 
+  it("refuses a cancelled ticket (U14) — a void ticket must not be admitted at the door", async () => {
+    mockedCreateAdminClient.mockReturnValue(
+      recordClient({
+        attendee: {
+          data: {
+            id: "att-1",
+            name: "Cancelled Guest",
+            registration_id: "r1",
+            ticket_type_id: "tt1",
+            waiver_accepted_at: "2026-01-01T00:00:00Z",
+            language: "en",
+            marketing_consent: true,
+            checked_in_at: null,
+            cancellation_status: "requested",
+          },
+          error: null,
+        },
+      })
+    );
+    expect(await recordAttendeeCheckin(base)).toEqual({ ok: false, reason: "not_found" });
+  });
+
   it("checks in a signed attendee and does not re-stamp the waiver", async () => {
     let captured: Record<string, unknown> | null = null;
     mockedCreateAdminClient.mockReturnValue(

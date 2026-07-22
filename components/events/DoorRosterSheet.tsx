@@ -104,11 +104,23 @@ export default function DoorRosterSheet({ event, parties, typeTotals }: Props) {
                   <tr
                     className={lead ? "roster-lead" : "roster-guest"}
                     key={`${i}-${j}`}
+                    style={
+                      row.cancelled
+                        ? { textDecoration: "line-through", opacity: 0.55 }
+                        : undefined
+                    }
                   >
                     <td className="col-tick">
-                      <span className="tickbox" aria-hidden />
+                      {row.cancelled ? (
+                        <span aria-label="cancelled" style={{ textDecoration: "none" }}>✗</span>
+                      ) : (
+                        <span className="tickbox" aria-hidden />
+                      )}
                     </td>
                     <td className="col-name">
+                      {row.cancelled && (
+                        <strong style={{ textDecoration: "none" }}>CANCELLED — </strong>
+                      )}
                       {row.named ? (
                         <span className={lead ? "name-lead" : "name-guest"}>
                           {/* Someone who gave a one-word name has no surname to file

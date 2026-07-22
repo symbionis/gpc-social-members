@@ -47,7 +47,7 @@ export default async function ManageEventPage({
   const { data: registrations, error: registrationsError } = await supabase
     .from("event_registrations")
     .select(
-      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, manage_token, ticket_email_sent_at, is_guest_list, created_at"
+      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, manage_token, ticket_email_sent_at, stripe_payment_intent_id, is_guest_list, created_at"
     )
     .eq("event_id", id)
     .in("status", ["paid", "free"])
@@ -80,7 +80,7 @@ export default async function ManageEventPage({
   const { data: attendeeRows, error: attendeeRowsError } = await supabase
     .from("tickets")
     .select(
-      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, is_comp, manage_token, qr_email_sent_at, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, is_comp, manage_token, qr_email_sent_at, cancellation_status, cancellation_requested_at, cancellation_refunded_at, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", id)
     .in("slot_status", ["issued", "claimed"])
@@ -101,6 +101,9 @@ export default async function ManageEventPage({
     is_comp: boolean;
     manage_token: string | null;
     qr_email_sent_at: string | null;
+    cancellation_status: string | null;
+    cancellation_requested_at: string | null;
+    cancellation_refunded_at: string | null;
     waiver_accepted_at: string | null;
     checked_in_at: string | null;
     created_at: string;
@@ -133,11 +136,18 @@ export default async function ManageEventPage({
   // registration. The lead ticket rides that email rather than the grouped household email,
   // so its "notified" state lives here, not on the ticket's qr_email_sent_at.
   const ticketEmailSentAtByReg = new Map<string, string | null>();
+  // The booking's Stripe PaymentIntent → the admin cancellation view's "refund in Stripe"
+  // deep link (R24). Null for free bookings (nothing was charged).
+  const stripePiByReg = new Map<string, string | null>();
   for (const r of registrations ?? []) {
     refByReg.set(r.id, (r.reference_code as string | null) ?? null);
     ticketEmailSentAtByReg.set(
       r.id,
       (r as { ticket_email_sent_at?: string | null }).ticket_email_sent_at ?? null
+    );
+    stripePiByReg.set(
+      r.id,
+      (r as { stripe_payment_intent_id?: string | null }).stripe_payment_intent_id ?? null
     );
   }
 
@@ -178,9 +188,14 @@ export default async function ManageEventPage({
       // The Guest list tab removes comp guests (remove_comp_guest).
       isComp: Boolean(a.is_comp),
       named,
-      // Holder cancellation (U14) doesn't exist yet, so no live ticket is cancelled. The
-      // roster already renders the flag distinctly, so U14 only has to supply the data.
-      cancelled: false,
+      // Holder cancellation (U14): null = live; 'requested' = seat freed, refund pending;
+      // 'refunded' = admin completed the Stripe refund. The roster renders each distinctly.
+      cancellationStatus: (a.cancellation_status as "requested" | "refunded" | null) ?? null,
+      cancellationRequestedAt: a.cancellation_requested_at,
+      // The booking's PaymentIntent for the admin "refund in Stripe" link (null on free bookings).
+      stripePaymentIntentId: a.registration_id
+        ? stripePiByReg.get(a.registration_id) ?? null
+        : null,
     };
   });
 
@@ -283,6 +298,8 @@ export default async function ManageEventPage({
     .order("created_at", { ascending: false });
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+  // Point the admin cancellation view's Stripe refund links at the matching dashboard mode.
+  const stripeTestMode = (process.env.STRIPE_SECRET_KEY ?? "").includes("_test_");
 
   return (
     <div>
@@ -305,6 +322,7 @@ export default async function ManageEventPage({
       <ManageEventTabs
         eventId={id}
         attendees={attendees}
+        stripeTestMode={stripeTestMode}
         checkedInCount={checkedInCount}
         guestsRegistered={guestSummary.registered}
         ticketTypeSummary={ticketTypeSummary}
