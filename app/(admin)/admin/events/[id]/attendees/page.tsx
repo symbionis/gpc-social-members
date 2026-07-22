@@ -4,8 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import ManageEventTabs from "@/components/admin/ManageEventTabs";
 import { getEventReminderSummary } from "@/lib/events/reminder-summary";
 import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
-import { rollupTicketItems } from "@/lib/events/tickets";
-import { computePartyFills, rosterGuestSummary } from "@/lib/events/roster-fill";
+import { rosterGuestSummary } from "@/lib/events/roster-fill";
 
 export default async function ManageEventPage({
   params,
@@ -67,32 +66,24 @@ export default async function ManageEventPage({
     : { data: [], error: null };
   if (ticketItemRowsError) failLoad("ticket items", ticketItemRowsError);
 
-  const ticketQtyByReg = new Map<string, number>();
-  for (const r of registrations ?? []) ticketQtyByReg.set(r.id, r.quantity);
-
   type TicketItemRow = {
     registration_id: string;
     ticket_type_id: string | null;
     title_snapshot: string | null;
     quantity: number | null;
   };
-  const ticketItemsByReg = new Map<string, TicketItemRow[]>();
-  for (const item of (ticketItemRows ?? []) as TicketItemRow[]) {
-    const list = ticketItemsByReg.get(item.registration_id) ?? [];
-    list.push(item);
-    ticketItemsByReg.set(item.registration_id, list);
-  }
 
-  // event_attendees is the per-person source of truth for identity, waiver, and
-  // arrival (event_checkins is frozen). The roster is flat — one row per person,
-  // claimed slots only (unclaimed Milestone-2 placeholders have no identity yet).
+  // Every ticket SOLD for the event — `issued` (nobody named yet) and `claimed` (named)
+  // alike (R25), so the on-screen roster length matches tickets sold rather than only its
+  // named subset. `manage_token` and `qr_email_sent_at` feed the per-address manage link
+  // and the per-address "notified" indicator (U15).
   const { data: attendeeRows, error: attendeeRowsError } = await supabase
     .from("tickets")
     .select(
-      "id, registration_id, member_id, name, email, phone_e164, is_lead, ticket_type_id, is_comp, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, is_comp, manage_token, qr_email_sent_at, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", id)
-    .eq("slot_status", "claimed")
+    .in("slot_status", ["issued", "claimed"])
     .is("released_at", null)
     .order("created_at", { ascending: true });
   if (attendeeRowsError) failLoad("attendees", attendeeRowsError);
@@ -105,13 +96,20 @@ export default async function ManageEventPage({
     email: string | null;
     phone_e164: string | null;
     is_lead: boolean;
+    slot_status: string;
     ticket_type_id: string | null;
     is_comp: boolean;
+    manage_token: string | null;
+    qr_email_sent_at: string | null;
     waiver_accepted_at: string | null;
     checked_in_at: string | null;
     created_at: string;
   };
   const roster = (attendeeRows ?? []) as AttendeeRow[];
+  // The named subset. The roster-fill summary and comp guest lists reason about claimed
+  // people only, so they read this — never the widened roster, which now carries unnamed
+  // `issued` rows that would inflate their counts.
+  const claimedRoster = roster.filter((a) => a.slot_status === "claimed");
 
   // Resolve each person's ticket-type id to a title (asado meal). Built from the
   // event's active types loaded above; an attendee holding an archived type just
@@ -121,37 +119,21 @@ export default async function ManageEventPage({
     ticketTitleById.set(tt.id as string, (tt.title as string | null) ?? "");
   }
 
-  // Lead name per registration, from the party's lead attendee row → guests show
-  // "Guest of <lead>". Each booking has a real lead (the first-listed person when
-  // the purchaser booked on behalf of a group), so this always resolves.
-  const leadNameByReg = new Map<string, string>();
-  for (const a of roster) {
-    if (a.is_lead && a.registration_id && a.name) {
-      leadNameByReg.set(a.registration_id, a.name);
-    }
-  }
-
-  // Per-party self-registration fill (claimed of purchased + the claimed guests),
-  // attached to each lead row so it can expand into a party drawer. Fill is derived
-  // (quantity − claimed count); approach B has no placeholder rows.
+  // Per-party fill for the roster summary ("X of Y guests registered"). Derived from the
+  // NAMED subset only (quantity − claimed count), so widening the roster to unnamed tickets
+  // doesn't distort it.
   const regsForFill = (registrations ?? []).map((r) => ({
     id: r.id as string,
     quantity: (r.quantity as number) ?? 0,
   }));
-  const partyFills = computePartyFills(regsForFill, roster);
-  const guestSummary = rosterGuestSummary(regsForFill, roster);
-  // Per-booking manage_token → the lead's "My Booking" page link, surfaced on the
-  // admin roster so staff can open/manage a party exactly as the lead sees it.
-  const manageTokenByReg = new Map<string, string | null>();
+  const guestSummary = rosterGuestSummary(regsForFill, claimedRoster);
+
   const refByReg = new Map<string, string | null>();
-  // When the ticket/booking email was last sent for each registration (null = never
-  // sent → "not yet notified", drives the lead-row resend indicator + bulk count).
+  // Whether the buyer's confirmation email (carrying the buyer's own QR) has gone out, per
+  // registration. The lead ticket rides that email rather than the grouped household email,
+  // so its "notified" state lives here, not on the ticket's qr_email_sent_at.
   const ticketEmailSentAtByReg = new Map<string, string | null>();
   for (const r of registrations ?? []) {
-    manageTokenByReg.set(
-      r.id,
-      (r as { manage_token?: string | null }).manage_token ?? null
-    );
     refByReg.set(r.id, (r.reference_code as string | null) ?? null);
     ticketEmailSentAtByReg.set(
       r.id,
@@ -160,10 +142,16 @@ export default async function ManageEventPage({
   }
 
   const attendees = roster.map((a) => {
-    // Tickets and party fill are attributed to the party's lead row only (the
-    // guests share them).
-    const ticketRegId = a.is_lead ? a.registration_id : null;
-    const fill = ticketRegId ? partyFills.get(ticketRegId) ?? null : null;
+    const named = a.slot_status === "claimed";
+    // "Notified" is per person: a guest's QR rides the grouped household email
+    // (ticket.qr_email_sent_at); the buyer's own rides the booking confirmation
+    // (registration.ticket_email_sent_at). A per-address resend stamps qr_email_sent_at on
+    // the lead too, so check both for a lead. An unnamed ticket has no QR to have sent.
+    const regNotified =
+      a.registration_id ? ticketEmailSentAtByReg.get(a.registration_id) ?? null : null;
+    const notified = !named
+      ? false
+      : a.qr_email_sent_at !== null || (a.is_lead && regNotified !== null);
     return {
       id: a.id,
       registrationId: a.registration_id,
@@ -173,31 +161,14 @@ export default async function ManageEventPage({
       phone_e164: a.phone_e164 ?? "",
       isMember: a.member_id !== null,
       isLead: a.is_lead,
-      // The lead's name for this party, when the attendee belongs to a registration
-      // and isn't themselves the lead. Empty otherwise (lead row or no party).
-      leadName:
-        !a.is_lead && a.registration_id
-          ? leadNameByReg.get(a.registration_id) ?? ""
-          : "",
-      ticketCount: ticketRegId ? ticketQtyByReg.get(ticketRegId) ?? null : null,
-      ticketBreakdown: ticketRegId
-        ? rollupTicketItems(ticketItemsByReg.get(ticketRegId) ?? [])
-        : [],
-      // The individual's ticket type (asado meal) — shown on guest rows; lead rows
-      // show the whole party's breakdown instead.
+      // This ticket's own type title (asado meal); "" when none.
       ticketTypeTitle: a.ticket_type_id
         ? ticketTitleById.get(a.ticket_type_id) ?? ""
         : "",
-      // Party fill for the expandable lead drawer (null on guest rows).
-      party: fill && ticketRegId ? fill : null,
-      // The lead's "My Booking" manage_token → booking-page link on lead rows (guests
-      // share the lead's booking, so it's attributed to the lead only).
-      manageToken: ticketRegId ? manageTokenByReg.get(ticketRegId) ?? null : null,
-      // When this party's ticket email was last sent — lead rows only (guests share
-      // the lead's booking). null = never sent → "not yet notified".
-      ticketEmailSentAt: ticketRegId
-        ? ticketEmailSentAtByReg.get(ticketRegId) ?? null
-        : null,
+      // This ticket's OWN manage_token (U9) → the household manage page; any ticket at an
+      // address resolves the whole household, so the card links to whichever it has.
+      manageToken: a.manage_token,
+      notified,
       waiverSigned: a.waiver_accepted_at !== null,
       checkedIn: a.checked_in_at !== null,
       arrivedAt: a.checked_in_at,
@@ -206,6 +177,10 @@ export default async function ManageEventPage({
       // for one — that would reopen the seat publicly instead of shrinking the party.
       // The Guest list tab removes comp guests (remove_comp_guest).
       isComp: Boolean(a.is_comp),
+      named,
+      // Holder cancellation (U14) doesn't exist yet, so no live ticket is cancelled. The
+      // roster already renders the flag distinctly, so U14 only has to supply the data.
+      cancelled: false,
     };
   });
 
@@ -237,12 +212,12 @@ export default async function ManageEventPage({
 
   // The event's comp guest lists (is_guest_list registrations) with their tickets — the
   // Guest list tab maintains these. Both halves are already in hand: `registrations`
-  // holds every paid/free registration of this event, and `roster` holds every claimed,
-  // non-released ticket of it. Every comp-guest ticket is claimed (a comp seat is minted
-  // named), so `roster` already contains them — no second round trip, and tombstoned
-  // tickets are excluded by the roster query's released_at filter.
+  // holds every paid/free registration of this event, and `claimedRoster` holds every
+  // claimed, non-released ticket of it. Every comp-guest ticket is claimed (a comp seat is
+  // minted named), so the named subset already contains them — no second round trip, and
+  // tombstoned tickets are excluded by the roster query's released_at filter.
   const rosterByReg = new Map<string, AttendeeRow[]>();
-  for (const a of roster) {
+  for (const a of claimedRoster) {
     if (!a.registration_id) continue;
     const list = rosterByReg.get(a.registration_id) ?? [];
     list.push(a);

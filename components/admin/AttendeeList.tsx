@@ -3,45 +3,47 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateTime } from "@/lib/format";
-import { formatTicketBreakdown, type TicketTypeLine } from "@/lib/events/tickets";
-import type { PartyDetail } from "@/lib/events/roster-fill";
 
-/** One person on the roster (event_attendees, claimed slots). */
-interface Attendee {
+/**
+ * One sold ticket on the roster (U15). The interactive roster now shows EVERY ticket sold —
+ * claimed (named) and still-`issued` (unnamed) alike — so its length matches tickets sold
+ * (R25), and rows are grouped by lowercased email address (R26) rather than by booking/lead.
+ */
+export interface Attendee {
   id: string;
   registrationId: string | null;
   referenceCode: string | null;
+  /** "" when the ticket is still unnamed (issued). */
   name: string;
+  /** "" when the ticket is still unnamed (issued). Lowercased grouping happens in-component. */
   email: string;
   phone_e164: string;
   isMember: boolean;
   isLead: boolean;
-  /** The lead's name for this party when the attendee is a guest, else "". */
-  leadName: string;
-  /** Tickets purchased for this party — present on the lead row only (null elsewhere). */
-  ticketCount: number | null;
-  /** Per-ticket-type breakdown for the lead's party; empty for guests / no party. */
-  ticketBreakdown: TicketTypeLine[];
-  /** This person's own ticket-type title (asado meal); "" when none. Shown on guests. */
+  /** This ticket's own type title (e.g. the asado meal); "" when none. */
   ticketTypeTitle: string;
-  /** Party fill detail on lead rows (claimed/purchased); null otherwise. */
-  party: PartyDetail | null;
-  /** The lead's "My Booking" manage_token (lead rows only) → booking-page link. */
+  /** This ticket's own manage_token → the household manage page (/public/tickets/<token>). */
   manageToken: string | null;
-  /** When this party's ticket email was last sent (lead rows); null = never sent. */
-  ticketEmailSentAt: string | null;
+  /**
+   * Whether this ticket's holder has been emailed their QR — the lead rides the booking
+   * confirmation (registration.ticket_email_sent_at), guests ride the grouped household
+   * email (tickets.qr_email_sent_at). Resolved on the server; false for unnamed tickets.
+   */
+  notified: boolean;
   waiverSigned: boolean;
   checkedIn: boolean;
   arrivedAt: string | null;
   createdAt: string;
-  /**
-   * A comped seat on a sponsor's guest list. Removing one SHRINKS the party, which is
-   * remove_comp_guest's job (the Guest list tab) — this tab's Remove button posts to the
-   * door's free-slot route (release_ticket), which would instead reopen the seat as a
-   * publicly self-fillable slot and never give it back (KTD5). So comp rows get no
-   * Remove button here at all.
-   */
+  /** A comped seat on a guest list — never offer the roster's (door) Remove button for one. */
   isComp: boolean;
+  /** Whether anyone is named on this ticket yet (slot_status === 'claimed'). */
+  named: boolean;
+  /**
+   * A holder-cancelled ticket (U14). Rendered struck-through and excluded from the Remove /
+   * resend affordances. Always false until cancellation ships; the roster is built to show it
+   * distinctly the moment it does.
+   */
+  cancelled: boolean;
 }
 
 interface Props {
@@ -52,90 +54,122 @@ interface Props {
 }
 
 type MemberFilter = "all" | "members" | "non_members";
-type PartyFilter = "all" | "incomplete";
+
+/**
+ * A group on the roster. `kind` distinguishes the three cases that "no address" used to
+ * conflate:
+ *  - `address` — an email household (R26): every ticket shares a lowercased email, so it can
+ *    be managed and resent as one.
+ *  - `booking` — named tickets with NO email (comp-guest-list guests, phone-only): they carry
+ *    a real name but no address, so they group by booking, not email, and can't be resent.
+ *  - `unnamed` — still-`issued` tickets nobody has named yet.
+ */
+interface RosterGroup {
+  key: string;
+  kind: "address" | "booking" | "unnamed";
+  /** Display address; "" for booking/unnamed groups. */
+  email: string;
+  /** Booking reference for the group header (from the earliest ticket that has one). */
+  referenceCode: string | null;
+  /** Any ticket's manage_token → the shared household manage page (address groups only). */
+  manageToken: string | null;
+  /** True only when every live (non-cancelled) ticket at the address has been emailed. */
+  notified: boolean;
+  rows: Attendee[];
+}
+
+// Group every sold ticket. A ticket WITH an email joins that household (R26). A ticket without
+// one can't have a household — but "no email" is not "unnamed": a claimed comp/phone-only guest
+// has a real name and no address (tickets_contact_present allows a named, emailless is_comp row).
+// So an emailless ticket groups under its booking, and its `kind` is `booking` when named,
+// `unnamed` when still issued — never mislabelled "not named" just for lacking an address. The
+// email key mirrors household delivery so the roster, the grouped email, and the per-address
+// resend all agree on what one "address" is.
+function buildGroups(attendees: Attendee[]): RosterGroup[] {
+  const byKey = new Map<string, Attendee[]>();
+  for (const a of attendees) {
+    const key = a.email
+      ? `addr:${a.email.trim().toLowerCase()}`
+      : `booking:${a.registrationId ?? a.id}`;
+    const list = byKey.get(key) ?? [];
+    list.push(a);
+    byKey.set(key, list);
+  }
+
+  const groups: RosterGroup[] = [];
+  for (const [key, rows] of byKey) {
+    rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const hasAddress = key.startsWith("addr:");
+    const kind: RosterGroup["kind"] = hasAddress
+      ? "address"
+      : rows.every((r) => !r.named)
+        ? "unnamed"
+        : "booking";
+    // A group counts as notified only if every live ticket in it has been emailed — a
+    // cancelled ticket carries no obligation, so it doesn't hold the group back.
+    const live = rows.filter((r) => !r.cancelled);
+    groups.push({
+      key,
+      kind,
+      email: hasAddress ? rows.find((r) => r.email)?.email ?? "" : "",
+      referenceCode: rows.find((r) => r.referenceCode)?.referenceCode ?? null,
+      // The manage page resolves a household by email, so a token is only actionable for an
+      // address group — a booking/unnamed group has no address to open.
+      manageToken: hasAddress ? rows.find((r) => r.manageToken)?.manageToken ?? null : null,
+      notified: hasAddress && live.length > 0 && live.every((r) => r.notified),
+      rows,
+    });
+  }
+
+  // Email households first (in booking order), then non-addressed bookings.
+  groups.sort((a, b) => {
+    const au = a.kind !== "address";
+    const bu = b.kind !== "address";
+    if (au !== bu) return au ? 1 : -1;
+    return (a.rows[0]?.createdAt ?? "").localeCompare(b.rows[0]?.createdAt ?? "");
+  });
+  return groups;
+}
 
 export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [memberFilter, setMemberFilter] = useState<MemberFilter>("all");
-  const [partyFilter, setPartyFilter] = useState<PartyFilter>("all");
   const [removing, setRemoving] = useState<Set<string>>(new Set());
+  // Addresses whose grouped email is being resent — keyed by lowercased email.
+  const [resending, setResending] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // Registrations whose ticket email is being (re)sent — keyed by registrationId.
-  const [resending, setResending] = useState<Set<string>>(new Set());
-  const [bulkSending, setBulkSending] = useState(false);
-
-  // Lead rows that have never been sent the ticket email (ticketEmailSentAt === null)
-  // — the population the bulk "resend to everyone not yet notified" button targets.
-  const notNotifiedCount = useMemo(
-    () =>
-      attendees.filter((a) => a.isLead && a.registrationId && a.ticketEmailSentAt === null)
-        .length,
-    [attendees]
-  );
 
   const [origin, setOrigin] = useState(baseUrl);
   useEffect(() => {
     if (!baseUrl && typeof window !== "undefined") setOrigin(window.location.origin);
   }, [baseUrl]);
 
-  // Registrations whose party still has open slots — drives the "unfilled" filter
-  // for both the lead and its guest rows.
-  const incompleteRegs = useMemo(() => {
-    const s = new Set<string>();
-    for (const a of attendees) {
-      if (a.isLead && a.registrationId && a.party && a.party.remaining > 0) {
-        s.add(a.registrationId);
-      }
-    }
-    return s;
-  }, [attendees]);
+  const groups = useMemo(() => buildGroups(attendees), [attendees]);
 
-  // Order rows as lead-then-its-guests per party, then registration-less rows —
-  // so guests render as sub-rows under their lead.
-  const ordered = useMemo(() => {
-    const leads: Attendee[] = [];
-    const guestsByReg = new Map<string, Attendee[]>();
-    const standalone: Attendee[] = [];
-    for (const a of attendees) {
-      if (a.isLead && a.registrationId) leads.push(a);
-      else if (a.registrationId) {
-        const list = guestsByReg.get(a.registrationId) ?? [];
-        list.push(a);
-        guestsByReg.set(a.registrationId, list);
-      } else standalone.push(a);
-    }
-    const out: Attendee[] = [];
-    for (const lead of leads) {
-      out.push(lead);
-      out.push(...(guestsByReg.get(lead.registrationId as string) ?? []));
-    }
-    // Guests whose lead row is missing (lead not seeded) still surface, grouped.
-    for (const [reg, guests] of guestsByReg) {
-      if (!leads.some((l) => l.registrationId === reg)) out.push(...guests);
-    }
-    return [...out, ...standalone];
-  }, [attendees]);
-
-  const filtered = useMemo(() => {
+  const filteredGroups = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return ordered.filter((a) => {
-      if (memberFilter === "members" && !a.isMember) return false;
-      if (memberFilter === "non_members" && a.isMember) return false;
-      if (partyFilter === "incomplete" && !(a.registrationId && incompleteRegs.has(a.registrationId)))
-        return false;
-      if (!q) return true;
-      return (
-        a.name.toLowerCase().includes(q) ||
-        a.email.toLowerCase().includes(q) ||
-        a.phone_e164.toLowerCase().includes(q)
-      );
-    });
-  }, [ordered, query, memberFilter, partyFilter, incompleteRegs]);
+    return groups
+      .map((g) => {
+        const rows = g.rows.filter((a) => {
+          if (memberFilter === "members" && !a.isMember) return false;
+          if (memberFilter === "non_members" && a.isMember) return false;
+          if (!q) return true;
+          return (
+            a.name.toLowerCase().includes(q) ||
+            a.email.toLowerCase().includes(q) ||
+            a.phone_e164.toLowerCase().includes(q) ||
+            (g.referenceCode ?? "").toLowerCase().includes(q)
+          );
+        });
+        return { ...g, rows };
+      })
+      .filter((g) => g.rows.length > 0);
+  }, [groups, query, memberFilter]);
 
-  const isFiltering =
-    query.trim() !== "" || memberFilter !== "all" || partyFilter !== "all";
+  const isFiltering = query.trim() !== "" || memberFilter !== "all";
+  const shownCount = filteredGroups.reduce((n, g) => n + g.rows.length, 0);
 
   async function removeGuest(id: string, name: string) {
     if (!window.confirm(`Remove ${name || "this guest"} and free their slot?`)) return;
@@ -164,71 +198,36 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
     }
   }
 
-  // Resend the ticket/booking email for one party (its lead registration). Reusable
-  // any time a lead loses their email; primary use is notifying existing registrants
-  // who booked before the per-ticket QR system.
-  async function resendTickets(registrationId: string, name: string) {
+  // Resend the grouped ticket email to ONE address — every QR at that address, in one email.
+  // Per-address (U15): the roster groups by email, so a resend targets the address the admin
+  // is looking at, not the whole booking.
+  async function resendAddress(email: string) {
+    const key = email.trim().toLowerCase();
+    if (!key) return;
     setError(null);
     setNotice(null);
-    setResending((prev) => new Set(prev).add(registrationId));
+    setResending((prev) => new Set(prev).add(key));
     try {
-      const res = await fetch(
-        `/api/admin/events/${eventId}/registrations/${registrationId}/resend-confirmation`,
-        { method: "POST", headers: { "Content-Type": "application/json" } }
-      );
+      const res = await fetch(`/api/admin/events/${eventId}/resend-household`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error || "Could not resend the tickets.");
         return;
       }
-      setNotice(`Tickets resent to ${name || data.email || "the lead"}.`);
+      setNotice(`Tickets resent to ${email}.`);
       router.refresh();
     } catch {
       setError("Could not resend the tickets.");
     } finally {
       setResending((prev) => {
         const next = new Set(prev);
-        next.delete(registrationId);
+        next.delete(key);
         return next;
       });
-    }
-  }
-
-  // Resend to every confirmed registration on this event not yet notified. The server
-  // resolves the set (status paid/free, ticket_email_sent_at null), so the count here
-  // is just a display hint.
-  async function resendBulk() {
-    if (
-      !window.confirm(
-        `Resend tickets to ${notNotifiedCount} registrant${
-          notNotifiedCount === 1 ? "" : "s"
-        } who haven't been notified yet?`
-      )
-    )
-      return;
-    setError(null);
-    setNotice(null);
-    setBulkSending(true);
-    try {
-      const res = await fetch(`/api/admin/events/${eventId}/registrations/resend-bulk`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error || "Could not resend the tickets.");
-        return;
-      }
-      setNotice(
-        data.failed > 0
-          ? `Resent ${data.sent} of ${data.total} — ${data.failed} failed, please retry.`
-          : `Resent tickets to ${data.sent} registrant${data.sent === 1 ? "" : "s"}.`
-      );
-      router.refresh();
-    } catch {
-      setError("Could not resend the tickets.");
-    } finally {
-      setBulkSending(false);
     }
   }
 
@@ -239,7 +238,7 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search name, email or phone"
+          placeholder="Search name, email, phone or reference"
           className="flex-1 min-w-[12rem] px-3 py-2 rounded-lg border border-border bg-white text-marine font-body text-sm placeholder:text-muted-foreground"
         />
         <div className="flex items-center gap-2">
@@ -254,36 +253,11 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
             <option value="non_members">Non-members</option>
           </select>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-body text-muted-foreground">Parties</label>
-          <select
-            value={partyFilter}
-            onChange={(e) => setPartyFilter(e.target.value as PartyFilter)}
-            className="px-3 py-2 rounded-lg border border-border bg-white text-marine font-body text-sm cursor-pointer"
-          >
-            <option value="all">All</option>
-            <option value="incomplete">Unfilled slots</option>
-          </select>
-        </div>
-        {notNotifiedCount > 0 && (
-          <button
-            type="button"
-            onClick={resendBulk}
-            disabled={bulkSending}
-            title="Resend the ticket/booking email to everyone who hasn't been sent it yet"
-            className="px-3 py-2 rounded-lg border border-marine text-marine text-sm font-body font-medium hover:bg-marine hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          >
-            {bulkSending
-              ? "Resending…"
-              : `Resend tickets to ${notNotifiedCount} not notified`}
-          </button>
-        )}
       </div>
 
       {isFiltering && (
         <p className="text-xs font-body text-muted-foreground">
-          Showing {filtered.length} of {attendees.length} attendee
-          {attendees.length === 1 ? "" : "s"}
+          Showing {shownCount} of {attendees.length} ticket{attendees.length === 1 ? "" : "s"}
         </p>
       )}
 
@@ -299,196 +273,234 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
         </p>
       )}
 
-      {filtered.length === 0 ? (
+      {filteredGroups.length === 0 ? (
         <div className="bg-white rounded-xl border border-border p-8 text-center text-muted-foreground font-body text-sm">
-          {attendees.length === 0
-            ? "No attendees yet."
-            : partyFilter === "incomplete"
-              ? "No parties with unfilled slots."
-              : "No attendees match your search."}
+          {attendees.length === 0 ? "No tickets sold yet." : "No tickets match your search."}
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-border overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm font-body">
-              <thead className="bg-cream/60 text-marine">
-                <tr>
-                  <th className="text-left px-4 py-3 font-semibold">Name</th>
-                  <th className="text-left px-4 py-3 font-semibold">Contact</th>
-                  <th className="text-left px-4 py-3 font-semibold">Member</th>
-                  <th className="text-left px-4 py-3 font-semibold">Party / Lead</th>
-                  <th className="text-left px-4 py-3 font-semibold">Tickets</th>
-                  <th className="text-left px-4 py-3 font-semibold">Waiver</th>
-                  <th className="text-left px-4 py-3 font-semibold">Arrived</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((row) => {
-                  const isGuest = !row.isLead && !!row.registrationId;
-                  const bookingUrl = row.manageToken
-                    ? `${origin}/public/bookings/${row.manageToken}`
-                    : "";
-                  return (
-                    <RosterRow
-                      key={row.id}
-                      row={row}
-                      isGuest={isGuest}
-                      bookingUrl={bookingUrl}
-                      removing={removing.has(row.id)}
-                      resending={!!row.registrationId && resending.has(row.registrationId)}
-                      onRemove={removeGuest}
-                      onResend={resendTickets}
-                    />
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        <div className="space-y-4">
+          {filteredGroups.map((group) => (
+            <AddressCard
+              key={group.key}
+              group={group}
+              origin={origin}
+              removing={removing}
+              resending={resending.has(group.email.trim().toLowerCase())}
+              onRemove={removeGuest}
+              onResend={resendAddress}
+            />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function RosterRow({
-  row,
-  isGuest,
-  bookingUrl,
+function AddressCard({
+  group,
+  origin,
   removing,
   resending,
   onRemove,
   onResend,
 }: {
-  row: Attendee;
-  isGuest: boolean;
-  bookingUrl: string;
-  removing: boolean;
+  group: RosterGroup;
+  origin: string;
+  removing: Set<string>;
   resending: boolean;
   onRemove: (id: string, name: string) => void;
-  onResend: (registrationId: string, name: string) => void;
+  onResend: (email: string) => void;
 }) {
-  const party = row.party;
+  const isAddress = group.kind === "address";
+  const manageUrl =
+    isAddress && group.manageToken ? `${origin}/public/tickets/${group.manageToken}` : "";
+  const label =
+    group.kind === "address"
+      ? group.email
+      : group.kind === "unnamed"
+        ? `Unnamed${group.referenceCode ? ` · booking ${group.referenceCode}` : ""}`
+        : `Booking ${group.referenceCode ?? "—"}`;
+  const count = group.rows.length;
 
   return (
-    <tr className={`border-t border-border ${isGuest ? "bg-cream/20" : ""}`}>
-      <td className={`px-4 py-3 text-marine ${isGuest ? "pl-10" : ""}`}>
-        <span className="flex items-center gap-2">
-          {isGuest && <span aria-hidden className="text-muted-foreground">↳</span>}
-          {row.name || "—"}
-        </span>
-      </td>
-        <td className="px-4 py-3 text-muted-foreground">
-          <div className="flex flex-col gap-0.5">
-            {row.email && <span>{row.email}</span>}
-            {row.phone_e164 && <span className="font-mono text-xs">{row.phone_e164}</span>}
-            {!row.email && !row.phone_e164 && <span>—</span>}
-          </div>
-        </td>
-        <td className="px-4 py-3">
-          {row.isMember ? (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700">Yes</span>
+    <section
+      aria-label={label}
+      data-testid="address-group"
+      className="bg-white rounded-xl border border-border overflow-hidden"
+    >
+      <header className="flex items-center gap-3 flex-wrap px-4 py-3 bg-cream/60 border-b border-border">
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <span className="font-body font-semibold text-marine truncate">{label}</span>
+          <span className="text-xs font-body text-muted-foreground">
+            {count} ticket{count === 1 ? "" : "s"}
+            {group.referenceCode && group.kind === "address" ? ` · ${group.referenceCode}` : ""}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 ml-auto">
+          {group.kind === "unnamed" ? (
+            <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 whitespace-nowrap">
+              Not named
+            </span>
+          ) : group.kind === "booking" ? (
+            // Named but no email on file → nothing to notify, so say why there's no Resend
+            // rather than badging them "Not notified".
+            <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 whitespace-nowrap">
+              No email
+            </span>
+          ) : group.notified ? (
+            <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700 whitespace-nowrap">
+              Notified
+            </span>
           ) : (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">No</span>
+            <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800 whitespace-nowrap">
+              Not notified
+            </span>
           )}
-        </td>
-        <td className="px-4 py-3 text-marine">
-          {row.isLead ? (
-            <div className="flex flex-col gap-0.5">
-              <span className="px-2 py-0.5 rounded-full text-xs bg-sky/10 text-sky-dark w-fit">Lead</span>
-              {row.referenceCode && (
-                <span className="font-mono text-[11px] text-muted-foreground">{row.referenceCode}</span>
-              )}
-            </div>
-          ) : row.leadName ? (
-            <span className="text-xs text-muted-foreground">Guest of {row.leadName}</span>
-          ) : (
-            <span className="text-xs text-muted-foreground">—</span>
+
+          {manageUrl && (
+            <a
+              href={manageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open this address's manage page (view QR codes, upgrade, correct)"
+              className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors whitespace-nowrap"
+            >
+              Manage ↗
+            </a>
           )}
-        </td>
-        <td className="px-4 py-3">
-          {row.ticketCount != null ? (
-            <div className="flex flex-col gap-0.5">
-              <span className="text-marine font-semibold">{row.ticketCount}</span>
-              {party && (
-                <span
-                  className={`text-xs ${party.remaining > 0 ? "text-amber-700" : "text-emerald-700"}`}
-                >
-                  {party.claimedCount}/{party.quantity} pre-registered
-                </span>
-              )}
-              {row.ticketBreakdown.length > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {formatTicketBreakdown(row.ticketBreakdown)}
-                </span>
-              )}
-            </div>
-          ) : row.ticketTypeTitle ? (
-            <span className="text-xs text-marine">{row.ticketTypeTitle}</span>
-          ) : (
-            <span className="text-xs text-muted-foreground">—</span>
-          )}
-        </td>
-        <td className="px-4 py-3">
-          {row.waiverSigned ? (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700">Signed</span>
-          ) : (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800">Unsigned</span>
-          )}
-        </td>
-        <td className="px-4 py-3">
-          {row.checkedIn ? (
-            <div className="flex flex-col gap-0.5">
-              <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-800 w-fit">In</span>
-              {row.arrivedAt && (
-                <span className="text-xs text-muted-foreground">{formatDateTime(row.arrivedAt)}</span>
-              )}
-            </div>
-          ) : (
-            <span className="text-xs text-muted-foreground">—</span>
-          )}
-        </td>
-        <td className="px-4 py-3 text-right">
-          {isGuest && !row.checkedIn && !row.isComp && (
+
+          {isAddress && (
             <button
               type="button"
-              onClick={() => onRemove(row.id, row.name)}
-              disabled={removing}
-              className="px-2.5 py-1 rounded-lg border border-red-200 text-red-700 text-xs font-body hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
+              onClick={() => onResend(group.email)}
+              disabled={resending}
+              aria-label={`Resend tickets to ${group.email}`}
+              title="Resend the grouped ticket email (all QR codes at this address)"
+              className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
             >
-              {removing ? "…" : "Remove"}
+              {resending ? "Resending…" : "Resend"}
             </button>
           )}
-          {row.isLead && row.registrationId && (
-            <div className="flex flex-col items-end gap-1">
-              {bookingUrl && (
-                <a
-                  href={bookingUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="Open this lead's booking page (name/forward tickets, view QR codes)"
-                  className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors whitespace-nowrap"
-                >
-                  Booking page ↗
-                </a>
-              )}
-              <button
-                type="button"
-                onClick={() => onResend(row.registrationId as string, row.name)}
-                disabled={resending}
-                title="Resend the ticket/booking email (QR + booking page) to this lead"
-                className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
-              >
-                {resending ? "Resending…" : "Resend tickets"}
-              </button>
-              <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                {row.ticketEmailSentAt
-                  ? `Notified ${formatDateTime(row.ticketEmailSentAt)}`
-                  : "Not yet notified"}
-              </span>
-            </div>
+        </div>
+      </header>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm font-body">
+          <thead className="text-marine">
+            <tr className="text-left">
+              <th className="px-4 py-2 font-semibold">Name</th>
+              <th className="px-4 py-2 font-semibold">Ticket</th>
+              <th className="px-4 py-2 font-semibold">Member</th>
+              <th className="px-4 py-2 font-semibold">Waiver</th>
+              <th className="px-4 py-2 font-semibold">Arrived</th>
+              <th className="px-4 py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {group.rows.map((row) => (
+              <TicketRow
+                key={row.id}
+                row={row}
+                removing={removing.has(row.id)}
+                onRemove={onRemove}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function TicketRow({
+  row,
+  removing,
+  onRemove,
+}: {
+  row: Attendee;
+  removing: boolean;
+  onRemove: (id: string, name: string) => void;
+}) {
+  // The door Remove (free-slot) frees a named guest's slot. Never a lead, a comp seat, a
+  // checked-in person, a still-unnamed slot, or a cancelled ticket.
+  const canRemove =
+    row.named &&
+    !row.isLead &&
+    !!row.registrationId &&
+    !row.checkedIn &&
+    !row.isComp &&
+    !row.cancelled;
+
+  return (
+    <tr data-testid="ticket-row" className="border-t border-border">
+      <td className="px-4 py-3 text-marine">
+        <span className="flex items-center gap-2">
+          <span className={row.cancelled ? "line-through text-muted-foreground" : ""}>
+            {row.name || <span className="text-muted-foreground italic">Unnamed</span>}
+          </span>
+          {row.isLead && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-sky/10 text-sky-dark">
+              Buyer
+            </span>
           )}
-        </td>
-      </tr>
+          {row.cancelled && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-red-50 text-red-700">
+              Cancelled
+            </span>
+          )}
+        </span>
+        {row.phone_e164 && (
+          <span className="block font-mono text-[11px] text-muted-foreground">{row.phone_e164}</span>
+        )}
+      </td>
+      <td className="px-4 py-3">
+        {row.ticketTypeTitle ? (
+          <span className="text-xs text-marine">{row.ticketTypeTitle}</span>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </td>
+      <td className="px-4 py-3">
+        {row.isMember ? (
+          <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700">Yes</span>
+        ) : (
+          <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">No</span>
+        )}
+      </td>
+      <td className="px-4 py-3">
+        {!row.named ? (
+          <span className="text-xs text-muted-foreground">—</span>
+        ) : row.waiverSigned ? (
+          <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700">Signed</span>
+        ) : (
+          <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800">Unsigned</span>
+        )}
+      </td>
+      <td className="px-4 py-3">
+        {row.checkedIn ? (
+          <div className="flex flex-col gap-0.5">
+            <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-800 w-fit">In</span>
+            {row.arrivedAt && (
+              <span className="text-xs text-muted-foreground">{formatDateTime(row.arrivedAt)}</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right">
+        {canRemove && (
+          <button
+            type="button"
+            onClick={() => onRemove(row.id, row.name)}
+            disabled={removing}
+            className="px-2.5 py-1 rounded-lg border border-red-200 text-red-700 text-xs font-body hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {removing ? "…" : "Remove"}
+          </button>
+        )}
+      </td>
+    </tr>
   );
 }
