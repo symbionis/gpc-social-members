@@ -30,8 +30,8 @@ export default async function DoorRosterPage({
   return (
     <DoorRosterSheet
       event={roster.event}
-      parties={roster.parties}
-      typeTotals={rosterTypeTotals(roster.parties)}
+      rows={roster.rows}
+      typeTotals={rosterTypeTotals(roster.rows)}
     />
   );
 }
