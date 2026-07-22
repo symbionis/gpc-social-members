@@ -930,7 +930,12 @@ async function handleImageUpload(file: File) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-3 flex-wrap">
                     <h3 className="font-body font-semibold text-marine text-lg">
-                      {event.title}
+                      <a
+                        href={`/admin/events/${event.id}/attendees`}
+                        className="hover:text-sky-dark hover:underline transition-colors"
+                      >
+                        {event.title}
+                      </a>
                     </h3>
                     {eventType && (
                       <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-body text-marine">
