@@ -35,6 +35,11 @@ Changing one existing Ticket to a different Ticket Type on the same Registration
 
 Upgrade-only: the target Ticket Type must cost the same or more, and the Lead pays the difference (applied immediately when the difference is zero, otherwise through its own checkout first). A Conversion preserves the Ticket's Credential, its Lead-held status, and its named person — it changes only the Ticket Type; the Registration's Ticket count is unchanged, and the Event's seat usage changes only when converting from a non-seat to a seat-consuming Type. A Ticket cannot be converted between a child and an adult Ticket Type.
 
+### Cancellation
+A holder's request to void one of their own Tickets from the manage link — final on the holder's side — that frees the Ticket's seat immediately and moves it toward a refund. A Cancellation carries its own status, separate from Slot Status: **requested** (voided, seat released, refund pending) then **refunded** (an admin has completed the refund in the payment provider).
+
+A cancelled Ticket keeps its row and its Credential but is void for every purpose. Its seat is subtracted from the Event's usage the instant cancellation is requested — so the place can be resold — and every admission path (the QR scan, a by-name check-in, the printed door sheet) refuses it, precisely so a freed-and-resold seat cannot admit two people. Cancellation is distinct from a staff *release* (see Slot Status), which tombstones a Ticket rather than recording a refundable request.
+
 ### Ticket Credential
 The unguessable bearer token carried by each Ticket, rendered as a QR code and used as the entry token at the door. Holding the credential is what admits a guest; identity (name, waiver) is metadata attached around it. Designed so an NFC bracelet could later be paired to the same credential.
 
@@ -44,15 +49,7 @@ The lifecycle state of a Ticket: **issued** (minted with a credential at purchas
 A Ticket can also be *released* — freed by staff before arrival — which tombstones it (kept for audit, never deleted) so its old credential stops admitting anyone. A checked-in Ticket cannot be released.
 
 ### Booking Page
-The Lead's self-service page for a Registration, reached by a private manage link, where they name each Ticket, share or forward Tickets to guests, see every QR, and buy more.
-
-### Forwarding
-Handing a subset of a Registration's Tickets to a guest by email, so that guest — not the Lead — holds and completes them. The forwarded Tickets are stamped as one batch and the recipient receives a private link to just those Tickets, along with their Credentials.
-
-Forwarding transfers responsibility, not ownership of the Registration: the Tickets still belong to it, but the Lead can no longer edit them and sees them read-only, retaining visibility of whatever details the guest has supplied. Only Tickets that are not the Lead's own, not already forwarded, and not yet checked in may be forwarded, and forwarding is one level deep — a recipient cannot forward onward.
-
-### Self-registration
-The process by which a guest fills an open Ticket for themselves — entering their own name and contact through a per-Registration link — instead of the Lead naming it on their behalf. It is the fallback for any Ticket left un-named when the Lead books, and claiming an open slot this way moves it from issued to claimed (see Slot Status) without minting a new Ticket. Distinct from Forwarding, where the Lead deliberately hands chosen Tickets to a named recipient.
+The Lead's self-service page for a Registration, reached by a private manage link, where they name each Ticket, share Tickets with guests, see every QR, and buy more.
 
 ### Door Console
 The public, no-login check-in surface for an Event, opened by staff at a hard-to-guess per-Event link, used to scan Ticket QRs, fill in missing names and waivers, admit walk-ups against unredeemed Tickets, and resend a party's Tickets to its Lead.
