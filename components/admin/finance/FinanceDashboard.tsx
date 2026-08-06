@@ -13,12 +13,14 @@ import MemberHealthPanel from "./MemberHealthPanel";
 interface Props {
   summary: FinanceSummary;
   tab: FinanceTab;
+  /** STRIPE_SECRET_KEY is server-only, so dashboard mode is derived in page.tsx. */
+  stripeTestMode: boolean;
 }
 
 // Client orchestrator for the finance dashboard. The header, range filter, and
 // incomplete-data banner sit ABOVE the tab bar and the caveats below it, so all
 // four stay visible whichever tab is open — only the revenue panels switch.
-export default function FinanceDashboard({ summary, tab }: Props) {
+export default function FinanceDashboard({ summary, tab, stripeTestMode }: Props) {
   // A tab is a server navigation to the same route, so every click re-reads the
   // whole summary. Hold the clicked tab until the navigation lands so the wait
   // is visible rather than silent. A route-level loading.tsx would blank the
@@ -72,7 +74,11 @@ export default function FinanceDashboard({ summary, tab }: Props) {
         )}
         {tab === "events" && <EventRevenuePanel events={summary.events} />}
         {tab === "originator" && (
-          <OriginatorBreakdownPanel originators={summary.originators} />
+          <OriginatorBreakdownPanel
+            originators={summary.originators}
+            transactions={summary.originatorTransactions}
+            stripeTestMode={stripeTestMode}
+          />
         )}
       </div>
 

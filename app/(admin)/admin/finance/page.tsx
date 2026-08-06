@@ -5,6 +5,7 @@ import { getFinanceSummary } from "@/lib/admin/finance";
 import { nowInZurich } from "@/lib/format";
 import FinanceDashboard from "@/components/admin/finance/FinanceDashboard";
 import { tabFrom } from "@/components/admin/finance/FinanceTabs";
+import { stripeTestModeFromKey } from "@/lib/stripe/dashboard";
 
 // Financial data is sensitive: only super_admin and the finance role may view
 // this page. The (admin) layout does not restrict team_admin, so the gate lives
@@ -49,5 +50,11 @@ export default async function FinancePage({
 
   const summary = await getFinanceSummary(adminClient, from, to);
 
-  return <FinanceDashboard summary={summary} tab={tab} />;
+  // STRIPE_SECRET_KEY is server-only, so the payment links' dashboard mode is
+  // resolved here and passed down. Derived from the LIVE marker, so a missing
+  // key falls back to test mode rather than linking a staging admin to real
+  // production payments.
+  const stripeTestMode = stripeTestModeFromKey(process.env.STRIPE_SECRET_KEY);
+
+  return <FinanceDashboard summary={summary} tab={tab} stripeTestMode={stripeTestMode} />;
 }
