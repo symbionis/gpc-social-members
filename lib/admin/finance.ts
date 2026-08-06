@@ -431,6 +431,10 @@ export interface OriginatorRevenue {
 // signed the member up, not to the originator who drove the renewal — see the
 // panel copy. Members with no originator (and payments whose member row is
 // missing) fall into the Direct bucket.
+function originatorByMemberId(members: MemberRow[]): Map<string, string | null> {
+  return new Map(members.map((m) => [m.id, m.originator_id]));
+}
+
 function originatorOf(
   originatorByMember: Map<string, string | null>,
   memberId: string,
@@ -453,8 +457,7 @@ export function aggregateOriginators(
   originatorNameById: Map<string, string>,
   range: DateRange,
 ): OriginatorRevenue[] {
-  const originatorByMember = new Map<string, string | null>();
-  for (const m of members) originatorByMember.set(m.id, m.originator_id);
+  const originatorByMember = originatorByMemberId(members);
 
   interface Acc {
     net: number;
@@ -539,8 +542,7 @@ export function buildOriginatorTransactions(
   tierNameById: Map<string, string>,
   range: DateRange,
 ): OriginatorTxn[] {
-  const originatorByMember = new Map<string, string | null>();
-  for (const m of members) originatorByMember.set(m.id, m.originator_id);
+  const originatorByMember = originatorByMemberId(members);
 
   const rows: OriginatorTxn[] = [];
   for (const p of payments) {
