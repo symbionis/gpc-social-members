@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { OriginatorRevenue, OriginatorTxn } from "@/lib/admin/finance";
 import { formatCurrency, formatDate, formatMonth } from "@/lib/format";
 import { stripeDashboardUrl, stripeRefLabel } from "@/lib/stripe/dashboard";
+import DisclosureRow from "@/components/admin/DisclosureRow";
 
 interface Props {
   originators: OriginatorRevenue[];
@@ -142,47 +143,6 @@ function toggled(set: Set<string>, key: string): Set<string> {
   if (next.has(key)) next.delete(key);
   else next.add(key);
   return next;
-}
-
-// The whole row is the control — same hit area and hover treatment as the
-// clickable rows in the shared `Table`, so the two panels feel alike. A native
-// <button> gives Enter and Space for free.
-function DisclosureRow({
-  open,
-  onToggle,
-  label,
-  middle,
-  amount,
-  indent = false,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  label: string;
-  middle: string;
-  amount: string;
-  indent?: boolean;
-}) {
-  return (
-    <button
-      onClick={onToggle}
-      aria-expanded={open}
-      className={`w-full flex items-center gap-4 py-2 pr-2 text-left cursor-pointer hover:bg-marine/5 ${
-        indent ? "pl-8 text-marine/80" : "pl-2 text-marine"
-      }`}
-    >
-      <span
-        aria-hidden="true"
-        className={`inline-block w-3 shrink-0 text-marine/40 transition-transform ${
-          open ? "rotate-90" : ""
-        }`}
-      >
-        ▸
-      </span>
-      <span className="flex-1 truncate">{label}</span>
-      <span className="w-28 shrink-0 text-right tabular-nums text-marine/60">{middle}</span>
-      <span className="w-28 shrink-0 text-right tabular-nums">{amount}</span>
-    </button>
-  );
 }
 
 function PaymentRows({

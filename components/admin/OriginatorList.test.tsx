@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, within, cleanup } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 
 // No `globals: true` in vitest config, so testing-library's auto-cleanup isn't
@@ -150,19 +151,75 @@ describe("OriginatorList referred-members breakdown", () => {
     expect(screen.getByText("No tier")).toBeInTheDocument();
   });
 
-  it("keeps the headline referral count equal to the rows shown", () => {
+  it("keeps the headline referral count equal to the month counts", () => {
     renderList([
       referral({ id: "a", monthKey: "2026-03" }),
       referral({ id: "b", monthKey: "2026-06" }),
       referral({ id: "c", monthKey: "2026-06" }),
     ]);
     expect(screen.getByText("3 referrals")).toBeInTheDocument();
-    // Each month heading carries its own count; they sum to the headline.
+    // The count is the row's last cell; the label itself contains a year.
     const counts = ["March 2026", "June 2026"].map((label) => {
-      const heading = screen.getByText(label);
-      return Number(heading.parentElement!.textContent!.replace(label, "").trim());
+      const row = screen.getByRole("button", { name: new RegExp(label) });
+      return Number(row.querySelector("span:last-child")!.textContent);
     });
     expect(counts.reduce((t, n) => t + n, 0)).toBe(3);
+  });
+
+  it("opens every month on arrival, as a keyboard-operable disclosure row", () => {
+    renderList([
+      referral({ id: "a", first_name: "Ann", monthKey: "2026-03" }),
+      referral({ id: "b", first_name: "Bob", monthKey: "2026-06" }),
+    ]);
+    for (const label of ["March 2026", "June 2026"]) {
+      expect(screen.getByRole("button", { name: new RegExp(label) })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+    }
+    expect(screen.getByText("Ann Adams")).toBeInTheDocument();
+    expect(screen.getByText("Bob Adams")).toBeInTheDocument();
+  });
+
+  it("collapses one month without touching the others", async () => {
+    const user = userEvent.setup();
+    renderList([
+      referral({ id: "a", first_name: "Ann", monthKey: "2026-03" }),
+      referral({ id: "b", first_name: "Bob", monthKey: "2026-06" }),
+    ]);
+    const march = screen.getByRole("button", { name: /March 2026/ });
+
+    await user.click(march);
+    expect(march).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Ann Adams")).not.toBeInTheDocument();
+    expect(screen.getByText("Bob Adams")).toBeInTheDocument();
+
+    await user.click(march);
+    expect(screen.getByText("Ann Adams")).toBeInTheDocument();
+  });
+
+  it("collapses and expands all of a card's months from one control", async () => {
+    const user = userEvent.setup();
+    renderList([
+      referral({ id: "a", first_name: "Ann", monthKey: "2026-03" }),
+      referral({ id: "b", first_name: "Bob", monthKey: "2026-06" }),
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(screen.queryByText("Ann Adams")).not.toBeInTheDocument();
+    expect(screen.queryByText("Bob Adams")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(screen.getByText("Ann Adams")).toBeInTheDocument();
+    expect(screen.getByText("Bob Adams")).toBeInTheDocument();
+  });
+
+  it("shows the full tier name rather than truncating it away", () => {
+    renderList([referral({ tierName: "Classic Social Membership" })]);
+    const cell = screen.getByText("Classic Social Membership");
+    // The full string is in the DOM and reachable on hover, so a narrow window
+    // degrades to a scroll rather than hiding which tier a member is on.
+    expect(cell).toHaveAttribute("title", "Classic Social Membership");
   });
 
   it("still shows a member whose join date could not be resolved", () => {

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDate, formatMonth } from "@/lib/format";
+import DisclosureRow from "@/components/admin/DisclosureRow";
 
 interface Originator {
   id: string;
@@ -97,6 +98,18 @@ export default function OriginatorList({
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [selectedAdminId, setSelectedAdminId] = useState("");
   const [honoraryCode, setHonoraryCode] = useState(initialHonoraryCode);
+  // Months are tracked as COLLAPSED, keyed `${originatorId}:${monthKey}`, so
+  // "no state" means "everything open" and a month that appears after a refresh
+  // is not silently closed. Same rule as the finance dashboard's panels.
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
+
+  const toggleMonth = (key: string) =>
+    setCollapsedMonths((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   const [savingHonorary, setSavingHonorary] = useState(false);
   const [honorarySaved, setHonorarySaved] = useState(false);
 
@@ -351,54 +364,93 @@ export default function OriginatorList({
             )}
 
             {/* Referred members, grouped by the month they joined */}
-            {myReferrals.length > 0 && (
-              <div>
-                <p className="text-sm font-body font-medium text-marine mb-2">
-                  Referred Members
-                </p>
-                <div className="space-y-4">
-                  {groupReferralsByMonth(myReferrals).map((month) => (
-                    <div key={month.monthKey || "unknown"}>
-                      <div className="flex items-baseline justify-between border-b border-border pb-1 mb-1">
-                        <span className="text-xs font-body font-semibold uppercase tracking-wide text-marine/60">
-                          {month.monthKey ? formatMonth(month.monthKey) : "Date unknown"}
-                        </span>
-                        <span className="text-xs font-body text-muted-foreground">
-                          {month.members.length}
-                        </span>
-                      </div>
-                      {month.members.map((ref) => (
-                        <div
-                          key={ref.id}
-                          className="flex items-center gap-3 text-sm py-1"
-                        >
-                          <span className="flex-1 min-w-0 truncate font-body text-marine">
-                            {ref.first_name} {ref.last_name}
-                          </span>
-                          <span className="w-28 shrink-0 text-right font-body text-muted-foreground truncate">
-                            {ref.tierName ?? "No tier"}
-                          </span>
-                          <span className="w-24 shrink-0 text-right font-body text-muted-foreground tabular-nums">
-                            {formatDate(ref.joinedAt)}
-                          </span>
-                          <span
-                            className={`w-20 shrink-0 text-center px-2 py-0.5 rounded-full text-xs font-body ${
-                              ref.status === "active"
-                                ? "bg-green-100 text-green-800"
-                                : ref.status === "pending"
-                                  ? "bg-amber-100 text-amber-800"
-                                  : "bg-gray-100 text-gray-600"
-                            }`}
-                          >
-                            {ref.status}
-                          </span>
-                        </div>
-                      ))}
+            {myReferrals.length > 0 &&
+              (() => {
+                const months = groupReferralsByMonth(myReferrals);
+                const anyOpen = months.some(
+                  (m) => !collapsedMonths.has(`${orig.id}:${m.monthKey}`),
+                );
+                return (
+                  <div>
+                    <div className="flex items-center justify-between gap-4 mb-2">
+                      <p className="text-sm font-body font-medium text-marine">
+                        Referred Members
+                      </p>
+                      <button
+                        onClick={() =>
+                          setCollapsedMonths((s) => {
+                            const next = new Set(s);
+                            for (const m of months) {
+                              const key = `${orig.id}:${m.monthKey}`;
+                              if (anyOpen) next.add(key);
+                              else next.delete(key);
+                            }
+                            return next;
+                          })
+                        }
+                        className="shrink-0 rounded-lg border border-border px-3 py-1 text-xs font-body text-marine/70 hover:bg-cream transition-colors"
+                      >
+                        {anyOpen ? "Collapse all" : "Expand all"}
+                      </button>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                    {/* Four columns need room; scroll rather than truncate the
+                        tier name on a narrow window. */}
+                    <div className="overflow-x-auto">
+                      <div className="min-w-[34rem] text-sm font-body">
+                        {months.map((month) => {
+                          const key = `${orig.id}:${month.monthKey}`;
+                          const open = !collapsedMonths.has(key);
+                          return (
+                            <div key={month.monthKey || "unknown"} className="border-b border-border/60">
+                              <DisclosureRow
+                                open={open}
+                                onToggle={() => toggleMonth(key)}
+                                label={
+                                  month.monthKey
+                                    ? formatMonth(month.monthKey)
+                                    : "Date unknown"
+                                }
+                                amount={String(month.members.length)}
+                              />
+                              {open &&
+                                month.members.map((ref) => (
+                                  <div
+                                    key={ref.id}
+                                    className="flex items-center gap-3 text-sm py-1 pl-8 pr-2"
+                                  >
+                                    <span className="flex-1 min-w-0 truncate font-body text-marine">
+                                      {ref.first_name} {ref.last_name}
+                                    </span>
+                                    <span
+                                      title={ref.tierName ?? undefined}
+                                      className="w-56 shrink-0 text-right font-body text-muted-foreground truncate"
+                                    >
+                                      {ref.tierName ?? "No tier"}
+                                    </span>
+                                    <span className="w-24 shrink-0 text-right font-body text-muted-foreground tabular-nums">
+                                      {formatDate(ref.joinedAt)}
+                                    </span>
+                                    <span
+                                      className={`w-20 shrink-0 text-center px-2 py-0.5 rounded-full text-xs font-body ${
+                                        ref.status === "active"
+                                          ? "bg-green-100 text-green-800"
+                                          : ref.status === "pending"
+                                            ? "bg-amber-100 text-amber-800"
+                                            : "bg-gray-100 text-gray-600"
+                                      }`}
+                                    >
+                                      {ref.status}
+                                    </span>
+                                  </div>
+                                ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
           </div>
         );
       })}
