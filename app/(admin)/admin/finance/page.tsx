@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getFinanceSummary } from "@/lib/admin/finance";
 import { nowInZurich } from "@/lib/format";
 import FinanceDashboard from "@/components/admin/finance/FinanceDashboard";
+import { tabFrom } from "@/components/admin/finance/FinanceTabs";
 
 // Financial data is sensitive: only super_admin and the finance role may view
 // this page. The (admin) layout does not restrict team_admin, so the gate lives
@@ -20,7 +21,7 @@ function normalizeDate(value: string | undefined, fallback: string): string {
 export default async function FinancePage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; tab?: string | string[] }>;
 }) {
   const serverClient = await createClient();
   const {
@@ -44,8 +45,9 @@ export default async function FinancePage({
   const params = await searchParams;
   const from = normalizeDate(params.from, defaultFrom);
   const to = normalizeDate(params.to, today);
+  const tab = tabFrom(params.tab);
 
   const summary = await getFinanceSummary(adminClient, from, to);
 
-  return <FinanceDashboard summary={summary} />;
+  return <FinanceDashboard summary={summary} tab={tab} />;
 }

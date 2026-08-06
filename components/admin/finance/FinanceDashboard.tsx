@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { FinanceSummary } from "@/lib/admin/finance";
 import FinanceHeader from "./FinanceHeader";
 import DateRangeFilter from "./DateRangeFilter";
+import FinanceTabs, { type FinanceTab } from "./FinanceTabs";
 import MembershipRevenuePanel from "./MembershipRevenuePanel";
 import EventRevenuePanel from "./EventRevenuePanel";
 import OriginatorBreakdownPanel from "./OriginatorBreakdownPanel";
@@ -10,11 +12,20 @@ import MemberHealthPanel from "./MemberHealthPanel";
 
 interface Props {
   summary: FinanceSummary;
+  tab: FinanceTab;
 }
 
-// Client orchestrator for the finance dashboard. Panels are composed here as
-// they are built (KPI header + filter now; revenue and originator/health next).
-export default function FinanceDashboard({ summary }: Props) {
+// Client orchestrator for the finance dashboard. The header, range filter, and
+// incomplete-data banner sit ABOVE the tab bar and the caveats below it, so all
+// four stay visible whichever tab is open — only the revenue panels switch.
+export default function FinanceDashboard({ summary, tab }: Props) {
+  // A tab is a server navigation to the same route, so every click re-reads the
+  // whole summary. Hold the clicked tab until the navigation lands so the wait
+  // is visible rather than silent. A route-level loading.tsx would blank the
+  // header, filter, and banner that have to stay on screen.
+  const [pendingTab, setPendingTab] = useState<FinanceTab | null>(null);
+  useEffect(() => setPendingTab(null), [tab]);
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between gap-4">
@@ -23,7 +34,7 @@ export default function FinanceDashboard({ summary }: Props) {
           href={`/admin/finance/export?from=${summary.range.from}&to=${summary.range.to}`}
           className="rounded-lg border border-marine/20 px-4 py-2 text-sm font-body text-marine/70 hover:bg-marine/5"
         >
-          Export CSV
+          Export all transactions (CSV)
         </a>
       </div>
 
@@ -38,15 +49,31 @@ export default function FinanceDashboard({ summary }: Props) {
 
       <FinanceHeader totals={summary.totals} />
 
-      <MembershipRevenuePanel
-        membership={summary.membership}
-        transactions={summary.membershipTransactions}
+      <FinanceTabs
+        active={tab}
+        from={summary.range.from}
+        to={summary.range.to}
+        pending={pendingTab}
+        onSelect={setPendingTab}
       />
-      <EventRevenuePanel events={summary.events} />
 
-      <div className="grid lg:grid-cols-2 gap-8 items-start">
-        <OriginatorBreakdownPanel originators={summary.originators} />
-        <MemberHealthPanel health={summary.memberHealth} />
+      <div
+        aria-busy={pendingTab !== null}
+        className={`space-y-8 transition-opacity ${pendingTab !== null ? "opacity-50" : ""}`}
+      >
+        {tab === "membership" && (
+          <>
+            <MembershipRevenuePanel
+              membership={summary.membership}
+              transactions={summary.membershipTransactions}
+            />
+            <MemberHealthPanel health={summary.memberHealth} />
+          </>
+        )}
+        {tab === "events" && <EventRevenuePanel events={summary.events} />}
+        {tab === "originator" && (
+          <OriginatorBreakdownPanel originators={summary.originators} />
+        )}
       </div>
 
       <p className="text-xs text-marine/40 font-body">
