@@ -75,3 +75,18 @@ A non-member who reaches a members-only Event through a valid invite code; pays 
 
 ### Public Non-member (rate class)
 A visitor registering for a public Event without a membership; pays the non-member price.
+
+## Finance & attribution
+
+### Originator
+An admin user credited with bringing a member into the club, recorded as `members.originator_id` and flagged by `admin_users.is_originator`. Distinct from a Referral: the Originator is the standing attribution held on the member record, while a Referral is the one-off conversion event that invite code produced.
+
+Attribution is current-state, not snapshotted at payment time — reassigning a member's Originator moves all of that member's historical revenue with them.
+
+An Originator is credited at sign-up, not per transaction. Renewal revenue is therefore credited to whoever signed the member up, even though `renewal_tokens.originator_id` records who drove that particular renewal.
+
+### Direct (no originator)
+The named bucket for revenue from members with no Originator. Not an absence in the UI — it is reported as its own row so attributed and unattributed revenue always reconcile to the total.
+
+### Attribution
+Crediting membership revenue to a member's Originator for reporting. Attribution covers membership dues only; event ticket revenue is not attributed. It carries no commission rate, ledger, or payout — those are not modelled, so Attribution is a performance view, not a payout basis.
