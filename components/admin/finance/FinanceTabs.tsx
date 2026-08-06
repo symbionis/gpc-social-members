@@ -1,30 +1,7 @@
 "use client";
 
 import Link from "next/link";
-
-// The finance page's three revenue views. Held in the URL as `?tab=` so a tab
-// is bookmarkable, survives a refresh, and stays coupled to the range filter
-// and the export link — all of which a client-only tab state would decouple.
-export type FinanceTab = "membership" | "events" | "originator";
-
-const TABS: { id: FinanceTab; label: string }[] = [
-  { id: "membership", label: "Membership" },
-  { id: "events", label: "Events" },
-  { id: "originator", label: "Originator" },
-];
-
-const TAB_IDS = new Set<string>(TABS.map((t) => t.id));
-
-// Normalize a raw `?tab=` search param. Anything unrecognized — a hand-edited
-// URL, a repeated param arriving as an array — falls back to Membership rather
-// than rendering nothing.
-//
-// This lives here rather than in page.tsx because that module pulls in the
-// Supabase server client and request headers at import time, so a unit test
-// cannot reach a normalizer defined there.
-export function tabFrom(value: string | string[] | undefined): FinanceTab {
-  return typeof value === "string" && TAB_IDS.has(value) ? (value as FinanceTab) : "membership";
-}
+import { FINANCE_TABS, type FinanceTab } from "./tabs";
 
 interface Props {
   active: FinanceTab;
@@ -38,7 +15,7 @@ interface Props {
 export default function FinanceTabs({ active, from, to, pending, onSelect }: Props) {
   return (
     <div role="tablist" className="flex items-center gap-1 border-b border-border">
-      {TABS.map((tab) => {
+      {FINANCE_TABS.map((tab) => {
         const isActive = tab.id === active;
         const isPending = tab.id === pending;
         return (

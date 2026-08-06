@@ -8,28 +8,7 @@ import "@testing-library/jest-dom/vitest";
 // registered — unmount between tests ourselves or the DOM accumulates.
 afterEach(cleanup);
 
-import FinanceTabs, { tabFrom } from "@/components/admin/finance/FinanceTabs";
-
-describe("tabFrom", () => {
-  it("defaults to Membership when the param is absent", () => {
-    expect(tabFrom(undefined)).toBe("membership");
-  });
-
-  it("accepts each known tab", () => {
-    expect(tabFrom("membership")).toBe("membership");
-    expect(tabFrom("events")).toBe("events");
-    expect(tabFrom("originator")).toBe("originator");
-  });
-
-  it("falls back to Membership for an unrecognized value", () => {
-    expect(tabFrom("bogus")).toBe("membership");
-    expect(tabFrom("")).toBe("membership");
-  });
-
-  it("falls back to Membership for a repeated param arriving as an array", () => {
-    expect(tabFrom(["events", "originator"])).toBe("membership");
-  });
-});
+import FinanceTabs from "@/components/admin/finance/FinanceTabs";
 
 describe("FinanceTabs", () => {
   function renderTabs(over: Partial<React.ComponentProps<typeof FinanceTabs>> = {}) {

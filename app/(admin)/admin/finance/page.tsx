@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getFinanceSummary } from "@/lib/admin/finance";
 import { nowInZurich } from "@/lib/format";
 import FinanceDashboard from "@/components/admin/finance/FinanceDashboard";
-import { tabFrom } from "@/components/admin/finance/FinanceTabs";
+import { tabFrom } from "@/components/admin/finance/tabs";
 import { stripeTestModeFromKey } from "@/lib/stripe/dashboard";
 
 // Financial data is sensitive: only super_admin and the finance role may view
