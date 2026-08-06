@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { getFinanceSummary } from "@/lib/admin/finance";
 import { nowInZurich } from "@/lib/format";
 import FinanceDashboard from "@/components/admin/finance/FinanceDashboard";
+import { tabFrom } from "@/components/admin/finance/tabs";
+import { stripeTestModeFromKey } from "@/lib/stripe/dashboard";
 
 // Financial data is sensitive: only super_admin and the finance role may view
 // this page. The (admin) layout does not restrict team_admin, so the gate lives
@@ -20,7 +22,7 @@ function normalizeDate(value: string | undefined, fallback: string): string {
 export default async function FinancePage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; tab?: string | string[] }>;
 }) {
   const serverClient = await createClient();
   const {
@@ -44,8 +46,15 @@ export default async function FinancePage({
   const params = await searchParams;
   const from = normalizeDate(params.from, defaultFrom);
   const to = normalizeDate(params.to, today);
+  const tab = tabFrom(params.tab);
 
   const summary = await getFinanceSummary(adminClient, from, to);
 
-  return <FinanceDashboard summary={summary} />;
+  // STRIPE_SECRET_KEY is server-only, so the payment links' dashboard mode is
+  // resolved here and passed down. Derived from the LIVE marker, so a missing
+  // key falls back to test mode rather than linking a staging admin to real
+  // production payments.
+  const stripeTestMode = stripeTestModeFromKey(process.env.STRIPE_SECRET_KEY);
+
+  return <FinanceDashboard summary={summary} tab={tab} stripeTestMode={stripeTestMode} />;
 }

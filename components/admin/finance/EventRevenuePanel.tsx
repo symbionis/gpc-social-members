@@ -6,14 +6,18 @@ interface Props {
   events: EventSummary;
 }
 
+// Headline event totals plus the per-event breakdown for the whole range. The
+// month and ticket-type views are their own panels.
 export default function EventRevenuePanel({ events }: Props) {
-  const { gross, paidRegistrations, freeRegistrations, byEvent, byTicketType } = events;
+  const { gross, paidRegistrations, freeRegistrations, byEvent } = events;
 
   return (
     <section className="rounded-xl bg-white border border-marine/10 p-6 space-y-6">
       <div className="flex items-baseline justify-between">
         <h2 className="font-heading text-xl font-bold text-marine">Event sales</h2>
-        <span className="text-xs text-marine/40 font-body">gross of refunds</span>
+        <span className="text-xs text-marine/40 font-body">
+          money received, gross of refunds
+        </span>
       </div>
 
       <div className="grid grid-cols-3 gap-4">
@@ -22,35 +26,19 @@ export default function EventRevenuePanel({ events }: Props) {
         <Stat label="Free / comp" value={String(freeRegistrations)} />
       </div>
 
-      <div className="grid md:grid-cols-2 gap-8">
-        <div>
-          <h3 className="text-sm font-body font-semibold text-marine/70 mb-2">
-            By event
-          </h3>
-          <Table
-            head={["Event", "Paid", "Gross"]}
-            rows={byEvent.map((e) => [
-              e.title,
-              String(e.paidRegistrations),
-              formatCurrency(e.gross),
-            ])}
-            empty="No event sales in this period."
-          />
-        </div>
-        <div>
-          <h3 className="text-sm font-body font-semibold text-marine/70 mb-2">
-            By ticket type
-          </h3>
-          <Table
-            head={["Ticket type", "Qty", "Gross"]}
-            rows={byTicketType.map((t) => [
-              t.title,
-              String(t.quantity),
-              formatCurrency(t.gross),
-            ])}
-            empty="No event sales in this period."
-          />
-        </div>
+      <div>
+        <h3 className="text-sm font-body font-semibold text-marine/70 mb-2">
+          By event
+        </h3>
+        <Table
+          head={["Event", "Paid", "Gross"]}
+          rows={byEvent.map((e) => [
+            e.title,
+            String(e.paidRegistrations),
+            formatCurrency(e.gross),
+          ])}
+          empty="No event sales in this period."
+        />
       </div>
     </section>
   );

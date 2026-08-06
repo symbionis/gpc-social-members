@@ -19,23 +19,53 @@
 //   - Membership gross  = sum of `paid` rows.
 //   - Membership refunds = sum of `refunded` rows.
 //   - Membership net     = gross − refunds.
-//   - Event revenue      = sum of `paid` registrations (gross; event refunds
-//                          are not tracked in the DB — see the plan caveat).
+//   - Event revenue      = sum of the ticket LINE ITEMS of `paid` registrations
+//                          (gross; event refunds are not tracked in the DB).
+//                          The lines, not `total_amount_chf`: a top-up appends
+//                          lines without updating the booking total.
 //   - `free` / comp rows contribute to COUNTS but never to revenue.
 
 import { zurichMonthKey, type MonthKey } from "@/lib/members/payments";
+import type { StripeRef } from "@/lib/stripe/dashboard";
 
 // ---------------------------------------------------------------------------
 // Row projections (minimal columns the aggregators need)
 // ---------------------------------------------------------------------------
 
 export interface MembershipPaymentRow {
+  id: string;
   member_id: string;
   tier_id: string;
   amount_eur: number; // CHF despite the column name
   payment_status: string; // 'free' | 'pending' | 'paid' | 'overdue' | 'refunded'
   paid_at: string | null;
   created_at: string;
+  stripe_payment_intent_id: string | null;
+  stripe_checkout_session_id: string | null;
+}
+
+// The CSV export reads a narrower projection — it needs neither the payment id
+// nor the Stripe identifiers, and widening its select is out of scope.
+type ExportPaymentRow = Pick<
+  MembershipPaymentRow,
+  "member_id" | "tier_id" | "amount_eur" | "payment_status" | "paid_at" | "created_at"
+>;
+
+// Resolve a payment row's Stripe handle: PaymentIntent first, Checkout Session
+// as fallback, null when neither is on record. The PaymentIntent is preferred
+// because it resolves to a charge and to refund metadata, whereas a session can
+// exist with no successful charge.
+export function resolveStripeRef(row: {
+  stripe_payment_intent_id: string | null;
+  stripe_checkout_session_id: string | null;
+}): StripeRef | null {
+  if (row.stripe_payment_intent_id) {
+    return { kind: "payment_intent", id: row.stripe_payment_intent_id };
+  }
+  if (row.stripe_checkout_session_id) {
+    return { kind: "checkout_session", id: row.stripe_checkout_session_id };
+  }
+  return null;
 }
 
 export interface EventRegistrationRow {
@@ -105,6 +135,18 @@ function inRange(ms: number, range: DateRange): boolean {
 
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+// The one settled-revenue rule: a `paid` row counts positive, a `refunded` row
+// counts negative, and everything else (free, pending, overdue) is not settled
+// revenue at all — null, not zero, so callers can tell "not revenue" apart from
+// "revenue of zero". Shared by every originator path so the aggregate and the
+// per-payment rows behind it cannot drift on which rows they include.
+function settledAmountChf(row: { payment_status: string; amount_eur: number }): number | null {
+  const amt = row.amount_eur ?? 0;
+  if (row.payment_status === "paid") return amt;
+  if (row.payment_status === "refunded") return -amt;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -304,12 +346,24 @@ export interface TicketTypeRevenue {
   quantity: number;
 }
 
+// One Geneva calendar month of event ticket revenue. Gross only, with no `net`
+// counterpart: event refunds are not recorded in the database, so a net column
+// would just repeat gross and imply a reconciliation the data cannot support.
+export interface EventMonthRevenue {
+  monthKey: MonthKey;
+  gross: number;
+  paidRegistrations: number;
+  /** The events that took money in this month, highest gross first. */
+  byEvent: EventRevenue[];
+}
+
 export interface EventSummary {
   gross: number;
   paidRegistrations: number;
   freeRegistrations: number;
   byEvent: EventRevenue[];
   byTicketType: TicketTypeRevenue[];
+  byMonth: EventMonthRevenue[]; // ascending by monthKey
 }
 
 export function aggregateEvents(
@@ -322,7 +376,33 @@ export function aggregateEvents(
   let paidRegistrations = 0;
   let freeRegistrations = 0;
 
+  // What a registration actually took, from the ticket line ledger.
+  //
+  // `event_registrations.total_amount_chf` is written at checkout and a top-up
+  // never updates it — apply_registration_topup inserts item lines and bumps
+  // `quantity` only. Reading the booking total therefore misses every franc of
+  // top-up revenue, while the per-ticket-type rollup below (which already reads
+  // the lines) includes it, so the two disagreed. The lines are the ledger:
+  // top-ups append to them and ticket-type conversions adjust them in place.
+  //
+  // A registration with NO line rows falls back to its booking total. Legacy
+  // rows predate the items table, and reporting zero for them would silently
+  // lose real money.
+  const itemTotalByReg = new Map<string, number>();
+  for (const it of items) {
+    itemTotalByReg.set(
+      it.registration_id,
+      (itemTotalByReg.get(it.registration_id) ?? 0) + (it.line_total_chf ?? 0),
+    );
+  }
+  const amountOf = (r: EventRegistrationRow): number =>
+    itemTotalByReg.get(r.id) ?? r.total_amount_chf ?? 0;
+
   const eventAcc = new Map<string, { gross: number; count: number }>();
+  const monthAcc = new Map<
+    MonthKey,
+    { gross: number; count: number; events: Map<string, { gross: number; count: number }> }
+  >();
   // Which registrations count toward this period's revenue — used to scope the
   // per-ticket-type rollup to the same set.
   const paidRegIds = new Set<string>();
@@ -331,7 +411,7 @@ export function aggregateEvents(
     const ms = effectivePaidMs(r);
     if (!inRange(ms, range)) continue;
     if (r.status === "paid") {
-      const amt = r.total_amount_chf ?? 0;
+      const amt = amountOf(r);
       gross += amt;
       paidRegistrations += 1;
       paidRegIds.add(r.id);
@@ -339,6 +419,23 @@ export function aggregateEvents(
       e.gross += amt;
       e.count += 1;
       eventAcc.set(r.event_id, e);
+      // Geneva months, matching the membership breakdown and the originator
+      // panel, so the same registration never files under two different months
+      // depending on which table you read.
+      const monthKey = zurichMonthKey(r.paid_at ?? r.created_at);
+      if (monthKey) {
+        const m = monthAcc.get(monthKey) ?? { gross: 0, count: 0, events: new Map() };
+        m.gross += amt;
+        m.count += 1;
+        // Same accumulation as eventAcc, scoped to the month, so a month's
+        // event rows sum to the month by construction rather than by a second
+        // pass that could drift.
+        const me = m.events.get(r.event_id) ?? { gross: 0, count: 0 };
+        me.gross += amt;
+        me.count += 1;
+        m.events.set(r.event_id, me);
+        monthAcc.set(monthKey, m);
+      }
     } else if (r.status === "free") {
       freeRegistrations += 1;
     }
@@ -366,12 +463,37 @@ export function aggregateEvents(
     .map(([title, v]) => ({ title, gross: round2(v.gross), quantity: v.quantity }))
     .sort((a, b) => b.gross - a.gross);
 
+  const byMonth: EventMonthRevenue[] = [...monthAcc.entries()]
+    .map(([monthKey, v]) => ({
+      monthKey,
+      gross: round2(v.gross),
+      paidRegistrations: v.count,
+      byEvent: [...v.events.entries()]
+        .map(([eventId, e]) => ({
+          eventId,
+          title: eventTitleById.get(eventId) ?? "Unknown event",
+          gross: round2(e.gross),
+          paidRegistrations: e.count,
+        }))
+        // Total tiebreak: gross, then title, then id. Array.sort is not stable
+        // for comparators returning 0, so tied events would otherwise reshuffle
+        // between renders.
+        .sort(
+          (a, b) =>
+            b.gross - a.gross ||
+            a.title.localeCompare(b.title) ||
+            a.eventId.localeCompare(b.eventId),
+        ),
+    }))
+    .sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+
   return {
     gross: round2(gross),
     paidRegistrations,
     freeRegistrations,
     byEvent,
     byTicketType,
+    byMonth,
   };
 }
 
@@ -381,11 +503,45 @@ export function aggregateEvents(
 
 export const UNATTRIBUTED_ORIGINATOR = "__direct__";
 
+// One Geneva calendar month of an originator's attributed revenue. `net` is
+// signed the same way the originator total is, so an originator's month nets
+// sum to their total by construction (they are accumulated in the same pass).
+export interface OriginatorMonth {
+  monthKey: MonthKey;
+  net: number;
+  paidCount: number;
+}
+
 export interface OriginatorRevenue {
   originatorId: string; // UNATTRIBUTED_ORIGINATOR for members with no originator
   name: string;
   net: number;
   convertedReferrals: number;
+  byMonth: OriginatorMonth[]; // ascending by monthKey; empty when no attributed revenue
+}
+
+// Which originator a payment is credited to: the member's CURRENT originator,
+// which is their sign-up originator. Renewals are therefore credited to whoever
+// signed the member up, not to the originator who drove the renewal — see the
+// panel copy. Members with no originator (and payments whose member row is
+// missing) fall into the Direct bucket.
+function originatorByMemberId(members: MemberRow[]): Map<string, string | null> {
+  return new Map(members.map((m) => [m.id, m.originator_id]));
+}
+
+function originatorOf(
+  originatorByMember: Map<string, string | null>,
+  memberId: string,
+): string {
+  return originatorByMember.get(memberId) ?? UNATTRIBUTED_ORIGINATOR;
+}
+
+function originatorNameOf(
+  originatorId: string,
+  originatorNameById: Map<string, string>,
+): string {
+  if (originatorId === UNATTRIBUTED_ORIGINATOR) return "Direct (no originator)";
+  return originatorNameById.get(originatorId) || "Unknown originator";
 }
 
 export function aggregateOriginators(
@@ -395,26 +551,41 @@ export function aggregateOriginators(
   originatorNameById: Map<string, string>,
   range: DateRange,
 ): OriginatorRevenue[] {
-  const originatorByMember = new Map<string, string | null>();
-  for (const m of members) originatorByMember.set(m.id, m.originator_id);
+  const originatorByMember = originatorByMemberId(members);
 
-  const acc = new Map<string, { net: number; referrals: number }>();
-  const bump = (key: string, dNet: number, dRef: number) => {
-    const a = acc.get(key) ?? { net: 0, referrals: 0 };
-    a.net += dNet;
-    a.referrals += dRef;
+  interface Acc {
+    net: number;
+    referrals: number;
+    months: Map<MonthKey, { net: number; paidCount: number }>;
+  }
+  const acc = new Map<string, Acc>();
+  const entry = (key: string): Acc => {
+    const a = acc.get(key) ?? { net: 0, referrals: 0, months: new Map() };
     acc.set(key, a);
+    return a;
   };
 
-  // Net membership revenue attributed to each member's originator.
+  // Net membership revenue attributed to each member's originator, accumulated
+  // in one pass so the month dimension cannot drift from the total.
   for (const p of payments) {
     const ms = effectivePaidMs(p);
     if (!inRange(ms, range)) continue;
-    const amt = p.amount_eur ?? 0;
-    const signed = p.payment_status === "paid" ? amt : p.payment_status === "refunded" ? -amt : 0;
-    if (signed === 0) continue;
-    const originatorId = originatorByMember.get(p.member_id) ?? null;
-    bump(originatorId ?? UNATTRIBUTED_ORIGINATOR, signed, 0);
+    // Filter on status, not on amount. A CHF 0 `paid` row is still a payment:
+    // skipping it here while buildOriginatorTransactions keeps it would put a
+    // drill-down row under a month the aggregate never counted.
+    const signed = settledAmountChf(p);
+    if (signed === null) continue;
+
+    const monthKey = zurichMonthKey(p.paid_at ?? p.created_at);
+    if (!monthKey) continue; // unreachable in range (inRange rejects unparseable dates); bail before the total so net and byMonth stay reconcilable
+
+    const a = entry(originatorOf(originatorByMember, p.member_id));
+    a.net += signed;
+
+    const m = a.months.get(monthKey) ?? { net: 0, paidCount: 0 };
+    m.net += signed;
+    if (p.payment_status === "paid") m.paidCount += 1;
+    a.months.set(monthKey, m);
   }
 
   // Converted referrals in period.
@@ -422,20 +593,84 @@ export function aggregateOriginators(
     if (!r.converted_at) continue;
     const ms = Date.parse(r.converted_at);
     if (!inRange(ms, range)) continue;
-    bump(r.originator_id, 0, 1);
+    entry(r.originator_id).referrals += 1;
   }
 
   return [...acc.entries()]
     .map(([originatorId, v]) => ({
       originatorId,
-      name:
-        originatorId === UNATTRIBUTED_ORIGINATOR
-          ? "Direct (no originator)"
-          : originatorNameById.get(originatorId) ?? "Unknown originator",
+      name: originatorNameOf(originatorId, originatorNameById),
       net: round2(v.net),
       convertedReferrals: v.referrals,
+      byMonth: [...v.months.entries()]
+        .map(([monthKey, m]) => ({ monthKey, net: round2(m.net), paidCount: m.paidCount }))
+        .sort((a, b) => a.monthKey.localeCompare(b.monthKey)),
     }))
-    .sort((a, b) => b.net - a.net);
+    // Total tiebreak: net, then name, then id. Array.sort is not stable for
+    // comparators returning 0, so tied originators would otherwise reshuffle
+    // between refreshes.
+    .sort(
+      (a, b) =>
+        b.net - a.net ||
+        a.name.localeCompare(b.name) ||
+        a.originatorId.localeCompare(b.originatorId),
+    );
+}
+
+// One membership payment behind an originator's month, for the accordion's
+// third level. `amountChf` is signed (paid +, refunded −) so the rows filtered
+// to an (originatorId, monthKey) pair sum to that month's net.
+export interface OriginatorTxn {
+  id: string; // payment id — sort tiebreak, and a stable React key
+  originatorId: string;
+  monthKey: MonthKey;
+  memberName: string;
+  tierName: string;
+  // Full ISO timestamp, NOT a YYYY-MM-DD slice. formatDate renders it in
+  // Europe/Zurich, so the day shown always agrees with the Geneva month it sits
+  // under. A UTC slice would print "28 Feb" beneath a "March 2026" header for a
+  // payment captured at 23:30 UTC on the 28th.
+  when: string;
+  status: string; // 'paid' | 'refunded'
+  amountChf: number;
+  stripeRef: StripeRef | null;
+}
+
+export function buildOriginatorTransactions(
+  payments: MembershipPaymentRow[],
+  members: MemberRow[],
+  memberNameById: Map<string, string>,
+  tierNameById: Map<string, string>,
+  range: DateRange,
+): OriginatorTxn[] {
+  const originatorByMember = originatorByMemberId(members);
+
+  const rows: OriginatorTxn[] = [];
+  for (const p of payments) {
+    const ms = effectivePaidMs(p);
+    if (!inRange(ms, range)) continue;
+    const signed = settledAmountChf(p);
+    if (signed === null) continue;
+    const when = p.paid_at ?? p.created_at;
+    const monthKey = zurichMonthKey(when);
+    if (!monthKey) continue; // same unreachable guard as aggregateOriginators, so neither side emits a row the other drops
+    rows.push({
+      id: p.id,
+      originatorId: originatorOf(originatorByMember, p.member_id),
+      monthKey,
+      memberName: memberNameById.get(p.member_id) ?? p.member_id,
+      tierName: tierNameById.get(p.tier_id) ?? "Unknown tier",
+      when,
+      status: p.payment_status,
+      amountChf: round2(signed),
+      stripeRef: resolveStripeRef(p),
+    });
+  }
+  // Sort on the parsed instant, not the string: `when` comes straight from the
+  // column, so its offset spelling is not guaranteed to be uniform.
+  return rows.sort(
+    (a, b) => Date.parse(a.when) - Date.parse(b.when) || a.id.localeCompare(b.id),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -517,6 +752,7 @@ export interface FinanceSummary {
   membershipTransactions: MembershipTxn[]; // per-row detail for the drill-down modal
   events: EventSummary;
   originators: OriginatorRevenue[];
+  originatorTransactions: OriginatorTxn[]; // per-payment detail for the originator accordion
   memberHealth: MemberHealth;
   complete: boolean; // false if any paginated read errored (partial data)
 }
@@ -584,8 +820,8 @@ export async function getFinanceTransactions(
 ): Promise<FinanceTransaction[]> {
   const range = rangeFromDates(from, to);
 
-  const [pay, members, tiers, regs, events] = await Promise.all([
-    fetchAll<MembershipPaymentRow>(
+  const [pay, members, tiers, regs, events, items] = await Promise.all([
+    fetchAll<ExportPaymentRow>(
       client,
       "payments",
       "member_id, tier_id, amount_eur, payment_status, paid_at, created_at",
@@ -607,7 +843,23 @@ export async function getFinanceTransactions(
       "id",
     ),
     fetchAll<{ id: string; title: string }>(client, "events", "id, title", "id"),
+    // The export reads the same ticket line ledger as the dashboard, so a
+    // top-up cannot make the CSV disagree with the page it was exported from.
+    fetchAll<EventItemRow>(
+      client,
+      "event_registration_items",
+      "registration_id, title_snapshot, quantity, line_total_chf",
+      "id",
+    ),
   ]);
+
+  const eventItemTotalByReg = new Map<string, number>();
+  for (const it of items.rows) {
+    eventItemTotalByReg.set(
+      it.registration_id,
+      (eventItemTotalByReg.get(it.registration_id) ?? 0) + (it.line_total_chf ?? 0),
+    );
+  }
 
   const memberName = new Map(
     members.rows.map((m) => [m.id, `${m.first_name} ${m.last_name}`.trim() || m.email]),
@@ -644,7 +896,10 @@ export async function getFinanceTransactions(
       party: r.name || r.email,
       detail: eventTitle.get(r.event_id) ?? "Unknown event",
       status: r.status,
-      amountChf: r.status === "paid" ? round2(r.total_amount_chf ?? 0) : 0,
+      amountChf:
+        r.status === "paid"
+          ? round2(eventItemTotalByReg.get(r.id) ?? r.total_amount_chf ?? 0)
+          : 0,
     });
   }
 
@@ -663,7 +918,7 @@ export async function getFinanceSummary(
     fetchAll<MembershipPaymentRow>(
       client,
       "payments",
-      "member_id, tier_id, amount_eur, payment_status, paid_at, created_at",
+      "id, member_id, tier_id, amount_eur, payment_status, paid_at, created_at, stripe_payment_intent_id, stripe_checkout_session_id",
       "id",
     ),
     fetchAll<EventRegistrationRow>(
@@ -731,6 +986,13 @@ export async function getFinanceSummary(
     originatorNameById,
     range,
   );
+  const originatorTransactions = buildOriginatorTransactions(
+    pay.rows,
+    members.rows,
+    memberNameById,
+    tierNameById,
+    range,
+  );
   const memberHealth = aggregateMemberHealth(members.rows, range);
 
   const complete =
@@ -756,6 +1018,7 @@ export async function getFinanceSummary(
     membershipTransactions,
     events,
     originators: originatorBreakdown,
+    originatorTransactions,
     memberHealth,
     complete,
   };

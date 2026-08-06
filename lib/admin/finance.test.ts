@@ -8,6 +8,8 @@ import {
   getFinanceSummary,
   getFinanceTransactions,
   buildMembershipTransactions,
+  buildOriginatorTransactions,
+  resolveStripeRef,
   UNATTRIBUTED_ORIGINATOR,
   type MembershipPaymentRow,
   type EventRegistrationRow,
@@ -15,17 +17,24 @@ import {
   type MemberRow,
   type ReferralRow,
 } from "@/lib/admin/finance";
+import { formatDate } from "@/lib/format";
 
 const YEAR_2026 = rangeFromDates("2026-01-01", "2026-12-31");
 
+let paymentSeq = 0;
+
 function payment(over: Partial<MembershipPaymentRow>): MembershipPaymentRow {
+  paymentSeq += 1;
   return {
+    id: `p${paymentSeq}`,
     member_id: "m1",
     tier_id: "t1",
     amount_eur: 100,
     payment_status: "paid",
     paid_at: "2026-03-01T10:00:00Z",
     created_at: "2026-03-01T10:00:00Z",
+    stripe_payment_intent_id: null,
+    stripe_checkout_session_id: null,
     ...over,
   };
 }
@@ -184,6 +193,128 @@ describe("aggregateEvents", () => {
     expect(s.byEvent[0]).toMatchObject({ eventId: "e1", gross: 200, paidRegistrations: 2 });
   });
 
+  it("breaks gross down by Geneva calendar month, ascending, reconciling with the total", () => {
+    const regs = [
+      reg({ id: "r1", total_amount_chf: 50, paid_at: "2026-06-10T00:00:00Z" }),
+      reg({ id: "r2", total_amount_chf: 150, paid_at: "2026-06-20T00:00:00Z" }),
+      reg({ id: "r3", total_amount_chf: 80, paid_at: "2026-04-01T00:00:00Z" }),
+      // Free registrations are counted on the page but are not revenue, so they
+      // must not create a month row of their own.
+      reg({ id: "r4", total_amount_chf: 0, status: "free", paid_at: "2026-09-01T00:00:00Z" }),
+      reg({ id: "r5", total_amount_chf: 999, paid_at: "2027-01-01T00:00:00Z" }), // out of range
+    ];
+    const s = aggregateEvents(regs, [], titles, YEAR_2026);
+    expect(s.byMonth.map(({ monthKey, gross, paidRegistrations }) => ({
+      monthKey,
+      gross,
+      paidRegistrations,
+    }))).toEqual([
+      { monthKey: "2026-04", gross: 80, paidRegistrations: 1 },
+      { monthKey: "2026-06", gross: 200, paidRegistrations: 2 },
+    ]);
+    expect(s.byMonth.reduce((t, m) => t + m.gross, 0)).toBe(s.gross);
+    expect(s.byMonth.reduce((t, m) => t + m.paidRegistrations, 0)).toBe(s.paidRegistrations);
+  });
+
+  it("breaks each month down by event, and those sum to the month", () => {
+    const regs = [
+      reg({ id: "r1", event_id: "e1", total_amount_chf: 50, paid_at: "2026-06-10T00:00:00Z" }),
+      reg({ id: "r2", event_id: "e2", total_amount_chf: 150, paid_at: "2026-06-20T00:00:00Z" }),
+      reg({ id: "r3", event_id: "e1", total_amount_chf: 30, paid_at: "2026-06-25T00:00:00Z" }),
+      reg({ id: "r4", event_id: "e1", total_amount_chf: 90, paid_at: "2026-04-02T00:00:00Z" }),
+    ];
+    const names = new Map([
+      ["e1", "Summer Gala"],
+      ["e2", "Autumn Ball"],
+    ]);
+    const s = aggregateEvents(regs, [], names, YEAR_2026);
+
+    const june = s.byMonth.find((m) => m.monthKey === "2026-06")!;
+    // Highest-grossing event first within the month.
+    expect(june.byEvent).toEqual([
+      { eventId: "e2", title: "Autumn Ball", gross: 150, paidRegistrations: 1 },
+      { eventId: "e1", title: "Summer Gala", gross: 80, paidRegistrations: 2 },
+    ]);
+
+    // The invariant that catches the month and event passes drifting apart.
+    for (const m of s.byMonth) {
+      expect(m.byEvent.reduce((t, e) => t + e.gross, 0)).toBe(m.gross);
+      expect(m.byEvent.reduce((t, e) => t + e.paidRegistrations, 0)).toBe(m.paidRegistrations);
+    }
+    // An event spanning two months appears under each, and the whole-range
+    // byEvent total still reconciles.
+    const galaAllTime = s.byEvent.find((e) => e.eventId === "e1")!;
+    expect(galaAllTime.gross).toBe(170);
+  });
+
+  it("orders events within a month deterministically when their gross ties", () => {
+    const regs = [
+      reg({ id: "r1", event_id: "z1", total_amount_chf: 100, paid_at: "2026-06-10T00:00:00Z" }),
+      reg({ id: "r2", event_id: "a1", total_amount_chf: 100, paid_at: "2026-06-11T00:00:00Z" }),
+    ];
+    const names = new Map([
+      ["z1", "Zebra Cup"],
+      ["a1", "Alpine Cup"],
+    ]);
+    const order = () =>
+      aggregateEvents(regs, [], names, YEAR_2026)
+        .byMonth[0].byEvent.map((e) => e.eventId);
+    expect(order()).toEqual(["a1", "z1"]); // equal gross -> title ascending
+    expect(order()).toEqual(order());
+  });
+
+  it("buckets a registration just after UTC midnight into the Geneva month", () => {
+    // 23:30 UTC on 30 June is 01:30 on 1 July in Geneva.
+    const s = aggregateEvents(
+      [reg({ id: "r1", total_amount_chf: 50, paid_at: "2026-06-30T23:30:00Z" })],
+      [],
+      titles,
+      YEAR_2026,
+    );
+    expect(s.byMonth.map((m) => m.monthKey)).toEqual(["2026-07"]);
+  });
+
+  it("counts money from the ticket line ledger, so top-ups are included", () => {
+    // A top-up inserts item lines and bumps quantity but never updates
+    // total_amount_chf (apply_registration_topup), so the booking total lags
+    // what the customer actually paid.
+    const regs = [reg({ id: "r1", total_amount_chf: 100, status: "paid" })];
+    const items: EventItemRow[] = [
+      { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 100 },
+      { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 60 }, // top-up
+    ];
+    const s = aggregateEvents(regs, items, titles, YEAR_2026);
+    expect(s.gross).toBe(160);
+    expect(s.byEvent[0].gross).toBe(160);
+    expect(s.byMonth[0].gross).toBe(160);
+    expect(s.byMonth[0].byEvent[0].gross).toBe(160);
+    // Every panel now reads the same ledger, so they agree.
+    expect(s.byTicketType[0].gross).toBe(160);
+  });
+
+  it("falls back to the booking total when a registration has no line items", () => {
+    // A legacy row with no items must keep its money rather than reporting zero.
+    const regs = [reg({ id: "r1", total_amount_chf: 250, status: "paid" })];
+    const s = aggregateEvents(regs, [], titles, YEAR_2026);
+    expect(s.gross).toBe(250);
+    expect(s.byMonth[0].gross).toBe(250);
+  });
+
+  it("ignores line items belonging to registrations that never completed checkout", () => {
+    const regs = [
+      reg({ id: "r1", total_amount_chf: 100, status: "paid" }),
+      reg({ id: "r2", total_amount_chf: 999, status: "pending" }),
+    ];
+    const items: EventItemRow[] = [
+      { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 100 },
+      { registration_id: "r2", title_snapshot: "Standard", quantity: 9, line_total_chf: 999 },
+    ];
+    const s = aggregateEvents(regs, items, titles, YEAR_2026);
+    expect(s.gross).toBe(100);
+    expect(s.paidRegistrations).toBe(1);
+    expect(s.byTicketType[0].gross).toBe(100);
+  });
+
   it("rolls up ticket-type revenue only for in-period paid registrations", () => {
     const regs = [
       reg({ id: "r1", status: "paid" }),
@@ -230,6 +361,269 @@ describe("aggregateOriginators", () => {
     const rows = aggregateOriginators([], members, referrals, names, YEAR_2026);
     const alice = rows.find((r) => r.originatorId === "o1")!;
     expect(alice.convertedReferrals).toBe(1);
+  });
+
+  it("breaks each originator down by Geneva calendar month, ascending", () => {
+    const payments = [
+      payment({ member_id: "m1", amount_eur: 900, paid_at: "2026-03-15T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 1200, paid_at: "2026-04-15T00:00:00Z" }),
+    ];
+    const alice = aggregateOriginators(payments, members, [], names, YEAR_2026).find(
+      (r) => r.originatorId === "o1",
+    )!;
+    expect(alice.byMonth.map((m) => m.monthKey)).toEqual(["2026-03", "2026-04"]);
+    expect(alice.byMonth.map((m) => m.net)).toEqual([900, 1200]);
+    expect(alice.byMonth.map((m) => m.paidCount)).toEqual([1, 1]);
+    expect(alice.net).toBe(2100); // AE2
+  });
+
+  it("buckets a payment just after UTC midnight into the Geneva month", () => {
+    // 2026-02-28T23:30Z is 00:30 on 1 March in Geneva. AE1.
+    const payments = [payment({ member_id: "m1", paid_at: "2026-02-28T23:30:00Z" })];
+    const alice = aggregateOriginators(payments, members, [], names, YEAR_2026).find(
+      (r) => r.originatorId === "o1",
+    )!;
+    expect(alice.byMonth.map((m) => m.monthKey)).toEqual(["2026-03"]);
+  });
+
+  it("keeps the month nets summing to each originator's total net", () => {
+    const payments = [
+      payment({ member_id: "m1", amount_eur: 900, paid_at: "2026-03-15T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 250, payment_status: "refunded", paid_at: "2026-03-20T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 1200, paid_at: "2026-04-15T00:00:00Z" }),
+      payment({ member_id: "m2", amount_eur: 400, paid_at: "2026-05-15T00:00:00Z" }),
+    ];
+    const rows = aggregateOriginators(payments, members, [], names, YEAR_2026);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(r.byMonth.reduce((s, m) => s + m.net, 0)).toBe(r.net);
+    }
+    // Refunds net down their own month rather than landing elsewhere.
+    const march = rows
+      .find((r) => r.originatorId === "o1")!
+      .byMonth.find((m) => m.monthKey === "2026-03")!;
+    expect(march.net).toBe(650);
+    expect(march.paidCount).toBe(1); // the refund is not a paid payment
+  });
+
+  it("gives members with no originator their own Direct monthly breakdown", () => {
+    // AE5.
+    const payments = [
+      payment({ member_id: "m2", amount_eur: 300, paid_at: "2026-03-15T00:00:00Z" }),
+      payment({ member_id: "m2", amount_eur: 500, paid_at: "2026-06-15T00:00:00Z" }),
+    ];
+    const direct = aggregateOriginators(payments, members, [], names, YEAR_2026).find(
+      (r) => r.originatorId === UNATTRIBUTED_ORIGINATOR,
+    )!;
+    expect(direct.name).toBe("Direct (no originator)");
+    expect(direct.byMonth.map((m) => m.monthKey)).toEqual(["2026-03", "2026-06"]);
+    expect(direct.byMonth.reduce((s, m) => s + m.net, 0)).toBe(direct.net);
+  });
+
+  it("leaves byMonth empty for an originator with referrals but no attributed payments", () => {
+    // AE6 — the panel renders a no-payments line rather than blank space.
+    const referrals: ReferralRow[] = [{ originator_id: "o1", converted_at: "2026-04-01T00:00:00Z" }];
+    const alice = aggregateOriginators([], members, referrals, names, YEAR_2026).find(
+      (r) => r.originatorId === "o1",
+    )!;
+    expect(alice.convertedReferrals).toBe(1);
+    expect(alice.byMonth).toEqual([]);
+  });
+
+  it("sorts originators with identical net deterministically across repeated calls", () => {
+    const tied: MemberRow[] = [
+      { id: "m1", status: "active", tier_id: "t1", originator_id: "o1", created_at: "2026-01-02T00:00:00Z", end_date: null },
+      { id: "m3", status: "active", tier_id: "t1", originator_id: "o2", created_at: "2026-01-02T00:00:00Z", end_date: null },
+    ];
+    const tiedNames = new Map([
+      ["o1", "Zoe Zenith"],
+      ["o2", "Alice Agent"],
+    ]);
+    const payments = [
+      payment({ member_id: "m1", amount_eur: 500 }),
+      payment({ member_id: "m3", amount_eur: 500 }),
+    ];
+    const order = () =>
+      aggregateOriginators(payments, tied, [], tiedNames, YEAR_2026).map((r) => r.originatorId);
+    // Equal net → name ascending, so the tie never depends on Array.sort stability.
+    expect(order()).toEqual(["o2", "o1"]);
+    expect(order()).toEqual(order());
+  });
+
+  it("excludes payments outside the range from byMonth", () => {
+    const payments = [
+      payment({ member_id: "m1", amount_eur: 100, paid_at: "2026-03-01T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 999, paid_at: "2027-03-01T00:00:00Z" }),
+    ];
+    const alice = aggregateOriginators(payments, members, [], names, YEAR_2026).find(
+      (r) => r.originatorId === "o1",
+    )!;
+    expect(alice.byMonth.map((m) => m.monthKey)).toEqual(["2026-03"]);
+    expect(alice.net).toBe(100);
+  });
+});
+
+describe("resolveStripeRef", () => {
+  it("prefers the PaymentIntent over the Checkout Session", () => {
+    expect(
+      resolveStripeRef({
+        stripe_payment_intent_id: "pi_1",
+        stripe_checkout_session_id: "cs_1",
+      }),
+    ).toEqual({ kind: "payment_intent", id: "pi_1" });
+  });
+
+  it("falls back to the Checkout Session when there is no PaymentIntent", () => {
+    expect(
+      resolveStripeRef({
+        stripe_payment_intent_id: null,
+        stripe_checkout_session_id: "cs_1",
+      }),
+    ).toEqual({ kind: "checkout_session", id: "cs_1" });
+  });
+
+  it("returns null when neither identifier is on record", () => {
+    expect(
+      resolveStripeRef({
+        stripe_payment_intent_id: null,
+        stripe_checkout_session_id: null,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("buildOriginatorTransactions", () => {
+  const members: MemberRow[] = [
+    { id: "m1", status: "active", tier_id: "t1", originator_id: "o1", created_at: "2026-01-02T00:00:00Z", end_date: null },
+    { id: "m2", status: "active", tier_id: "t1", originator_id: null, created_at: "2026-01-02T00:00:00Z", end_date: null },
+  ];
+  const memberNames = new Map([
+    ["m1", "Ann Adams"],
+    ["m2", "Bob Brown"],
+  ]);
+  const tierNames = new Map([["t1", "Individual"]]);
+  const originatorNames = new Map([["o1", "Alice Agent"]]);
+
+  it("includes paid and refunded rows only, and excludes out-of-range rows", () => {
+    const payments = [
+      payment({ member_id: "m1", payment_status: "paid", amount_eur: 100 }),
+      payment({ member_id: "m1", payment_status: "refunded", amount_eur: 40 }),
+      payment({ member_id: "m1", payment_status: "pending", amount_eur: 999 }),
+      payment({ member_id: "m1", payment_status: "overdue", amount_eur: 999 }),
+      payment({ member_id: "m1", payment_status: "free", amount_eur: 999 }),
+      payment({ member_id: "m1", payment_status: "paid", amount_eur: 999, paid_at: "2027-03-01T00:00:00Z" }),
+    ];
+    const rows = buildOriginatorTransactions(payments, members, memberNames, tierNames, YEAR_2026);
+    expect(rows.map((r) => r.status)).toEqual(["paid", "refunded"]);
+    expect(rows.map((r) => r.amountChf)).toEqual([100, -40]);
+  });
+
+  it("carries member, tier, month, and Stripe reference on each row", () => {
+    const payments = [
+      payment({
+        id: "pay-1",
+        member_id: "m1",
+        amount_eur: 2400,
+        paid_at: "2026-04-12T09:00:00Z",
+        stripe_payment_intent_id: "pi_123",
+      }),
+      payment({
+        id: "pay-2",
+        member_id: "m2",
+        amount_eur: 1500,
+        paid_at: "2026-04-28T09:00:00Z",
+        stripe_checkout_session_id: "cs_456",
+      }),
+    ];
+    const rows = buildOriginatorTransactions(payments, members, memberNames, tierNames, YEAR_2026);
+    expect(rows[0]).toMatchObject({
+      id: "pay-1",
+      originatorId: "o1",
+      monthKey: "2026-04",
+      memberName: "Ann Adams",
+      tierName: "Individual",
+      when: "2026-04-12T09:00:00Z",
+      status: "paid",
+      amountChf: 2400,
+      stripeRef: { kind: "payment_intent", id: "pi_123" },
+    });
+    expect(rows[1]).toMatchObject({
+      originatorId: UNATTRIBUTED_ORIGINATOR,
+      memberName: "Bob Brown",
+      stripeRef: { kind: "checkout_session", id: "cs_456" },
+    });
+  });
+
+  it("sorts by instant then payment id so repeated calls agree", () => {
+    const payments = [
+      payment({ id: "b", paid_at: "2026-05-01T00:00:00Z" }),
+      payment({ id: "a", paid_at: "2026-05-01T00:00:00Z" }),
+      payment({ id: "c", paid_at: "2026-04-01T00:00:00Z" }),
+    ];
+    const rows = buildOriginatorTransactions(payments, members, memberNames, tierNames, YEAR_2026);
+    expect(rows.map((r) => r.id)).toEqual(["c", "a", "b"]);
+  });
+
+  it("dates each row in Geneva time, so the day agrees with its month bucket", () => {
+    // 23:30 UTC on 28 February is 00:30 on 1 March in Geneva. A UTC date slice
+    // would print "2026-02-28" under a "March 2026" header.
+    const rows = buildOriginatorTransactions(
+      [payment({ member_id: "m1", paid_at: "2026-02-28T23:30:00Z" })],
+      members,
+      memberNames,
+      tierNames,
+      YEAR_2026,
+    );
+    expect(rows[0].monthKey).toBe("2026-03");
+    expect(formatDate(rows[0].when)).toBe("1 Mar 2026");
+  });
+
+  it("keeps a zero-amount paid row in both the month bucket and the row list", () => {
+    // The aggregate filters on status, not amount — otherwise this row would
+    // render under a month the aggregate never created.
+    const payments = [
+      payment({ member_id: "m1", amount_eur: 0, payment_status: "paid", paid_at: "2026-07-01T00:00:00Z" }),
+    ];
+    const alice = aggregateOriginators(payments, members, [], originatorNames, YEAR_2026).find(
+      (r) => r.originatorId === "o1",
+    )!;
+    expect(alice.byMonth).toEqual([{ monthKey: "2026-07", net: 0, paidCount: 1 }]);
+
+    const rows = buildOriginatorTransactions(payments, members, memberNames, tierNames, YEAR_2026);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].monthKey).toBe("2026-07");
+  });
+
+  it("reconciles with aggregateOriginators for every originator and month", () => {
+    // The check that catches the two functions' independently written range,
+    // sign, and month-key logic drifting apart.
+    const payments = [
+      payment({ member_id: "m1", amount_eur: 900, paid_at: "2026-03-15T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 250, payment_status: "refunded", paid_at: "2026-03-20T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 1200, paid_at: "2026-04-15T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 300, paid_at: "2026-02-28T23:30:00Z" }), // Geneva March
+      payment({ member_id: "m2", amount_eur: 400, paid_at: "2026-05-15T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 0, payment_status: "paid", paid_at: "2026-06-10T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 777, payment_status: "pending", paid_at: "2026-05-02T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 888, paid_at: "2027-01-01T00:00:00Z" }), // out of range
+    ];
+    const originators = aggregateOriginators(payments, members, [], originatorNames, YEAR_2026);
+    const txns = buildOriginatorTransactions(payments, members, memberNames, tierNames, YEAR_2026);
+
+    for (const o of originators) {
+      for (const m of o.byMonth) {
+        const summed = txns
+          .filter((t) => t.originatorId === o.originatorId && t.monthKey === m.monthKey)
+          .reduce((s, t) => s + t.amountChf, 0);
+        expect(summed).toBe(m.net);
+      }
+      // …and no transaction rows exist for a month the aggregator never emitted.
+      const monthKeys = new Set(o.byMonth.map((m) => m.monthKey));
+      const orphan = txns.filter(
+        (t) => t.originatorId === o.originatorId && !monthKeys.has(t.monthKey),
+      );
+      expect(orphan).toEqual([]);
+    }
   });
 });
 
@@ -280,12 +674,15 @@ describe("getFinanceSummary pagination", () => {
   it("pages past the 1000-row cap without truncating", async () => {
     // 1500 paid payments of 10 CHF each = 15000 gross.
     const payments = Array.from({ length: 1500 }, (_, i) => ({
+      id: `p${i}`,
       member_id: `m${i}`,
       tier_id: "t1",
       amount_eur: 10,
       payment_status: "paid",
       paid_at: "2026-05-01T00:00:00Z",
       created_at: "2026-05-01T00:00:00Z",
+      stripe_payment_intent_id: null,
+      stripe_checkout_session_id: null,
     }));
     const client = makeClient({
       payments,
@@ -324,6 +721,74 @@ describe("getFinanceSummary pagination", () => {
     };
     const summary = await getFinanceSummary(client, "2026-01-01", "2026-12-31");
     expect(summary.complete).toBe(false);
+  });
+
+  it("surfaces originator transactions with their Stripe reference end to end", async () => {
+    // The makeClient fake ignores the column list, so the new fields have to be
+    // on the fixture ROWS — widening the select string alone proves nothing.
+    const client = makeClient({
+      payments: [
+        {
+          id: "pay-1",
+          member_id: "m1",
+          tier_id: "t1",
+          amount_eur: 1400,
+          payment_status: "paid",
+          paid_at: "2026-03-04T00:00:00Z",
+          created_at: "2026-03-04T00:00:00Z",
+          stripe_payment_intent_id: "pi_live_1",
+          stripe_checkout_session_id: "cs_live_1",
+        },
+        {
+          id: "pay-2",
+          member_id: "m1",
+          tier_id: "t1",
+          amount_eur: 600,
+          payment_status: "paid",
+          paid_at: "2026-04-04T00:00:00Z",
+          created_at: "2026-04-04T00:00:00Z",
+          stripe_payment_intent_id: null,
+          stripe_checkout_session_id: null,
+        },
+      ],
+      event_registrations: [],
+      event_registration_items: [],
+      members: [
+        {
+          id: "m1",
+          status: "active",
+          tier_id: "t1",
+          originator_id: "o1",
+          created_at: "2026-01-01T00:00:00Z",
+          end_date: null,
+          first_name: "Ann",
+          last_name: "Adams",
+          email: "ann@x.com",
+        },
+      ],
+      membership_tiers: [{ id: "t1", name: "Individual" }],
+      admin_users: [{ id: "o1", first_name: "Alice", last_name: "Agent" }],
+      referrals: [],
+      events: [],
+    });
+
+    const summary = await getFinanceSummary(client, "2026-01-01", "2026-12-31");
+    expect(summary.originatorTransactions).toHaveLength(2);
+    const [first, second] = summary.originatorTransactions;
+    expect(first).toMatchObject({
+      originatorId: "o1",
+      monthKey: "2026-03",
+      memberName: "Ann Adams",
+      tierName: "Individual",
+      stripeRef: { kind: "payment_intent", id: "pi_live_1" },
+    });
+    expect(second.stripeRef).toBeNull();
+
+    // Reconciles with the aggregator the panel renders one level up.
+    const alice = summary.originators.find((o) => o.originatorId === "o1")!;
+    expect(alice.byMonth.map((m) => m.monthKey)).toEqual(["2026-03", "2026-04"]);
+    expect(alice.byMonth.reduce((s, m) => s + m.net, 0)).toBe(alice.net);
+    expect(alice.net).toBe(2000);
   });
 });
 
@@ -381,6 +846,25 @@ describe("getFinanceTransactions", () => {
     const freeRows = rows.filter((r) => r.status === "free");
     expect(freeRows.every((r) => r.amountChf === 0)).toBe(true);
     expect(rows.some((r) => r.status === "pending")).toBe(false);
+  });
+
+  it("exports event money from the ticket line ledger, matching the dashboard", async () => {
+    const client = makeClient({
+      ...base,
+      payments: [],
+      event_registrations: [
+        { id: "r1", event_id: "e1", total_amount_chf: 100, status: "paid", paid_at: "2026-04-01T00:00:00Z", created_at: "2026-04-01T00:00:00Z", name: "Guest", email: "g@x.com" },
+        { id: "r2", event_id: "e1", total_amount_chf: 70, status: "paid", paid_at: "2026-04-02T00:00:00Z", created_at: "2026-04-02T00:00:00Z", name: "Legacy", email: "l@x.com" },
+      ],
+      event_registration_items: [
+        { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 100 },
+        { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 60 }, // top-up
+        // r2 has no lines — a legacy row keeps its booking total.
+      ],
+    });
+    const rows = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
+    const amounts = rows.filter((r) => r.type === "event").map((r) => r.amountChf);
+    expect(amounts).toEqual([160, 70]);
   });
 
   it("returns no rows for an empty range (CSV would be headers only)", async () => {

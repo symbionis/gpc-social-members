@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import OriginatorList from "@/components/admin/OriginatorList";
+import { zurichMonthKey } from "@/lib/members/payments";
 
 export default async function OriginatorsPage() {
   const supabase = createAdminClient();
@@ -34,14 +35,46 @@ export default async function OriginatorsPage() {
 
   const { data: originators } = await originatorQuery;
 
-  // Get referral counts per originator
+  // Get referred members per originator. `created_at` and `tier_id` drive the
+  // month grouping on each card.
   const { data: referrals } = await supabase
     .from("members")
-    .select("id, first_name, last_name, status, originator_id")
+    .select("id, first_name, last_name, status, originator_id, created_at, tier_id")
     .in(
       "originator_id",
       (originators || []).map((o: Record<string, unknown>) => o.id)
     );
+
+  const { data: tiers } = await supabase.from("membership_tiers").select("id, name");
+  const tierNameById = new Map(
+    (tiers || []).map((t: { id: string; name: string }) => [t.id, t.name]),
+  );
+
+  // Bucket into Geneva calendar months HERE, in the server component. The month
+  // key needs Intl, and lib/format exists precisely because Node and Safari ICU
+  // disagree on formatter output, which surfaces as invisible hydration
+  // mismatches. Resolving the key server-side keeps that off the client, and the
+  // list component only ever compares plain "YYYY-MM" strings.
+  const referralRows = (referrals || []).map(
+    (r: {
+      id: string;
+      first_name: string;
+      last_name: string;
+      status: string;
+      originator_id: string;
+      created_at: string;
+      tier_id: string | null;
+    }) => ({
+      id: r.id,
+      first_name: r.first_name,
+      last_name: r.last_name,
+      status: r.status,
+      originator_id: r.originator_id,
+      joinedAt: r.created_at,
+      monthKey: zurichMonthKey(r.created_at),
+      tierName: r.tier_id ? tierNameById.get(r.tier_id) ?? "Unknown tier" : null,
+    }),
+  );
 
   // Get admin users who are NOT already originators (for the add dropdown)
   let availableAdmins: { id: string; first_name: string; last_name: string; email: string }[] = [];
@@ -75,7 +108,7 @@ export default async function OriginatorsPage() {
       </h1>
       <OriginatorList
         originators={originators || []}
-        referrals={referrals || []}
+        referrals={referralRows}
         appUrl={appUrl}
         isSuperAdmin={isSuperAdmin}
         availableAdmins={availableAdmins}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateTime } from "@/lib/format";
+import { stripeDashboardUrl } from "@/lib/stripe/dashboard";
 
 /**
  * One sold ticket on the roster (U15). The interactive roster now shows EVERY ticket sold —
@@ -496,9 +497,13 @@ function TicketRow({
     !row.checkedIn &&
     !row.isComp &&
     !cancelled;
-  const stripeUrl = row.stripePaymentIntentId
-    ? `https://dashboard.stripe.com/${stripeTestMode ? "test/" : ""}payments/${row.stripePaymentIntentId}`
-    : "";
+  const stripeUrl =
+    stripeDashboardUrl(
+      row.stripePaymentIntentId
+        ? { kind: "payment_intent", id: row.stripePaymentIntentId }
+        : null,
+      stripeTestMode,
+    ) ?? "";
 
   return (
     <tr data-testid="ticket-row" className="border-t border-border">
@@ -571,7 +576,8 @@ function TicketRow({
                 target="_blank"
                 rel="noopener noreferrer"
                 title="Open this booking's payment in Stripe to issue the refund"
-                className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors whitespace-nowrap"
+                // ph-no-capture: the href carries a Stripe PaymentIntent id; keep it out of analytics.
+                className="ph-no-capture px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors whitespace-nowrap"
               >
                 Stripe ↗
               </a>

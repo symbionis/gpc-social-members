@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatDate, formatMonth } from "@/lib/format";
+import DisclosureRow from "@/components/admin/DisclosureRow";
 
 interface Originator {
   id: string;
@@ -12,12 +14,56 @@ interface Originator {
   invite_link_active: boolean;
 }
 
-interface Referral {
+export interface Referral {
   id: string;
   first_name: string;
   last_name: string;
   status: string;
   originator_id: string;
+  /** ISO timestamp the member joined. Rendered through formatDate (Geneva). */
+  joinedAt: string;
+  /** "YYYY-MM" in Europe/Zurich, resolved server-side in page.tsx. */
+  monthKey: string;
+  /** null while a member has no tier yet (pending applications). */
+  tierName: string | null;
+}
+
+export interface ReferralMonth {
+  monthKey: string;
+  members: Referral[];
+}
+
+// Group an originator's referred members into Geneva calendar months, oldest
+// first, mirroring the month breakdown on the finance dashboard's Originator
+// tab. Members are ordered within a month by join date, then name, so the list
+// cannot reshuffle between renders — Array.sort is not stable for comparators
+// returning 0.
+//
+// A member with an unparseable created_at has an empty monthKey; those collect
+// under a final "Date unknown" group rather than vanishing from a roster whose
+// header claims a total.
+export function groupReferralsByMonth(referrals: Referral[]): ReferralMonth[] {
+  const byMonth = new Map<string, Referral[]>();
+  for (const r of referrals) {
+    const key = r.monthKey || "";
+    byMonth.set(key, [...(byMonth.get(key) ?? []), r]);
+  }
+  return [...byMonth.entries()]
+    .map(([monthKey, members]) => ({
+      monthKey,
+      members: [...members].sort(
+        (a, b) =>
+          a.joinedAt.localeCompare(b.joinedAt) ||
+          `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`) ||
+          a.id.localeCompare(b.id),
+      ),
+    }))
+    // Undated members last; everything else ascending by month.
+    .sort((a, b) => {
+      if (!a.monthKey) return 1;
+      if (!b.monthKey) return -1;
+      return a.monthKey.localeCompare(b.monthKey);
+    });
 }
 
 interface AvailableAdmin {
@@ -52,6 +98,18 @@ export default function OriginatorList({
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [selectedAdminId, setSelectedAdminId] = useState("");
   const [honoraryCode, setHonoraryCode] = useState(initialHonoraryCode);
+  // Months are tracked as COLLAPSED, keyed `${originatorId}:${monthKey}`, so
+  // "no state" means "everything open" and a month that appears after a refresh
+  // is not silently closed. Same rule as the finance dashboard's panels.
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
+
+  const toggleMonth = (key: string) =>
+    setCollapsedMonths((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   const [savingHonorary, setSavingHonorary] = useState(false);
   const [honorarySaved, setHonorarySaved] = useState(false);
 
@@ -305,37 +363,94 @@ export default function OriginatorList({
               </div>
             )}
 
-            {/* Referred members */}
-            {myReferrals.length > 0 && (
-              <div>
-                <p className="text-sm font-body font-medium text-marine mb-2">
-                  Referred Members
-                </p>
-                <div className="space-y-1">
-                  {myReferrals.map((ref) => (
-                    <div
-                      key={ref.id}
-                      className="flex items-center justify-between text-sm py-1"
-                    >
-                      <span className="font-body text-marine">
-                        {ref.first_name} {ref.last_name}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs font-body ${
-                          ref.status === "active"
-                            ? "bg-green-100 text-green-800"
-                            : ref.status === "pending"
-                              ? "bg-amber-100 text-amber-800"
-                              : "bg-gray-100 text-gray-600"
-                        }`}
+            {/* Referred members, grouped by the month they joined */}
+            {myReferrals.length > 0 &&
+              (() => {
+                const months = groupReferralsByMonth(myReferrals);
+                const anyOpen = months.some(
+                  (m) => !collapsedMonths.has(`${orig.id}:${m.monthKey}`),
+                );
+                return (
+                  <div>
+                    <div className="flex items-center justify-between gap-4 mb-2">
+                      <p className="text-sm font-body font-medium text-marine">
+                        Referred Members
+                      </p>
+                      <button
+                        onClick={() =>
+                          setCollapsedMonths((s) => {
+                            const next = new Set(s);
+                            for (const m of months) {
+                              const key = `${orig.id}:${m.monthKey}`;
+                              if (anyOpen) next.add(key);
+                              else next.delete(key);
+                            }
+                            return next;
+                          })
+                        }
+                        className="shrink-0 rounded-lg border border-border px-3 py-1 text-xs font-body text-marine/70 hover:bg-cream transition-colors"
                       >
-                        {ref.status}
-                      </span>
+                        {anyOpen ? "Collapse all" : "Expand all"}
+                      </button>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                    {/* Four columns need room; scroll rather than truncate the
+                        tier name on a narrow window. */}
+                    <div className="overflow-x-auto">
+                      <div className="min-w-[34rem] text-sm font-body">
+                        {months.map((month) => {
+                          const key = `${orig.id}:${month.monthKey}`;
+                          const open = !collapsedMonths.has(key);
+                          return (
+                            <div key={month.monthKey || "unknown"} className="border-b border-border/60">
+                              <DisclosureRow
+                                open={open}
+                                onToggle={() => toggleMonth(key)}
+                                label={
+                                  month.monthKey
+                                    ? formatMonth(month.monthKey)
+                                    : "Date unknown"
+                                }
+                                amount={String(month.members.length)}
+                              />
+                              {open &&
+                                month.members.map((ref) => (
+                                  <div
+                                    key={ref.id}
+                                    className="flex items-center gap-3 text-sm py-1 pl-8 pr-2"
+                                  >
+                                    <span className="flex-1 min-w-0 truncate font-body text-marine">
+                                      {ref.first_name} {ref.last_name}
+                                    </span>
+                                    <span
+                                      title={ref.tierName ?? undefined}
+                                      className="w-56 shrink-0 text-right font-body text-muted-foreground truncate"
+                                    >
+                                      {ref.tierName ?? "No tier"}
+                                    </span>
+                                    <span className="w-24 shrink-0 text-right font-body text-muted-foreground tabular-nums">
+                                      {formatDate(ref.joinedAt)}
+                                    </span>
+                                    <span
+                                      className={`w-20 shrink-0 text-center px-2 py-0.5 rounded-full text-xs font-body ${
+                                        ref.status === "active"
+                                          ? "bg-green-100 text-green-800"
+                                          : ref.status === "pending"
+                                            ? "bg-amber-100 text-amber-800"
+                                            : "bg-gray-100 text-gray-600"
+                                      }`}
+                                    >
+                                      {ref.status}
+                                    </span>
+                                  </div>
+                                ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
           </div>
         );
       })}

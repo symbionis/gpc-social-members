@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 interface Props {
@@ -29,13 +29,20 @@ function daysAgo(n: number): string {
 export default function DateRangeFilter({ from, to }: Props) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [localFrom, setLocalFrom] = useState(from);
   const [localTo, setLocalTo] = useState(to);
 
   function apply(nextFrom: string, nextTo: string) {
     setLocalFrom(nextFrom);
     setLocalTo(nextTo);
-    router.push(`${pathname}?from=${nextFrom}&to=${nextTo}`);
+    // Merge into the existing query rather than replacing it: the page also
+    // carries `?tab=`, and rebuilding the query string from scratch silently
+    // reset the active tab on every Apply and preset.
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.set("from", nextFrom);
+    params.set("to", nextTo);
+    router.push(`${pathname}?${params.toString()}`);
   }
 
   const thisYear = () => {
