@@ -45,7 +45,7 @@ const TRANSACTIONS: OriginatorTxn[] = [
     monthKey: "2026-03",
     memberName: "A. Lindqvist",
     tierName: "Full",
-    date: "2026-03-12",
+    when: "2026-03-12T09:00:00Z",
     status: "paid",
     amountChf: 4200,
     stripeRef: { kind: "payment_intent", id: "pi_123" },
@@ -56,7 +56,7 @@ const TRANSACTIONS: OriginatorTxn[] = [
     monthKey: "2026-04",
     memberName: "R. Moreau",
     tierName: "Social",
-    date: "2026-04-28",
+    when: "2026-04-28T09:00:00Z",
     status: "paid",
     amountChf: 8200,
     stripeRef: null,
@@ -67,7 +67,7 @@ const TRANSACTIONS: OriginatorTxn[] = [
     monthKey: "2026-04",
     memberName: "K. Weber",
     tierName: "Full",
-    date: "2026-04-05",
+    when: "2026-04-05T09:00:00Z",
     status: "paid",
     amountChf: 3900,
     stripeRef: { kind: "checkout_session", id: "cs_456" },
@@ -177,7 +177,7 @@ describe("OriginatorBreakdownPanel", () => {
     await user.click(originatorRow(/Sophie Dubois/));
     await user.click(originatorRow(/April 2026/));
     expect(screen.getByText("28 Apr 2026")).toBeInTheDocument();
-    expect(screen.queryByText("2026-04-28")).not.toBeInTheDocument();
+    expect(screen.queryByText(/2026-04-28/)).not.toBeInTheDocument();
   });
 
   it("links a payment with a Stripe reference to the matching dashboard page", async () => {

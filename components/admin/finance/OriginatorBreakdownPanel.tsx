@@ -201,7 +201,7 @@ function PaymentRows({
           <tr key={t.id} className="border-b border-marine/5">
             <td className="py-2 pl-16 text-marine">{t.memberName}</td>
             <td className="py-2 text-right text-marine/70">{t.tierName}</td>
-            <td className="py-2 text-right text-marine/70">{formatDate(t.date)}</td>
+            <td className="py-2 text-right text-marine/70">{formatDate(t.when)}</td>
             <td className="py-2 text-right text-marine/70">{t.status}</td>
             <td className="py-2 text-right text-marine tabular-nums">
               {formatCurrency(t.amountChf)}
@@ -238,7 +238,7 @@ function StripeCell({
       rel="noopener noreferrer"
       // Keeps the Stripe identifier out of analytics payloads on click.
       className="ph-no-capture text-marine underline decoration-marine/30 hover:decoration-marine"
-      aria-label={`Open the Stripe ${stripeRefLabel(txn.stripeRef)} for ${txn.memberName} on ${formatDate(txn.date)}`}
+      aria-label={`Open the Stripe ${stripeRefLabel(txn.stripeRef)} for ${txn.memberName} on ${formatDate(txn.when)}`}
     >
       Stripe <span aria-hidden="true">↗</span>
     </a>

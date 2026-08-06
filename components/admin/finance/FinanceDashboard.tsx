@@ -85,6 +85,8 @@ export default function FinanceDashboard({ summary, tab, stripeTestMode }: Props
       <p className="text-xs text-marine/40 font-body">
         Figures are gross of Stripe fees. Event revenue is gross of refunds.
         Complimentary and free records are counted but excluded from revenue.
+        Date ranges are selected in whole UTC days while months are bucketed in
+        Geneva time, so the first and last month of a range can be partial.
       </p>
     </div>
   );

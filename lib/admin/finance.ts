@@ -135,6 +135,18 @@ function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+// The one settled-revenue rule: a `paid` row counts positive, a `refunded` row
+// counts negative, and everything else (free, pending, overdue) is not settled
+// revenue at all — null, not zero, so callers can tell "not revenue" apart from
+// "revenue of zero". Shared by every originator path so the aggregate and the
+// per-payment rows behind it cannot drift on which rows they include.
+function settledAmountChf(row: { payment_status: string; amount_eur: number }): number | null {
+  const amt = row.amount_eur ?? 0;
+  if (row.payment_status === "paid") return amt;
+  if (row.payment_status === "refunded") return -amt;
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Membership revenue
 // ---------------------------------------------------------------------------
@@ -476,15 +488,18 @@ export function aggregateOriginators(
   for (const p of payments) {
     const ms = effectivePaidMs(p);
     if (!inRange(ms, range)) continue;
-    const amt = p.amount_eur ?? 0;
-    const signed = p.payment_status === "paid" ? amt : p.payment_status === "refunded" ? -amt : 0;
-    if (signed === 0) continue;
+    // Filter on status, not on amount. A CHF 0 `paid` row is still a payment:
+    // skipping it here while buildOriginatorTransactions keeps it would put a
+    // drill-down row under a month the aggregate never counted.
+    const signed = settledAmountChf(p);
+    if (signed === null) continue;
+
+    const monthKey = zurichMonthKey(p.paid_at ?? p.created_at);
+    if (!monthKey) continue; // unreachable in range (inRange rejects unparseable dates); bail before the total so net and byMonth stay reconcilable
 
     const a = entry(originatorOf(originatorByMember, p.member_id));
     a.net += signed;
 
-    const monthKey = zurichMonthKey(p.paid_at ?? p.created_at);
-    if (!monthKey) continue; // unreachable for in-range rows; keeps the sums honest if it ever isn't
     const m = a.months.get(monthKey) ?? { net: 0, paidCount: 0 };
     m.net += signed;
     if (p.payment_status === "paid") m.paidCount += 1;
@@ -529,7 +544,11 @@ export interface OriginatorTxn {
   monthKey: MonthKey;
   memberName: string;
   tierName: string;
-  date: string; // YYYY-MM-DD
+  // Full ISO timestamp, NOT a YYYY-MM-DD slice. formatDate renders it in
+  // Europe/Zurich, so the day shown always agrees with the Geneva month it sits
+  // under. A UTC slice would print "28 Feb" beneath a "March 2026" header for a
+  // payment captured at 23:30 UTC on the 28th.
+  when: string;
   status: string; // 'paid' | 'refunded'
   amountChf: number;
   stripeRef: StripeRef | null;
@@ -546,22 +565,30 @@ export function buildOriginatorTransactions(
 
   const rows: OriginatorTxn[] = [];
   for (const p of payments) {
-    if (!inRange(effectivePaidMs(p), range)) continue;
-    if (p.payment_status !== "paid" && p.payment_status !== "refunded") continue;
-    const amt = p.amount_eur ?? 0;
+    const ms = effectivePaidMs(p);
+    if (!inRange(ms, range)) continue;
+    const signed = settledAmountChf(p);
+    if (signed === null) continue;
+    const when = p.paid_at ?? p.created_at;
+    const monthKey = zurichMonthKey(when);
+    if (!monthKey) continue; // same unreachable guard as aggregateOriginators, so neither side emits a row the other drops
     rows.push({
       id: p.id,
       originatorId: originatorOf(originatorByMember, p.member_id),
-      monthKey: zurichMonthKey(p.paid_at ?? p.created_at),
+      monthKey,
       memberName: memberNameById.get(p.member_id) ?? p.member_id,
       tierName: tierNameById.get(p.tier_id) ?? "Unknown tier",
-      date: isoDate(p),
+      when,
       status: p.payment_status,
-      amountChf: round2(p.payment_status === "refunded" ? -amt : amt),
+      amountChf: round2(signed),
       stripeRef: resolveStripeRef(p),
     });
   }
-  return rows.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  // Sort on the parsed instant, not the string: `when` comes straight from the
+  // column, so its offset spelling is not guaranteed to be uniform.
+  return rows.sort(
+    (a, b) => Date.parse(a.when) - Date.parse(b.when) || a.id.localeCompare(b.id),
+  );
 }
 
 // ---------------------------------------------------------------------------

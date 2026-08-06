@@ -576,7 +576,8 @@ function TicketRow({
                 target="_blank"
                 rel="noopener noreferrer"
                 title="Open this booking's payment in Stripe to issue the refund"
-                className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors whitespace-nowrap"
+                // ph-no-capture: the href carries a Stripe PaymentIntent id; keep it out of analytics.
+                className="ph-no-capture px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors whitespace-nowrap"
               >
                 Stripe ↗
               </a>

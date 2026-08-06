@@ -17,6 +17,7 @@ import {
   type MemberRow,
   type ReferralRow,
 } from "@/lib/admin/finance";
+import { formatDate } from "@/lib/format";
 
 const YEAR_2026 = rangeFromDates("2026-01-01", "2026-12-31");
 
@@ -419,7 +420,7 @@ describe("buildOriginatorTransactions", () => {
       monthKey: "2026-04",
       memberName: "Ann Adams",
       tierName: "Individual",
-      date: "2026-04-12",
+      when: "2026-04-12T09:00:00Z",
       status: "paid",
       amountChf: 2400,
       stripeRef: { kind: "payment_intent", id: "pi_123" },
@@ -431,7 +432,7 @@ describe("buildOriginatorTransactions", () => {
     });
   });
 
-  it("sorts by date then payment id so repeated calls agree", () => {
+  it("sorts by instant then payment id so repeated calls agree", () => {
     const payments = [
       payment({ id: "b", paid_at: "2026-05-01T00:00:00Z" }),
       payment({ id: "a", paid_at: "2026-05-01T00:00:00Z" }),
@@ -439,6 +440,36 @@ describe("buildOriginatorTransactions", () => {
     ];
     const rows = buildOriginatorTransactions(payments, members, memberNames, tierNames, YEAR_2026);
     expect(rows.map((r) => r.id)).toEqual(["c", "a", "b"]);
+  });
+
+  it("dates each row in Geneva time, so the day agrees with its month bucket", () => {
+    // 23:30 UTC on 28 February is 00:30 on 1 March in Geneva. A UTC date slice
+    // would print "2026-02-28" under a "March 2026" header.
+    const rows = buildOriginatorTransactions(
+      [payment({ member_id: "m1", paid_at: "2026-02-28T23:30:00Z" })],
+      members,
+      memberNames,
+      tierNames,
+      YEAR_2026,
+    );
+    expect(rows[0].monthKey).toBe("2026-03");
+    expect(formatDate(rows[0].when)).toBe("1 Mar 2026");
+  });
+
+  it("keeps a zero-amount paid row in both the month bucket and the row list", () => {
+    // The aggregate filters on status, not amount — otherwise this row would
+    // render under a month the aggregate never created.
+    const payments = [
+      payment({ member_id: "m1", amount_eur: 0, payment_status: "paid", paid_at: "2026-07-01T00:00:00Z" }),
+    ];
+    const alice = aggregateOriginators(payments, members, [], originatorNames, YEAR_2026).find(
+      (r) => r.originatorId === "o1",
+    )!;
+    expect(alice.byMonth).toEqual([{ monthKey: "2026-07", net: 0, paidCount: 1 }]);
+
+    const rows = buildOriginatorTransactions(payments, members, memberNames, tierNames, YEAR_2026);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].monthKey).toBe("2026-07");
   });
 
   it("reconciles with aggregateOriginators for every originator and month", () => {
@@ -450,6 +481,7 @@ describe("buildOriginatorTransactions", () => {
       payment({ member_id: "m1", amount_eur: 1200, paid_at: "2026-04-15T00:00:00Z" }),
       payment({ member_id: "m1", amount_eur: 300, paid_at: "2026-02-28T23:30:00Z" }), // Geneva March
       payment({ member_id: "m2", amount_eur: 400, paid_at: "2026-05-15T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 0, payment_status: "paid", paid_at: "2026-06-10T00:00:00Z" }),
       payment({ member_id: "m1", amount_eur: 777, payment_status: "pending", paid_at: "2026-05-02T00:00:00Z" }),
       payment({ member_id: "m1", amount_eur: 888, paid_at: "2027-01-01T00:00:00Z" }), // out of range
     ];
