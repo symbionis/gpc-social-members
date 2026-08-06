@@ -5,6 +5,7 @@ import ManageEventTabs from "@/components/admin/ManageEventTabs";
 import { getEventReminderSummary } from "@/lib/events/reminder-summary";
 import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
 import { rosterGuestSummary } from "@/lib/events/roster-fill";
+import { stripeTestModeFromKey } from "@/lib/stripe/dashboard";
 
 export default async function ManageEventPage({
   params,
@@ -299,7 +300,9 @@ export default async function ManageEventPage({
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
   // Point the admin cancellation view's Stripe refund links at the matching dashboard mode.
-  const stripeTestMode = (process.env.STRIPE_SECRET_KEY ?? "").includes("_test_");
+  // Derived from the LIVE marker, so a missing key falls back to test mode rather
+  // than surfacing production refund links from a staging deploy.
+  const stripeTestMode = stripeTestModeFromKey(process.env.STRIPE_SECRET_KEY);
 
   return (
     <div>
