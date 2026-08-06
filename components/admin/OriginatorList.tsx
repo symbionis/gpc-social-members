@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatDate, formatMonth } from "@/lib/format";
 
 interface Originator {
   id: string;
@@ -12,12 +13,56 @@ interface Originator {
   invite_link_active: boolean;
 }
 
-interface Referral {
+export interface Referral {
   id: string;
   first_name: string;
   last_name: string;
   status: string;
   originator_id: string;
+  /** ISO timestamp the member joined. Rendered through formatDate (Geneva). */
+  joinedAt: string;
+  /** "YYYY-MM" in Europe/Zurich, resolved server-side in page.tsx. */
+  monthKey: string;
+  /** null while a member has no tier yet (pending applications). */
+  tierName: string | null;
+}
+
+export interface ReferralMonth {
+  monthKey: string;
+  members: Referral[];
+}
+
+// Group an originator's referred members into Geneva calendar months, oldest
+// first, mirroring the month breakdown on the finance dashboard's Originator
+// tab. Members are ordered within a month by join date, then name, so the list
+// cannot reshuffle between renders — Array.sort is not stable for comparators
+// returning 0.
+//
+// A member with an unparseable created_at has an empty monthKey; those collect
+// under a final "Date unknown" group rather than vanishing from a roster whose
+// header claims a total.
+export function groupReferralsByMonth(referrals: Referral[]): ReferralMonth[] {
+  const byMonth = new Map<string, Referral[]>();
+  for (const r of referrals) {
+    const key = r.monthKey || "";
+    byMonth.set(key, [...(byMonth.get(key) ?? []), r]);
+  }
+  return [...byMonth.entries()]
+    .map(([monthKey, members]) => ({
+      monthKey,
+      members: [...members].sort(
+        (a, b) =>
+          a.joinedAt.localeCompare(b.joinedAt) ||
+          `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`) ||
+          a.id.localeCompare(b.id),
+      ),
+    }))
+    // Undated members last; everything else ascending by month.
+    .sort((a, b) => {
+      if (!a.monthKey) return 1;
+      if (!b.monthKey) return -1;
+      return a.monthKey.localeCompare(b.monthKey);
+    });
 }
 
 interface AvailableAdmin {
@@ -305,32 +350,50 @@ export default function OriginatorList({
               </div>
             )}
 
-            {/* Referred members */}
+            {/* Referred members, grouped by the month they joined */}
             {myReferrals.length > 0 && (
               <div>
                 <p className="text-sm font-body font-medium text-marine mb-2">
                   Referred Members
                 </p>
-                <div className="space-y-1">
-                  {myReferrals.map((ref) => (
-                    <div
-                      key={ref.id}
-                      className="flex items-center justify-between text-sm py-1"
-                    >
-                      <span className="font-body text-marine">
-                        {ref.first_name} {ref.last_name}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs font-body ${
-                          ref.status === "active"
-                            ? "bg-green-100 text-green-800"
-                            : ref.status === "pending"
-                              ? "bg-amber-100 text-amber-800"
-                              : "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {ref.status}
-                      </span>
+                <div className="space-y-4">
+                  {groupReferralsByMonth(myReferrals).map((month) => (
+                    <div key={month.monthKey || "unknown"}>
+                      <div className="flex items-baseline justify-between border-b border-border pb-1 mb-1">
+                        <span className="text-xs font-body font-semibold uppercase tracking-wide text-marine/60">
+                          {month.monthKey ? formatMonth(month.monthKey) : "Date unknown"}
+                        </span>
+                        <span className="text-xs font-body text-muted-foreground">
+                          {month.members.length}
+                        </span>
+                      </div>
+                      {month.members.map((ref) => (
+                        <div
+                          key={ref.id}
+                          className="flex items-center gap-3 text-sm py-1"
+                        >
+                          <span className="flex-1 min-w-0 truncate font-body text-marine">
+                            {ref.first_name} {ref.last_name}
+                          </span>
+                          <span className="w-28 shrink-0 text-right font-body text-muted-foreground truncate">
+                            {ref.tierName ?? "No tier"}
+                          </span>
+                          <span className="w-24 shrink-0 text-right font-body text-muted-foreground tabular-nums">
+                            {formatDate(ref.joinedAt)}
+                          </span>
+                          <span
+                            className={`w-20 shrink-0 text-center px-2 py-0.5 rounded-full text-xs font-body ${
+                              ref.status === "active"
+                                ? "bg-green-100 text-green-800"
+                                : ref.status === "pending"
+                                  ? "bg-amber-100 text-amber-800"
+                                  : "bg-gray-100 text-gray-600"
+                            }`}
+                          >
+                            {ref.status}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>
