@@ -351,6 +351,8 @@ export interface EventMonthRevenue {
   monthKey: MonthKey;
   gross: number;
   paidRegistrations: number;
+  /** The events that took money in this month, highest gross first. */
+  byEvent: EventRevenue[];
 }
 
 export interface EventSummary {
@@ -373,7 +375,10 @@ export function aggregateEvents(
   let freeRegistrations = 0;
 
   const eventAcc = new Map<string, { gross: number; count: number }>();
-  const monthAcc = new Map<MonthKey, { gross: number; count: number }>();
+  const monthAcc = new Map<
+    MonthKey,
+    { gross: number; count: number; events: Map<string, { gross: number; count: number }> }
+  >();
   // Which registrations count toward this period's revenue — used to scope the
   // per-ticket-type rollup to the same set.
   const paidRegIds = new Set<string>();
@@ -395,9 +400,16 @@ export function aggregateEvents(
       // depending on which table you read.
       const monthKey = zurichMonthKey(r.paid_at ?? r.created_at);
       if (monthKey) {
-        const m = monthAcc.get(monthKey) ?? { gross: 0, count: 0 };
+        const m = monthAcc.get(monthKey) ?? { gross: 0, count: 0, events: new Map() };
         m.gross += amt;
         m.count += 1;
+        // Same accumulation as eventAcc, scoped to the month, so a month's
+        // event rows sum to the month by construction rather than by a second
+        // pass that could drift.
+        const me = m.events.get(r.event_id) ?? { gross: 0, count: 0 };
+        me.gross += amt;
+        me.count += 1;
+        m.events.set(r.event_id, me);
         monthAcc.set(monthKey, m);
       }
     } else if (r.status === "free") {
@@ -432,6 +444,22 @@ export function aggregateEvents(
       monthKey,
       gross: round2(v.gross),
       paidRegistrations: v.count,
+      byEvent: [...v.events.entries()]
+        .map(([eventId, e]) => ({
+          eventId,
+          title: eventTitleById.get(eventId) ?? "Unknown event",
+          gross: round2(e.gross),
+          paidRegistrations: e.count,
+        }))
+        // Total tiebreak: gross, then title, then id. Array.sort is not stable
+        // for comparators returning 0, so tied events would otherwise reshuffle
+        // between renders.
+        .sort(
+          (a, b) =>
+            b.gross - a.gross ||
+            a.title.localeCompare(b.title) ||
+            a.eventId.localeCompare(b.eventId),
+        ),
     }))
     .sort((a, b) => a.monthKey.localeCompare(b.monthKey));
 

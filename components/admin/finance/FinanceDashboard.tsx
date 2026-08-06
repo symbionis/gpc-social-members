@@ -8,6 +8,8 @@ import FinanceTabs from "./FinanceTabs";
 import type { FinanceTab } from "./tabs";
 import MembershipRevenuePanel from "./MembershipRevenuePanel";
 import EventRevenuePanel from "./EventRevenuePanel";
+import EventMonthlyPanel from "./EventMonthlyPanel";
+import EventTicketTypePanel from "./EventTicketTypePanel";
 import OriginatorBreakdownPanel from "./OriginatorBreakdownPanel";
 import MemberHealthPanel from "./MemberHealthPanel";
 
@@ -73,7 +75,13 @@ export default function FinanceDashboard({ summary, tab, stripeTestMode }: Props
             <MemberHealthPanel health={summary.memberHealth} />
           </>
         )}
-        {tab === "events" && <EventRevenuePanel events={summary.events} />}
+        {tab === "events" && (
+          <>
+            <EventRevenuePanel events={summary.events} />
+            <EventMonthlyPanel events={summary.events} />
+            <EventTicketTypePanel events={summary.events} />
+          </>
+        )}
         {tab === "originator" && (
           <OriginatorBreakdownPanel
             originators={summary.originators}

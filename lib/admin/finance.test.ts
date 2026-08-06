@@ -204,12 +204,63 @@ describe("aggregateEvents", () => {
       reg({ id: "r5", total_amount_chf: 999, paid_at: "2027-01-01T00:00:00Z" }), // out of range
     ];
     const s = aggregateEvents(regs, [], titles, YEAR_2026);
-    expect(s.byMonth).toEqual([
+    expect(s.byMonth.map(({ monthKey, gross, paidRegistrations }) => ({
+      monthKey,
+      gross,
+      paidRegistrations,
+    }))).toEqual([
       { monthKey: "2026-04", gross: 80, paidRegistrations: 1 },
       { monthKey: "2026-06", gross: 200, paidRegistrations: 2 },
     ]);
     expect(s.byMonth.reduce((t, m) => t + m.gross, 0)).toBe(s.gross);
     expect(s.byMonth.reduce((t, m) => t + m.paidRegistrations, 0)).toBe(s.paidRegistrations);
+  });
+
+  it("breaks each month down by event, and those sum to the month", () => {
+    const regs = [
+      reg({ id: "r1", event_id: "e1", total_amount_chf: 50, paid_at: "2026-06-10T00:00:00Z" }),
+      reg({ id: "r2", event_id: "e2", total_amount_chf: 150, paid_at: "2026-06-20T00:00:00Z" }),
+      reg({ id: "r3", event_id: "e1", total_amount_chf: 30, paid_at: "2026-06-25T00:00:00Z" }),
+      reg({ id: "r4", event_id: "e1", total_amount_chf: 90, paid_at: "2026-04-02T00:00:00Z" }),
+    ];
+    const names = new Map([
+      ["e1", "Summer Gala"],
+      ["e2", "Autumn Ball"],
+    ]);
+    const s = aggregateEvents(regs, [], names, YEAR_2026);
+
+    const june = s.byMonth.find((m) => m.monthKey === "2026-06")!;
+    // Highest-grossing event first within the month.
+    expect(june.byEvent).toEqual([
+      { eventId: "e2", title: "Autumn Ball", gross: 150, paidRegistrations: 1 },
+      { eventId: "e1", title: "Summer Gala", gross: 80, paidRegistrations: 2 },
+    ]);
+
+    // The invariant that catches the month and event passes drifting apart.
+    for (const m of s.byMonth) {
+      expect(m.byEvent.reduce((t, e) => t + e.gross, 0)).toBe(m.gross);
+      expect(m.byEvent.reduce((t, e) => t + e.paidRegistrations, 0)).toBe(m.paidRegistrations);
+    }
+    // An event spanning two months appears under each, and the whole-range
+    // byEvent total still reconciles.
+    const galaAllTime = s.byEvent.find((e) => e.eventId === "e1")!;
+    expect(galaAllTime.gross).toBe(170);
+  });
+
+  it("orders events within a month deterministically when their gross ties", () => {
+    const regs = [
+      reg({ id: "r1", event_id: "z1", total_amount_chf: 100, paid_at: "2026-06-10T00:00:00Z" }),
+      reg({ id: "r2", event_id: "a1", total_amount_chf: 100, paid_at: "2026-06-11T00:00:00Z" }),
+    ];
+    const names = new Map([
+      ["z1", "Zebra Cup"],
+      ["a1", "Alpine Cup"],
+    ]);
+    const order = () =>
+      aggregateEvents(regs, [], names, YEAR_2026)
+        .byMonth[0].byEvent.map((e) => e.eventId);
+    expect(order()).toEqual(["a1", "z1"]); // equal gross -> title ascending
+    expect(order()).toEqual(order());
   });
 
   it("buckets a registration just after UTC midnight into the Geneva month", () => {

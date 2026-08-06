@@ -57,7 +57,16 @@ const SUMMARY: FinanceSummary = {
     freeRegistrations: 0,
     byEvent: [{ eventId: "e1", title: "Summer Gala", gross: 1000, paidRegistrations: 1 }],
     byTicketType: [{ title: "Standard", gross: 1000, quantity: 1 }],
-    byMonth: [{ monthKey: "2026-03", gross: 1000, paidRegistrations: 1 }],
+    byMonth: [
+      {
+        monthKey: "2026-03",
+        gross: 1000,
+        paidRegistrations: 1,
+        byEvent: [
+          { eventId: "e1", title: "Summer Gala", gross: 1000, paidRegistrations: 1 },
+        ],
+      },
+    ],
   },
   originators: [
     {
@@ -106,13 +115,19 @@ describe("FinanceDashboard", () => {
     renderDashboard({ tab: "membership" });
     expect(screen.getByRole("heading", { name: "Membership revenue" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Member health" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Event sales" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^Event sales/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Originator breakdown" })).not.toBeInTheDocument();
   });
 
-  it("shows only the Event panel on the events tab", () => {
+  it("shows the three event panels on the events tab, and nothing else", () => {
     renderDashboard({ tab: "events" });
-    expect(screen.getByRole("heading", { name: "Event sales" })).toBeInTheDocument();
+    for (const name of [
+      "Event sales",
+      "Event sales by month",
+      "Event sales by ticket type",
+    ]) {
+      expect(screen.getByRole("heading", { name })).toBeInTheDocument();
+    }
     expect(screen.queryByRole("heading", { name: "Membership revenue" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Originator breakdown" })).not.toBeInTheDocument();
   });
@@ -121,7 +136,7 @@ describe("FinanceDashboard", () => {
     renderDashboard({ tab: "originator" });
     expect(screen.getByRole("heading", { name: "Originator breakdown" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Membership revenue" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Event sales" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^Event sales/ })).not.toBeInTheDocument();
   });
 
   it("forwards the transactions and Stripe mode the originator drill-down needs", async () => {
