@@ -193,6 +193,36 @@ describe("aggregateEvents", () => {
     expect(s.byEvent[0]).toMatchObject({ eventId: "e1", gross: 200, paidRegistrations: 2 });
   });
 
+  it("breaks gross down by Geneva calendar month, ascending, reconciling with the total", () => {
+    const regs = [
+      reg({ id: "r1", total_amount_chf: 50, paid_at: "2026-06-10T00:00:00Z" }),
+      reg({ id: "r2", total_amount_chf: 150, paid_at: "2026-06-20T00:00:00Z" }),
+      reg({ id: "r3", total_amount_chf: 80, paid_at: "2026-04-01T00:00:00Z" }),
+      // Free registrations are counted on the page but are not revenue, so they
+      // must not create a month row of their own.
+      reg({ id: "r4", total_amount_chf: 0, status: "free", paid_at: "2026-09-01T00:00:00Z" }),
+      reg({ id: "r5", total_amount_chf: 999, paid_at: "2027-01-01T00:00:00Z" }), // out of range
+    ];
+    const s = aggregateEvents(regs, [], titles, YEAR_2026);
+    expect(s.byMonth).toEqual([
+      { monthKey: "2026-04", gross: 80, paidRegistrations: 1 },
+      { monthKey: "2026-06", gross: 200, paidRegistrations: 2 },
+    ]);
+    expect(s.byMonth.reduce((t, m) => t + m.gross, 0)).toBe(s.gross);
+    expect(s.byMonth.reduce((t, m) => t + m.paidRegistrations, 0)).toBe(s.paidRegistrations);
+  });
+
+  it("buckets a registration just after UTC midnight into the Geneva month", () => {
+    // 23:30 UTC on 30 June is 01:30 on 1 July in Geneva.
+    const s = aggregateEvents(
+      [reg({ id: "r1", total_amount_chf: 50, paid_at: "2026-06-30T23:30:00Z" })],
+      [],
+      titles,
+      YEAR_2026,
+    );
+    expect(s.byMonth.map((m) => m.monthKey)).toEqual(["2026-07"]);
+  });
+
   it("rolls up ticket-type revenue only for in-period paid registrations", () => {
     const regs = [
       reg({ id: "r1", status: "paid" }),

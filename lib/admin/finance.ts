@@ -344,12 +344,22 @@ export interface TicketTypeRevenue {
   quantity: number;
 }
 
+// One Geneva calendar month of event ticket revenue. Gross only, with no `net`
+// counterpart: event refunds are not recorded in the database, so a net column
+// would just repeat gross and imply a reconciliation the data cannot support.
+export interface EventMonthRevenue {
+  monthKey: MonthKey;
+  gross: number;
+  paidRegistrations: number;
+}
+
 export interface EventSummary {
   gross: number;
   paidRegistrations: number;
   freeRegistrations: number;
   byEvent: EventRevenue[];
   byTicketType: TicketTypeRevenue[];
+  byMonth: EventMonthRevenue[]; // ascending by monthKey
 }
 
 export function aggregateEvents(
@@ -363,6 +373,7 @@ export function aggregateEvents(
   let freeRegistrations = 0;
 
   const eventAcc = new Map<string, { gross: number; count: number }>();
+  const monthAcc = new Map<MonthKey, { gross: number; count: number }>();
   // Which registrations count toward this period's revenue — used to scope the
   // per-ticket-type rollup to the same set.
   const paidRegIds = new Set<string>();
@@ -379,6 +390,16 @@ export function aggregateEvents(
       e.gross += amt;
       e.count += 1;
       eventAcc.set(r.event_id, e);
+      // Geneva months, matching the membership breakdown and the originator
+      // panel, so the same registration never files under two different months
+      // depending on which table you read.
+      const monthKey = zurichMonthKey(r.paid_at ?? r.created_at);
+      if (monthKey) {
+        const m = monthAcc.get(monthKey) ?? { gross: 0, count: 0 };
+        m.gross += amt;
+        m.count += 1;
+        monthAcc.set(monthKey, m);
+      }
     } else if (r.status === "free") {
       freeRegistrations += 1;
     }
@@ -406,12 +427,21 @@ export function aggregateEvents(
     .map(([title, v]) => ({ title, gross: round2(v.gross), quantity: v.quantity }))
     .sort((a, b) => b.gross - a.gross);
 
+  const byMonth: EventMonthRevenue[] = [...monthAcc.entries()]
+    .map(([monthKey, v]) => ({
+      monthKey,
+      gross: round2(v.gross),
+      paidRegistrations: v.count,
+    }))
+    .sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+
   return {
     gross: round2(gross),
     paidRegistrations,
     freeRegistrations,
     byEvent,
     byTicketType,
+    byMonth,
   };
 }
 

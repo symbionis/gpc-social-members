@@ -57,6 +57,7 @@ const SUMMARY: FinanceSummary = {
     freeRegistrations: 0,
     byEvent: [{ eventId: "e1", title: "Summer Gala", gross: 1000, paidRegistrations: 1 }],
     byTicketType: [{ title: "Standard", gross: 1000, quantity: 1 }],
+    byMonth: [{ monthKey: "2026-03", gross: 1000, paidRegistrations: 1 }],
   },
   originators: [
     {

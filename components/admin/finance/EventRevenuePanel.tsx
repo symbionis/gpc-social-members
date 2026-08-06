@@ -1,5 +1,5 @@
 import type { EventSummary } from "@/lib/admin/finance";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatMonth } from "@/lib/format";
 import { Table } from "./MembershipRevenuePanel";
 
 interface Props {
@@ -7,7 +7,8 @@ interface Props {
 }
 
 export default function EventRevenuePanel({ events }: Props) {
-  const { gross, paidRegistrations, freeRegistrations, byEvent, byTicketType } = events;
+  const { gross, paidRegistrations, freeRegistrations, byEvent, byTicketType, byMonth } =
+    events;
 
   return (
     <section className="rounded-xl bg-white border border-marine/10 p-6 space-y-6">
@@ -20,6 +21,21 @@ export default function EventRevenuePanel({ events }: Props) {
         <Stat label="Gross" value={formatCurrency(gross)} strong />
         <Stat label="Paid registrations" value={String(paidRegistrations)} />
         <Stat label="Free / comp" value={String(freeRegistrations)} />
+      </div>
+
+      <div>
+        <h3 className="text-sm font-body font-semibold text-marine/70 mb-2">
+          By month
+        </h3>
+        <Table
+          head={["Month", "Paid", "Gross"]}
+          rows={byMonth.map((m) => [
+            formatMonth(m.monthKey),
+            String(m.paidRegistrations),
+            formatCurrency(m.gross),
+          ])}
+          empty="No event sales in this period."
+        />
       </div>
 
       <div className="grid md:grid-cols-2 gap-8">
