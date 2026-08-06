@@ -8,6 +8,8 @@ import {
   getFinanceSummary,
   getFinanceTransactions,
   buildMembershipTransactions,
+  buildOriginatorTransactions,
+  resolveStripeRef,
   UNATTRIBUTED_ORIGINATOR,
   type MembershipPaymentRow,
   type EventRegistrationRow,
@@ -18,14 +20,20 @@ import {
 
 const YEAR_2026 = rangeFromDates("2026-01-01", "2026-12-31");
 
+let paymentSeq = 0;
+
 function payment(over: Partial<MembershipPaymentRow>): MembershipPaymentRow {
+  paymentSeq += 1;
   return {
+    id: `p${paymentSeq}`,
     member_id: "m1",
     tier_id: "t1",
     amount_eur: 100,
     payment_status: "paid",
     paid_at: "2026-03-01T10:00:00Z",
     created_at: "2026-03-01T10:00:00Z",
+    stripe_payment_intent_id: null,
+    stripe_checkout_session_id: null,
     ...over,
   };
 }
@@ -231,6 +239,238 @@ describe("aggregateOriginators", () => {
     const alice = rows.find((r) => r.originatorId === "o1")!;
     expect(alice.convertedReferrals).toBe(1);
   });
+
+  it("breaks each originator down by Geneva calendar month, ascending", () => {
+    const payments = [
+      payment({ member_id: "m1", amount_eur: 900, paid_at: "2026-03-15T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 1200, paid_at: "2026-04-15T00:00:00Z" }),
+    ];
+    const alice = aggregateOriginators(payments, members, [], names, YEAR_2026).find(
+      (r) => r.originatorId === "o1",
+    )!;
+    expect(alice.byMonth.map((m) => m.monthKey)).toEqual(["2026-03", "2026-04"]);
+    expect(alice.byMonth.map((m) => m.net)).toEqual([900, 1200]);
+    expect(alice.byMonth.map((m) => m.paidCount)).toEqual([1, 1]);
+    expect(alice.net).toBe(2100); // AE2
+  });
+
+  it("buckets a payment just after UTC midnight into the Geneva month", () => {
+    // 2026-02-28T23:30Z is 00:30 on 1 March in Geneva. AE1.
+    const payments = [payment({ member_id: "m1", paid_at: "2026-02-28T23:30:00Z" })];
+    const alice = aggregateOriginators(payments, members, [], names, YEAR_2026).find(
+      (r) => r.originatorId === "o1",
+    )!;
+    expect(alice.byMonth.map((m) => m.monthKey)).toEqual(["2026-03"]);
+  });
+
+  it("keeps the month nets summing to each originator's total net", () => {
+    const payments = [
+      payment({ member_id: "m1", amount_eur: 900, paid_at: "2026-03-15T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 250, payment_status: "refunded", paid_at: "2026-03-20T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 1200, paid_at: "2026-04-15T00:00:00Z" }),
+      payment({ member_id: "m2", amount_eur: 400, paid_at: "2026-05-15T00:00:00Z" }),
+    ];
+    const rows = aggregateOriginators(payments, members, [], names, YEAR_2026);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(r.byMonth.reduce((s, m) => s + m.net, 0)).toBe(r.net);
+    }
+    // Refunds net down their own month rather than landing elsewhere.
+    const march = rows
+      .find((r) => r.originatorId === "o1")!
+      .byMonth.find((m) => m.monthKey === "2026-03")!;
+    expect(march.net).toBe(650);
+    expect(march.paidCount).toBe(1); // the refund is not a paid payment
+  });
+
+  it("gives members with no originator their own Direct monthly breakdown", () => {
+    // AE5.
+    const payments = [
+      payment({ member_id: "m2", amount_eur: 300, paid_at: "2026-03-15T00:00:00Z" }),
+      payment({ member_id: "m2", amount_eur: 500, paid_at: "2026-06-15T00:00:00Z" }),
+    ];
+    const direct = aggregateOriginators(payments, members, [], names, YEAR_2026).find(
+      (r) => r.originatorId === UNATTRIBUTED_ORIGINATOR,
+    )!;
+    expect(direct.name).toBe("Direct (no originator)");
+    expect(direct.byMonth.map((m) => m.monthKey)).toEqual(["2026-03", "2026-06"]);
+    expect(direct.byMonth.reduce((s, m) => s + m.net, 0)).toBe(direct.net);
+  });
+
+  it("leaves byMonth empty for an originator with referrals but no attributed payments", () => {
+    // AE6 — the panel renders a no-payments line rather than blank space.
+    const referrals: ReferralRow[] = [{ originator_id: "o1", converted_at: "2026-04-01T00:00:00Z" }];
+    const alice = aggregateOriginators([], members, referrals, names, YEAR_2026).find(
+      (r) => r.originatorId === "o1",
+    )!;
+    expect(alice.convertedReferrals).toBe(1);
+    expect(alice.byMonth).toEqual([]);
+  });
+
+  it("sorts originators with identical net deterministically across repeated calls", () => {
+    const tied: MemberRow[] = [
+      { id: "m1", status: "active", tier_id: "t1", originator_id: "o1", created_at: "2026-01-02T00:00:00Z", end_date: null },
+      { id: "m3", status: "active", tier_id: "t1", originator_id: "o2", created_at: "2026-01-02T00:00:00Z", end_date: null },
+    ];
+    const tiedNames = new Map([
+      ["o1", "Zoe Zenith"],
+      ["o2", "Alice Agent"],
+    ]);
+    const payments = [
+      payment({ member_id: "m1", amount_eur: 500 }),
+      payment({ member_id: "m3", amount_eur: 500 }),
+    ];
+    const order = () =>
+      aggregateOriginators(payments, tied, [], tiedNames, YEAR_2026).map((r) => r.originatorId);
+    // Equal net → name ascending, so the tie never depends on Array.sort stability.
+    expect(order()).toEqual(["o2", "o1"]);
+    expect(order()).toEqual(order());
+  });
+
+  it("excludes payments outside the range from byMonth", () => {
+    const payments = [
+      payment({ member_id: "m1", amount_eur: 100, paid_at: "2026-03-01T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 999, paid_at: "2027-03-01T00:00:00Z" }),
+    ];
+    const alice = aggregateOriginators(payments, members, [], names, YEAR_2026).find(
+      (r) => r.originatorId === "o1",
+    )!;
+    expect(alice.byMonth.map((m) => m.monthKey)).toEqual(["2026-03"]);
+    expect(alice.net).toBe(100);
+  });
+});
+
+describe("resolveStripeRef", () => {
+  it("prefers the PaymentIntent over the Checkout Session", () => {
+    expect(
+      resolveStripeRef({
+        stripe_payment_intent_id: "pi_1",
+        stripe_checkout_session_id: "cs_1",
+      }),
+    ).toEqual({ kind: "payment_intent", id: "pi_1" });
+  });
+
+  it("falls back to the Checkout Session when there is no PaymentIntent", () => {
+    expect(
+      resolveStripeRef({
+        stripe_payment_intent_id: null,
+        stripe_checkout_session_id: "cs_1",
+      }),
+    ).toEqual({ kind: "checkout_session", id: "cs_1" });
+  });
+
+  it("returns null when neither identifier is on record", () => {
+    expect(
+      resolveStripeRef({
+        stripe_payment_intent_id: null,
+        stripe_checkout_session_id: null,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("buildOriginatorTransactions", () => {
+  const members: MemberRow[] = [
+    { id: "m1", status: "active", tier_id: "t1", originator_id: "o1", created_at: "2026-01-02T00:00:00Z", end_date: null },
+    { id: "m2", status: "active", tier_id: "t1", originator_id: null, created_at: "2026-01-02T00:00:00Z", end_date: null },
+  ];
+  const memberNames = new Map([
+    ["m1", "Ann Adams"],
+    ["m2", "Bob Brown"],
+  ]);
+  const tierNames = new Map([["t1", "Individual"]]);
+  const originatorNames = new Map([["o1", "Alice Agent"]]);
+
+  it("includes paid and refunded rows only, and excludes out-of-range rows", () => {
+    const payments = [
+      payment({ member_id: "m1", payment_status: "paid", amount_eur: 100 }),
+      payment({ member_id: "m1", payment_status: "refunded", amount_eur: 40 }),
+      payment({ member_id: "m1", payment_status: "pending", amount_eur: 999 }),
+      payment({ member_id: "m1", payment_status: "overdue", amount_eur: 999 }),
+      payment({ member_id: "m1", payment_status: "free", amount_eur: 999 }),
+      payment({ member_id: "m1", payment_status: "paid", amount_eur: 999, paid_at: "2027-03-01T00:00:00Z" }),
+    ];
+    const rows = buildOriginatorTransactions(payments, members, memberNames, tierNames, YEAR_2026);
+    expect(rows.map((r) => r.status)).toEqual(["paid", "refunded"]);
+    expect(rows.map((r) => r.amountChf)).toEqual([100, -40]);
+  });
+
+  it("carries member, tier, month, and Stripe reference on each row", () => {
+    const payments = [
+      payment({
+        id: "pay-1",
+        member_id: "m1",
+        amount_eur: 2400,
+        paid_at: "2026-04-12T09:00:00Z",
+        stripe_payment_intent_id: "pi_123",
+      }),
+      payment({
+        id: "pay-2",
+        member_id: "m2",
+        amount_eur: 1500,
+        paid_at: "2026-04-28T09:00:00Z",
+        stripe_checkout_session_id: "cs_456",
+      }),
+    ];
+    const rows = buildOriginatorTransactions(payments, members, memberNames, tierNames, YEAR_2026);
+    expect(rows[0]).toMatchObject({
+      id: "pay-1",
+      originatorId: "o1",
+      monthKey: "2026-04",
+      memberName: "Ann Adams",
+      tierName: "Individual",
+      date: "2026-04-12",
+      status: "paid",
+      amountChf: 2400,
+      stripeRef: { kind: "payment_intent", id: "pi_123" },
+    });
+    expect(rows[1]).toMatchObject({
+      originatorId: UNATTRIBUTED_ORIGINATOR,
+      memberName: "Bob Brown",
+      stripeRef: { kind: "checkout_session", id: "cs_456" },
+    });
+  });
+
+  it("sorts by date then payment id so repeated calls agree", () => {
+    const payments = [
+      payment({ id: "b", paid_at: "2026-05-01T00:00:00Z" }),
+      payment({ id: "a", paid_at: "2026-05-01T00:00:00Z" }),
+      payment({ id: "c", paid_at: "2026-04-01T00:00:00Z" }),
+    ];
+    const rows = buildOriginatorTransactions(payments, members, memberNames, tierNames, YEAR_2026);
+    expect(rows.map((r) => r.id)).toEqual(["c", "a", "b"]);
+  });
+
+  it("reconciles with aggregateOriginators for every originator and month", () => {
+    // The check that catches the two functions' independently written range,
+    // sign, and month-key logic drifting apart.
+    const payments = [
+      payment({ member_id: "m1", amount_eur: 900, paid_at: "2026-03-15T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 250, payment_status: "refunded", paid_at: "2026-03-20T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 1200, paid_at: "2026-04-15T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 300, paid_at: "2026-02-28T23:30:00Z" }), // Geneva March
+      payment({ member_id: "m2", amount_eur: 400, paid_at: "2026-05-15T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 777, payment_status: "pending", paid_at: "2026-05-02T00:00:00Z" }),
+      payment({ member_id: "m1", amount_eur: 888, paid_at: "2027-01-01T00:00:00Z" }), // out of range
+    ];
+    const originators = aggregateOriginators(payments, members, [], originatorNames, YEAR_2026);
+    const txns = buildOriginatorTransactions(payments, members, memberNames, tierNames, YEAR_2026);
+
+    for (const o of originators) {
+      for (const m of o.byMonth) {
+        const summed = txns
+          .filter((t) => t.originatorId === o.originatorId && t.monthKey === m.monthKey)
+          .reduce((s, t) => s + t.amountChf, 0);
+        expect(summed).toBe(m.net);
+      }
+      // …and no transaction rows exist for a month the aggregator never emitted.
+      const monthKeys = new Set(o.byMonth.map((m) => m.monthKey));
+      const orphan = txns.filter(
+        (t) => t.originatorId === o.originatorId && !monthKeys.has(t.monthKey),
+      );
+      expect(orphan).toEqual([]);
+    }
+  });
 });
 
 describe("aggregateMemberHealth", () => {
@@ -280,12 +520,15 @@ describe("getFinanceSummary pagination", () => {
   it("pages past the 1000-row cap without truncating", async () => {
     // 1500 paid payments of 10 CHF each = 15000 gross.
     const payments = Array.from({ length: 1500 }, (_, i) => ({
+      id: `p${i}`,
       member_id: `m${i}`,
       tier_id: "t1",
       amount_eur: 10,
       payment_status: "paid",
       paid_at: "2026-05-01T00:00:00Z",
       created_at: "2026-05-01T00:00:00Z",
+      stripe_payment_intent_id: null,
+      stripe_checkout_session_id: null,
     }));
     const client = makeClient({
       payments,
@@ -324,6 +567,74 @@ describe("getFinanceSummary pagination", () => {
     };
     const summary = await getFinanceSummary(client, "2026-01-01", "2026-12-31");
     expect(summary.complete).toBe(false);
+  });
+
+  it("surfaces originator transactions with their Stripe reference end to end", async () => {
+    // The makeClient fake ignores the column list, so the new fields have to be
+    // on the fixture ROWS — widening the select string alone proves nothing.
+    const client = makeClient({
+      payments: [
+        {
+          id: "pay-1",
+          member_id: "m1",
+          tier_id: "t1",
+          amount_eur: 1400,
+          payment_status: "paid",
+          paid_at: "2026-03-04T00:00:00Z",
+          created_at: "2026-03-04T00:00:00Z",
+          stripe_payment_intent_id: "pi_live_1",
+          stripe_checkout_session_id: "cs_live_1",
+        },
+        {
+          id: "pay-2",
+          member_id: "m1",
+          tier_id: "t1",
+          amount_eur: 600,
+          payment_status: "paid",
+          paid_at: "2026-04-04T00:00:00Z",
+          created_at: "2026-04-04T00:00:00Z",
+          stripe_payment_intent_id: null,
+          stripe_checkout_session_id: null,
+        },
+      ],
+      event_registrations: [],
+      event_registration_items: [],
+      members: [
+        {
+          id: "m1",
+          status: "active",
+          tier_id: "t1",
+          originator_id: "o1",
+          created_at: "2026-01-01T00:00:00Z",
+          end_date: null,
+          first_name: "Ann",
+          last_name: "Adams",
+          email: "ann@x.com",
+        },
+      ],
+      membership_tiers: [{ id: "t1", name: "Individual" }],
+      admin_users: [{ id: "o1", first_name: "Alice", last_name: "Agent" }],
+      referrals: [],
+      events: [],
+    });
+
+    const summary = await getFinanceSummary(client, "2026-01-01", "2026-12-31");
+    expect(summary.originatorTransactions).toHaveLength(2);
+    const [first, second] = summary.originatorTransactions;
+    expect(first).toMatchObject({
+      originatorId: "o1",
+      monthKey: "2026-03",
+      memberName: "Ann Adams",
+      tierName: "Individual",
+      stripeRef: { kind: "payment_intent", id: "pi_live_1" },
+    });
+    expect(second.stripeRef).toBeNull();
+
+    // Reconciles with the aggregator the panel renders one level up.
+    const alice = summary.originators.find((o) => o.originatorId === "o1")!;
+    expect(alice.byMonth.map((m) => m.monthKey)).toEqual(["2026-03", "2026-04"]);
+    expect(alice.byMonth.reduce((s, m) => s + m.net, 0)).toBe(alice.net);
+    expect(alice.net).toBe(2000);
   });
 });
 
