@@ -13,8 +13,8 @@ export default function EventTicketTypePanel({ events }: Props) {
         Event sales by ticket type
       </h2>
       <p className="text-xs text-marine/40 font-body">
-        Scoped to the same completed checkouts as the other event panels, counted
-        from the individual ticket lines rather than the booking total.
+        Scoped to the same completed checkouts and the same ticket line ledger as
+        the other event panels.
       </p>
       <Table
         head={["Ticket type", "Qty", "Gross"]}

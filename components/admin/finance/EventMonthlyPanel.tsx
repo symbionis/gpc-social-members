@@ -42,7 +42,8 @@ export default function EventMonthlyPanel({ events }: Props) {
       </div>
 
       <p className="text-xs text-marine/40 font-body">
-        Money received, gross of refunds. Only completed checkouts count — a
+        Money received, gross of refunds, counted from the individual ticket
+        lines so later top-ups are included. Only completed checkouts count — a
         started-but-abandoned checkout never reaches this table. Months bucket by
         payment date in Geneva time.
       </p>

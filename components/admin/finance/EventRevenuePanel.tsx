@@ -15,7 +15,9 @@ export default function EventRevenuePanel({ events }: Props) {
     <section className="rounded-xl bg-white border border-marine/10 p-6 space-y-6">
       <div className="flex items-baseline justify-between">
         <h2 className="font-heading text-xl font-bold text-marine">Event sales</h2>
-        <span className="text-xs text-marine/40 font-body">gross of refunds</span>
+        <span className="text-xs text-marine/40 font-body">
+          money received, gross of refunds
+        </span>
       </div>
 
       <div className="grid grid-cols-3 gap-4">

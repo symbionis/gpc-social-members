@@ -274,6 +274,47 @@ describe("aggregateEvents", () => {
     expect(s.byMonth.map((m) => m.monthKey)).toEqual(["2026-07"]);
   });
 
+  it("counts money from the ticket line ledger, so top-ups are included", () => {
+    // A top-up inserts item lines and bumps quantity but never updates
+    // total_amount_chf (apply_registration_topup), so the booking total lags
+    // what the customer actually paid.
+    const regs = [reg({ id: "r1", total_amount_chf: 100, status: "paid" })];
+    const items: EventItemRow[] = [
+      { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 100 },
+      { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 60 }, // top-up
+    ];
+    const s = aggregateEvents(regs, items, titles, YEAR_2026);
+    expect(s.gross).toBe(160);
+    expect(s.byEvent[0].gross).toBe(160);
+    expect(s.byMonth[0].gross).toBe(160);
+    expect(s.byMonth[0].byEvent[0].gross).toBe(160);
+    // Every panel now reads the same ledger, so they agree.
+    expect(s.byTicketType[0].gross).toBe(160);
+  });
+
+  it("falls back to the booking total when a registration has no line items", () => {
+    // A legacy row with no items must keep its money rather than reporting zero.
+    const regs = [reg({ id: "r1", total_amount_chf: 250, status: "paid" })];
+    const s = aggregateEvents(regs, [], titles, YEAR_2026);
+    expect(s.gross).toBe(250);
+    expect(s.byMonth[0].gross).toBe(250);
+  });
+
+  it("ignores line items belonging to registrations that never completed checkout", () => {
+    const regs = [
+      reg({ id: "r1", total_amount_chf: 100, status: "paid" }),
+      reg({ id: "r2", total_amount_chf: 999, status: "pending" }),
+    ];
+    const items: EventItemRow[] = [
+      { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 100 },
+      { registration_id: "r2", title_snapshot: "Standard", quantity: 9, line_total_chf: 999 },
+    ];
+    const s = aggregateEvents(regs, items, titles, YEAR_2026);
+    expect(s.gross).toBe(100);
+    expect(s.paidRegistrations).toBe(1);
+    expect(s.byTicketType[0].gross).toBe(100);
+  });
+
   it("rolls up ticket-type revenue only for in-period paid registrations", () => {
     const regs = [
       reg({ id: "r1", status: "paid" }),
@@ -805,6 +846,25 @@ describe("getFinanceTransactions", () => {
     const freeRows = rows.filter((r) => r.status === "free");
     expect(freeRows.every((r) => r.amountChf === 0)).toBe(true);
     expect(rows.some((r) => r.status === "pending")).toBe(false);
+  });
+
+  it("exports event money from the ticket line ledger, matching the dashboard", async () => {
+    const client = makeClient({
+      ...base,
+      payments: [],
+      event_registrations: [
+        { id: "r1", event_id: "e1", total_amount_chf: 100, status: "paid", paid_at: "2026-04-01T00:00:00Z", created_at: "2026-04-01T00:00:00Z", name: "Guest", email: "g@x.com" },
+        { id: "r2", event_id: "e1", total_amount_chf: 70, status: "paid", paid_at: "2026-04-02T00:00:00Z", created_at: "2026-04-02T00:00:00Z", name: "Legacy", email: "l@x.com" },
+      ],
+      event_registration_items: [
+        { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 100 },
+        { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 60 }, // top-up
+        // r2 has no lines — a legacy row keeps its booking total.
+      ],
+    });
+    const rows = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
+    const amounts = rows.filter((r) => r.type === "event").map((r) => r.amountChf);
+    expect(amounts).toEqual([160, 70]);
   });
 
   it("returns no rows for an empty range (CSV would be headers only)", async () => {

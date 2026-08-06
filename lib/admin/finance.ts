@@ -19,8 +19,10 @@
 //   - Membership gross  = sum of `paid` rows.
 //   - Membership refunds = sum of `refunded` rows.
 //   - Membership net     = gross − refunds.
-//   - Event revenue      = sum of `paid` registrations (gross; event refunds
-//                          are not tracked in the DB — see the plan caveat).
+//   - Event revenue      = sum of the ticket LINE ITEMS of `paid` registrations
+//                          (gross; event refunds are not tracked in the DB).
+//                          The lines, not `total_amount_chf`: a top-up appends
+//                          lines without updating the booking total.
 //   - `free` / comp rows contribute to COUNTS but never to revenue.
 
 import { zurichMonthKey, type MonthKey } from "@/lib/members/payments";
@@ -374,6 +376,28 @@ export function aggregateEvents(
   let paidRegistrations = 0;
   let freeRegistrations = 0;
 
+  // What a registration actually took, from the ticket line ledger.
+  //
+  // `event_registrations.total_amount_chf` is written at checkout and a top-up
+  // never updates it — apply_registration_topup inserts item lines and bumps
+  // `quantity` only. Reading the booking total therefore misses every franc of
+  // top-up revenue, while the per-ticket-type rollup below (which already reads
+  // the lines) includes it, so the two disagreed. The lines are the ledger:
+  // top-ups append to them and ticket-type conversions adjust them in place.
+  //
+  // A registration with NO line rows falls back to its booking total. Legacy
+  // rows predate the items table, and reporting zero for them would silently
+  // lose real money.
+  const itemTotalByReg = new Map<string, number>();
+  for (const it of items) {
+    itemTotalByReg.set(
+      it.registration_id,
+      (itemTotalByReg.get(it.registration_id) ?? 0) + (it.line_total_chf ?? 0),
+    );
+  }
+  const amountOf = (r: EventRegistrationRow): number =>
+    itemTotalByReg.get(r.id) ?? r.total_amount_chf ?? 0;
+
   const eventAcc = new Map<string, { gross: number; count: number }>();
   const monthAcc = new Map<
     MonthKey,
@@ -387,7 +411,7 @@ export function aggregateEvents(
     const ms = effectivePaidMs(r);
     if (!inRange(ms, range)) continue;
     if (r.status === "paid") {
-      const amt = r.total_amount_chf ?? 0;
+      const amt = amountOf(r);
       gross += amt;
       paidRegistrations += 1;
       paidRegIds.add(r.id);
@@ -796,7 +820,7 @@ export async function getFinanceTransactions(
 ): Promise<FinanceTransaction[]> {
   const range = rangeFromDates(from, to);
 
-  const [pay, members, tiers, regs, events] = await Promise.all([
+  const [pay, members, tiers, regs, events, items] = await Promise.all([
     fetchAll<ExportPaymentRow>(
       client,
       "payments",
@@ -819,7 +843,23 @@ export async function getFinanceTransactions(
       "id",
     ),
     fetchAll<{ id: string; title: string }>(client, "events", "id, title", "id"),
+    // The export reads the same ticket line ledger as the dashboard, so a
+    // top-up cannot make the CSV disagree with the page it was exported from.
+    fetchAll<EventItemRow>(
+      client,
+      "event_registration_items",
+      "registration_id, title_snapshot, quantity, line_total_chf",
+      "id",
+    ),
   ]);
+
+  const eventItemTotalByReg = new Map<string, number>();
+  for (const it of items.rows) {
+    eventItemTotalByReg.set(
+      it.registration_id,
+      (eventItemTotalByReg.get(it.registration_id) ?? 0) + (it.line_total_chf ?? 0),
+    );
+  }
 
   const memberName = new Map(
     members.rows.map((m) => [m.id, `${m.first_name} ${m.last_name}`.trim() || m.email]),
@@ -856,7 +896,10 @@ export async function getFinanceTransactions(
       party: r.name || r.email,
       detail: eventTitle.get(r.event_id) ?? "Unknown event",
       status: r.status,
-      amountChf: r.status === "paid" ? round2(r.total_amount_chf ?? 0) : 0,
+      amountChf:
+        r.status === "paid"
+          ? round2(eventItemTotalByReg.get(r.id) ?? r.total_amount_chf ?? 0)
+          : 0,
     });
   }
 
