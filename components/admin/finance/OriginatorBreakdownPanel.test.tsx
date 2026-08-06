@@ -89,19 +89,37 @@ function renderPanel(
 
 const originatorRow = (name: string | RegExp) => screen.getByRole("button", { name });
 
+// "April 2026" appears under both Sophie and Marc, so disambiguate by amount.
+const sophieMonth = (label: string) =>
+  screen.getAllByRole("button", { name: new RegExp(label) }).find((b) =>
+    b.textContent?.includes("8200"),
+  )!;
+
 describe("OriginatorBreakdownPanel", () => {
-  it("renders one collapsed row per originator, in the order given", () => {
+  it("shows every originator's months on arrival, with payments still behind a click", () => {
+    renderPanel();
+    // Level 1, in the order given, all open.
+    for (const name of ["Sophie Dubois", "Marc Berger", "Rene Sansref"]) {
+      expect(originatorRow(new RegExp(name))).toHaveAttribute("aria-expanded", "true");
+    }
+    // Level 2 is on screen without a click...
+    expect(screen.getByText("March 2026")).toBeInTheDocument();
+    expect(screen.getAllByText("April 2026")).toHaveLength(2); // Sophie's and Marc's
+    // ...and level 3 is not.
+    expect(screen.queryByText("A. Lindqvist")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("keeps the originators in the order given", () => {
     renderPanel();
     const rows = screen
       .getAllByRole("button")
       .filter((b) => b.getAttribute("aria-expanded") !== null);
-    expect(rows.map((b) => b.textContent)).toHaveLength(3);
+    // 3 originators + their 3 month rows.
+    expect(rows).toHaveLength(6);
     expect(rows[0]).toHaveTextContent("Sophie Dubois");
-    expect(rows[1]).toHaveTextContent("Marc Berger");
-    expect(rows[2]).toHaveTextContent("Rene Sansref");
-    for (const row of rows) expect(row).toHaveAttribute("aria-expanded", "false");
-    // Nothing below level 1 is on screen yet.
-    expect(screen.queryByText("March 2026")).not.toBeInTheDocument();
+    expect(rows[3]).toHaveTextContent("Marc Berger");
+    expect(rows[5]).toHaveTextContent("Rene Sansref");
   });
 
   it("shows each originator's net and converted-referral count", () => {
@@ -111,53 +129,53 @@ describe("OriginatorBreakdownPanel", () => {
     expect(sophie).toHaveTextContent("CHF 12400");
   });
 
-  it("expands an originator to its months and collapses it again", async () => {
+  it("collapses an originator's months and restores them", async () => {
     const user = userEvent.setup();
     renderPanel();
     const sophie = originatorRow(/Sophie Dubois/);
 
     await user.click(sophie);
-    expect(sophie).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("March 2026")).toBeInTheDocument();
+    expect(sophie).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("March 2026")).not.toBeInTheDocument();
+    // Only Sophie collapsed — Marc's April row is untouched.
     expect(screen.getByText("April 2026")).toBeInTheDocument();
 
     await user.click(sophie);
-    expect(sophie).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("March 2026")).not.toBeInTheDocument();
+    expect(sophie).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("March 2026")).toBeInTheDocument();
   });
 
-  it("labels months through formatMonth rather than a raw month key", async () => {
-    const user = userEvent.setup();
+  it("labels months through formatMonth rather than a raw month key", () => {
     renderPanel();
-    await user.click(originatorRow(/Sophie Dubois/));
     expect(screen.getByText("March 2026")).toBeInTheDocument();
     expect(screen.queryByText("2026-03")).not.toBeInTheDocument();
   });
 
-  it("keeps two originators open at once and clears both levels on Collapse all", async () => {
+  it("collapses every level at once, then restores the default view", async () => {
     const user = userEvent.setup();
     renderPanel();
-    await user.click(originatorRow(/Sophie Dubois/));
-    await user.click(originatorRow(/Marc Berger/));
     await user.click(originatorRow(/March 2026/));
-
-    expect(originatorRow(/Sophie Dubois/)).toHaveAttribute("aria-expanded", "true");
-    expect(originatorRow(/Marc Berger/)).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("A. Lindqvist")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Collapse all" }));
-    expect(originatorRow(/Sophie Dubois/)).toHaveAttribute("aria-expanded", "false");
-    expect(originatorRow(/Marc Berger/)).toHaveAttribute("aria-expanded", "false");
+    for (const name of ["Sophie Dubois", "Marc Berger", "Rene Sansref"]) {
+      expect(originatorRow(new RegExp(name))).toHaveAttribute("aria-expanded", "false");
+    }
+    expect(screen.queryByText("March 2026")).not.toBeInTheDocument();
     expect(screen.queryByText("A. Lindqvist")).not.toBeInTheDocument();
-    // The control only exists while something is open.
-    expect(screen.queryByRole("button", { name: "Collapse all" })).not.toBeInTheDocument();
+
+    // The control flips rather than disappearing, so the default view is one click back.
+    await user.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(originatorRow(/Sophie Dubois/)).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("March 2026")).toBeInTheDocument();
+    // Expand all restores months only — payments stay closed.
+    expect(screen.queryByText("A. Lindqvist")).not.toBeInTheDocument();
   });
 
   it("reveals only the clicked originator-and-month's payments, under a header row", async () => {
     const user = userEvent.setup();
     renderPanel();
-    await user.click(originatorRow(/Sophie Dubois/));
-    await user.click(originatorRow(/April 2026/));
+    await user.click(sophieMonth("April 2026"));
 
     // Sophie's April payment, not Marc's April payment.
     expect(screen.getByText("R. Moreau")).toBeInTheDocument();
@@ -174,8 +192,7 @@ describe("OriginatorBreakdownPanel", () => {
   it("formats payment dates through formatDate", async () => {
     const user = userEvent.setup();
     renderPanel();
-    await user.click(originatorRow(/Sophie Dubois/));
-    await user.click(originatorRow(/April 2026/));
+    await user.click(sophieMonth("April 2026"));
     expect(screen.getByText("28 Apr 2026")).toBeInTheDocument();
     expect(screen.queryByText(/2026-04-28/)).not.toBeInTheDocument();
   });
@@ -183,7 +200,6 @@ describe("OriginatorBreakdownPanel", () => {
   it("links a payment with a Stripe reference to the matching dashboard page", async () => {
     const user = userEvent.setup();
     renderPanel();
-    await user.click(originatorRow(/Sophie Dubois/));
     await user.click(originatorRow(/March 2026/));
 
     const link = screen.getByRole("link", { name: /A\. Lindqvist/ });
@@ -197,7 +213,6 @@ describe("OriginatorBreakdownPanel", () => {
   it("uses the test dashboard when the environment is in test mode", async () => {
     const user = userEvent.setup();
     renderPanel({ stripeTestMode: true });
-    await user.click(originatorRow(/Sophie Dubois/));
     await user.click(originatorRow(/March 2026/));
     expect(screen.getByRole("link", { name: /A\. Lindqvist/ })).toHaveAttribute(
       "href",
@@ -209,18 +224,15 @@ describe("OriginatorBreakdownPanel", () => {
     // AE3 — never an empty cell.
     const user = userEvent.setup();
     renderPanel();
-    await user.click(originatorRow(/Sophie Dubois/));
-    await user.click(originatorRow(/April 2026/));
+    await user.click(sophieMonth("April 2026"));
 
     expect(screen.getByText("No Stripe reference on record")).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
-  it("expands an originator with referrals but no attributed months to a stated line", async () => {
+  it("states the empty case for an originator with referrals but no attributed months", () => {
     // AE6 — a converted referral in range whose first payment clears outside it.
-    const user = userEvent.setup();
     renderPanel();
-    await user.click(originatorRow(/Rene Sansref/));
     expect(screen.getByText("No attributed payments in this range.")).toBeInTheDocument();
   });
 
@@ -237,9 +249,9 @@ describe("OriginatorBreakdownPanel", () => {
 
     sophie.focus();
     await user.keyboard("{Enter}");
-    expect(sophie).toHaveAttribute("aria-expanded", "true");
-    await user.keyboard(" ");
     expect(sophie).toHaveAttribute("aria-expanded", "false");
+    await user.keyboard(" ");
+    expect(sophie).toHaveAttribute("aria-expanded", "true");
   });
 
   it("names all three live caveats", () => {

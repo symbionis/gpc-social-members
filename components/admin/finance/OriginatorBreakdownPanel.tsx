@@ -24,17 +24,26 @@ export default function OriginatorBreakdownPanel({
   transactions,
   stripeTestMode,
 }: Props) {
-  // Two independent sets: collapsing an originator preserves which of its months
-  // were open, so re-expanding returns you where you were.
-  const [openOriginators, setOpenOriginators] = useState<Set<string>>(new Set());
+  // The month breakdown is the point of this panel, so months are visible on
+  // arrival and only the payment rows are behind a click.
+  //
+  // Level 1 tracks which originators are COLLAPSED rather than which are open,
+  // so "no state" means "everything open". Tracking the open ones would need
+  // seeding from the current originator list, and an originator that first
+  // appears after a date-range change would come back collapsed.
+  const [collapsedOriginators, setCollapsedOriginators] = useState<Set<string>>(new Set());
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set());
 
-  const anythingOpen = openOriginators.size > 0 || openMonths.size > 0;
+  const anythingOpen =
+    collapsedOriginators.size < originators.length || openMonths.size > 0;
 
   const collapseAll = () => {
-    setOpenOriginators(new Set());
+    setCollapsedOriginators(new Set(originators.map((o) => o.originatorId)));
     setOpenMonths(new Set());
   };
+
+  // Back to the default view: every originator's months on screen, payments closed.
+  const expandAll = () => setCollapsedOriginators(new Set());
 
   return (
     <section className="rounded-xl bg-white border border-marine/10 p-6 space-y-4">
@@ -42,12 +51,12 @@ export default function OriginatorBreakdownPanel({
         <h2 className="font-heading text-xl font-bold text-marine">
           Originator breakdown
         </h2>
-        {anythingOpen && (
+        {originators.length > 0 && (
           <button
-            onClick={collapseAll}
+            onClick={anythingOpen ? collapseAll : expandAll}
             className="shrink-0 rounded-lg border border-marine/20 px-3 py-1.5 text-xs font-body text-marine/70 hover:bg-marine/5"
           >
-            Collapse all
+            {anythingOpen ? "Collapse all" : "Expand all"}
           </button>
         )}
       </div>
@@ -70,12 +79,14 @@ export default function OriginatorBreakdownPanel({
         <div className="overflow-x-auto">
           <div className="min-w-[44rem] text-sm font-body">
             {originators.map((o) => {
-              const open = openOriginators.has(o.originatorId);
+              const open = !collapsedOriginators.has(o.originatorId);
               return (
                 <div key={o.originatorId} className="border-b border-marine/5">
                   <DisclosureRow
                     open={open}
-                    onToggle={() => setOpenOriginators((s) => toggled(s, o.originatorId))}
+                    onToggle={() =>
+                      setCollapsedOriginators((s) => toggled(s, o.originatorId))
+                    }
                     label={o.name}
                     middle={`${o.convertedReferrals} referrals`}
                     amount={formatCurrency(o.net)}

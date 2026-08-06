@@ -126,7 +126,7 @@ describe("FinanceDashboard", () => {
   it("forwards the transactions and Stripe mode the originator drill-down needs", async () => {
     const user = userEvent.setup();
     renderDashboard({ tab: "originator", stripeTestMode: true });
-    await user.click(screen.getByRole("button", { name: /Sophie Dubois/ }));
+    // Months render open, so the payment rows are one click away.
     await user.click(screen.getByRole("button", { name: /March 2026/ }));
     // A live-mode href here would mean stripeTestMode was dropped in the middle.
     expect(screen.getByRole("link", { name: /Ann Adams/ })).toHaveAttribute(
