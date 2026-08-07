@@ -10,9 +10,8 @@ COPY package.json package-lock.json ./
 # and (b) intermittently 504 from GitHub releases and fail the whole build.
 # Native deps (sharp, unrs-resolver) ship prebuilt binaries as optional
 # dependency packages, so they still work without their verify scripts.
-# NOTE: if sourcemap upload to PostHog is ever enabled in this image (by
-# passing POSTHOG_PERSONAL_API_KEY + POSTHOG_ENV_ID as build args), the
-# @posthog/cli binary will need to be present — drop --ignore-scripts then.
+# The @posthog/cli binary this skips is fetched in the builder stage below,
+# but only when sourcemap upload is switched on — see POSTHOG_SOURCEMAPS there.
 RUN npm ci --ignore-scripts
 
 # Build
@@ -27,6 +26,27 @@ ARG NEXT_PUBLIC_APP_URL
 ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ARG NEXT_PUBLIC_SUPABASE_URL
+
+# Source-map upload to PostHog. These must be declared here even though Railway
+# already has them set: Docker only exposes build args the stage declares, so an
+# undeclared variable reads as undefined inside `next build` and next.config.ts
+# silently skips the upload. That is why production shipped minified until now.
+ARG POSTHOG_SOURCEMAPS
+ARG POSTHOG_PERSONAL_API_KEY
+ARG POSTHOG_ENV_ID
+ARG NEXT_PUBLIC_POSTHOG_HOST
+# Railway injects the deploy's commit; .dockerignore excludes .git, so this is
+# the only way the upload can tag a symbol set with a version.
+ARG RAILWAY_GIT_COMMIT_SHA
+
+# The deps stage installed with --ignore-scripts, so posthog-cli has no binary
+# yet. Its wrapper downloads lazily on first invocation, so this is not strictly
+# required — it pre-fetches into its own cacheable layer so a 504 from GitHub
+# releases fails here, attributably, rather than surfacing halfway through
+# `next build`. Gated so a flaky CDN cannot break a deploy that never asked for
+# sourcemaps. Alpine is supported: the installer detects musl and pulls the
+# unknown-linux-musl-dynamic target.
+RUN if [ "$POSTHOG_SOURCEMAPS" = "1" ]; then npm rebuild @posthog/cli; fi
 
 RUN npm run build
 
