@@ -31,6 +31,19 @@ ARG NEXT_PUBLIC_SUPABASE_URL
 # already has them set: Docker only exposes build args the stage declares, so an
 # undeclared variable reads as undefined inside `next build` and next.config.ts
 # silently skips the upload. That is why production shipped minified until now.
+#
+# BuildKit warns SecretsUsedInArgOrEnv on POSTHOG_PERSONAL_API_KEY. Accepted, on
+# two conditions that must hold if this block is ever edited:
+#   1. It stays an ARG in *this* stage only, never an ENV. `runner` is a separate
+#      FROM that never declares it, so the value is absent from the deployed
+#      image's config and history. Residual exposure is Railway's build cache.
+#   2. No RUN command line references it. BuildKit substitutes ARG values into
+#      the command it logs — `RUN if [ "$POSTHOG_SOURCEMAPS" = "1" ]` appears in
+#      the build log as `RUN if [ "1" = "1" ]` — so a secret named on a RUN line
+#      would be printed in plaintext. The key is only read by `next build` from
+#      process.env, which is not logged.
+# The clean fix is a BuildKit --mount=type=secret, which needs Railway to pass it
+# as a build secret rather than a build arg. It does not today.
 ARG POSTHOG_SOURCEMAPS
 ARG POSTHOG_PERSONAL_API_KEY
 ARG POSTHOG_ENV_ID
