@@ -79,14 +79,17 @@ A visitor registering for a public Event without a membership; pays the non-memb
 ## Finance & attribution
 
 ### Originator
-An admin user credited with bringing a member into the club, recorded as `members.originator_id` and flagged by `admin_users.is_originator`. Distinct from a Referral: the Originator is the standing attribution held on the member record, while a Referral is the one-off conversion event that invite code produced.
+An admin credited with bringing a member into the club. Being an originator is a flag on an admin account, independent of that account's role, and each originator has a personal invite link that can be deactivated without disturbing credit for members already brought in. Distinct from a Referral: the Originator is the standing credit held on the member, while a Referral is the record of one member having arrived through them.
 
-Attribution is current-state, not snapshotted at payment time — reassigning a member's Originator moves all of that member's historical revenue with them.
+### Referral
+The record that a member was brought in by an Originator, written when an originator-sponsored application is approved, and remembering which invite code was used.
 
-An Originator is credited at sign-up, not per transaction. Renewal revenue is therefore credited to whoever signed the member up, even though `renewal_tokens.originator_id` records who drove that particular renewal.
+A Referral also carries a *converted* timestamp, which reporting reads to count an Originator's conversions within a date range. Nothing currently sets it, so that count reads as none — the record is created at approval rather than tracked from first click through to conversion.
+
+### Attribution
+Crediting membership revenue to a member's Originator for reporting. Attribution is current-state rather than snapshotted at payment time, and is credited at sign-up rather than per transaction. Two consequences follow, both deliberate: reassigning a member's Originator moves that member's entire payment history with them, and a renewal is credited to whoever signed the member up even years later. The Originator who drove a particular renewal is recorded, but Attribution does not read it.
+
+Attribution covers membership dues only — event ticket revenue is not attributed — and carries no commission rate, ledger, or payout, none of which are modelled. It is a performance view, not a payout basis.
 
 ### Direct (no originator)
 The named bucket for revenue from members with no Originator. Not an absence in the UI — it is reported as its own row so attributed and unattributed revenue always reconcile to the total.
-
-### Attribution
-Crediting membership revenue to a member's Originator for reporting. Attribution covers membership dues only; event ticket revenue is not attributed. It carries no commission rate, ledger, or payout — those are not modelled, so Attribution is a performance view, not a payout basis.
