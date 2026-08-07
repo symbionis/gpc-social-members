@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { sendEmail } from "@/lib/postmark";
 import { generateCardNumber } from "@/lib/utils/card";
+import { buildConvertedReferral } from "@/lib/members/referrals";
 import { NextResponse, type NextRequest } from "next/server";
 import { randomUUID } from "crypto";
 import Stripe from "stripe";
@@ -29,10 +30,14 @@ async function recordApprovalAudit(
       .limit(1);
 
     if (members?.[0]?.originator_id) {
-      await adminClient.from("referrals").insert({
-        originator_id: members[0].originator_id,
-        member_id: memberId,
-      });
+      // A referral row is only ever written here, at approval — there is no
+      // earlier "pending referral" record — so creating the row IS the
+      // conversion. buildConvertedReferral stamps converted_at; leaving it at
+      // its (absent) default is what made every originator's converted-referral
+      // count read 0 on the finance dashboard.
+      await adminClient
+        .from("referrals")
+        .insert(buildConvertedReferral(members[0].originator_id, memberId));
     }
   } catch (err) {
     console.error("[approve] recordApprovalAudit failed (non-fatal):", err);
