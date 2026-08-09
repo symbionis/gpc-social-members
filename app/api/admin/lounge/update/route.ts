@@ -20,9 +20,13 @@ export async function POST(request: NextRequest) {
     .eq("email", user.email)
     .limit(1);
 
+  // `finance` is intentionally absent: the role has no page-level access to
+  // /admin/lounge (see FINANCE_ALLOWED_PREFIXES in app/(admin)/layout.tsx), so
+  // granting it the lounge write API would leave a section it cannot see but
+  // can still mutate.
   if (
     !admins?.[0] ||
-    !["super_admin", "team_admin", "events_admin", "finance"].includes(admins[0].role)
+    !["super_admin", "team_admin", "events_admin"].includes(admins[0].role)
   ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

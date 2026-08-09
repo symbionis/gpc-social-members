@@ -34,10 +34,10 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
       ]
     : isFinance
     ? [
+        { href: "/admin/dashboard", label: "Dashboard", icon: "grid" },
         { href: "/admin/finance", label: "Finance", icon: "bar-chart" },
         { href: "/admin/members", label: "Members", icon: "users" },
         { href: "/admin/events", label: "Events", icon: "calendar" },
-        { href: "/admin/lounge", label: "Lounge", icon: "coffee" },
         { href: "/admin/originators", label: "Originators", icon: "share" },
         { href: "/admin/tiers", label: "Tiers", icon: "layers" },
       ]

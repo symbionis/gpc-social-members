@@ -6,18 +6,21 @@ import AdminSidebar from "@/components/admin/AdminSidebar";
 
 const EVENTS_ADMIN_ALLOWED_PREFIXES = ["/admin/events", "/admin/lounge"];
 
-// The finance role gets the finance dashboard plus read access to the
-// operational sections it reports on. Navigation into anything else (users,
-// scheduled jobs, email templates, messages, applications) redirects to the
-// dashboard. This layout check is the authoritative page-level gate; per-route
-// write permissions match team_admin within these sections.
+// The finance role gets the admin dashboard, the finance section, and the
+// surfaces it reports on: members, originators, tiers and events. Events are
+// included because refunds are issued from the event's ticket list, so the
+// role's write access to the event routes is deliberate, not incidental.
+// Navigation into anything else (lounge, users, scheduled jobs, email
+// templates, messages, applications) redirects to /admin/finance. This layout
+// check is the authoritative page-level gate; per-route write permissions match
+// team_admin within these sections.
 const FINANCE_ALLOWED_PREFIXES = [
+  "/admin/dashboard",
   "/admin/finance",
   "/admin/tiers",
   "/admin/events",
   "/admin/members",
   "/admin/originators",
-  "/admin/lounge",
 ];
 
 export default async function AdminLayout({
