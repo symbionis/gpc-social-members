@@ -69,12 +69,6 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Password recovery — send to set-new-password page (session already established)
-  if (type === "recovery") {
-    response.headers.set("Location", `${origin}/auth/new-password`);
-    return response;
-  }
-
   // Get the authenticated user
   const {
     data: { user },
