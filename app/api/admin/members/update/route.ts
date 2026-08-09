@@ -21,7 +21,15 @@ export async function POST(request: NextRequest) {
     .eq("email", user.email)
     .limit(1);
 
-  if (!admins?.[0]) {
+  // Mirrors who can reach the Members pages (see app/(admin)/layout.tsx):
+  // events_admin is confined to events/lounge and originator to its own referrals,
+  // so neither has a members UI and neither should hold the write API. This
+  // previously selected `role` and never read it, leaving the route open to any
+  // admin row — including roles with no page-level members access at all.
+  if (
+    !admins?.[0] ||
+    !["super_admin", "team_admin", "finance"].includes(admins[0].role)
+  ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

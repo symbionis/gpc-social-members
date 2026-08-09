@@ -1,17 +1,20 @@
 import { test, expect } from "@playwright/test";
-import {
-  adminDb,
-  createTestEvent,
-  deleteEvent,
-  isEventsAdmin,
-} from "../helpers/invite-fixtures";
+import { adminDb, createTestEvent, deleteEvent } from "../helpers/invite-fixtures";
 
-// Drives the printable events flyer at /print/events-flyer. Runs with the admin
-// storageState from global-setup. Like the invite-link suite, it self-skips when
-// the seeded test account lacks an events-admin role (true on a fresh/unseeded
-// DB) so it stays committed and green where the test admin isn't provisioned.
+// Drives the printable events flyer's CONTENT at /print/events-flyer. Runs with
+// the admin storageState from global-setup, like every other spec in this
+// project — the page calls requireAdminUser(), so a non-admin session fails here
+// exactly as it already does in admin/dashboard, members, tiers and the rest.
+//
+// Deliberately ungated. This suite used to self-skip unless a hardcoded email
+// held an events-admin role, which meant it never ran at all; and the role check
+// was the wrong one, since requireAdminUser() only requires an admin_users row.
+// Fixtures below need no role either — adminDb() is service-role.
+//
+// The route's auth guard is NOT covered here — that assertion needs no admin and
+// no fixtures, so it lives in e2e/public/print-routes-auth.spec.ts and executes
+// on every run.
 
-const ADMIN_EMAIL = "test@syks.co";
 const FLYER_URL = "/print/events-flyer";
 const db = adminDb();
 
@@ -19,14 +22,10 @@ const CONFIRMED_TITLE = "E2E Flyer CONFIRMED (safe to delete)";
 const UNCONFIRMED_TITLE = "E2E Flyer UNCONFIRMED (safe to delete)";
 
 test.describe("Events PDF flyer (/print/events-flyer)", () => {
-  let canRun = false;
   let confirmedId: string | undefined;
   let unconfirmedId: string | undefined;
 
   test.beforeAll(async () => {
-    canRun = await isEventsAdmin(db, ADMIN_EMAIL);
-    if (!canRun) return;
-
     // Published + confirmed → must appear on the flyer.
     confirmedId = await createTestEvent(db, { title: CONFIRMED_TITLE });
     await db.from("events").update({ is_confirmed: true }).eq("id", confirmedId);
@@ -40,13 +39,6 @@ test.describe("Events PDF flyer (/print/events-flyer)", () => {
   test.afterAll(async () => {
     await deleteEvent(db, confirmedId);
     await deleteEvent(db, unconfirmedId);
-  });
-
-  test.beforeEach(() => {
-    test.skip(
-      !canRun,
-      `${ADMIN_EMAIL} is not an events_admin+; seed an admin role to run these.`
-    );
   });
 
   test("renders confirmed+published events with header/footer CTA and QR", async ({
@@ -72,16 +64,5 @@ test.describe("Events PDF flyer (/print/events-flyer)", () => {
     // Confirmed event shows; unconfirmed does not.
     await expect(page.getByText(CONFIRMED_TITLE)).toBeVisible();
     await expect(page.getByText(UNCONFIRMED_TITLE)).toHaveCount(0);
-  });
-
-  test("unauthenticated request is redirected to admin login", async ({
-    browser,
-  }) => {
-    // Fresh context without the admin storageState.
-    const ctx = await browser.newContext({ storageState: { cookies: [], origins: [] } });
-    const anon = await ctx.newPage();
-    await anon.goto(FLYER_URL);
-    await expect(anon).toHaveURL(/\/admin\/login/);
-    await ctx.close();
   });
 });

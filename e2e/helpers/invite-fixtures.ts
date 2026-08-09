@@ -10,7 +10,16 @@ export function adminDb(): SupabaseClient {
   );
 }
 
-const EVENTS_ADMIN_ROLES = ["super_admin", "team_admin", "events_admin"];
+// Must match the allow-list in app/api/admin/events/[id]/invite-code/route.ts,
+// which the gated suite actually drives. `finance` was missing, so pointing
+// E2E_ADMIN_EMAIL at a finance admin silently skipped every test in that suite
+// while reporting green — even though the role can perform each action it covers.
+const EVENTS_ADMIN_ROLES = [
+  "super_admin",
+  "team_admin",
+  "events_admin",
+  "finance",
+];
 
 /** Whether an email has a role allowed to manage the invite link. */
 export async function isEventsAdmin(
