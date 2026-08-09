@@ -126,6 +126,8 @@ See the companion learning
 [`../security/supabase-securitydefiner-anon-execute-grant-2026-06-04.md`](../security/supabase-securitydefiner-anon-execute-grant-2026-06-04.md)
 for that grant hygiene:
 
+> **Read "have RLS enabled with no policies" as a property of these two tables, not a house invariant.** It held for them, but four other tables (`broadcast_recipients`, `event_reminder_sends`, `broadcasts`, `event_waitlist`) shipped with RLS *disabled* and were world-readable and world-writable via the anon key until 2026-08-09. Table access and function access are two independent gates, and this section only locks the second. See [`../security/supabase-anon-exposure-rls-off-and-anon-executable-rpcs.md`](../security/supabase-anon-exposure-rls-off-and-anon-executable-rpcs.md) for the table-side gate and the catalog queries that audit both.
+
 ```sql
 REVOKE ALL ON FUNCTION public.claim_self_registration(...) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_self_registration(...) TO service_role;
@@ -186,14 +188,20 @@ the count *after* the first has committed. The cap becomes a true invariant
 rather than a hopeful check, and the per-type cap reuses the same already-held
 lock instead of inventing a second locking scheme.
 
-**Contrast — the door add-guest path is NOT race-safe by the same standard.**
-`app/api/public/door/[id]/add-guest/route.ts` does the same logical check —
-count claimed-and-unreleased, compare to `quantity`, insert — but in
-application code via the admin client with **no row lock**. This is the very
-TOCTOU the RPC was built to avoid. It is tolerated only because of the
-operational context (a single door volunteer adding one guest at a time, with
-explicit "over-capacity → welcome desk" handling). If that path ever becomes
-concurrent, route it through the locked RPC.
+**Contrast — the door path *was* the counter-example, and has since been fixed.**
+As originally written, `app/api/public/door/[id]/add-guest/route.ts` did the same
+logical check — count claimed-and-unreleased, compare to `quantity`, insert — but
+in application code via the admin client with **no row lock**: the very TOCTOU
+this RPC exists to avoid. It was tolerated on operational grounds (a single door
+volunteer adding one guest at a time, with explicit "over-capacity → welcome
+desk" handling), with the note that it should be routed through the locked RPC if
+it ever became concurrent.
+
+That is what happened. `add-guest` no longer exists; the door now writes through
+`app/api/public/door/[id]/save-attendee/route.ts`, which calls the locked
+`claim_ticket` RPC rather than counting in application code. The unsafe path this
+section contrasted against is gone — keep the contrast for the shape of the
+mistake, not as a description of current code.
 
 ## When to Apply
 
