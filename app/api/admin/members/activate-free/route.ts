@@ -21,7 +21,12 @@ export async function POST(request: NextRequest) {
     .eq("email", user.email)
     .limit(1);
 
-  if (!admins?.[0]) {
+  // super_admin only, matching the other privileged member lifecycle routes
+  // (renew-honorary, request-renewal, bulk-reactivation-expired). This grants a
+  // year of active membership and writes a zero-amount payment row, so it must not
+  // sit behind a bare "is an admin" check — which is what it had, despite selecting
+  // `role` and never reading it. No caller exists in the app today.
+  if (!admins?.[0] || admins[0].role !== "super_admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -6,6 +6,14 @@ import AdminSidebar from "@/components/admin/AdminSidebar";
 
 const EVENTS_ADMIN_ALLOWED_PREFIXES = ["/admin/events", "/admin/lounge"];
 
+// The originator role sees a single nav item ("My Referrals" → /admin/originators)
+// and nothing else. Without this gate the navigation was the only thing limiting
+// it: every ungated admin page — members, applications, dashboard, tiers — stayed
+// reachable by typing the URL, and each fetches with the service-role client, so
+// they returned real member and applicant data rather than an empty shell.
+// originators/page.tsx separately scopes the rows to the originator's own referrals.
+const ORIGINATOR_ALLOWED_PREFIXES = ["/admin/originators"];
+
 // The finance role gets the admin dashboard, the finance section, and the
 // surfaces it reports on: members, originators, tiers and events. Events are
 // included because refunds are issued from the event's ticket list, so the
@@ -48,6 +56,16 @@ export default async function AdminLayout({
     // Not an admin — sign out and redirect
     await supabase.auth.signOut();
     redirect("/admin/login?error=unauthorized");
+  }
+
+  if (adminUser.role === "originator") {
+    const pathname = (await headers()).get("x-pathname") ?? "";
+    const allowed = ORIGINATOR_ALLOWED_PREFIXES.some((p) =>
+      pathname === p || pathname.startsWith(`${p}/`)
+    );
+    if (!allowed) {
+      redirect("/admin/originators");
+    }
   }
 
   if (adminUser.role === "events_admin") {
