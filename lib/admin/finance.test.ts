@@ -908,7 +908,7 @@ describe("getFinanceSummary pagination", () => {
         is_comp: false,
         cancellation_status: "refunded",
         refund_amount_chf: 80,
-        released_at: null,
+        released_at: null as string | null,
         name: "Ben",
         ...ticketOver,
       },

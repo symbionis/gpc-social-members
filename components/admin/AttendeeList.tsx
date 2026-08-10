@@ -3,12 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateTime } from "@/lib/format";
-import type { TicketCancellationStatus } from "@/lib/events/refunds";
 
 /**
- * One sold ticket on the roster (U15). The interactive roster now shows EVERY ticket sold —
- * claimed (named) and still-`issued` (unnamed) alike — so its length matches tickets sold
- * (R25), and rows are grouped by lowercased email address (R26) rather than by booking/lead.
+ * One LIVE ticket on the roster (U15). Claimed (named) and still-`issued` (unnamed) alike
+ * (R25), grouped by lowercased email address (R26) rather than by booking/lead.
+ *
+ * Cancelled seats are excluded upstream and never reach this component — they are money work,
+ * and they live in the event's Refunds tab. The roster answers one question, "who is arriving",
+ * and a seat that was cancelled is not an answer to it. Nothing about door safety rests on this
+ * display: check-in rejects a cancelled ticket at the scan (lib/events/checkin.ts), and the
+ * printed door sheet marks them separately.
  */
 export interface Attendee {
   id: string;
@@ -39,17 +43,6 @@ export interface Attendee {
   isComp: boolean;
   /** Whether anyone is named on this ticket yet (slot_status === 'claimed'). */
   named: boolean;
-  /**
-   * Holder cancellation (U14): null = live; 'requested' = seat freed, refund not yet
-   * processed; 'refunded' = settled. Both non-null states render struck-through and drop the
-   * Remove affordance; only 'requested' is actionable.
-   *
-   * Finance counts 'requested' as revenue — the club still holds the money — which is why it
-   * is a queue rather than a resting place.
-   */
-  cancellationStatus: TicketCancellationStatus | null;
-  /** When cancellation was requested — shown on the cancelled row. */
-  cancellationRequestedAt: string | null;
 }
 
 interface Props {
@@ -79,7 +72,7 @@ interface RosterGroup {
   referenceCode: string | null;
   /** Any ticket's manage_token → the shared household manage page (address groups only). */
   manageToken: string | null;
-  /** True only when every live (non-cancelled) ticket at the address has been emailed. */
+  /** True only when every ticket at the address has been emailed. */
   notified: boolean;
   rows: Attendee[];
 }
@@ -111,9 +104,6 @@ function buildGroups(attendees: Attendee[]): RosterGroup[] {
       : rows.every((r) => !r.named)
         ? "unnamed"
         : "booking";
-    // A group counts as notified only if every live ticket in it has been emailed — a
-    // cancelled ticket carries no obligation, so it doesn't hold the group back.
-    const live = rows.filter((r) => !r.cancellationStatus);
     groups.push({
       key,
       kind,
@@ -122,7 +112,7 @@ function buildGroups(attendees: Attendee[]): RosterGroup[] {
       // The manage page resolves a household by email, so a token is only actionable for an
       // address group — a booking/unnamed group has no address to open.
       manageToken: hasAddress ? rows.find((r) => r.manageToken)?.manageToken ?? null : null,
-      notified: hasAddress && live.length > 0 && live.every((r) => r.notified),
+      notified: hasAddress && rows.length > 0 && rows.every((r) => r.notified),
       rows,
     });
   }
@@ -317,10 +307,7 @@ function AddressCard({
   onRemove: (id: string, name: string) => void;
   onResend: (email: string) => void;
 }) {
-  // An address whose every ticket is cancelled has nothing to notify or resend — treat it as
-  // a spent group rather than badging it "Not notified" and offering a pointless Resend.
-  const allCancelled = group.rows.every((r) => r.cancellationStatus !== null);
-  const isAddress = group.kind === "address" && !allCancelled;
+  const isAddress = group.kind === "address";
   const manageUrl =
     isAddress && group.manageToken ? `${origin}/public/tickets/${group.manageToken}` : "";
   const label =
@@ -347,11 +334,7 @@ function AddressCard({
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
-          {allCancelled ? (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 whitespace-nowrap">
-              All cancelled
-            </span>
-          ) : group.kind === "unnamed" ? (
+          {group.kind === "unnamed" ? (
             <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 whitespace-nowrap">
               Not named
             </span>
@@ -435,36 +418,18 @@ function TicketRow({
   removing: boolean;
   onRemove: (id: string, name: string) => void;
 }) {
-  const cancelled = row.cancellationStatus !== null;
   // The door Remove (free-slot) frees a named guest's slot. Never a lead, a comp seat, a
-  // checked-in person, a still-unnamed slot, or a cancelled ticket.
+  // checked-in person, or a still-unnamed slot. A cancelled seat cannot appear here at all.
   const canRemove =
-    row.named &&
-    !row.isLead &&
-    !!row.registrationId &&
-    !row.checkedIn &&
-    !row.isComp &&
-    !cancelled;
+    row.named && !row.isLead && !!row.registrationId && !row.checkedIn && !row.isComp;
   return (
     <tr data-testid="ticket-row" className="border-t border-border">
       <td className="px-4 py-3 text-marine">
         <span className="flex items-center gap-2">
-          <span className={cancelled ? "line-through text-muted-foreground" : ""}>
-            {row.name || <span className="text-muted-foreground italic">Unnamed</span>}
-          </span>
+          <span>{row.name || <span className="text-muted-foreground italic">Unnamed</span>}</span>
           {row.isLead && (
             <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-sky/10 text-sky-dark">
               Buyer
-            </span>
-          )}
-          {row.cancellationStatus === "requested" && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-red-50 text-red-700">
-              Cancel requested
-            </span>
-          )}
-          {row.cancellationStatus === "refunded" && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-100 text-gray-600">
-              Refunded
             </span>
           )}
         </span>
@@ -508,22 +473,15 @@ function TicketRow({
         )}
       </td>
       <td className="px-4 py-3 text-right">
-        {cancelled ? (
-          // Nothing. The badge beside the name already says whether this seat is awaiting a
-          // refund or settled, and refunding is money work that lives in the Refunds tab — the
-          // roster is read at the door to find who is arriving.
-          null
-        ) : (
-          canRemove && (
-            <button
-              type="button"
-              onClick={() => onRemove(row.id, row.name)}
-              disabled={removing}
-              className="px-2.5 py-1 rounded-lg border border-red-200 text-red-700 text-xs font-body hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
-            >
-              {removing ? "…" : "Remove"}
-            </button>
-          )
+        {canRemove && (
+          <button
+            type="button"
+            onClick={() => onRemove(row.id, row.name)}
+            disabled={removing}
+            className="px-2.5 py-1 rounded-lg border border-red-200 text-red-700 text-xs font-body hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {removing ? "…" : "Remove"}
+          </button>
         )}
       </td>
     </tr>
