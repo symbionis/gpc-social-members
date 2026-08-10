@@ -2,17 +2,25 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/stripe", () => ({ getStripe: vi.fn() }));
-vi.mock("@/lib/events/roster", () => ({ mintRegistrationTickets: vi.fn() }));
+vi.mock("@/lib/events/roster", () => ({
+  mintRegistrationTickets: vi.fn(),
+  applyPendingRoster: vi.fn(),
+}));
 vi.mock("@/lib/events/seat-usage", () => ({ getSeatsUsed: vi.fn() }));
 
 import { POST } from "@/app/api/public/bookings/[token]/topup/route";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
+import { applyPendingRoster } from "@/lib/events/roster";
 
 const mockedAdmin = vi.mocked(createAdminClient);
 const mockedStripe = vi.mocked(getStripe);
 const mockedSeats = vi.mocked(getSeatsUsed);
+const mockedApplyRoster = vi.mocked(applyPendingRoster);
+
+/** The pending_roster payload the route stashed before checkout, if any. */
+let lastRosterWrite: unknown = null;
 
 const TYPE = "33333333-3333-3333-3333-333333333333";
 
@@ -32,6 +40,12 @@ function adminClient(opts: {
       c.in = () => c;
       c.limit = () => c;
       c.insert = () => c;
+      c.update = (payload: Record<string, unknown>) => {
+        if (table === "event_registrations" && "pending_roster" in payload) {
+          lastRosterWrite = payload.pending_roster;
+        }
+        return c;
+      };
       c.maybeSingle = async () => {
         if (table === "event_registrations")
           return {
@@ -59,6 +73,15 @@ function adminClient(opts: {
   } as unknown as ReturnType<typeof createAdminClient>;
 }
 
+/** n distinct, fully-named guests of the test ticket type. */
+function guests(n: number) {
+  return Array.from({ length: n }, (_, i) => ({
+    ticket_type_id: TYPE,
+    name: `Guest Number${i + 1}`,
+    email: `guest${i + 1}@x.com`,
+  }));
+}
+
 function post(body: unknown, token = "mtok") {
   const req = new Request(`http://localhost/api/public/bookings/${token}/topup`, {
     method: "POST",
@@ -70,6 +93,7 @@ function post(body: unknown, token = "mtok") {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  lastRosterWrite = null;
   mockedAdmin.mockReturnValue(adminClient({}));
   mockedSeats.mockResolvedValue(0);
   mockedStripe.mockReturnValue({
@@ -90,7 +114,7 @@ describe("POST /api/public/bookings/[token]/topup", () => {
   });
 
   it("creates a Stripe checkout for a paid top-up", async () => {
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }] });
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(2) });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, checkoutUrl: "https://stripe.test/cs" });
   });
@@ -106,14 +130,73 @@ describe("POST /api/public/bookings/[token]/topup", () => {
   it("allows a seat-consuming top-up that fits under the cap", async () => {
     mockedAdmin.mockReturnValue(adminClient({ seatCap: 10, countsAsSeat: true }));
     mockedSeats.mockResolvedValue(5);
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }] });
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(2) });
     expect(res.status).toBe(200);
   });
 
   it("applies a free top-up immediately without checkout", async () => {
     mockedAdmin.mockReturnValue(adminClient({ price: 0 }));
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }] });
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }] , attendees: guests(2) });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, applied: true });
+  });
+});
+
+describe("mandatory naming on top-ups", () => {
+  it("refuses a top-up that names nobody", async () => {
+    // The gap this closes: a top-up used to mint seats with no name and no contact, long
+    // after the public checkout stopped allowing one.
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/needs a name and email/);
+  });
+
+  it("refuses when fewer guests are named than seats bought", async () => {
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(1) });
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses a guest with no surname", async () => {
+    const res = await post({
+      items: [{ ticketTypeId: TYPE, quantity: 1 }],
+      attendees: [{ ticket_type_id: TYPE, name: "Madonna", email: "m@x.com" }],
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/first and last name/);
+  });
+
+  it("refuses a guest with no valid email", async () => {
+    const res = await post({
+      items: [{ ticketTypeId: TYPE, quantity: 1 }],
+      attendees: [{ ticket_type_id: TYPE, name: "Ana Vidal", email: "not-an-email" }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses the same person named twice", async () => {
+    // Two identical identities collapse into one ticket at claim time, leaving the sibling
+    // seat unnamed — the exact bypass the checkout already rejects.
+    const dup = { ticket_type_id: TYPE, name: "Ana Vidal", email: "ana@x.com" };
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: [dup, dup] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/same name and email/);
+  });
+
+  it("stashes the names before sending the buyer to Stripe", async () => {
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(2) });
+    expect(res.status).toBe(200);
+    // Stashed BEFORE payment: a paid top-up whose roster never persisted would mint exactly
+    // the unnamed seats this change exists to prevent.
+    expect(lastRosterWrite).toEqual([
+      { ticket_type_id: TYPE, name: "Guest Number1", email: "guest1@x.com" },
+      { ticket_type_id: TYPE, name: "Guest Number2", email: "guest2@x.com" },
+    ]);
+  });
+
+  it("names the seats immediately on a free top-up, which has no webhook", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ price: 0 }));
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(200);
+    expect(mockedApplyRoster).toHaveBeenCalledWith("reg");
   });
 });

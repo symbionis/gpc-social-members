@@ -248,6 +248,10 @@ export async function POST(request: NextRequest) {
           }
           // Mint the newly-purchased slots (idempotent — only the shortfall is minted).
           await mintRegistrationTickets(eventRegistrationId);
+          // Name them. The top-up route stashed the buyer's guest names before checkout, the
+          // same way the public register route does; applyPendingRoster claims each seat and
+          // clears the slot, so a webhook redelivery is a no-op rather than a double-apply.
+          await applyPendingRoster(eventRegistrationId);
           // Send an updated confirmation (carries manage_url + every ticket's QR, now
           // including the new ones) so the lead can name/forward them. Best-effort.
           if (topupStatus === "applied") {
