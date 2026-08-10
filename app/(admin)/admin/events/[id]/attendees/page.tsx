@@ -4,7 +4,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import ManageEventTabs from "@/components/admin/ManageEventTabs";
 import { getEventReminderSummary } from "@/lib/events/reminder-summary";
 import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
-import { rosterGuestSummary } from "@/lib/events/roster-fill";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
 import { ticketRefundValueChf, type RefundRegistration } from "@/lib/events/refunds";
 import { mergePaymentIntentIds } from "@/lib/events/refund-pool";
@@ -119,9 +118,9 @@ export default async function ManageEventPage({
     created_at: string;
   };
   const roster = (attendeeRows ?? []) as AttendeeRow[];
-  // The named subset. The roster-fill summary and comp guest lists reason about claimed
-  // people only, so they read this — never the widened roster, which now carries unnamed
-  // `issued` rows that would inflate their counts.
+  // The named subset. The comp guest lists reason about claimed people only, so they read
+  // this — never the widened roster, which also carries unnamed `issued` rows that would
+  // inflate their counts.
   const claimedRoster = roster.filter((a) => a.slot_status === "claimed");
 
   // Resolve each person's ticket-type id to a title (asado meal). Built from the
@@ -132,19 +131,6 @@ export default async function ManageEventPage({
     ticketTitleById.set(tt.id as string, (tt.title as string | null) ?? "");
   }
 
-  // Per-party fill for the roster summary ("X of Y guests registered"). Derived from the
-  // NAMED subset only (quantity − claimed count), so widening the roster to unnamed tickets
-  // doesn't distort it.
-  const regsForFill = (registrations ?? []).map((r) => ({
-    id: r.id as string,
-    quantity: (r.quantity as number) ?? 0,
-  }));
-  // Live named seats only. A cancelled seat is not a registered guest, and counting it made
-  // "pre-registered" exceed the number of rows the roster could show.
-  const guestSummary = rosterGuestSummary(
-    regsForFill,
-    claimedRoster.filter((a) => a.cancellation_status === null),
-  );
 
   const refByReg = new Map<string, string | null>();
   // Whether the buyer's confirmation email (carrying the buyer's own QR) has gone out, per
@@ -172,8 +158,8 @@ export default async function ManageEventPage({
 
   // Live seats only. A cancelled seat is money work, handled in the Refunds tab; showing it
   // here padded a door document with rows nobody can admit. `claimedRoster` above is
-  // deliberately NOT filtered — the roster-fill summary and the guest-list tab reason about
-  // every claimed seat, cancelled or not.
+  // deliberately NOT filtered — the guest-list tab reasons about every claimed seat,
+  // cancelled or not.
   const attendees = roster
     .filter((a) => a.cancellation_status === null)
     .map((a) => {
@@ -433,7 +419,6 @@ export default async function ManageEventPage({
         cancellations={cancellations}
         stripeTestMode={stripeTestMode}
         checkedInCount={checkedInCount}
-        guestsRegistered={guestSummary.registered}
         ticketTypeSummary={ticketTypeSummary}
         waitlist={waitlist ?? []}
         hasSeatCap={hasSeatCap}

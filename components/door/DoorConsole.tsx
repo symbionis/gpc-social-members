@@ -85,7 +85,7 @@ export default function DoorConsole({
 }: Props) {
   const router = useRouter();
 
-  const [tab, setTab] = useState<"registered" | "arrivals">("registered");
+  const [tab, setTab] = useState<"registered" | "arrivals" | "guestlists">("registered");
   // Which list the Arrivals tab is showing. "Who is still missing?" lives under the
   // same tab as "who is in", so a volunteer never has to look for it elsewhere.
   const [view, setView] = useState<"arrived" | "notarrived">("arrived");
@@ -156,6 +156,26 @@ export default function DoorConsole({
   const pct = expectedCount > 0 ? Math.round((arrivedCount / expectedCount) * 100) : 0;
   const preRegisteredCount = parties.reduce((s, p) => s + p.claimedCount, 0);
 
+  // Sponsor comp lists, e.g. a corporate partner who brought twelve guests. They are already
+  // in Pre-registered, but scattered among every other party — this groups them so the door can
+  // work one sponsor's list as a unit ("Cardis brought 12, here they are").
+  //
+  // Read-only by design: checking someone in happens by scanning their QR, or from
+  // Pre-registered if the QR is lost. Duplicating that action here would give the same guest
+  // two different ways to be admitted and two places to look when one of them misfires.
+  const guestLists = useMemo(
+    () =>
+      parties
+        .filter((p) => p.isGuestList)
+        .map((p) => ({
+          ...p,
+          arrived: p.slots.filter((s) => s.checkedIn).length,
+        }))
+        // Biggest list first: that is the one the door spends its evening on.
+        .sort((a, b) => b.slots.length - a.slots.length || a.leadName.localeCompare(b.leadName)),
+    [parties],
+  );
+
   const tabClass = (active: boolean) =>
     `px-5 py-3 text-base font-body transition-colors cursor-pointer ${
       active
@@ -190,6 +210,16 @@ export default function DoorConsole({
         >
           Arrivals{arrivedCount > 0 ? ` (${arrivedCount})` : ""}
         </button>
+        {/* Only worth a tab when the event actually has sponsor lists. Most don't. */}
+        {guestLists.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setTab("guestlists")}
+            className={tabClass(tab === "guestlists")}
+          >
+            Guest lists ({guestLists.length})
+          </button>
+        )}
       </div>
 
       {tab === "registered" && (
@@ -297,6 +327,67 @@ export default function DoorConsole({
               })
             )}
           </div>
+        </div>
+      )}
+
+      {tab === "guestlists" && (
+        <div className="space-y-4" data-testid="door-guest-lists">
+          <p className="font-body text-sm text-marine/60">
+            Who is on each sponsor&rsquo;s list. To admit someone, scan their QR — or find them
+            under Pre-registered if they have lost it.
+          </p>
+
+          {guestLists.map((list) => (
+            <section
+              key={list.registrationId}
+              data-testid="door-guest-list"
+              aria-label={list.leadName || "Guest list"}
+              className="rounded-xl border border-border bg-white overflow-hidden"
+            >
+              <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border bg-cream/60 px-4 py-3">
+                <div className="min-w-0">
+                  <span className="font-body font-semibold text-marine">
+                    {list.leadName || "Unnamed sponsor"}
+                  </span>
+                  {list.referenceCode && (
+                    <span className="ml-2 font-mono text-xs text-marine/50">
+                      {list.referenceCode}
+                    </span>
+                  )}
+                </div>
+                <span className="shrink-0 font-body text-sm text-marine/60 tabular-nums">
+                  {list.arrived} of {list.slots.length} arrived
+                </span>
+              </header>
+
+              <ul className="divide-y divide-border">
+                {list.slots.map((slot, i) => (
+                  <li
+                    key={slot.attendeeId ?? `${list.registrationId}-${i}`}
+                    className="flex items-center justify-between gap-4 px-4 py-3"
+                  >
+                    <span className="min-w-0 font-body text-marine">
+                      {slot.name || (
+                        // An unfilled seat on the list: the sponsor has not said who is using
+                        // it yet. Named the same way the rest of the console names them (KTD8).
+                        <span className="italic text-marine/40">Open slot</span>
+                      )}
+                      {slot.ticketTypeTitle && (
+                        <span className="ml-2 text-xs text-marine/50">{slot.ticketTypeTitle}</span>
+                      )}
+                    </span>
+                    {slot.checkedIn ? (
+                      <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-body text-emerald-800">
+                        In{slot.arrivedAt ? ` · ${formatDateTime(slot.arrivedAt)}` : ""}
+                      </span>
+                    ) : (
+                      <span className="shrink-0 font-body text-xs text-marine/40">Not arrived</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
         </div>
       )}
 

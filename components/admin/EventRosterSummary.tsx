@@ -1,9 +1,11 @@
 /**
- * Roster-tab header: two headline panels (total tickets, pre-registered) plus a
- * per-ticket-type breakdown rendered as matching panels — each leading with its
- * ticket count, with the pre-registered count smaller beneath. Pure presentational
- * (no hooks, no client APIs) so it renders inside the client ManageEventTabs
- * without a "use client" boundary.
+ * Event overview: headline seat panels plus a per-ticket-type breakdown, each leading with its
+ * count. Pure presentational (no hooks, no client APIs) so it renders inside the client
+ * ManageEventTabs without a "use client" boundary.
+ *
+ * There is no "pre-registered" figure. It counted seats whose holder had been named, which
+ * mattered when naming happened after booking; every ticket is named at checkout now, so the
+ * number only ever restated the seat count — or, on legacy events, quietly disagreed with it.
  */
 
 import type { ReactNode } from "react";
@@ -19,7 +21,6 @@ export interface TicketTypeSummaryRow {
 }
 
 interface Props {
-  guestsRegistered: number;
   /** Seats still standing — `seats_used`, i.e. sold minus cancelled. Drives the cap warning. */
   total: number;
   /** Seats bought across every booking, cancellations included. */
@@ -76,7 +77,6 @@ function Panel({
 }
 
 export default function EventRosterSummary({
-  guestsRegistered,
   total,
   sold,
   cancelledSeats,
@@ -93,7 +93,11 @@ export default function EventRosterSummary({
 
   return (
     <div className="flex-1 min-w-0 space-y-5">
-      {/* Headline — single-number panels, total first then pre-registered. */}
+      <p className="font-body text-sm font-bold text-marine">Overview</p>
+
+      {/* Live seats lead: that is the number the cap, the waitlist and public registration all
+          reason about. Sold and cancelled appear only when they differ from it — on an event
+          with no cancellations all three are the same figure and two of them are noise. */}
       <div className="flex flex-wrap gap-3">
         <Panel
           value={String(total)}
@@ -101,13 +105,12 @@ export default function EventRosterSummary({
           sub={capacitySub}
           tone={overbooked ? "alert" : "default"}
         />
-        {/* Sold sits beside live rather than instead of it, so the two explain each other.
-            Without it, a reader seeing "16 live" after selling 23 has no account of the
-            missing 7. Hidden when nothing was cancelled, where the two are identical. */}
         {cancelledSeats > 0 && (
-          <Panel value={String(sold)} label="Sold" sub={`${cancelledSeats} cancelled`} />
+          <>
+            <Panel value={String(sold)} label="Sold" />
+            <Panel value={String(cancelledSeats)} label="Cancelled" sub="see Refunds" />
+          </>
         )}
-        <Panel value={String(guestsRegistered)} label="Pre-registered" />
       </div>
 
       {/* Per-ticket-type breakdown — ticket count leads, pre-registered beneath. */}

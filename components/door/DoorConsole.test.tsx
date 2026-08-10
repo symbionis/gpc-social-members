@@ -396,3 +396,72 @@ describe("R13 — contact capture at check-in", () => {
     expect(screen.queryByRole("button", { name: "Edit details" })).not.toBeInTheDocument();
   });
 });
+
+describe("Guest lists tab", () => {
+  const cardis = () =>
+    party({
+      registrationId: "reg-cardis",
+      referenceCode: "GPC-CARDIS",
+      leadName: "Cardis Sponsor",
+      isGuestList: true,
+      quantity: 3,
+      slots: [
+        slot({
+          attendeeId: "g1",
+          name: "Ana Vidal",
+          checkedIn: true,
+          arrivedAt: "2026-08-19T18:04:00Z",
+        }),
+        slot({ attendeeId: "g2", name: "Bruno Keller", isLead: false }),
+        slot({ attendeeId: "g3", name: "", isLead: false }),
+      ],
+    });
+
+  it("offers no tab when the event has no sponsor lists", () => {
+    renderConsole({ parties: [party()] });
+    expect(screen.queryByRole("button", { name: /Guest lists/ })).toBeNull();
+  });
+
+  it("groups a sponsor's guests under that sponsor with an arrived count", async () => {
+    const user = userEvent.setup();
+    renderConsole({ parties: [cardis(), party()] });
+
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+
+    const list = screen.getByTestId("door-guest-list");
+    expect(within(list).getByText("Cardis Sponsor")).toBeInTheDocument();
+    expect(within(list).getByText("GPC-CARDIS")).toBeInTheDocument();
+    // The sponsor's whole list read as one unit — the point of the tab.
+    expect(within(list).getByText("1 of 3 arrived")).toBeInTheDocument();
+    expect(within(list).getByText("Ana Vidal")).toBeInTheDocument();
+    expect(within(list).getByText("Bruno Keller")).toBeInTheDocument();
+  });
+
+  it("names an unfilled seat as an open slot rather than leaving it blank", async () => {
+    const user = userEvent.setup();
+    renderConsole({ parties: [cardis()] });
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+    expect(
+      within(screen.getByTestId("door-guest-list")).getByText("Open slot"),
+    ).toBeInTheDocument();
+  });
+
+  it("is read-only — admitting someone happens by scan, not from here", async () => {
+    const user = userEvent.setup();
+    renderConsole({ parties: [cardis()] });
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+
+    const panel = screen.getByTestId("door-guest-lists");
+    // Two ways to admit the same guest would mean two places to look when one misfires.
+    expect(within(panel).queryByRole("button", { name: /Check in/i })).toBeNull();
+    expect(within(panel).queryByRole("textbox")).toBeNull();
+  });
+
+  it("leaves ordinary parties out of the tab", async () => {
+    const user = userEvent.setup();
+    renderConsole({ parties: [cardis(), party({ leadName: "Walk-up Wendy" })] });
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+    expect(screen.getAllByTestId("door-guest-list")).toHaveLength(1);
+    expect(screen.queryByText("Walk-up Wendy")).toBeNull();
+  });
+});
