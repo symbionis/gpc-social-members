@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { sendOtpCode, verifyOtpCode } from "@/app/actions/auth";
 import { useSearchParams, useRouter } from "next/navigation";
 import posthog from "posthog-js";
@@ -17,6 +17,9 @@ export default function LoginForm() {
   const message = searchParams.get("message");
   const paymentSuccess = searchParams.get("payment") === "success";
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  // The code we've already sent to the server, so a re-render can't submit the
+  // same six digits twice. Cleared whenever the code stops being complete.
+  const submittedCodeRef = useRef<string | null>(null);
 
   async function handleSendCode(e: React.FormEvent) {
     e.preventDefault();
@@ -34,7 +37,7 @@ export default function LoginForm() {
     setStep("code");
   }
 
-  async function handleVerifyCode(fullCode: string) {
+  const handleVerifyCode = useCallback(async function handleVerifyCode(fullCode: string) {
     setLoading(true);
     setError(null);
 
@@ -65,22 +68,56 @@ export default function LoginForm() {
       }
       router.push(result.redirect);
     }
+  }, [email, router]);
+
+  // Auto-submit is driven off settled state rather than off whichever handler
+  // happened to receive the last digit, so typing, pasting and OS autofill all
+  // converge on one submission path.
+  useEffect(() => {
+    const fullCode = code.join("");
+    if (fullCode.length !== 6) {
+      submittedCodeRef.current = null;
+      return;
+    }
+    if (submittedCodeRef.current === fullCode) return;
+    submittedCodeRef.current = fullCode;
+    handleVerifyCode(fullCode);
+  }, [code, handleVerifyCode]);
+
+  // Write a run of digits into the boxes starting at `index`. iOS hands a
+  // one-time-code autofill to the *first* box as the whole six-digit string
+  // rather than one digit per box, so a change event has to be able to carry
+  // more than one digit; the old `value.slice(-1)` kept the last one and
+  // silently dropped the other five, leaving the form looking untouched.
+  // Merging via a functional update keeps concurrent events from clobbering
+  // each other's digits.
+  function fillFrom(index: number, digits: string) {
+    setCode((prev) => {
+      const next = [...prev];
+      for (let i = 0; i < digits.length && index + i < 6; i++) {
+        next[index + i] = digits[i];
+      }
+      return next;
+    });
+    // A stale "invalid code" must not sit under the boxes while a new one is entered.
+    setError(null);
+    inputRefs.current[Math.min(index + digits.length, 5)]?.focus();
   }
 
   function handleCodeChange(index: number, value: string) {
     if (!/^\d*$/.test(value)) return;
-    const newCode = [...code];
-    newCode[index] = value.slice(-1);
-    setCode(newCode);
 
-    if (value && index < 5) {
-      inputRefs.current[index + 1]?.focus();
+    if (value === "") {
+      setCode((prev) => {
+        const next = [...prev];
+        next[index] = "";
+        return next;
+      });
+      setError(null);
+      return;
     }
 
-    const fullCode = newCode.join("");
-    if (fullCode.length === 6) {
-      handleVerifyCode(fullCode);
-    }
+    fillFrom(index, value);
   }
 
   function handleKeyDown(index: number, e: React.KeyboardEvent) {
@@ -93,16 +130,8 @@ export default function LoginForm() {
     e.preventDefault();
     const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
     if (!pasted) return;
-    const newCode = [...code];
-    for (let i = 0; i < 6; i++) {
-      newCode[i] = pasted[i] || "";
-    }
-    setCode(newCode);
-    if (pasted.length === 6) {
-      handleVerifyCode(pasted);
-    } else {
-      inputRefs.current[pasted.length]?.focus();
-    }
+    // Same path as an autofill; the effect above submits once it's complete.
+    fillFrom(0, pasted);
   }
 
   if (step === "code") {
@@ -127,6 +156,9 @@ export default function LoginForm() {
               ref={(el) => { inputRefs.current[i] = el; }}
               type="text"
               inputMode="numeric"
+              // iOS offers the emailed code to the first box only; without this
+              // attribute the OS never surfaces the autofill prompt at all.
+              autoComplete={i === 0 ? "one-time-code" : "off"}
               maxLength={1}
               value={digit}
               onChange={(e) => handleCodeChange(i, e.target.value)}
@@ -148,6 +180,7 @@ export default function LoginForm() {
 
         <div className="space-y-2 pt-2">
           <button
+            type="button"
             onClick={handleSendCode}
             disabled={loading}
             className="text-sm text-sky-dark hover:text-marine font-body underline disabled:opacity-50"
@@ -156,6 +189,7 @@ export default function LoginForm() {
           </button>
           <br />
           <button
+            type="button"
             onClick={() => { setStep("email"); setCode(["", "", "", "", "", ""]); setError(null); }}
             className="text-sm text-muted-foreground hover:text-marine font-body underline"
           >
@@ -199,6 +233,7 @@ export default function LoginForm() {
           <input
             id="email"
             type="email"
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
