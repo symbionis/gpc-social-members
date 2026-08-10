@@ -108,7 +108,6 @@ describe("ManageEventTabs — Guest list replaces Import", () => {
         attendees={[]}
         stripeTestMode={false}
         checkedInCount={0}
-        guestsRegistered={0}
         ticketTypeSummary={[]}
         waitlist={[]}
         hasSeatCap={false}

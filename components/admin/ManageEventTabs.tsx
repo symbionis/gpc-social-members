@@ -34,7 +34,6 @@ interface Props {
   stripeTestMode: boolean;
   checkedInCount: number;
   /** Claimed attendees on the roster (for the "X of Y guests registered" summary). */
-  guestsRegistered: number;
   /** Per-ticket-type breakdown shown at the top of the roster tab. */
   ticketTypeSummary: TicketTypeSummaryRow[];
   waitlist: Waitlist[];
@@ -71,7 +70,6 @@ export default function ManageEventTabs({
   attendees,
   stripeTestMode,
   checkedInCount,
-  guestsRegistered,
   ticketTypeSummary,
   waitlist,
   hasSeatCap,
@@ -208,7 +206,6 @@ export default function ManageEventTabs({
           <div>
             <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
               <EventRosterSummary
-                guestsRegistered={guestsRegistered}
                 total={total}
                 sold={sold}
                 cancelledSeats={cancelledSeats}
