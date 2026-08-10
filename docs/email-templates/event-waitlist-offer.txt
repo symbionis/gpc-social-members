@@ -1,0 +1,38 @@
+A seat has opened up
+
+Hello {{first_name}},
+
+A seat is available for {{event_title}} and it's yours to claim — for {{quantity}} ticket(s){{#ticket_type_title}} ({{.}}){{/ticket_type_title}}.
+
+This seat is not held. It goes to whoever completes payment first, so please don't wait to claim it.
+
+{{#is_members_only}}
+This event is members only — please sign in with your member account before you check out.
+{{/is_members_only}}
+
+YOUR OFFER
+----------
+Event:        {{event_title}}
+{{#event_date_label}}
+Date:         {{.}}
+{{/event_date_label}}
+{{#event_time_label}}
+Start time:   {{.}}
+{{/event_time_label}}
+{{#event_location}}
+Location:     {{.}}
+{{/event_location}}
+{{#ticket_type_title}}
+Requested:    {{quantity}} x {{.}}
+{{/ticket_type_title}}
+
+Claim your seat:
+{{offer_url}}
+
+You'll pick your ticket type and pay on the next screen — the same checkout as any other booking. You're welcome to choose a different ticket type than the one you originally requested, as long as it's still available.
+
+Warm regards,
+The Geneva Polo Social Club Team
+
+---
+Geneva Polo Social Club
