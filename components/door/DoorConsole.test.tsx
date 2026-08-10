@@ -433,28 +433,27 @@ describe("Guest lists tab", () => {
     expect(within(list).getByText("GPC-CARDIS")).toBeInTheDocument();
     // The sponsor's whole list read as one unit — the point of the tab.
     expect(within(list).getByText("1 of 3 arrived")).toBeInTheDocument();
-    expect(within(list).getByText("Ana Vidal")).toBeInTheDocument();
-    expect(within(list).getByText("Bruno Keller")).toBeInTheDocument();
+    expect(within(list).getByDisplayValue("Ana Vidal")).toBeInTheDocument();
+    expect(within(list).getByDisplayValue("Bruno Keller")).toBeInTheDocument();
   });
 
-  it("names an unfilled seat as an open slot rather than leaving it blank", async () => {
-    const user = userEvent.setup();
-    renderConsole({ parties: [cardis()] });
-    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
-    expect(
-      within(screen.getByTestId("door-guest-list")).getByText("Open slot"),
-    ).toBeInTheDocument();
-  });
-
-  it("is read-only — admitting someone happens by scan, not from here", async () => {
+  it("checks a comp guest in from the list itself", async () => {
+    // A comp list often has no emails, so those guests never get a ticket and arrive with no
+    // QR. This list is how they are admitted, not just a view of who was invited.
     const user = userEvent.setup();
     renderConsole({ parties: [cardis()] });
     await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
 
     const panel = screen.getByTestId("door-guest-lists");
-    // Two ways to admit the same guest would mean two places to look when one misfires.
-    expect(within(panel).queryByRole("button", { name: /Check in/i })).toBeNull();
-    expect(within(panel).queryByRole("textbox")).toBeNull();
+    // Ana already arrived; Bruno and the open slot have not.
+    expect(within(panel).getAllByRole("button", { name: "Check in" }).length).toBeGreaterThan(0);
+  });
+
+  it("shows an already-arrived guest as arrived rather than offering check-in again", async () => {
+    const user = userEvent.setup();
+    renderConsole({ parties: [cardis()] });
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+    expect(within(screen.getByTestId("door-guest-lists")).getByText(/^arrived/)).toBeInTheDocument();
   });
 
   it("leaves ordinary parties out of the tab", async () => {

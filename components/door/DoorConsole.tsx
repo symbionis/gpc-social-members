@@ -159,13 +159,17 @@ export default function DoorConsole({
   // admin roster it is supposed to mirror.
   const attendeeCount = parties.reduce((s, p) => s + p.slots.length, 0);
 
-  // Sponsor comp lists, e.g. a corporate partner who brought twelve guests. They are already
-  // in Pre-registered, but scattered among every other party — this groups them so the door can
-  // work one sponsor's list as a unit ("Cardis brought 12, here they are").
+  // Sponsor comp lists, e.g. a corporate partner who brought twelve guests. They are already in
+  // Attendees, but scattered among every other party — this groups them so the door can work
+  // one sponsor's list as a unit ("Cardis brought 12, here they are").
   //
-  // Read-only by design: checking someone in happens by scanning their QR, or from
-  // Pre-registered if the QR is lost. Duplicating that action here would give the same guest
-  // two different ways to be admitted and two places to look when one of them misfires.
+  // Checking in happens here too. A comp list often has no emails — that is the nature of one —
+  // so those guests never receive a ticket and arrive with no QR to scan. This list is how they
+  // get admitted, not just a view of who was invited.
+  //
+  // It renders the SAME SlotRow the Attendees tab does rather than its own check-in: one
+  // implementation reached from two places, so the waiver step, the contact capture and the
+  // arrived state cannot diverge between the two tabs.
   const guestLists = useMemo(
     () =>
       parties
@@ -336,8 +340,8 @@ export default function DoorConsole({
       {tab === "guestlists" && (
         <div className="space-y-4" data-testid="door-guest-lists">
           <p className="font-body text-sm text-marine/60">
-            Who is on each sponsor&rsquo;s list. To admit someone, scan their QR — or find them
-            under Pre-registered if they have lost it.
+            Who is on each sponsor&rsquo;s list, and where to check them in. Comp guests often
+            have no email and so no QR to scan — tick them off here as they arrive.
           </p>
 
           {guestLists.map((list) => (
@@ -363,32 +367,17 @@ export default function DoorConsole({
                 </span>
               </header>
 
-              <ul className="divide-y divide-border">
+              <div className="space-y-2 p-3">
                 {list.slots.map((slot, i) => (
-                  <li
-                    key={slot.attendeeId ?? `${list.registrationId}-${i}`}
-                    className="flex items-center justify-between gap-4 px-4 py-3"
-                  >
-                    <span className="min-w-0 font-body text-marine">
-                      {slot.name || (
-                        // An unfilled seat on the list: the sponsor has not said who is using
-                        // it yet. Named the same way the rest of the console names them (KTD8).
-                        <span className="italic text-marine/40">Open slot</span>
-                      )}
-                      {slot.ticketTypeTitle && (
-                        <span className="ml-2 text-xs text-marine/50">{slot.ticketTypeTitle}</span>
-                      )}
-                    </span>
-                    {slot.checkedIn ? (
-                      <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-body text-emerald-800">
-                        In{slot.arrivedAt ? ` · ${formatDateTime(slot.arrivedAt)}` : ""}
-                      </span>
-                    ) : (
-                      <span className="shrink-0 font-body text-xs text-marine/40">Not arrived</span>
-                    )}
-                  </li>
+                  <SlotRow
+                    key={slot.attendeeId ?? `${list.registrationId}-open-${i}`}
+                    eventId={eventId}
+                    registrationId={list.registrationId}
+                    slot={slot}
+                    onSaved={() => router.refresh()}
+                  />
                 ))}
-              </ul>
+              </div>
             </section>
           ))}
         </div>
