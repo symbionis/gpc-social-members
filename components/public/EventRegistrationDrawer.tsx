@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import EventRegistrationForm, { type TicketTypeOption } from "./EventRegistrationForm";
+import EventRegistrationForm, { type OfferMode, type TicketTypeOption } from "./EventRegistrationForm";
 
 interface Props {
   eventId: string;
@@ -16,6 +16,8 @@ interface Props {
   maxQuantity?: number;
   /** Invite code from the URL, forwarded to the register API (members-only invite flow). */
   code?: string;
+  /** Set by the offer landing (U5) to redeem a waitlist offer through this drawer. */
+  offer?: OfferMode;
 }
 
 export default function EventRegistrationDrawer({
@@ -27,6 +29,7 @@ export default function EventRegistrationDrawer({
   buttonLabel,
   maxQuantity,
   code,
+  offer,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -95,6 +98,7 @@ export default function EventRegistrationDrawer({
             defaultEmail={defaultEmail}
             maxQuantity={maxQuantity}
             code={code}
+            offer={offer}
           />
         </div>
       </div>

@@ -13,7 +13,10 @@ vi.mock("@/components/common/PhoneInput", () => ({
   default: () => <input aria-label="Phone" />,
 }));
 
-import EventRegistrationForm, { type TicketTypeOption } from "@/components/public/EventRegistrationForm";
+import EventRegistrationForm, {
+  type OfferMode,
+  type TicketTypeOption,
+} from "@/components/public/EventRegistrationForm";
 
 const asado: TicketTypeOption = { id: "a", title: "Asado", price: 80 };
 const veg: TicketTypeOption = { id: "v", title: "Veg", price: 40 };
@@ -205,5 +208,130 @@ describe("U2 — attendee naming step", () => {
     expect(screen.getByLabelText("Asado quantity")).toHaveTextContent("2");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.getByLabelText(/Guest 1 first name — Asado/)).toHaveValue("Ana");
+  });
+});
+
+describe("U7 — offer mode", () => {
+  it("keeps Continue disabled at a basket of 0, and enables it at 1 and 2 for a redeemable quantity of 2", async () => {
+    const user = userEvent.setup();
+    const offer: OfferMode = { token: "tok-1", redeemableQuantity: 2, email: "entry@x.ch" };
+    renderForm([asado], { offer });
+    const cont = screen.getByRole("button", { name: "Continue" });
+    expect(cont).toBeDisabled();
+    await user.click(addBtn("Asado"));
+    expect(cont).toBeEnabled();
+    await user.click(addBtn("Asado"));
+    expect(cont).toBeEnabled();
+  });
+
+  it("rejects a basket of 3 against a redeemable quantity of 2 by disabling further additions at the cap", async () => {
+    const user = userEvent.setup();
+    const offer: OfferMode = { token: "tok-1", redeemableQuantity: 2, email: "entry@x.ch" };
+    renderForm([asado], { offer });
+    await user.click(addBtn("Asado"));
+    await user.click(addBtn("Asado"));
+    expect(addBtn("Asado")).toBeDisabled();
+    expect(screen.getByText(/Maximum 2 tickets/i)).toBeInTheDocument();
+  });
+
+  it("splits a redeemable quantity of 2 across two ticket types and allows submission within bound", async () => {
+    const user = userEvent.setup();
+    const offer: OfferMode = { token: "tok-split", redeemableQuantity: 2, email: "entry@x.ch" };
+    renderForm([asado, veg], { offer });
+    await user.click(addBtn("Asado"));
+    await user.click(addBtn("Veg"));
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    await user.type(screen.getByLabelText("First name"), "Jane");
+    await user.type(screen.getByLabelText("Last name"), "Guest");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("radio", { name: /Asado/ }));
+    await user.type(screen.getByLabelText(/Guest 1 first name — Veg/), "Vera");
+    await user.type(screen.getByLabelText(/Guest 1 last name — Veg/), "Guest");
+    await user.type(screen.getByLabelText(/Guest 1 email — Veg/), "vera@x.ch");
+    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    const body = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.offer_token).toBe("tok-split");
+    expect(body.items).toEqual(
+      expect.arrayContaining([
+        { ticket_type_id: "a", quantity: 1 },
+        { ticket_type_id: "v", quantity: 1 },
+      ])
+    );
+  });
+
+  it("renders the buyer's email input read-only and pinned to the entry's address", () => {
+    const offer: OfferMode = { token: "tok-1", redeemableQuantity: 1, email: "pinned@x.ch" };
+    renderForm([asado], { offer });
+    const emailInput = screen.getByLabelText("Email") as HTMLInputElement;
+    expect(emailInput).toHaveValue("pinned@x.ch");
+    expect(emailInput).toHaveAttribute("readonly");
+  });
+
+  it("pre-fills the buyer's name from the entry and keeps it editable", async () => {
+    const user = userEvent.setup();
+    const offer: OfferMode = { token: "tok-1", redeemableQuantity: 1, email: "e@x.ch", name: "Jane Guest" };
+    renderForm([asado], { offer });
+    expect(screen.getByLabelText("First name")).toHaveValue("Jane");
+    expect(screen.getByLabelText("Last name")).toHaveValue("Guest");
+    await user.clear(screen.getByLabelText("First name"));
+    await user.type(screen.getByLabelText("First name"), "Janet");
+    expect(screen.getByLabelText("First name")).toHaveValue("Janet");
+  });
+
+  it("keeps guest name and email rows editable and required in offer mode", async () => {
+    const user = userEvent.setup();
+    const offer: OfferMode = { token: "tok-1", redeemableQuantity: 2, email: "e@x.ch", ticketTypeId: "a" };
+    renderForm([asado], { offer });
+    await user.click(addBtn("Asado")); // preselected 1 + 1 clicked = 2
+    await user.type(screen.getByLabelText("First name"), "Jane");
+    await user.type(screen.getByLabelText("Last name"), "Guest");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByLabelText(/Guest 1 first name — Asado/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    expect(screen.getByText(/first and last name/i)).toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("pre-selects the requested ticket type on mount when it is still live", () => {
+    const offer: OfferMode = { token: "tok-1", redeemableQuantity: 2, email: "e@x.ch", ticketTypeId: "a" };
+    renderForm([asado, veg], { offer });
+    expect(screen.getByLabelText("Asado quantity")).toHaveTextContent("1");
+    expect(screen.getByLabelText("Veg quantity")).toHaveTextContent("0");
+  });
+
+  it("shows a replacement message and no pre-selection when the requested type is archived/retired", () => {
+    const offer: OfferMode = { token: "tok-1", redeemableQuantity: 2, email: "e@x.ch", ticketTypeId: "gone" };
+    renderForm([asado, veg], { offer });
+    expect(screen.getByText(/no longer offered/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Asado quantity")).toHaveTextContent("0");
+    expect(screen.getByLabelText("Veg quantity")).toHaveTextContent("0");
+  });
+
+  it("shows offer-specific copy — no waitlist copy or CTA — on a 409 sold-out response in offer mode", async () => {
+    const user = userEvent.setup();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: "Not enough tickets remaining" }),
+    });
+    const offer: OfferMode = { token: "tok-xyz", redeemableQuantity: 1, email: "e@x.ch", ticketTypeId: "a" };
+    renderForm([asado], { offer });
+    await user.type(screen.getByLabelText("First name"), "Jane");
+    await user.type(screen.getByLabelText("Last name"), "Guest");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    expect(await screen.findByText(/those seats just went/i)).toBeInTheDocument();
+    expect(screen.queryByText(/waitlist/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /check availability/i })).toHaveAttribute(
+      "href",
+      "/public/offers/tok-xyz"
+    );
+  });
+
+  it("renders unchanged outside offer mode", () => {
+    renderForm([asado, veg]);
+    expect(screen.queryByText(/Pinned to your offer/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/with this offer/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).not.toHaveAttribute("readonly");
   });
 });
