@@ -39,10 +39,19 @@ interface Props {
   ticketTypeSummary: TicketTypeSummaryRow[];
   waitlist: Waitlist[];
   hasSeatCap: boolean;
+  /**
+   * Seats still standing (`seats_used`): sold minus cancelled. This is the figure the public
+   * registration gate uses, so every seat decision in this component — the cap warning, the
+   * convert-from-waitlist check, expected arrivals — is measured against the same number the
+   * rest of the system is.
+   */
   total: number;
+  /** Seats bought, cancellations included. Display only. */
+  sold: number;
+  /** Seats given back, so sold and live visibly reconcile. */
+  cancelledSeats: number;
   seatCap: number | null;
   overbooked: boolean;
-  csvHref: string;
   baseUrl: string;
   reminders: ReminderSummaryRow[];
   sentMessages: SentMessageRow[];
@@ -67,9 +76,10 @@ export default function ManageEventTabs({
   waitlist,
   hasSeatCap,
   total,
+  sold,
+  cancelledSeats,
   seatCap,
   overbooked,
-  csvHref,
   baseUrl,
   reminders,
   sentMessages,
@@ -175,12 +185,13 @@ export default function ManageEventTabs({
           className={tabClass(tab === "refunds")}
           onClick={() => setTab("refunds")}
         >
-          Refunds
-          {/* The count is the point of the tab: unsettled cancellations are money the club is
-              holding that finance still counts as revenue. */}
+          Refunds{cancellations.length > 0 ? ` (${cancellations.length})` : ""}
+          {/* The tab carries its row count like Attendees and Waitlist do. The amber badge is a
+              second, sharper signal: unsettled cancellations are money the club is holding that
+              finance still counts as revenue, so they should not sit unnoticed. */}
           {pendingCancellations > 0 && (
             <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">
-              {pendingCancellations}
+              {pendingCancellations} due
             </span>
           )}
         </button>
@@ -199,6 +210,8 @@ export default function ManageEventTabs({
               <EventRosterSummary
                 guestsRegistered={guestsRegistered}
                 total={total}
+                sold={sold}
+                cancelledSeats={cancelledSeats}
                 hasSeatCap={hasSeatCap}
                 seatCap={seatCap}
                 overbooked={overbooked}
@@ -214,12 +227,6 @@ export default function ManageEventTabs({
                   className="px-4 py-2 border border-marine text-marine rounded-lg text-sm font-body font-medium hover:bg-marine/5 transition-colors"
                 >
                   Print door sheet
-                </a>
-                <a
-                  href={csvHref}
-                  className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors"
-                >
-                  Export CSV
                 </a>
               </div>
             </div>

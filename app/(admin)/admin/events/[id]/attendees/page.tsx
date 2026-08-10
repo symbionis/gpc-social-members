@@ -5,6 +5,7 @@ import ManageEventTabs from "@/components/admin/ManageEventTabs";
 import { getEventReminderSummary } from "@/lib/events/reminder-summary";
 import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
 import { rosterGuestSummary } from "@/lib/events/roster-fill";
+import { getSeatsUsed } from "@/lib/events/seat-usage";
 import { ticketRefundValueChf, type RefundRegistration } from "@/lib/events/refunds";
 import { mergePaymentIntentIds } from "@/lib/events/refund-pool";
 import type { CancellationRow } from "@/components/admin/CancellationsPanel";
@@ -138,7 +139,12 @@ export default async function ManageEventPage({
     id: r.id as string,
     quantity: (r.quantity as number) ?? 0,
   }));
-  const guestSummary = rosterGuestSummary(regsForFill, claimedRoster);
+  // Live named seats only. A cancelled seat is not a registered guest, and counting it made
+  // "pre-registered" exceed the number of rows the roster could show.
+  const guestSummary = rosterGuestSummary(
+    regsForFill,
+    claimedRoster.filter((a) => a.cancellation_status === null),
+  );
 
   const refByReg = new Map<string, string | null>();
   // Whether the buyer's confirmation email (carrying the buyer's own QR) has gone out, per
@@ -358,10 +364,24 @@ export default async function ManageEventPage({
         })),
     }));
 
-  const total = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
+  // Seats SOLD across every paid/free booking — what was bought, cancellations included.
+  const sold = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
+  // Seats still standing. `seats_used` is the authoritative figure: it subtracts cancelled
+  // seat-counting tickets and is the same number that gates public registration. Deriving the
+  // cap warning from `sold` told an admin an event was overbooked while registration was still
+  // open — 23 of 17 on screen against a real 16 of 17.
+  let liveSeats = sold;
+  try {
+    liveSeats = await getSeatsUsed(supabase, id);
+  } catch (err) {
+    // Fall back to the sold count rather than failing the page. It over-states, so the cap
+    // warning errs toward caution.
+    console.error("[admin/events/attendees] seat usage failed", { id, err });
+  }
+  const cancelledSeats = Math.max(0, sold - liveSeats);
   const seatCap = event.seat_cap as number | null;
   const hasSeatCap = seatCap !== null && seatCap !== undefined;
-  const overbooked = hasSeatCap && total > seatCap;
+  const overbooked = hasSeatCap && liveSeats > seatCap;
 
   const { data: waitlist } = hasSeatCap
     ? await supabase
@@ -417,10 +437,11 @@ export default async function ManageEventPage({
         ticketTypeSummary={ticketTypeSummary}
         waitlist={waitlist ?? []}
         hasSeatCap={hasSeatCap}
-        total={total}
+        total={liveSeats}
+        sold={sold}
+        cancelledSeats={cancelledSeats}
         seatCap={seatCap}
         overbooked={overbooked}
-        csvHref={`/api/admin/events/${id}/attendees?format=csv`}
         baseUrl={baseUrl}
         reminders={reminders}
         sentMessages={sentMessages ?? []}

@@ -27,7 +27,6 @@ function row(over: Partial<RosterRow>): RosterRow {
     arrived: "",
     isLead: false,
     named: false,
-    cancelled: false,
     ...over,
   };
 }
@@ -84,9 +83,11 @@ describe("DoorRosterSheet (flat A–Z)", () => {
     expect(screen.getByText("guest of Sam Smith")).toBeInTheDocument();
   });
 
-  it("marks a cancelled ticket", () => {
-    renderSheet([row({ last: "Ace", first: "Ann", named: true, cancelled: true })]);
-    expect(screen.getByText(/CANCELLED/)).toBeInTheDocument();
+  it("carries no cancellation marking — cancelled seats never reach the sheet", () => {
+    // buildDoorRoster filters them out, so the door and the admin roster show the same people.
+    // A struck-through line the door cannot admit was noise on a document read under pressure.
+    renderSheet([row({ last: "Ace", first: "Ann", named: true })]);
+    expect(screen.queryByText(/CANCELLED/)).toBeNull();
   });
 
   it("shows an empty-state message when there are no tickets", () => {

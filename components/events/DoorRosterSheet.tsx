@@ -116,25 +116,11 @@ export default function DoorRosterSheet({ event, rows, typeTotals }: Props) {
                       <td colSpan={4}>To fill in</td>
                     </tr>
                   )}
-                  <tr
-                    className={lead ? "roster-lead" : "roster-guest"}
-                    style={
-                      row.cancelled
-                        ? { textDecoration: "line-through", opacity: 0.55 }
-                        : undefined
-                    }
-                  >
+                  <tr className={lead ? "roster-lead" : "roster-guest"}>
                     <td className="col-tick">
-                      {row.cancelled ? (
-                        <span aria-label="cancelled" style={{ textDecoration: "none" }}>✗</span>
-                      ) : (
-                        <span className="tickbox" aria-hidden />
-                      )}
+                      <span className="tickbox" aria-hidden />
                     </td>
                     <td className="col-name">
-                      {row.cancelled && (
-                        <strong style={{ textDecoration: "none" }}>CANCELLED — </strong>
-                      )}
                       {row.named ? (
                         <span className={lead ? "name-lead" : "name-guest"}>
                           {/* Someone who gave a one-word name has no surname to file

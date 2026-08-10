@@ -101,8 +101,22 @@ export function resolveTicketLine<T extends RefundItemLine>(
   const lines = items.filter((i) => i.registration_id === registration.id);
 
   if (ticket.ticket_type_id) {
-    const matched = lines.find((i) => i.ticket_type_id === ticket.ticket_type_id);
-    if (matched) return matched;
+    const matched = lines.filter((i) => i.ticket_type_id === ticket.ticket_type_id);
+    if (matched.length === 1) return matched[0];
+    if (matched.length > 1) {
+      // A type can appear on several lines: there is no unique index on
+      // (registration_id, ticket_type_id), so a top-up of the same type appends a new row.
+      // Tickets carry no reference to the line that minted them, so when those lines disagree
+      // on price there is no way to tell which seat this is — and picking the first would
+      // refund a repriced top-up seat at the original price, silently and plausibly.
+      //
+      // Same price on every line means the ambiguity does not matter; return it. Otherwise
+      // resolve to nothing and let the caller fall back to the booking average, which at least
+      // cannot systematically favour one side.
+      const prices = new Set(matched.map((i) => String(i.unit_amount_chf ?? "")));
+      if (prices.size === 1) return matched[0];
+      return null;
+    }
   }
   return lines.length === 1 ? lines[0] : null;
 }

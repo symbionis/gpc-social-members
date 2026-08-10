@@ -115,7 +115,6 @@ describe("ManageEventTabs — Guest list replaces Import", () => {
         total={0}
         seatCap={null}
         overbooked={false}
-        csvHref="/csv"
         baseUrl="https://example.test"
         reminders={[]}
         sentMessages={[]}
@@ -125,6 +124,8 @@ describe("ManageEventTabs — Guest list replaces Import", () => {
         ticketTypes={TICKET_TYPES}
         registrationEnabled
         cancellations={[]}
+      sold={0}
+      cancelledSeats={0}
       guestLists={[entry()]}
       />
     );

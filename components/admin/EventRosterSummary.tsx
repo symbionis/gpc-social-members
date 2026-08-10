@@ -20,7 +20,12 @@ export interface TicketTypeSummaryRow {
 
 interface Props {
   guestsRegistered: number;
+  /** Seats still standing — `seats_used`, i.e. sold minus cancelled. Drives the cap warning. */
   total: number;
+  /** Seats bought across every booking, cancellations included. */
+  sold: number;
+  /** Seats given back. Shown so sold and live visibly reconcile instead of contradicting. */
+  cancelledSeats: number;
   hasSeatCap: boolean;
   seatCap: number | null;
   overbooked: boolean;
@@ -73,6 +78,8 @@ function Panel({
 export default function EventRosterSummary({
   guestsRegistered,
   total,
+  sold,
+  cancelledSeats,
   hasSeatCap,
   seatCap,
   overbooked,
@@ -90,10 +97,16 @@ export default function EventRosterSummary({
       <div className="flex flex-wrap gap-3">
         <Panel
           value={String(total)}
-          label="Tickets"
+          label="Live seats"
           sub={capacitySub}
           tone={overbooked ? "alert" : "default"}
         />
+        {/* Sold sits beside live rather than instead of it, so the two explain each other.
+            Without it, a reader seeing "16 live" after selling 23 has no account of the
+            missing 7. Hidden when nothing was cancelled, where the two are identical. */}
+        {cancelledSeats > 0 && (
+          <Panel value={String(sold)} label="Sold" sub={`${cancelledSeats} cancelled`} />
+        )}
         <Panel value={String(guestsRegistered)} label="Pre-registered" />
       </div>
 

@@ -37,8 +37,6 @@ export interface RosterRow {
   isLead: boolean;
   /** False when nobody has been named on this ticket: print a blank line to write on. */
   named: boolean;
-  /** A holder-cancelled ticket (U14) — do not admit. Struck on the sheet, tagged in the CSV. */
-  cancelled: boolean;
 }
 
 export interface RosterEvent {
@@ -153,6 +151,11 @@ export async function buildDoorRoster(
     .eq("event_id", eventId)
     .in("slot_status", ["issued", "claimed"])
     .is("released_at", null)
+    // Cancelled seats are excluded, not struck through: the door sheet and the admin roster
+    // answer the same question — who is arriving — and must show the same people. A cancelled
+    // seat is also rejected at the scan (lib/events/checkin.ts), so listing it only invited
+    // someone to tick a line that cannot be admitted.
+    .is("cancellation_status", null)
     .order("created_at", { ascending: true });
   if (ticketsError) return fail("tickets", ticketsError);
   const tickets = (ticketData || []) as unknown as TicketRow[];
@@ -251,7 +254,6 @@ export async function buildDoorRoster(
       partyLead,
       tickets: "",
       isLead: t.is_lead && isClaimed(t),
-      cancelled: t.cancellation_status != null,
     };
     if (!isClaimed(t)) {
       return {
@@ -339,7 +341,6 @@ export async function buildDoorRoster(
         arrived: "",
         isLead: true,
         named: Boolean(last || first),
-        cancelled: false,
       };
     }
 
@@ -373,7 +374,6 @@ export async function buildDoorRoster(
       arrived: "",
       isLead: false,
       named: false,
-      cancelled: false,
     }));
 
     // On a current-generation event, minting should have produced these rows. Padding
@@ -410,8 +410,6 @@ export async function buildDoorRoster(
 export function rosterTypeTotals(rows: RosterRow[]): Array<{ title: string; qty: number }> {
   const byTitle = new Map<string, number>();
   for (const r of rows) {
-    // A cancelled ticket isn't attending — don't cater for it.
-    if (r.cancelled) continue;
     const title = r.ticketType.trim();
     if (!title) continue;
     byTitle.set(title, (byTitle.get(title) ?? 0) + 1);
