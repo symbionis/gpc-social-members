@@ -1,9 +1,13 @@
 -- BACKFILL — record four Stripe refunds that were never mirrored into the app.
 --
--- ⚠️ REVIEW BEFORE APPLYING. This edits financial records on production data. Every row below
--- was verified against the LIVE Stripe account (acct_1SptJdBarHU2p05x) on 2026-08-10 by reading
--- the PaymentIntent and its refunds; the Stripe refund id is recorded on each row so the claim
--- can be re-checked rather than trusted.
+-- APPLIED to production on 2026-08-10 with the owner's explicit approval, after the self-check
+-- below passed. It edits financial records, which is why it was held back from the schema
+-- migration it shipped alongside and applied separately.
+--
+-- Every row was verified against the LIVE Stripe account (acct_1SptJdBarHU2p05x) on 2026-08-10
+-- by reading the PaymentIntent and its refunds; the Stripe refund id is recorded on each row so
+-- the claim can be re-checked rather than trusted. Post-apply the event reconciles exactly:
+-- CHF 960 gross, CHF 560 refunded over 7 seats, CHF 400 net — matching Stripe to the centime.
 --
 -- Why it is needed: refunds were issued in the Stripe dashboard, and the separate "mark
 -- refunded" step in the app was applied inconsistently. Pilates & Polo 3.0 charged CHF 960 and
