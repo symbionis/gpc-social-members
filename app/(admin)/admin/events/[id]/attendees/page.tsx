@@ -9,6 +9,7 @@ import { ticketRefundValueChf, type RefundRegistration } from "@/lib/events/refu
 import { mergePaymentIntentIds } from "@/lib/events/refund-pool";
 import type { CancellationRow } from "@/components/admin/CancellationsPanel";
 import { stripeTestModeFromKey } from "@/lib/stripe/dashboard";
+import { deriveWaitlistOfferability, isWaitlistEntryRedeemed } from "@/lib/events/waitlist-offer";
 
 export default async function ManageEventPage({
   params,
@@ -48,10 +49,22 @@ export default async function ManageEventPage({
   if (ticketTypesError) failLoad("ticket types", ticketTypesError);
   const ticketTypes = rawTicketTypes ?? [];
 
+  // ALL ticket types, archived included — the waitlist offerability check (U2) needs to
+  // show the requested type's title even when it has since been archived, per R14's "no
+  // silent fallback" rule: a flagged row must name the type it asked for, not hide it.
+  const { data: rawAllTicketTypes, error: allTicketTypesError } = await supabase
+    .from("event_ticket_types")
+    .select("id, title, archived_at, counts_as_seat")
+    .eq("event_id", id);
+  if (allTicketTypesError) failLoad("ticket types (all)", allTicketTypesError);
+  const ticketTypeById = new Map(
+    (rawAllTicketTypes ?? []).map((tt) => [tt.id as string, tt])
+  );
+
   const { data: registrations, error: registrationsError } = await supabase
     .from("event_registrations")
     .select(
-      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, manage_token, ticket_email_sent_at, stripe_payment_intent_id, is_guest_list, created_at"
+      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, manage_token, ticket_email_sent_at, stripe_payment_intent_id, is_guest_list, created_at, waitlist_entry_id"
     )
     .eq("event_id", id)
     .in("status", ["paid", "free"])
@@ -377,13 +390,57 @@ export default async function ManageEventPage({
   const hasSeatCap = seatCap !== null && seatCap !== undefined;
   const overbooked = hasSeatCap && liveSeats > seatCap;
 
-  const { data: waitlist } = hasSeatCap
+  // Widened per U2 of docs/plans/2026-08-11-001-feat-waitlist-paid-offer-flow-plan.md: the
+  // admin surface needs what each entry actually asked for (requested type + quantity) and
+  // its offer state to decide whether it can be offered — not just name/email/created_at.
+  // `offer_token` is deliberately NOT selected: it is a live emailed secret and must never
+  // reach the browser (U4 adds a derived `offered` boolean instead when it wires the UI).
+  const { data: rawWaitlist, error: waitlistError } = hasSeatCap
     ? await supabase
         .from("event_waitlist")
-        .select("id, name, email, created_at")
+        .select(
+          "id, name, email, created_at, ticket_type_id, quantity, offered_at, offer_sent_count"
+        )
         .eq("event_id", id)
         .order("created_at", { ascending: true })
-    : { data: [] };
+    : { data: [], error: null };
+  if (waitlistError) failLoad("waitlist", waitlistError);
+
+  // Registrations scoped to paid/free are already loaded above — the same set KTD3's
+  // redemption check needs (a pending registration never redeems an offer).
+  const liveRegistrationsForRedemption = (registrations ?? []).map((r) => ({
+    waitlist_entry_id: r.waitlist_entry_id as string | null,
+    email: r.email as string,
+  }));
+
+  const waitlist = (rawWaitlist ?? []).map((entry) => {
+    const ticketType = entry.ticket_type_id
+      ? ticketTypeById.get(entry.ticket_type_id) ?? null
+      : null;
+    const offerability = deriveWaitlistOfferability({
+      ticket_type_id: entry.ticket_type_id,
+      quantity: entry.quantity,
+      ticketType,
+    });
+    const redeemed = isWaitlistEntryRedeemed(
+      { id: entry.id, email: entry.email },
+      liveRegistrationsForRedemption
+    );
+    return {
+      id: entry.id,
+      name: entry.name,
+      email: entry.email,
+      created_at: entry.created_at,
+      ticket_type_id: entry.ticket_type_id,
+      ticket_type_title: ticketType?.title ?? null,
+      quantity: entry.quantity,
+      offered: entry.offered_at !== null,
+      offer_sent_count: entry.offer_sent_count,
+      offerable: offerability.offerable,
+      offerable_reason: offerability.reason,
+      redeemed,
+    };
+  });
 
   // Per-event extra reminder schedule, edited from the Messaging tab.
   const reminderSchedule =
@@ -428,7 +485,7 @@ export default async function ManageEventPage({
         stripeTestMode={stripeTestMode}
         checkedInCount={checkedInCount}
         ticketTypeSummary={ticketTypeSummary}
-        waitlist={waitlist ?? []}
+        waitlist={waitlist}
         hasSeatCap={hasSeatCap}
         total={liveSeats}
         sold={sold}
