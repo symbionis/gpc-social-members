@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import AttendeeList, { type Attendee } from "@/components/admin/AttendeeList";
 import GuestList, { type GuestListEntry } from "@/components/admin/GuestList";
 import EventCheckInPanel from "@/components/admin/EventCheckInPanel";
+import CancellationsPanel, { type CancellationRow } from "@/components/admin/CancellationsPanel";
 import EventCheckInSettings from "@/components/admin/EventCheckInSettings";
 import EventInviteLink, { type InviteTicketType } from "@/components/admin/EventInviteLink";
 import EventRosterSummary, {
@@ -17,7 +18,7 @@ import EventMessaging, {
 import { formatDateTime } from "@/lib/format";
 import type { ReminderEntry } from "@/lib/events/reminder-schedule";
 
-type Tab = "roster" | "checkin" | "guestlist" | "messaging" | "waitlist" | "settings";
+type Tab = "roster" | "checkin" | "guestlist" | "refunds" | "messaging" | "waitlist" | "settings";
 
 interface Waitlist {
   id: string;
@@ -52,6 +53,8 @@ interface Props {
   registrationEnabled: boolean;
   /** The event's comp guest lists (is_guest_list registrations), for the Guest list tab. */
   guestLists: GuestListEntry[];
+  /** Cancelled seats for the Refunds tab — kept off the roster, which is a door document. */
+  cancellations: CancellationRow[];
 }
 
 export default function ManageEventTabs({
@@ -76,8 +79,10 @@ export default function ManageEventTabs({
   ticketTypes,
   registrationEnabled,
   guestLists,
+  cancellations,
 }: Props) {
   const [tab, setTab] = useState<Tab>("roster");
+  const pendingCancellations = cancellations.filter((c) => c.status === "requested").length;
   const router = useRouter();
 
   // Per-row convert state (quantity / in-flight / inline error) + a component-
@@ -165,6 +170,20 @@ export default function ManageEventTabs({
         >
           Guest list
         </button>
+        <button
+          type="button"
+          className={tabClass(tab === "refunds")}
+          onClick={() => setTab("refunds")}
+        >
+          Refunds
+          {/* The count is the point of the tab: unsettled cancellations are money the club is
+              holding that finance still counts as revenue. */}
+          {pendingCancellations > 0 && (
+            <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">
+              {pendingCancellations}
+            </span>
+          )}
+        </button>
         <button type="button" className={tabClass(tab === "messaging")} onClick={() => setTab("messaging")}>
           Messaging
         </button>
@@ -208,7 +227,6 @@ export default function ManageEventTabs({
               attendees={attendees}
               baseUrl={baseUrl}
               eventId={eventId}
-              stripeTestMode={stripeTestMode}
             />
           </div>
         </div>
@@ -307,6 +325,14 @@ export default function ManageEventTabs({
           hasSeatCap={hasSeatCap}
           seatCap={seatCap}
           total={total}
+        />
+      )}
+
+      {tab === "refunds" && (
+        <CancellationsPanel
+          rows={cancellations}
+          eventId={eventId}
+          stripeTestMode={stripeTestMode}
         />
       )}
 

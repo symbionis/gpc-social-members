@@ -28,17 +28,30 @@
  */
 export type TicketCancellationStatus = "requested" | "refunded";
 
-/** A `event_registration_items` row, as read from Supabase (numerics arrive as strings). */
+/**
+ * An `event_registration_items` row.
+ *
+ * `unit_amount_chf` accepts a string as well as a number purely defensively — PostgREST
+ * serialises `numeric` as a JSON number, which is why finance sums these columns directly, so
+ * the string branch is for hand-built rows and fixtures rather than a shape Supabase produces.
+ */
 export interface RefundItemLine {
   registration_id: string;
   ticket_type_id: string | null;
   unit_amount_chf: number | string | null;
 }
 
+/**
+ * A registration's lifecycle state. Declared rather than left as `string` because the `free`
+ * member is the entire protection against refunding a comped booking — a renamed or
+ * differently-cased status would silently turn free seats into refundable ones.
+ */
+export type RegistrationStatus = "pending" | "paid" | "free";
+
 /** The parent booking. `status` distinguishes a comped party from a purchased one. */
 export interface RefundRegistration {
   id: string;
-  status: string | null;
+  status: RegistrationStatus | string | null;
   quantity: number | null;
   total_amount_chf: number | string | null;
 }
@@ -50,8 +63,8 @@ export interface RefundTicket {
   is_comp?: boolean | null;
 }
 
-// Supabase returns `numeric` columns as strings ("80.00"). Anything unparseable is 0 rather
-// than NaN — a NaN would propagate into a Stripe amount or a revenue total unnoticed.
+// Anything unparseable becomes 0 rather than NaN — a NaN would propagate into a Stripe amount
+// or a revenue total unnoticed.
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   if (typeof value !== "string") return 0;
@@ -112,6 +125,10 @@ export function ticketRefundValueChf(
   items: readonly RefundItemLine[],
 ): number {
   if (!registration) return 0;
+  // A seat priced against a DIFFERENT booking would return a plausible number that goes
+  // straight to Stripe as real money. Every caller pairs these correctly by hand today; this
+  // makes a mispairing a hard zero instead of an unbounded wrong amount.
+  if (ticket.registration_id && ticket.registration_id !== registration.id) return 0;
   if (ticket.is_comp) return 0;
   if (registration.status === "free") return 0;
 

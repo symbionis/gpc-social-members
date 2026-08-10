@@ -354,6 +354,7 @@ describe("aggregateEvents", () => {
       is_comp: false,
       cancellation_status: null,
       refund_amount_chf: null,
+      released_at: null,
       ...over,
     });
 
@@ -985,7 +986,7 @@ describe("getFinanceTransactions", () => {
       ],
       event_registration_items: [],
     });
-    const rows = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
+    const { rows } = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
     // pending excluded → 3 membership (paid, refunded, free) + 2 event = 5
     expect(rows).toHaveLength(5);
     const total = rows.reduce((s, r) => s + r.amountChf, 0);
@@ -1012,7 +1013,7 @@ describe("getFinanceTransactions", () => {
         // r2 has no lines — a legacy row keeps its booking total.
       ],
     });
-    const rows = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
+    const { rows } = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
     const amounts = rows.filter((r) => r.type === "event").map((r) => r.amountChf);
     expect(amounts).toEqual([160, 70]);
   });
@@ -1026,7 +1027,7 @@ describe("getFinanceTransactions", () => {
       event_registrations: [],
       event_registration_items: [],
     });
-    const rows = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
+    const { rows } = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
     expect(rows).toHaveLength(0);
   });
 });

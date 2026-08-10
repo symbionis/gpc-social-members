@@ -36,10 +36,6 @@ function ticket(overrides: Partial<Attendee> = {}): Attendee {
     named: true,
     cancellationStatus: null,
     cancellationRequestedAt: null,
-    stripePaymentIntentId: null,
-    // A paid seat by default, so a cancelled ticket in a test offers the Refund action;
-    // override to 0 to exercise the comped/free case, which closes rather than refunds.
-    refundValueChf: 80,
     ...overrides,
   };
 }
@@ -50,7 +46,6 @@ function renderList(attendees: Attendee[]) {
       attendees={attendees}
       baseUrl="https://app.test"
       eventId="evt-1"
-      stripeTestMode={false}
     />
   );
 }
@@ -148,58 +143,24 @@ describe("U14 — cancelled tickets render distinctly + refund workflow", () => 
     expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(1);
   });
 
-  it("links a cancelled ticket out to Stripe and refunds it for the seat's price", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("shows a cancelled seat's refund state without offering to move money", () => {
+    // Refunding is money work and lives in the Refunds tab. The roster is read at the door, so
+    // it reports status and nothing else — no amounts, no Stripe links, no buttons.
     renderList([
-      ticket({
-        id: "t-cancelled",
-        name: "Ben Adult",
-        email: "house@x.ch",
-        cancellationStatus: "requested",
-        stripePaymentIntentId: "pi_123",
-        refundValueChf: 80,
-      }),
+      ticket({ name: "Ben Adult", email: "house@x.ch", cancellationStatus: "requested" }),
     ]);
-    // Stripe deep link (live mode → no /test/ segment). Now an audit link, not the place the
-    // refund is performed.
-    const link = screen.getByRole("link", { name: "Stripe ↗" });
-    expect(link).toHaveAttribute("href", "https://dashboard.stripe.com/payments/pi_123");
-
-    // The amount is on the button: this click moves real money, so it must be visible first.
-    await user.click(screen.getByRole("button", { name: "Refund CHF 80.00" }));
-    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe("/api/admin/events/evt-1/tickets/t-cancelled/refund");
+    expect(screen.getByText("Cancel requested")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Refund/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Stripe/ })).toBeNull();
   });
 
-  it("labels a comped seat's action honestly — there is no money to send back", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("shows a settled seat as Refunded, still with no actions", () => {
     renderList([
-      ticket({
-        id: "t-comp",
-        name: "Ben Adult",
-        email: "house@x.ch",
-        cancellationStatus: "requested",
-        isComp: true,
-        refundValueChf: 0,
-      }),
-    ]);
-    // "Refund CHF 0.00" would read as a bug; the cancellation still needs closing, and it
-    // goes through the same route.
-    expect(screen.queryByRole("button", { name: /^Refund/ })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Close cancellation" }));
-    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe("/api/admin/events/evt-1/tickets/t-comp/refund");
-  });
-
-  it("shows a refunded ticket as Refunded with no further actions", () => {
-    renderList([
-      ticket({ name: "Ben Adult", email: "house@x.ch", cancellationStatus: "refunded", stripePaymentIntentId: "pi_9" }),
+      ticket({ name: "Ben Adult", email: "house@x.ch", cancellationStatus: "refunded" }),
     ]);
     expect(screen.getByText("Refunded")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Refund/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Close cancellation" })).toBeNull();
+    expect(screen.getByText("Ben Adult")).toHaveClass("line-through");
+    expect(screen.queryByRole("button", { name: /Refund/ })).toBeNull();
   });
 
   it("marks a fully-cancelled address group 'All cancelled' with no Resend", () => {

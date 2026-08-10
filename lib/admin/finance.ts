@@ -96,14 +96,20 @@ export interface EventItemRow {
   line_total_chf: number;
 }
 
-// One sold seat, read only for its refund position. Live tickets are the overwhelming
-// majority and contribute nothing here — they are already counted in the booking's gross.
+// One sold seat, read only for its refund position.
+//
+// `released_at` is projected so tombstones can be excluded. `release_ticket` leaves the old row
+// behind with its `cancellation_status` intact and mints a replacement, so a seat cancelled and
+// then freed at the door exists twice — counting both would subtract its refund twice. Every
+// other ticket reader in the codebase filters these out, and so does the refund backfill
+// migration; this is the projection that lets the aggregators do the same.
 export interface EventTicketRow {
   registration_id: string | null;
   ticket_type_id: string | null;
   is_comp: boolean | null;
   cancellation_status: string | null;
   refund_amount_chf: number | string | null;
+  released_at: string | null;
 }
 
 export interface MemberRow {
@@ -472,6 +478,8 @@ export function aggregateEvents(
 
   for (const t of tickets) {
     if (!t.registration_id) continue;
+    // A released tombstone is not a live seat; its replacement carries the booking's money.
+    if (t.released_at) continue;
     const settled = t.cancellation_status === "refunded";
     const pending = t.cancellation_status === "requested";
     if (!settled && !pending) continue;
@@ -505,6 +513,8 @@ export function aggregateEvents(
   // Which registrations count toward this period's revenue — used to scope the
   // per-ticket-type rollup to the same set.
   const paidRegIds = new Set<string>();
+  // Settled refunds per registration AFTER clamping to that booking's own gross.
+  const clampedByReg = new Map<string, number>();
 
   for (const r of registrations) {
     const ms = effectivePaidMs(r);
@@ -516,6 +526,9 @@ export function aggregateEvents(
       // manufacture revenue elsewhere in the totals.
       const refunded = Math.min(settledByReg.get(r.id) ?? 0, amt);
       const pending = Math.min(pendingByReg.get(r.id) ?? 0, Math.max(0, amt - refunded));
+      // The clamp has to reach the per-type rollup too, or the ticket-type panel reports more
+      // refunds than the event it belongs to and the page contradicts itself.
+      clampedByReg.set(r.id, refunded);
 
       gross += amt;
       refunds += refunded;
@@ -562,10 +575,18 @@ export function aggregateEvents(
   // Attribute settled refunds to the type each seat was SOLD as, scoped to the same
   // registrations the gross above came from. Without this the per-type panel would keep
   // reporting gross while the headline reported net — two numbers for one question.
+  const typeBudget = new Map(clampedByReg);
   for (const d of refundDetail) {
     if (!d.settled || !paidRegIds.has(d.regId)) continue;
+    // Allocate against the booking's clamped total, so these rows sum to the same refunds the
+    // event and month rollups report. A seat beyond the budget (over-marked data) contributes
+    // nothing here rather than pushing the panel negative.
+    const remaining = typeBudget.get(d.regId) ?? 0;
+    if (remaining <= 0) continue;
+    const take = Math.min(d.amount, remaining);
+    typeBudget.set(d.regId, remaining - take);
     const t = ttAcc.get(d.title) ?? { gross: 0, refunds: 0, quantity: 0 };
-    t.refunds += d.amount;
+    t.refunds += take;
     ttAcc.set(d.title, t);
   }
 
@@ -949,11 +970,19 @@ function isoDate(row: { paid_at: string | null; created_at: string }): string {
   return (row.paid_at ?? row.created_at).slice(0, 10);
 }
 
+/**
+ * Settled financial rows for the CSV export.
+ *
+ * Returns `complete: false` when any underlying read was truncated by an error. `fetchAll`
+ * hands back the PARTIAL rows it managed to read in that case, so silently returning them
+ * would emit a CSV that looks whole and understates refunds — the accountant's copy of the
+ * exact defect this area was built to fix. The caller must refuse rather than serve it.
+ */
 export async function getFinanceTransactions(
   client: FinanceClient,
   from: string,
   to: string,
-): Promise<FinanceTransaction[]> {
+): Promise<{ rows: FinanceTransaction[]; complete: boolean }> {
   const range = rangeFromDates(from, to);
 
   const [pay, members, tiers, regs, events, items, evTickets] = await Promise.all([
@@ -991,7 +1020,7 @@ export async function getFinanceTransactions(
     fetchAll<EventTicketRow & { name: string | null }>(
       client,
       "tickets",
-      "registration_id, ticket_type_id, is_comp, cancellation_status, refund_amount_chf, name",
+      "registration_id, ticket_type_id, is_comp, cancellation_status, refund_amount_chf, released_at, name",
       "id",
     ),
   ]);
@@ -1058,12 +1087,25 @@ export async function getFinanceTransactions(
     list.push(it);
     itemsByRegForExport.set(it.registration_id, list);
   }
+  // Clamped per booking, exactly as the dashboard does, so the promise above — that a naive
+  // column sum lands on event NET — actually holds. Without it an over-marked booking makes the
+  // CSV disagree with the page it was exported from, which is the failure this whole area exists
+  // to prevent.
+  const exportBudget = new Map<string, number>();
   for (const t of evTickets.rows) {
     if (t.cancellation_status !== "refunded" || !t.registration_id) continue;
+    if (t.released_at) continue; // tombstone, not a live seat
     const reg = inRangePaidRegs.get(t.registration_id);
     if (!reg) continue;
-    const amount = refundedAmountChf(t, reg, itemsByRegForExport.get(t.registration_id) ?? []);
+    const lines = itemsByRegForExport.get(t.registration_id) ?? [];
+    if (!exportBudget.has(reg.id)) {
+      exportBudget.set(reg.id, eventItemTotalByReg.get(reg.id) ?? reg.total_amount_chf ?? 0);
+    }
+    const remaining = exportBudget.get(reg.id) ?? 0;
+    if (remaining <= 0) continue;
+    const amount = Math.min(refundedAmountChf(t, reg, lines), remaining);
     if (amount <= 0) continue;
+    exportBudget.set(reg.id, remaining - amount);
     rows.push({
       type: "event",
       date: isoDate(reg),
@@ -1075,7 +1117,15 @@ export async function getFinanceTransactions(
   }
 
   rows.sort((a, b) => a.date.localeCompare(b.date));
-  return rows;
+  const complete =
+    pay.complete &&
+    members.complete &&
+    tiers.complete &&
+    regs.complete &&
+    events.complete &&
+    items.complete &&
+    evTickets.complete;
+  return { rows, complete };
 }
 
 export async function getFinanceSummary(
@@ -1110,7 +1160,7 @@ export async function getFinanceSummary(
     fetchAll<EventTicketRow>(
       client,
       "tickets",
-      "registration_id, ticket_type_id, is_comp, cancellation_status, refund_amount_chf",
+      "registration_id, ticket_type_id, is_comp, cancellation_status, refund_amount_chf, released_at",
       "id",
     ),
     fetchAll<MemberRow>(

@@ -74,6 +74,26 @@ describe("ticketRefundValueChf", () => {
     expect(ticketRefundValueChf({ registration_id: "r1", ticket_type_id: null }, null, [])).toBe(0);
   });
 
+  it("returns 0 when the seat belongs to a different booking", () => {
+    // Every caller pairs these correctly today, but the output goes straight to Stripe as real
+    // money — a mispairing must be a hard zero, not a plausible wrong amount.
+    const value = ticketRefundValueChf(
+      { registration_id: "rA", ticket_type_id: "ttX" },
+      { id: "rB", status: "paid", quantity: 1, total_amount_chf: 500 },
+      [{ registration_id: "rB", ticket_type_id: "ttOther", unit_amount_chf: 500 }]
+    );
+    expect(value).toBe(0);
+  });
+
+  it("still prices a seat whose registration_id is absent", () => {
+    // Legacy rows carry no back-reference; the caller has already paired them.
+    expect(
+      ticketRefundValueChf({ registration_id: null, ticket_type_id: "tt1" }, PAID, [
+        { registration_id: "r1", ticket_type_id: "tt1", unit_amount_chf: 80 },
+      ])
+    ).toBe(80);
+  });
+
   it("ignores lines belonging to a different booking", () => {
     const items: RefundItemLine[] = [
       { registration_id: "OTHER", ticket_type_id: "tt1", unit_amount_chf: 999 },

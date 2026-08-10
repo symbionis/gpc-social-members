@@ -4,7 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // Holder-requested ticket cancellation (U14). From the manage page a holder may request
 // cancellation of any ticket at their address. The request is FINAL on the holder side
 // (R22) and frees the seat IMMEDIATELY — seats_used subtracts cancelled seat-counting
-// tickets (KTD6), so nothing else has to run here. An admin later marks the refund done.
+// tickets (KTD6), so nothing else has to run here. An admin then issues the refund from the
+// event's Refunds tab, which sends the money back through Stripe and records it.
 //
 // Auth mirrors the convert route's dual-token model: the path token is EITHER the booking's
 // registration manage_token (the lead) OR a per-ticket manage_token (a household member,
