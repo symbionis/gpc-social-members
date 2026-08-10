@@ -29,8 +29,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Matches .nvmrc so CI and local development cannot disagree about the runtime.
-          node-version-file: .nvmrc
+          # Matches the version development runs on (22.x). Pinned here rather than read from
+          # a version file because the repo has none; add .nvmrc and switch to
+          # node-version-file if one ever appears, so the two cannot drift.
+          node-version: "22"
           cache: npm
 
       - run: npm ci
