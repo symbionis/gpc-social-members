@@ -5,11 +5,7 @@ import ManageEventTabs from "@/components/admin/ManageEventTabs";
 import { getEventReminderSummary } from "@/lib/events/reminder-summary";
 import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
 import { rosterGuestSummary } from "@/lib/events/roster-fill";
-import {
-  ticketRefundValueChf,
-  type RefundRegistration,
-  type TicketCancellationStatus,
-} from "@/lib/events/refunds";
+import { ticketRefundValueChf, type RefundRegistration } from "@/lib/events/refunds";
 import { mergePaymentIntentIds } from "@/lib/events/refund-pool";
 import type { CancellationRow } from "@/components/admin/CancellationsPanel";
 import { stripeTestModeFromKey } from "@/lib/stripe/dashboard";
@@ -168,7 +164,13 @@ export default async function ManageEventPage({
     );
   }
 
-  const attendees = roster.map((a) => {
+  // Live seats only. A cancelled seat is money work, handled in the Refunds tab; showing it
+  // here padded a door document with rows nobody can admit. `claimedRoster` above is
+  // deliberately NOT filtered — the roster-fill summary and the guest-list tab reason about
+  // every claimed seat, cancelled or not.
+  const attendees = roster
+    .filter((a) => a.cancellation_status === null)
+    .map((a) => {
     const named = a.slot_status === "claimed";
     // "Notified" is per person: a guest's QR rides the grouped household email
     // (ticket.qr_email_sent_at); the buyer's own rides the booking confirmation
@@ -205,10 +207,6 @@ export default async function ManageEventPage({
       // The Guest list tab removes comp guests (remove_comp_guest).
       isComp: Boolean(a.is_comp),
       named,
-      // Holder cancellation (U14): null = live; 'requested' = seat freed, refund not yet
-      // processed (still counted as revenue); 'refunded' = settled and netted out of finance.
-      cancellationStatus: (a.cancellation_status as TicketCancellationStatus | null) ?? null,
-      cancellationRequestedAt: a.cancellation_requested_at,
     };
   });
 

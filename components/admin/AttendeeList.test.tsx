@@ -34,8 +34,6 @@ function ticket(overrides: Partial<Attendee> = {}): Attendee {
     createdAt: `2026-01-01T00:00:0${seq}Z`,
     isComp: false,
     named: true,
-    cancellationStatus: null,
-    cancellationRequestedAt: null,
     ...overrides,
   };
 }
@@ -130,57 +128,26 @@ describe("U15 — every ticket sold is shown (R25)", () => {
   });
 });
 
-describe("U14 — cancelled tickets render distinctly + refund workflow", () => {
-  it("marks a cancel-requested ticket and offers it no Remove button", () => {
+describe("the roster shows live seats only", () => {
+  it("offers Remove on a live named guest", () => {
+    // Cancelled seats are filtered out upstream (the page), so this component never sees one —
+    // its cancellation rendering was removed along with the data. Refund state lives in the
+    // Refunds tab; see CancellationsPanel.test.tsx.
     renderList([
-      ticket({ id: "t-live", name: "Ana Adult", email: "house@x.ch" }),
-      ticket({ id: "t-cancelled", name: "Ben Adult", email: "house@x.ch", cancellationStatus: "requested" }),
+      ticket({ id: "t-lead", name: "Ana Adult", email: "house@x.ch", isLead: true }),
+      ticket({ id: "t-guest", name: "Ben Adult", email: "house@x.ch" }),
     ]);
-    expect(screen.getByText("Cancel requested")).toBeInTheDocument();
-    // The cancelled name is struck through.
-    expect(screen.getByText("Ben Adult")).toHaveClass("line-through");
-    // A cancelled ticket gets no Remove affordance; the live guest still does.
+    // The lead is never removable; the guest is.
     expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(1);
   });
 
-  it("shows a cancelled seat's refund state without offering to move money", () => {
-    // Refunding is money work and lives in the Refunds tab. The roster is read at the door, so
-    // it reports status and nothing else — no amounts, no Stripe links, no buttons.
-    renderList([
-      ticket({ name: "Ben Adult", email: "house@x.ch", cancellationStatus: "requested" }),
-    ]);
-    expect(screen.getByText("Cancel requested")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Refund/ })).toBeNull();
-    expect(screen.queryByRole("link", { name: /Stripe/ })).toBeNull();
-  });
-
-  it("shows a settled seat as Refunded, still with no actions", () => {
-    renderList([
-      ticket({ name: "Ben Adult", email: "house@x.ch", cancellationStatus: "refunded" }),
-    ]);
-    expect(screen.getByText("Refunded")).toBeInTheDocument();
-    expect(screen.getByText("Ben Adult")).toHaveClass("line-through");
-    expect(screen.queryByRole("button", { name: /Refund/ })).toBeNull();
-  });
-
-  it("marks a fully-cancelled address group 'All cancelled' with no Resend", () => {
-    renderList([
-      ticket({ email: "gone@x.ch", cancellationStatus: "requested" }),
-      ticket({ email: "gone@x.ch", cancellationStatus: "refunded" }),
-    ]);
-    const group = screen.getByLabelText("gone@x.ch");
-    expect(within(group).getByText("All cancelled")).toBeInTheDocument();
-    expect(within(group).queryByRole("button", { name: /Resend tickets to/ })).toBeNull();
-  });
-
-  it("does not let a cancelled ticket hold its address group back from Notified", () => {
+  it("reports an address as Notified only when every ticket on it has been emailed", () => {
     renderList([
       ticket({ email: "house@x.ch", notified: true }),
-      ticket({ email: "house@x.ch", notified: false, cancellationStatus: "requested" }),
+      ticket({ email: "house@x.ch", notified: false }),
     ]);
-    // The only live ticket is notified → the group reads Notified despite the cancelled one.
-    expect(screen.getByText("Notified")).toBeInTheDocument();
-    expect(screen.queryByText("Not notified")).toBeNull();
+    expect(screen.getByText("Not notified")).toBeInTheDocument();
+    expect(screen.queryByText("Notified")).toBeNull();
   });
 });
 
