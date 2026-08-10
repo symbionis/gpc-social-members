@@ -13,25 +13,32 @@ import type { EventSummary } from "@/lib/admin/finance";
 
 const EVENTS: EventSummary = {
   gross: 2800,
+  refunds: 0,
+  net: 2800,
+  pendingRefunds: 0,
   paidRegistrations: 5,
   freeRegistrations: 2,
   byEvent: [
-    { eventId: "e1", title: "Summer Gala", gross: 2000, paidRegistrations: 3 },
-    { eventId: "e2", title: "Autumn Ball", gross: 800, paidRegistrations: 2 },
+    { eventId: "e1", title: "Summer Gala", gross: 2000, refunds: 0, net: 2000, paidRegistrations: 3 },
+    { eventId: "e2", title: "Autumn Ball", gross: 800, refunds: 0, net: 800, paidRegistrations: 2 },
   ],
-  byTicketType: [{ title: "Standard", gross: 2800, quantity: 7 }],
+  byTicketType: [{ title: "Standard", gross: 2800, refunds: 0, net: 2800, quantity: 7 }],
   byMonth: [
     {
       monthKey: "2026-04",
       gross: 800,
+      refunds: 0,
+      net: 800,
       paidRegistrations: 2,
-      byEvent: [{ eventId: "e2", title: "Autumn Ball", gross: 800, paidRegistrations: 2 }],
+      byEvent: [{ eventId: "e2", title: "Autumn Ball", gross: 800, refunds: 0, net: 800, paidRegistrations: 2 }],
     },
     {
       monthKey: "2026-06",
       gross: 2000,
+      refunds: 0,
+      net: 2000,
       paidRegistrations: 3,
-      byEvent: [{ eventId: "e1", title: "Summer Gala", gross: 2000, paidRegistrations: 3 }],
+      byEvent: [{ eventId: "e1", title: "Summer Gala", gross: 2000, refunds: 0, net: 2000, paidRegistrations: 3 }],
     },
   ],
 };
@@ -51,14 +58,14 @@ describe("EventMonthlyPanel", () => {
     expect(months[1]).toHaveTextContent("June 2026");
   });
 
-  it("shows each month's events on arrival, under an Event/Paid/Gross header", () => {
+  it("shows each month's events on arrival, under an Event/Paid/Refunded/Net header", () => {
     render(<EventMonthlyPanel events={EVENTS} />);
     expect(screen.getByText("Summer Gala")).toBeInTheDocument();
     expect(screen.getByText("Autumn Ball")).toBeInTheDocument();
     const headers = within(screen.getAllByRole("table")[0])
       .getAllByRole("columnheader")
       .map((th) => th.textContent);
-    expect(headers).toEqual(["Event", "Paid", "Gross"]);
+    expect(headers).toEqual(["Event", "Paid", "Refunded", "Net"]);
   });
 
   it("collapses a month's events and restores them", async () => {

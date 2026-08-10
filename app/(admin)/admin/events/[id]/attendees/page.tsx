@@ -5,6 +5,11 @@ import ManageEventTabs from "@/components/admin/ManageEventTabs";
 import { getEventReminderSummary } from "@/lib/events/reminder-summary";
 import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
 import { rosterGuestSummary } from "@/lib/events/roster-fill";
+import {
+  ticketRefundValueChf,
+  type RefundRegistration,
+  type TicketCancellationStatus,
+} from "@/lib/events/refunds";
 import { stripeTestModeFromKey } from "@/lib/stripe/dashboard";
 
 export default async function ManageEventPage({
@@ -61,7 +66,9 @@ export default async function ManageEventPage({
   const { data: ticketItemRows, error: ticketItemRowsError } = registrationIds.length
     ? await supabase
         .from("event_registration_items")
-        .select("registration_id, ticket_type_id, title_snapshot, quantity")
+        // `unit_amount_chf` is the price snapshotted at checkout — the roster shows it on the
+        // refund button so the admin sees what will leave the account before clicking.
+        .select("registration_id, ticket_type_id, title_snapshot, quantity, unit_amount_chf")
         .in("registration_id", registrationIds)
         .order("created_at", { ascending: true })
     : { data: [], error: null };
@@ -72,6 +79,7 @@ export default async function ManageEventPage({
     ticket_type_id: string | null;
     title_snapshot: string | null;
     quantity: number | null;
+    unit_amount_chf: number | string | null;
   };
 
   // Every ticket SOLD for the event — `issued` (nobody named yet) and `claimed` (named)
@@ -140,8 +148,17 @@ export default async function ManageEventPage({
   // The booking's Stripe PaymentIntent → the admin cancellation view's "refund in Stripe"
   // deep link (R24). Null for free bookings (nothing was charged).
   const stripePiByReg = new Map<string, string | null>();
+  // The booking fields the per-ticket refund value is derived from. Same helper the refund
+  // route uses, so the amount on the button is the amount that reaches Stripe.
+  const regForRefundById = new Map<string, RefundRegistration>();
   for (const r of registrations ?? []) {
     refByReg.set(r.id, (r.reference_code as string | null) ?? null);
+    regForRefundById.set(r.id, {
+      id: r.id,
+      status: (r.status as string | null) ?? null,
+      quantity: (r.quantity as number | null) ?? null,
+      total_amount_chf: (r.total_amount_chf as number | string | null) ?? null,
+    });
     ticketEmailSentAtByReg.set(
       r.id,
       (r as { ticket_email_sent_at?: string | null }).ticket_email_sent_at ?? null
@@ -189,10 +206,19 @@ export default async function ManageEventPage({
       // The Guest list tab removes comp guests (remove_comp_guest).
       isComp: Boolean(a.is_comp),
       named,
-      // Holder cancellation (U14): null = live; 'requested' = seat freed, refund pending;
-      // 'refunded' = admin completed the Stripe refund. The roster renders each distinctly.
-      cancellationStatus: (a.cancellation_status as "requested" | "refunded" | null) ?? null,
+      // Holder cancellation (U14): null = live; 'requested' = seat freed, refund not yet
+      // processed (still counted as revenue); 'refunded' = settled and netted out of finance.
+      cancellationStatus: (a.cancellation_status as TicketCancellationStatus | null) ?? null,
       cancellationRequestedAt: a.cancellation_requested_at,
+      // What refunding this seat would send back, from the checkout-snapshotted line price.
+      // 0 for comped seats and free bookings — nothing was taken, so nothing can be returned.
+      refundValueChf: a.registration_id
+        ? ticketRefundValueChf(
+            a,
+            regForRefundById.get(a.registration_id) ?? null,
+            (ticketItemRows ?? []) as TicketItemRow[]
+          )
+        : 0,
       // The booking's PaymentIntent for the admin "refund in Stripe" link (null on free bookings).
       stripePaymentIntentId: a.registration_id
         ? stripePiByReg.get(a.registration_id) ?? null

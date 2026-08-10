@@ -12,7 +12,7 @@ export default function FinanceHeader({ totals }: Props) {
     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
       <Kpi label="Total revenue" value={formatCurrency(totals.totalRevenue)} accent />
       <Kpi label="Membership (net)" value={formatCurrency(totals.membershipNet)} />
-      <Kpi label="Event sales" value={formatCurrency(totals.eventGross)} />
+      <Kpi label="Event sales" value={formatCurrency(totals.eventNet)} />
       <Kpi label="Active members" value={String(totals.activeMembers)} />
       <Kpi label="New sign-ups" value={String(totals.newMembers)} />
     </div>

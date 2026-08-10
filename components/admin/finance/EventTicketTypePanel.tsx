@@ -14,14 +14,17 @@ export default function EventTicketTypePanel({ events }: Props) {
       </h2>
       <p className="text-xs text-marine/40 font-body">
         Scoped to the same completed checkouts and the same ticket line ledger as
-        the other event panels.
+        the other event panels. A refund is attributed to the type its seat was
+        sold as, so these rows sum to the same net as the panels above.
       </p>
       <Table
-        head={["Ticket type", "Qty", "Gross"]}
+        head={["Ticket type", "Qty", "Gross", "Refunded", "Net"]}
         rows={events.byTicketType.map((t) => [
           t.title,
           String(t.quantity),
           formatCurrency(t.gross),
+          t.refunds > 0 ? `−${formatCurrency(t.refunds)}` : "—",
+          formatCurrency(t.net),
         ])}
         empty="No event sales in this period."
       />

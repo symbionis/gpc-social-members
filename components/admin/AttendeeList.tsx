@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { formatDateTime } from "@/lib/format";
+import { formatCurrency, formatDateTime } from "@/lib/format";
 import { stripeDashboardUrl } from "@/lib/stripe/dashboard";
+import type { TicketCancellationStatus } from "@/lib/events/refunds";
 
 /**
  * One sold ticket on the roster (U15). The interactive roster now shows EVERY ticket sold —
@@ -40,15 +41,24 @@ export interface Attendee {
   /** Whether anyone is named on this ticket yet (slot_status === 'claimed'). */
   named: boolean;
   /**
-   * Holder cancellation (U14): null = live; 'requested' = seat freed, refund pending;
-   * 'refunded' = admin completed the Stripe refund. Rendered struck-through and excluded from
-   * the Remove affordance; 'requested' rows offer the admin a Stripe link + "Mark refunded".
+   * Holder cancellation (U14): null = live; 'requested' = seat freed, refund not yet
+   * processed; 'refunded' = settled. Both non-null states render struck-through and drop the
+   * Remove affordance; only 'requested' is actionable.
+   *
+   * Finance counts 'requested' as revenue — the club still holds the money — which is why it
+   * is a queue rather than a resting place.
    */
-  cancellationStatus: "requested" | "refunded" | null;
+  cancellationStatus: TicketCancellationStatus | null;
   /** When cancellation was requested — shown on the cancelled row. */
   cancellationRequestedAt: string | null;
-  /** The booking's Stripe PaymentIntent → the admin "refund in Stripe" deep link (R24). */
+  /** The booking's Stripe PaymentIntent → the admin "view in Stripe" deep link (R24). */
   stripePaymentIntentId: string | null;
+  /**
+   * What refunding this seat sends back, from the price snapshotted at checkout. Shown on the
+   * refund button so the amount is visible before the money moves; 0 for comped seats and free
+   * bookings, whose cancellation is closed rather than refunded.
+   */
+  refundValueChf: number;
 }
 
 interface Props {
@@ -145,7 +155,7 @@ export default function AttendeeList({ attendees, baseUrl, eventId, stripeTestMo
   const [removing, setRemoving] = useState<Set<string>>(new Set());
   // Addresses whose grouped email is being resent — keyed by lowercased email.
   const [resending, setResending] = useState<Set<string>>(new Set());
-  // Tickets whose refund is being marked — keyed by ticket id.
+  // Tickets whose refund is in flight — keyed by ticket id.
   const [refunding, setRefunding] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -207,11 +217,16 @@ export default function AttendeeList({ attendees, baseUrl, eventId, stripeTestMo
     }
   }
 
-  // Mark a holder-cancelled ticket as refunded (U14). The refund itself is done by hand in
-  // Stripe (the row links out); this only advances the status so the roster reflects it.
-  async function markRefunded(ticketId: string, name: string) {
-    if (!window.confirm(`Mark ${name || "this ticket"} as refunded? Do the refund in Stripe first.`))
-      return;
+  // Refund a holder-cancelled ticket. This ISSUES the Stripe refund — the route calls Stripe
+  // and records the outcome in one action, rather than the old flag-flip that trusted an admin
+  // to have already refunded by hand in the dashboard. The confirm names the amount because
+  // this is the click that moves real money.
+  async function issueRefund(ticketId: string, name: string, amountChf: number) {
+    const prompt =
+      amountChf > 0
+        ? `Refund ${formatCurrency(amountChf, { decimals: 2 })} to ${name || "this ticket holder"}? This sends the money back through Stripe now.`
+        : `Close ${name || "this ticket"}'s cancellation? Nothing was paid for that seat, so no money moves.`;
+    if (!window.confirm(prompt)) return;
     setError(null);
     setNotice(null);
     setRefunding((prev) => new Set(prev).add(ticketId));
@@ -222,13 +237,22 @@ export default function AttendeeList({ attendees, baseUrl, eventId, stripeTestMo
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || "Could not update the ticket.");
+        setError(data.error || "Could not refund the ticket.");
         return;
       }
-      setNotice(`Marked ${name || "the ticket"} refunded.`);
+      // Three outcomes worth distinguishing: money sent, the app catching up with a refund
+      // already issued in the Stripe dashboard, and a free seat closed with nothing to send.
+      // Reporting all three as "Refunded CHF X" would claim money moved when it didn't.
+      setNotice(
+        data.reconciledOutOfBand
+          ? `${name || "This ticket"} was already refunded in Stripe — the roster now matches.`
+          : data.nothingToRefund
+            ? `Closed ${name || "the ticket"}'s cancellation — nothing was paid for that seat.`
+            : `Refunded ${formatCurrency(amountChf, { decimals: 2 })} to ${name || "the ticket holder"}.`
+      );
       router.refresh();
     } catch {
-      setError("Could not update the ticket.");
+      setError("Could not refund the ticket.");
     } finally {
       setRefunding((prev) => {
         const next = new Set(prev);
@@ -330,7 +354,7 @@ export default function AttendeeList({ attendees, baseUrl, eventId, stripeTestMo
               stripeTestMode={stripeTestMode}
               onRemove={removeGuest}
               onResend={resendAddress}
-              onRefund={markRefunded}
+              onRefund={issueRefund}
             />
           ))}
         </div>
@@ -358,7 +382,7 @@ function AddressCard({
   stripeTestMode: boolean;
   onRemove: (id: string, name: string) => void;
   onResend: (email: string) => void;
-  onRefund: (ticketId: string, name: string) => void;
+  onRefund: (ticketId: string, name: string, amountChf: number) => void;
 }) {
   // An address whose every ticket is cancelled has nothing to notify or resend — treat it as
   // a spent group rather than badging it "Not notified" and offering a pointless Resend.
@@ -485,7 +509,7 @@ function TicketRow({
   refunding: boolean;
   stripeTestMode: boolean;
   onRemove: (id: string, name: string) => void;
-  onRefund: (ticketId: string, name: string) => void;
+  onRefund: (ticketId: string, name: string, amountChf: number) => void;
 }) {
   const cancelled = row.cancellationStatus !== null;
   // The door Remove (free-slot) frees a named guest's slot. Never a lead, a comp seat, a
@@ -575,7 +599,10 @@ function TicketRow({
                 href={stripeUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                title="Open this booking's payment in Stripe to issue the refund"
+                // No longer where the refund is performed — the button beside it does that.
+                // Kept as the audit trail: open the booking's payment to see the charge and
+                // any refunds against it.
+                title="View this booking's payment in Stripe"
                 // ph-no-capture: the href carries a Stripe PaymentIntent id; keep it out of analytics.
                 className="ph-no-capture px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors whitespace-nowrap"
               >
@@ -585,11 +612,22 @@ function TicketRow({
             {row.cancellationStatus === "requested" && (
               <button
                 type="button"
-                onClick={() => onRefund(row.id, row.name)}
+                onClick={() => onRefund(row.id, row.name, row.refundValueChf)}
                 disabled={refunding}
+                title={
+                  row.refundValueChf > 0
+                    ? "Send this ticket's payment back through Stripe now"
+                    : "Nothing was paid for this seat — close the cancellation"
+                }
                 className="px-2.5 py-1 rounded-lg border border-emerald-300 text-emerald-800 text-xs font-body hover:bg-emerald-50 transition-colors disabled:opacity-50 cursor-pointer whitespace-nowrap"
               >
-                {refunding ? "…" : "Mark refunded"}
+                {refunding
+                  ? "…"
+                  : // A comped or free seat has nothing to send back. Same action, honest
+                    // label — "Refund CHF 0.00" would read as a bug.
+                    row.refundValueChf > 0
+                    ? `Refund ${formatCurrency(row.refundValueChf, { decimals: 2 })}`
+                    : "Close cancellation"}
               </button>
             )}
           </div>

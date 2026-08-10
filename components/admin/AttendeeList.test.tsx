@@ -37,6 +37,9 @@ function ticket(overrides: Partial<Attendee> = {}): Attendee {
     cancellationStatus: null,
     cancellationRequestedAt: null,
     stripePaymentIntentId: null,
+    // A paid seat by default, so a cancelled ticket in a test offers the Refund action;
+    // override to 0 to exercise the comped/free case, which closes rather than refunds.
+    refundValueChf: 80,
     ...overrides,
   };
 }
@@ -145,7 +148,7 @@ describe("U14 — cancelled tickets render distinctly + refund workflow", () => 
     expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(1);
   });
 
-  it("links a cancelled ticket out to Stripe and marks it refunded", async () => {
+  it("links a cancelled ticket out to Stripe and refunds it for the seat's price", async () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     renderList([
@@ -155,23 +158,48 @@ describe("U14 — cancelled tickets render distinctly + refund workflow", () => 
         email: "house@x.ch",
         cancellationStatus: "requested",
         stripePaymentIntentId: "pi_123",
+        refundValueChf: 80,
       }),
     ]);
-    // Stripe deep link (live mode → no /test/ segment).
+    // Stripe deep link (live mode → no /test/ segment). Now an audit link, not the place the
+    // refund is performed.
     const link = screen.getByRole("link", { name: "Stripe ↗" });
     expect(link).toHaveAttribute("href", "https://dashboard.stripe.com/payments/pi_123");
 
-    await user.click(screen.getByRole("button", { name: "Mark refunded" }));
+    // The amount is on the button: this click moves real money, so it must be visible first.
+    await user.click(screen.getByRole("button", { name: "Refund CHF 80.00" }));
     const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(url).toBe("/api/admin/events/evt-1/tickets/t-cancelled/refund");
   });
 
-  it("shows a refunded ticket as Refunded with no Mark-refunded button", () => {
+  it("labels a comped seat's action honestly — there is no money to send back", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderList([
+      ticket({
+        id: "t-comp",
+        name: "Ben Adult",
+        email: "house@x.ch",
+        cancellationStatus: "requested",
+        isComp: true,
+        refundValueChf: 0,
+      }),
+    ]);
+    // "Refund CHF 0.00" would read as a bug; the cancellation still needs closing, and it
+    // goes through the same route.
+    expect(screen.queryByRole("button", { name: /^Refund/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Close cancellation" }));
+    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe("/api/admin/events/evt-1/tickets/t-comp/refund");
+  });
+
+  it("shows a refunded ticket as Refunded with no further actions", () => {
     renderList([
       ticket({ name: "Ben Adult", email: "house@x.ch", cancellationStatus: "refunded", stripePaymentIntentId: "pi_9" }),
     ]);
     expect(screen.getByText("Refunded")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Mark refunded" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Refund/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close cancellation" })).toBeNull();
   });
 
   it("marks a fully-cancelled address group 'All cancelled' with no Resend", () => {
