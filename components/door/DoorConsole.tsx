@@ -154,7 +154,10 @@ export default function DoorConsole({
   }
 
   const pct = expectedCount > 0 ? Math.round((arrivedCount / expectedCount) * 100) : 0;
-  const preRegisteredCount = parties.reduce((s, p) => s + p.claimedCount, 0);
+  // Every seat this tab lists — named and still-open alike. It counted only NAMED seats
+  // before, which was the retired "pre-registered" idea and made the door disagree with the
+  // admin roster it is supposed to mirror.
+  const attendeeCount = parties.reduce((s, p) => s + p.slots.length, 0);
 
   // Sponsor comp lists, e.g. a corporate partner who brought twelve guests. They are already
   // in Pre-registered, but scattered among every other party — this groups them so the door can
@@ -201,7 +204,7 @@ export default function DoorConsole({
           onClick={() => setTab("registered")}
           className={tabClass(tab === "registered")}
         >
-          Pre-registered{preRegisteredCount > 0 ? ` (${preRegisteredCount})` : ""}
+          Attendees{attendeeCount > 0 ? ` (${attendeeCount})` : ""}
         </button>
         <button
           type="button"

@@ -203,6 +203,10 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
       .eq("event_id", eventId)
       .in("slot_status", ["claimed", "issued"])
       .is("released_at", null)
+      // Cancelled seats are excluded so the console shows the same people as the admin roster
+      // and the printed sheet. Check-in rejects them at the scan anyway (lib/events/checkin.ts),
+      // so listing one only offered the door a row it could never admit.
+      .is("cancellation_status", null)
       .order("id", { ascending: true })
       .range(from, to)
   );

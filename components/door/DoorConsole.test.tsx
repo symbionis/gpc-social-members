@@ -178,7 +178,7 @@ describe("R15 — one shared matcher across both views", () => {
     renderConsole({ parties: [party()], arrivals, notArrived: missing });
     await user.click(arrivalsTab());
     await user.type(search(), "carla");
-    await user.click(screen.getByRole("button", { name: /^Pre-registered/ }));
+    await user.click(screen.getByRole("button", { name: /^Attendees/ }));
     expect(search()).toHaveValue("carla");
   });
 });
@@ -321,7 +321,7 @@ describe("arrivals tab states", () => {
   });
 });
 
-describe("R12 — comp guests are findable in the Pre-registered tab", () => {
+describe("R12 — comp guests are findable in the Attendees tab", () => {
   it("finds a comp party's named guest by guest name", async () => {
     const user = userEvent.setup();
     const comp = party({
