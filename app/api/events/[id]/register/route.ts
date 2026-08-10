@@ -18,6 +18,7 @@ import {
 } from "@/lib/events/roster";
 import { isFullName } from "@/lib/names";
 import { parseAttendeeInput, EMAIL_RE } from "@/lib/events/attendee-input";
+import { isWaitlistEntryRedeemed } from "@/lib/events/waitlist-offer";
 
 const MAX_TICKETS = 20;
 // Bounds for the nominative roster fields — this endpoint is unauthenticated, so
@@ -41,6 +42,7 @@ export async function POST(
     items?: unknown;
     leadTicketTypeId?: unknown;
     attendees?: unknown;
+    offer_token?: unknown;
   };
   try {
     body = await request.json();
@@ -49,9 +51,14 @@ export async function POST(
   }
 
   const name = typeof body.name === "string" ? body.name.trim() : "";
-  const email =
+  // Overridden below (KTD8) once an offer_token resolves to a waitlist entry — the
+  // entry's own email replaces whatever the client sent, for every downstream use
+  // (duplicate guard, the registration RPC, and Stripe's customer_email).
+  let email =
     typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const code = typeof body.code === "string" ? body.code.trim() : "";
+  const offerToken =
+    typeof body.offer_token === "string" ? body.offer_token.trim() : "";
   // Optional E.164 phone (the form captures it via PhoneInput; empty is allowed —
   // email stays the required contact). Reject a malformed value rather than storing
   // junk that could never match at the door.
@@ -112,6 +119,61 @@ export async function POST(
   if (!event.is_published) return bad("Event is not published");
   if (!event.registration_enabled) {
     return bad("Registration is not open for this event");
+  }
+
+  // U6: resolve an offer token to its waitlist entry, scoped to THIS event (IDOR
+  // guard, mirrors the ticket-type lookup below). The token is unauthenticated and
+  // long-lived, so every check here must hold even against a crafted request —
+  // never trust the client's own quantity, email, or ticket-type choice (R6, R8).
+  let offerEntry: { id: string; email: string; quantity: number } | null = null;
+  if (offerToken) {
+    const { data: entry, error: entryErr } = await supabase
+      .from("event_waitlist")
+      .select("id, email, quantity")
+      .eq("event_id", eventId)
+      .eq("offer_token", offerToken)
+      .limit(1)
+      .maybeSingle();
+    if (entryErr) {
+      console.error("[event-register] offer token lookup failed", { eventId, err: entryErr });
+      return bad("Could not verify this offer link", 500);
+    }
+    if (!entry) return bad("This offer link is not valid", 400);
+
+    // KTD3: redeemed once the linked registration (or, for a pre-link legacy
+    // entry, a live registration sharing its email — R12) reaches paid or free.
+    const { data: liveRegs, error: liveRegsErr } = await supabase
+      .from("event_registrations")
+      .select("waitlist_entry_id, email")
+      .eq("event_id", eventId)
+      .in("status", ["paid", "free"]);
+    if (liveRegsErr) {
+      console.error("[event-register] offer redemption check failed", { eventId, err: liveRegsErr });
+      return bad("Could not verify this offer link", 500);
+    }
+    if (isWaitlistEntryRedeemed({ id: entry.id, email: entry.email }, liveRegs ?? [])) {
+      return bad("This offer has already been redeemed", 400);
+    }
+
+    // A repaired-but-never-fixed legacy entry could in principle carry a null
+    // quantity (R13) — U4's offer route should never mint a token for one, but this
+    // route is unauthenticated and must not trust that invariant blindly. Fail
+    // closed rather than let a null coerce away the bound.
+    if (entry.quantity === null || !Number.isInteger(entry.quantity) || entry.quantity < 1) {
+      return bad("This offer link is not valid", 400);
+    }
+
+    // R6: an upper bound, not exact equality — fewer seats than requested is fine.
+    if (totalQuantity > entry.quantity) {
+      return bad(
+        `This offer is for at most ${entry.quantity} ticket${entry.quantity === 1 ? "" : "s"}`,
+        400
+      );
+    }
+
+    offerEntry = { id: entry.id, email: entry.email.trim().toLowerCase(), quantity: entry.quantity };
+    // KTD8: pin the email server-side for every downstream use, not just the RPC.
+    email = offerEntry.email;
   }
 
   // Member detection: only trust an authenticated session, never the form email.
@@ -181,6 +243,12 @@ export async function POST(
   }
   if (types.some((t) => t.archived_at)) {
     return bad("A selected ticket type is no longer available", 400);
+  }
+  // KTD6: an offer only redeems for a type that consumes a seat — a non-seat type
+  // would let the invitee claim the offer without consuming the capacity that was
+  // freed for them. R7 otherwise leaves the type free to choose, entry type or not.
+  if (offerEntry && types.some((t) => !t.counts_as_seat)) {
+    return bad("This offer can only be redeemed for a ticket type that counts toward capacity", 400);
   }
   const typeById = new Map(types.map((t) => [t.id, t]));
 
@@ -309,6 +377,26 @@ export async function POST(
     return bad("Could not create registration", 500);
   }
 
+  // U6/KTD3: link the registration back to the waitlist entry it redeemed, BEFORE
+  // any confirmation or Stripe step. FAIL-LOUD (mirrors pending_roster below): a
+  // lost write here would strand a paid/free registration next to a still-offerable
+  // waitlist entry, silently breaking the redeemed-state derivation every other
+  // surface relies on (R12).
+  if (offerEntry) {
+    const { error: waitlistLinkErr } = await supabase
+      .from("event_registrations")
+      .update({ waitlist_entry_id: offerEntry.id })
+      .eq("id", registrationId);
+    if (waitlistLinkErr) {
+      console.error("[event-register] waitlist_entry_id persist failed — blocking checkout", {
+        registrationId,
+        waitlistEntryId: offerEntry.id,
+        err: waitlistLinkErr,
+      });
+      return bad("Could not confirm your offer. Please try again.", 500);
+    }
+  }
+
   // Persist the captured phone and the registration's manage token. The phone is matched
   // at the door; the manage_token scopes the party's lead "My Booking" link (sent in the
   // confirmation email). Best-effort and non-blocking — a failure here never fails an
@@ -375,6 +463,16 @@ export async function POST(
   // registration items but omitted here — Stripe rejects zero-amount lines).
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const codeParam = code ? `&code=${encodeURIComponent(code)}` : "";
+  // U6: carry the offer token through the round trip the way `code` is carried, so
+  // a cancelled (or completed) offer checkout returns to the offer landing rather
+  // than the full-event page, which would offer a waitlist-full visitor a form to
+  // rejoin the waitlist they are already on (KTD5).
+  const successUrl = offerEntry
+    ? `${appUrl}/public/offers/${encodeURIComponent(offerToken)}?registered=1`
+    : `${appUrl}/public/events/${eventId}?registered=1${codeParam}`;
+  const cancelUrl = offerEntry
+    ? `${appUrl}/public/offers/${encodeURIComponent(offerToken)}?cancelled=1`
+    : `${appUrl}/public/events/${eventId}?cancelled=1${codeParam}`;
 
   let session;
   try {
@@ -392,8 +490,8 @@ export async function POST(
         })),
       customer_email: email,
       metadata: { event_registration_id: registrationId, event_id: eventId },
-      success_url: `${appUrl}/public/events/${eventId}?registered=1${codeParam}`,
-      cancel_url: `${appUrl}/public/events/${eventId}?cancelled=1${codeParam}`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
     });
   } catch (err) {
     console.error("[event-register] Stripe session create failed", { eventId, email, registrationId, err });

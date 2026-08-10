@@ -36,6 +36,9 @@ type TicketType = {
 
 type RpcArgs = { p_status: string; p_is_member: boolean; p_member_id: string | null; p_items: { ticket_type_id: string; unit_amount_chf: number; line_total_chf: number; quantity: number }[] };
 
+type WaitlistEntry = { id: string; email: string; quantity: number | null } | null;
+type LiveReg = { waitlist_entry_id: string | null; email: string };
+
 type Cfg = {
   event: Record<string, unknown> | null;
   memberRow?: { id: string; status: string } | null;
@@ -47,6 +50,15 @@ type Cfg = {
   capturedClaims?: Record<string, unknown>[];
   capturedRosterUpdate?: Record<string, unknown>;
   rosterUpdateError?: boolean;
+  // Offer redemption (U6): the event_waitlist row an offer_token resolves to, the
+  // paid/free registrations used to derive redeemed state (KTD3), and the
+  // fail-loud waitlist_entry_id write on the created registration.
+  waitlistEntry?: WaitlistEntry;
+  waitlistEntryLookupError?: boolean;
+  liveRegs?: LiveReg[];
+  liveRegsLookupError?: boolean;
+  capturedWaitlistLinkUpdate?: Record<string, unknown>;
+  waitlistLinkUpdateError?: boolean;
 };
 
 function adminClient(cfg: Cfg) {
@@ -79,13 +91,25 @@ function adminClient(cfg: Cfg) {
       }
       if (table === "event_registrations") {
         const c: Record<string, unknown> = {};
-        c.select = () => {
+        // Two distinct selects hit this table: the pre-existing duplicate-email
+        // guard (select("id")) and U6's redeemed-state lookup for an offer token
+        // (select(...waitlist_entry_id...)). Branch on the requested columns so
+        // both can be configured independently in one test.
+        c.select = (cols?: string) => {
           const d: Record<string, unknown> = {};
           d.eq = () => d;
           d.in = () => d;
           d.limit = () => d;
-          (d as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
-            resolve({ data: cfg.existingReg ?? [], error: null });
+          const isLiveRegsQuery = typeof cols === "string" && cols.includes("waitlist_entry_id");
+          (d as { then: unknown }).then = (resolve: (r: unknown) => unknown) => {
+            if (isLiveRegsQuery) {
+              if (cfg.liveRegsLookupError) {
+                return resolve({ data: null, error: { message: "live regs lookup failed" } });
+              }
+              return resolve({ data: cfg.liveRegs ?? [], error: null });
+            }
+            return resolve({ data: cfg.existingReg ?? [], error: null });
+          };
           return d;
         };
         c.update = (payload: Record<string, unknown>) => {
@@ -95,10 +119,25 @@ function adminClient(cfg: Cfg) {
               cfg.capturedRosterUpdate = payload;
               if (cfg.rosterUpdateError) return { error: { message: "roster write failed" } };
             }
+            if (payload && "waitlist_entry_id" in payload) {
+              cfg.capturedWaitlistLinkUpdate = payload;
+              if (cfg.waitlistLinkUpdateError) return { error: { message: "waitlist link write failed" } };
+            }
             return { error: null };
           };
           return upd;
         };
+        return c;
+      }
+      if (table === "event_waitlist") {
+        const c: Record<string, unknown> = {};
+        c.select = () => c;
+        c.eq = () => c;
+        c.limit = () => c;
+        c.maybeSingle = async () =>
+          cfg.waitlistEntryLookupError
+            ? { data: null, error: { message: "waitlist entry lookup failed" } }
+            : { data: cfg.waitlistEntry ?? null, error: null };
         return c;
       }
       throw new Error(`unexpected table ${table}`);
@@ -580,5 +619,183 @@ describe("U2 — shared email across a household (distinct-email guard removed, 
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree], existingReg: [{ id: "reg-0" }] };
     const res = await publicPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
     expect(res.status).toBe(409);
+  });
+});
+
+describe("offer redemption (U6)", () => {
+  const offerEvent = { ...membersOnlyEvent, visibility: "public" };
+  const OFFER_TOKEN = "offer-tok-abc";
+  const ENTRY_EMAIL = "invitee@example.com";
+  const entryQty2: WaitlistEntry = { id: "wl-1", email: ENTRY_EMAIL, quantity: 2 };
+
+  const dinner: TicketType = { id: "t1", title: "Dinner", price_member: 80, price_non_member: 80, invite_price: null, counts_as_seat: true, archived_at: null };
+  const lunch: TicketType = { id: "t2", title: "Lunch", price_member: 50, price_non_member: 50, invite_price: null, counts_as_seat: true, archived_at: null };
+  const freeType: TicketType = { id: "t1", title: "Dinner", price_member: 0, price_non_member: 0, invite_price: null, counts_as_seat: true, archived_at: null };
+  const merch: TicketType = { id: "t3", title: "Merch", price_member: 10, price_non_member: 10, invite_price: null, counts_as_seat: false, archived_at: null };
+
+  function offerPost(cfg: Cfg, body: Record<string, unknown>) {
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+    // Body email deliberately differs from the entry's — the whole point of the
+    // pin (KTD8) is that a crafted body email must not survive to the RPC/Stripe.
+    return post({ name: "Buyer Person", email: "buyer-crafted@example.com", offer_token: OFFER_TOKEN, ...body });
+  }
+
+  // --- Quantity lock (R6, an upper bound not exact equality) — added first per
+  // the plan's Execution note: security-relevant and trivially satisfiable by an
+  // implementation that only checks the client. ---
+  describe("quantity lock", () => {
+    it("covers AE2: a basket totalling more than the entry's quantity is rejected and creates nothing", async () => {
+      const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
+      const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 3 }] });
+      expect(res.status).toBe(400);
+      expect(cfg.capturedRpc).toBeUndefined();
+      expect(stripeCreate).not.toHaveBeenCalled();
+    });
+
+    it("covers AE9: a basket totalling less than the entry's quantity is accepted", async () => {
+      const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
+      const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+      expect(res.status).toBe(200);
+    });
+
+    it("a basket of 0 against an offer for 2 returns 400", async () => {
+      const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
+      const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 0 }] });
+      expect(res.status).toBe(400);
+    });
+
+    it("covers AE1: an offer for 2 x Dinner redeemed as 2 x Lunch is accepted and priced as Lunch", async () => {
+      const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner, lunch], waitlistEntry: entryQty2 };
+      const res = await offerPost(cfg, {
+        items: [{ ticket_type_id: "t2", quantity: 2 }],
+        leadTicketTypeId: "t2",
+        attendees: [{ ticket_type_id: "t2", name: "Guest Person", email: "guest@example.com" }],
+      });
+      expect(res.status).toBe(200);
+      expect(cfg.capturedRpc?.args.p_items[0]).toMatchObject({ ticket_type_id: "t2", unit_amount_chf: 50, quantity: 2 });
+    });
+  });
+
+  // --- Email pin (KTD8): the entry's email, never the body's, reaches every
+  // downstream use. Added alongside the quantity lock per the Execution note. ---
+  describe("email pin", () => {
+    it("covers AE3: creates the registration with the entry's email, not the body's", async () => {
+      const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
+      const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+      expect(res.status).toBe(200);
+      expect(cfg.capturedRpc?.args).toMatchObject({});
+      expect((cfg.capturedRpc?.args as unknown as { p_email: string }).p_email).toBe(ENTRY_EMAIL);
+    });
+
+    it("the Stripe session is created with the entry's email as customer_email", async () => {
+      const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
+      await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+      expect(stripeCreate.mock.calls[0][0].customer_email).toBe(ENTRY_EMAIL);
+    });
+  });
+
+  it("rejects a requested type with counts_as_seat false (KTD6)", async () => {
+    const cfg: Cfg = { event: offerEvent, ticketTypes: [merch], waitlistEntry: entryQty2 };
+    const res = await offerPost(cfg, { items: [{ ticket_type_id: "t3", quantity: 1 }] });
+    expect(res.status).toBe(400);
+    expect(cfg.capturedRpc).toBeUndefined();
+    expect(stripeCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a requested type belonging to another event (IDOR)", async () => {
+    // The ticket-types mock returns whatever `ticketTypes` is configured with,
+    // regardless of the `.in(ids)` filter — matching the pre-existing IDOR test's
+    // shape (line ~278): request two ids while the fixture only "has" one, so the
+    // route's own `types.length < ids.length` guard is what fires.
+    const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
+    const res = await offerPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 1 }, { ticket_type_id: "tX", quantity: 1 }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an unresolvable offer token", async () => {
+    const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: null };
+    const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(400);
+    expect(cfg.capturedRpc).toBeUndefined();
+  });
+
+  it("rejects a token whose entry is already redeemed", async () => {
+    const cfg: Cfg = {
+      event: offerEvent,
+      ticketTypes: [dinner],
+      waitlistEntry: entryQty2,
+      liveRegs: [{ waitlist_entry_id: "wl-1", email: ENTRY_EMAIL }],
+    };
+    const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(400);
+    expect(cfg.capturedRpc).toBeUndefined();
+  });
+
+  it("with one seat free and an offer for two, a basket of 1 succeeds and a basket of 2 returns 409 with the existing sold-out message", async () => {
+    const cappedEvent = { ...offerEvent, seat_cap: 5 };
+    mockedSeatsUsed.mockResolvedValue(4); // 1 seat free
+
+    const okCfg: Cfg = { event: cappedEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
+    const okRes = await offerPost(okCfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(okRes.status).toBe(200);
+
+    const fullCfg: Cfg = { event: cappedEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
+    const fullRes = await offerPost(fullCfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      attendees: [{ ticket_type_id: "t1", name: "Guest Person", email: "guest@example.com" }],
+    });
+    expect(fullRes.status).toBe(409);
+    expect((await fullRes.json()).error).toMatch(/tickets? remaining/i);
+  });
+
+  it("a successful paid registration carries waitlist_entry_id", async () => {
+    const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
+    const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(200);
+    expect(cfg.capturedWaitlistLinkUpdate).toEqual({ waitlist_entry_id: "wl-1" });
+  });
+
+  it("a zero-total offer redemption creates a free registration carrying waitlist_entry_id and skips Stripe", async () => {
+    const cfg: Cfg = { event: offerEvent, ticketTypes: [freeType], waitlistEntry: entryQty2 };
+    const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(200);
+    expect((await res.json()).success).toBe(true);
+    expect(stripeCreate).not.toHaveBeenCalled();
+    expect(cfg.capturedWaitlistLinkUpdate).toEqual({ waitlist_entry_id: "wl-1" });
+  });
+
+  it("a failure writing waitlist_entry_id on the paid path returns 500 and never reaches Stripe", async () => {
+    const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2, waitlistLinkUpdateError: true };
+    const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(500);
+    expect(stripeCreate).not.toHaveBeenCalled();
+  });
+
+  it("a failure writing waitlist_entry_id on the free path returns 500 and does not confirm the registration", async () => {
+    const cfg: Cfg = { event: offerEvent, ticketTypes: [freeType], waitlistEntry: entryQty2, waitlistLinkUpdateError: true };
+    const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(500);
+    expect(mockedSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("the Stripe success and cancel URLs carry the offer token", async () => {
+    const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
+    await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    const args = stripeCreate.mock.calls[0][0];
+    expect(args.success_url).toContain(`/public/offers/${OFFER_TOKEN}`);
+    expect(args.cancel_url).toContain(`/public/offers/${OFFER_TOKEN}`);
+  });
+
+  it("a request with no offer_token behaves exactly as today (email not pinned, own event page URLs)", async () => {
+    const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner] };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+    const res = await post({ name: "Lead Booker", email: "lead@x.ch", items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(200);
+    expect((cfg.capturedRpc?.args as unknown as { p_email: string }).p_email).toBe("lead@x.ch");
+    expect(cfg.capturedWaitlistLinkUpdate).toBeUndefined();
+    const args = stripeCreate.mock.calls[0][0];
+    expect(args.success_url).toContain("/public/events/evt-1");
   });
 });
