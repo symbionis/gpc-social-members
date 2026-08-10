@@ -129,16 +129,17 @@ describe("U15 — every ticket sold is shown (R25)", () => {
 });
 
 describe("the roster shows live seats only", () => {
-  it("offers Remove on a live named guest", () => {
-    // Cancelled seats are filtered out upstream (the page), so this component never sees one —
-    // its cancellation rendering was removed along with the data. Refund state lives in the
-    // Refunds tab; see CancellationsPanel.test.tsx.
+  it("is a read-only roster — no seat can be freed from here", () => {
+    // Cancelled seats are filtered out upstream (the page), so this component never sees one.
+    // Freeing a seat is a cancellation now, handled in the Refunds tab, so that every freed
+    // seat carries an account of its money. Refund state: see CancellationsPanel.test.tsx.
     renderList([
       ticket({ id: "t-lead", name: "Ana Adult", email: "house@x.ch", isLead: true }),
       ticket({ id: "t-guest", name: "Ben Adult", email: "house@x.ch" }),
     ]);
-    // The lead is never removable; the guest is.
-    expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(screen.getByText("Ana Adult")).toBeInTheDocument();
+    expect(screen.getByText("Ben Adult")).toBeInTheDocument();
   });
 
   it("reports an address as Notified only when every ticket on it has been emailed", () => {
