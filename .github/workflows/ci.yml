@@ -1,0 +1,50 @@
+# Typecheck, unit tests and lint on every PR.
+#
+# Until now the only check on a pull request was Railway's build. That build does not typecheck
+# test files — they are not in the app's module graph — so a `tsc` error confined to a test rode
+# onto main with a green tick (PR #105). This closes that gap.
+#
+# Deliberately does NOT build: Railway already does that on every PR, and duplicating it here
+# would double the wait for no extra signal. These three steps are the ones nothing else covers.
+# None of them need secrets, so this runs on forks too.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push supersedes an in-flight run on the same ref; no point finishing a check for a
+# commit nobody will merge.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck, test, lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the version development runs on (22.x). Pinned here rather than read from
+          # a version file because the repo has none; add .nvmrc and switch to
+          # node-version-file if one ever appears, so the two cannot drift.
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # Ordered cheapest-and-most-diagnostic first: a type error is faster to read than a test
+      # failure caused by one, and `continue-on-error` is deliberately absent — a red step here
+      # should block the merge.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Lint
+        run: npx next lint

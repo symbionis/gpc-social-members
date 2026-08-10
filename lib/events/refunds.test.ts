@@ -113,6 +113,28 @@ describe("resolveTicketLine", () => {
       .toMatchObject({ title_snapshot: "Standard" });
   });
 
+  it("resolves a repeated ticket type when every line agrees on price", () => {
+    // The real shape in production: a top-up appends a second line of the same type at the
+    // same price. There is no ambiguity worth refusing over.
+    const items = [
+      { registration_id: "r1", ticket_type_id: "tt1", unit_amount_chf: 40 },
+      { registration_id: "r1", ticket_type_id: "tt1", unit_amount_chf: 40 },
+    ];
+    expect(resolveTicketLine({ registration_id: "r1", ticket_type_id: "tt1" }, PAID, items))
+      .toMatchObject({ unit_amount_chf: 40 });
+  });
+
+  it("refuses to pick a line when a repeated type disagrees on price", () => {
+    // A repricing between top-ups. Tickets carry no link to the line that minted them, so
+    // taking the first would refund a CHF 100 seat at CHF 80 — plausibly and silently.
+    const items = [
+      { registration_id: "r1", ticket_type_id: "tt1", unit_amount_chf: 80 },
+      { registration_id: "r1", ticket_type_id: "tt1", unit_amount_chf: 100 },
+    ];
+    expect(resolveTicketLine({ registration_id: "r1", ticket_type_id: "tt1" }, PAID, items))
+      .toBeNull();
+  });
+
   it("returns null for a multi-line booking whose ticket names no line", () => {
     const items = [
       { registration_id: "r1", ticket_type_id: "tt-a", unit_amount_chf: 80 },
