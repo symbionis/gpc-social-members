@@ -19,13 +19,22 @@
 //   - Membership gross  = sum of `paid` rows.
 //   - Membership refunds = sum of `refunded` rows.
 //   - Membership net     = gross − refunds.
-//   - Event revenue      = sum of the ticket LINE ITEMS of `paid` registrations
-//                          (gross; event refunds are not tracked in the DB).
+//   - Event gross        = sum of the ticket LINE ITEMS of `paid` registrations.
 //                          The lines, not `total_amount_chf`: a top-up appends
 //                          lines without updating the booking total.
+//   - Event refunds      = sum of the seats whose tickets are 'refunded'.
+//   - Event net          = gross − refunds. THIS is event revenue; report it, not gross.
 //   - `free` / comp rows contribute to COUNTS but never to revenue.
+//
+// Event refunds used to be absent from this file entirely, on the (then-true) grounds that the
+// database did not record them. It does now — the admin roster issues the Stripe refund and
+// writes the amount — and the gap was not academic: Pilates & Polo 3.0 reported CHF 960 of
+// event revenue against CHF 400 actually collected, because CHF 560 of refunds had nowhere to
+// be counted. A cancellation whose refund is still pending is NOT subtracted (the club still
+// holds that money) but is reported separately as `pendingRefunds`.
 
 import { zurichMonthKey, type MonthKey } from "@/lib/members/payments";
+import { refundedAmountChf, resolveTicketLine } from "@/lib/events/refunds";
 import type { StripeRef } from "@/lib/stripe/dashboard";
 
 // ---------------------------------------------------------------------------
@@ -71,6 +80,7 @@ export function resolveStripeRef(row: {
 export interface EventRegistrationRow {
   id: string;
   event_id: string;
+  quantity: number;
   total_amount_chf: number;
   status: string; // 'pending' | 'paid' | 'free'
   paid_at: string | null;
@@ -79,9 +89,27 @@ export interface EventRegistrationRow {
 
 export interface EventItemRow {
   registration_id: string;
+  ticket_type_id: string | null;
   title_snapshot: string;
   quantity: number;
+  unit_amount_chf: number;
   line_total_chf: number;
+}
+
+// One sold seat, read only for its refund position.
+//
+// `released_at` is projected so tombstones can be excluded. `release_ticket` leaves the old row
+// behind with its `cancellation_status` intact and mints a replacement, so a seat cancelled and
+// then freed at the door exists twice — counting both would subtract its refund twice. Every
+// other ticket reader in the codebase filters these out, and so does the refund backfill
+// migration; this is the projection that lets the aggregators do the same.
+export interface EventTicketRow {
+  registration_id: string | null;
+  ticket_type_id: string | null;
+  is_comp: boolean | null;
+  cancellation_status: string | null;
+  refund_amount_chf: number | string | null;
+  released_at: string | null;
 }
 
 export interface MemberRow {
@@ -337,28 +365,54 @@ export interface EventRevenue {
   eventId: string;
   title: string;
   gross: number;
+  /** Settled refunds against this event's bookings. */
+  refunds: number;
+  /** gross − refunds: what the club actually kept. */
+  net: number;
   paidRegistrations: number;
 }
 
 export interface TicketTypeRevenue {
   title: string;
   gross: number;
+  refunds: number;
+  net: number;
   quantity: number;
 }
 
-// One Geneva calendar month of event ticket revenue. Gross only, with no `net`
-// counterpart: event refunds are not recorded in the database, so a net column
-// would just repeat gross and imply a reconciliation the data cannot support.
+// Where a refund lands when its seat can't be tied to a ticket-type line — a multi-line
+// booking whose ticket names none of them. Rare and legacy-shaped, but it must land SOMEWHERE
+// visible: dropping it would make the per-type rollup quietly disagree with the event total.
+export const UNATTRIBUTED_TICKET_TYPE = "Unattributed";
+
+// One Geneva calendar month of event ticket revenue.
+//
+// A refund files under the month of the SALE, not the month the money went back — mirroring
+// the membership breakdown, where a refunded payment row is negative in its own paid month.
+// That keeps a month's event rows summing to the month total by construction, and keeps a
+// closed month closed rather than having a later refund silently restate it.
 export interface EventMonthRevenue {
   monthKey: MonthKey;
   gross: number;
+  refunds: number;
+  net: number;
   paidRegistrations: number;
-  /** The events that took money in this month, highest gross first. */
+  /** The events that took money in this month, highest net first. */
   byEvent: EventRevenue[];
 }
 
 export interface EventSummary {
   gross: number;
+  /** Settled refunds ('refunded' tickets) — money that has gone back. */
+  refunds: number;
+  /** gross − refunds. The figure to report as event revenue. */
+  net: number;
+  /**
+   * Cancellations whose outcome is still undecided ('requested'). NOT subtracted from net —
+   * the club still holds this money — but surfaced so a backlog of unactioned cancellations
+   * is visible rather than sitting inside the headline number looking like healthy revenue.
+   */
+  pendingRefunds: number;
   paidRegistrations: number;
   freeRegistrations: number;
   byEvent: EventRevenue[];
@@ -369,10 +423,13 @@ export interface EventSummary {
 export function aggregateEvents(
   registrations: EventRegistrationRow[],
   items: EventItemRow[],
+  tickets: EventTicketRow[],
   eventTitleById: Map<string, string>,
   range: DateRange,
 ): EventSummary {
   let gross = 0;
+  let refunds = 0;
+  let pendingRefunds = 0;
   let paidRegistrations = 0;
   let freeRegistrations = 0;
 
@@ -398,25 +455,89 @@ export function aggregateEvents(
   const amountOf = (r: EventRegistrationRow): number =>
     itemTotalByReg.get(r.id) ?? r.total_amount_chf ?? 0;
 
-  const eventAcc = new Map<string, { gross: number; count: number }>();
+  // What each cancelled seat took back out, resolved through the SAME helper the refund route
+  // and the admin roster use — so the amount finance subtracts is the amount Stripe sent and
+  // the amount the admin saw on the button.
+  //
+  // `refundedAmountChf` prefers the amount recorded at refund time and derives the seat price
+  // when it is NULL. That fallback is what makes tickets refunded before refund accounting
+  // existed net out here rather than counting as full revenue forever.
+  const itemsByReg = new Map<string, EventItemRow[]>();
+  for (const it of items) {
+    const list = itemsByReg.get(it.registration_id) ?? [];
+    list.push(it);
+    itemsByReg.set(it.registration_id, list);
+  }
+  const regById = new Map(registrations.map((r) => [r.id, r]));
+
+  const settledByReg = new Map<string, number>();
+  const pendingByReg = new Map<string, number>();
+  // Per-ticket detail, kept so the ticket-type rollup can attribute a refund to the type it
+  // was sold as without re-deriving that type (which is how the two would drift).
+  const refundDetail: { regId: string; title: string; amount: number; settled: boolean }[] = [];
+
+  for (const t of tickets) {
+    if (!t.registration_id) continue;
+    // A released tombstone is not a live seat; its replacement carries the booking's money.
+    if (t.released_at) continue;
+    const settled = t.cancellation_status === "refunded";
+    const pending = t.cancellation_status === "requested";
+    if (!settled && !pending) continue;
+
+    const reg = regById.get(t.registration_id);
+    if (!reg) continue;
+    const lines = itemsByReg.get(t.registration_id) ?? [];
+    const amount = refundedAmountChf(t, reg, lines);
+    if (amount <= 0) continue;
+
+    const target = settled ? settledByReg : pendingByReg;
+    target.set(t.registration_id, (target.get(t.registration_id) ?? 0) + amount);
+    refundDetail.push({
+      regId: t.registration_id,
+      title: resolveTicketLine(t, reg, lines)?.title_snapshot ?? UNATTRIBUTED_TICKET_TYPE,
+      amount,
+      settled,
+    });
+  }
+
+  const eventAcc = new Map<string, { gross: number; refunds: number; count: number }>();
   const monthAcc = new Map<
     MonthKey,
-    { gross: number; count: number; events: Map<string, { gross: number; count: number }> }
+    {
+      gross: number;
+      refunds: number;
+      count: number;
+      events: Map<string, { gross: number; refunds: number; count: number }>;
+    }
   >();
   // Which registrations count toward this period's revenue — used to scope the
   // per-ticket-type rollup to the same set.
   const paidRegIds = new Set<string>();
+  // Settled refunds per registration AFTER clamping to that booking's own gross.
+  const clampedByReg = new Map<string, number>();
 
   for (const r of registrations) {
     const ms = effectivePaidMs(r);
     if (!inRange(ms, range)) continue;
     if (r.status === "paid") {
       const amt = amountOf(r);
+      // Clamped to the booking's own gross: a refund can never take back more than this
+      // booking brought in, and letting a mis-derived amount go negative would quietly
+      // manufacture revenue elsewhere in the totals.
+      const refunded = Math.min(settledByReg.get(r.id) ?? 0, amt);
+      const pending = Math.min(pendingByReg.get(r.id) ?? 0, Math.max(0, amt - refunded));
+      // The clamp has to reach the per-type rollup too, or the ticket-type panel reports more
+      // refunds than the event it belongs to and the page contradicts itself.
+      clampedByReg.set(r.id, refunded);
+
       gross += amt;
+      refunds += refunded;
+      pendingRefunds += pending;
       paidRegistrations += 1;
       paidRegIds.add(r.id);
-      const e = eventAcc.get(r.event_id) ?? { gross: 0, count: 0 };
+      const e = eventAcc.get(r.event_id) ?? { gross: 0, refunds: 0, count: 0 };
       e.gross += amt;
+      e.refunds += refunded;
       e.count += 1;
       eventAcc.set(r.event_id, e);
       // Geneva months, matching the membership breakdown and the originator
@@ -424,14 +545,16 @@ export function aggregateEvents(
       // depending on which table you read.
       const monthKey = zurichMonthKey(r.paid_at ?? r.created_at);
       if (monthKey) {
-        const m = monthAcc.get(monthKey) ?? { gross: 0, count: 0, events: new Map() };
+        const m = monthAcc.get(monthKey) ?? { gross: 0, refunds: 0, count: 0, events: new Map() };
         m.gross += amt;
+        m.refunds += refunded;
         m.count += 1;
         // Same accumulation as eventAcc, scoped to the month, so a month's
         // event rows sum to the month by construction rather than by a second
         // pass that could drift.
-        const me = m.events.get(r.event_id) ?? { gross: 0, count: 0 };
+        const me = m.events.get(r.event_id) ?? { gross: 0, refunds: 0, count: 0 };
         me.gross += amt;
+        me.refunds += refunded;
         me.count += 1;
         m.events.set(r.event_id, me);
         monthAcc.set(monthKey, m);
@@ -441,13 +564,30 @@ export function aggregateEvents(
     }
   }
 
-  const ttAcc = new Map<string, { gross: number; quantity: number }>();
+  const ttAcc = new Map<string, { gross: number; refunds: number; quantity: number }>();
   for (const it of items) {
     if (!paidRegIds.has(it.registration_id)) continue;
-    const t = ttAcc.get(it.title_snapshot) ?? { gross: 0, quantity: 0 };
+    const t = ttAcc.get(it.title_snapshot) ?? { gross: 0, refunds: 0, quantity: 0 };
     t.gross += it.line_total_chf ?? 0;
     t.quantity += it.quantity ?? 0;
     ttAcc.set(it.title_snapshot, t);
+  }
+  // Attribute settled refunds to the type each seat was SOLD as, scoped to the same
+  // registrations the gross above came from. Without this the per-type panel would keep
+  // reporting gross while the headline reported net — two numbers for one question.
+  const typeBudget = new Map(clampedByReg);
+  for (const d of refundDetail) {
+    if (!d.settled || !paidRegIds.has(d.regId)) continue;
+    // Allocate against the booking's clamped total, so these rows sum to the same refunds the
+    // event and month rollups report. A seat beyond the budget (over-marked data) contributes
+    // nothing here rather than pushing the panel negative.
+    const remaining = typeBudget.get(d.regId) ?? 0;
+    if (remaining <= 0) continue;
+    const take = Math.min(d.amount, remaining);
+    typeBudget.set(d.regId, remaining - take);
+    const t = ttAcc.get(d.title) ?? { gross: 0, refunds: 0, quantity: 0 };
+    t.refunds += take;
+    ttAcc.set(d.title, t);
   }
 
   const byEvent: EventRevenue[] = [...eventAcc.entries()]
@@ -455,32 +595,44 @@ export function aggregateEvents(
       eventId,
       title: eventTitleById.get(eventId) ?? "Unknown event",
       gross: round2(v.gross),
+      refunds: round2(v.refunds),
+      net: round2(v.gross - v.refunds),
       paidRegistrations: v.count,
     }))
-    .sort((a, b) => b.gross - a.gross);
+    .sort((a, b) => b.net - a.net);
 
   const byTicketType: TicketTypeRevenue[] = [...ttAcc.entries()]
-    .map(([title, v]) => ({ title, gross: round2(v.gross), quantity: v.quantity }))
-    .sort((a, b) => b.gross - a.gross);
+    .map(([title, v]) => ({
+      title,
+      gross: round2(v.gross),
+      refunds: round2(v.refunds),
+      net: round2(v.gross - v.refunds),
+      quantity: v.quantity,
+    }))
+    .sort((a, b) => b.net - a.net);
 
   const byMonth: EventMonthRevenue[] = [...monthAcc.entries()]
     .map(([monthKey, v]) => ({
       monthKey,
       gross: round2(v.gross),
+      refunds: round2(v.refunds),
+      net: round2(v.gross - v.refunds),
       paidRegistrations: v.count,
       byEvent: [...v.events.entries()]
         .map(([eventId, e]) => ({
           eventId,
           title: eventTitleById.get(eventId) ?? "Unknown event",
           gross: round2(e.gross),
+          refunds: round2(e.refunds),
+          net: round2(e.gross - e.refunds),
           paidRegistrations: e.count,
         }))
-        // Total tiebreak: gross, then title, then id. Array.sort is not stable
+        // Total tiebreak: net, then title, then id. Array.sort is not stable
         // for comparators returning 0, so tied events would otherwise reshuffle
         // between renders.
         .sort(
           (a, b) =>
-            b.gross - a.gross ||
+            b.net - a.net ||
             a.title.localeCompare(b.title) ||
             a.eventId.localeCompare(b.eventId),
         ),
@@ -489,6 +641,9 @@ export function aggregateEvents(
 
   return {
     gross: round2(gross),
+    refunds: round2(refunds),
+    net: round2(gross - refunds),
+    pendingRefunds: round2(pendingRefunds),
     paidRegistrations,
     freeRegistrations,
     byEvent,
@@ -742,9 +897,11 @@ export function aggregateMemberHealth(members: MemberRow[], range: DateRange): M
 export interface FinanceSummary {
   range: { from: string; to: string };
   totals: {
-    totalRevenue: number; // membership net + event gross
+    totalRevenue: number; // membership net + event NET (both after refunds)
     membershipNet: number;
     eventGross: number;
+    /** Event gross − settled refunds. The headline event figure. */
+    eventNet: number;
     activeMembers: number;
     newMembers: number;
   };
@@ -813,14 +970,22 @@ function isoDate(row: { paid_at: string | null; created_at: string }): string {
   return (row.paid_at ?? row.created_at).slice(0, 10);
 }
 
+/**
+ * Settled financial rows for the CSV export.
+ *
+ * Returns `complete: false` when any underlying read was truncated by an error. `fetchAll`
+ * hands back the PARTIAL rows it managed to read in that case, so silently returning them
+ * would emit a CSV that looks whole and understates refunds — the accountant's copy of the
+ * exact defect this area was built to fix. The caller must refuse rather than serve it.
+ */
 export async function getFinanceTransactions(
   client: FinanceClient,
   from: string,
   to: string,
-): Promise<FinanceTransaction[]> {
+): Promise<{ rows: FinanceTransaction[]; complete: boolean }> {
   const range = rangeFromDates(from, to);
 
-  const [pay, members, tiers, regs, events, items] = await Promise.all([
+  const [pay, members, tiers, regs, events, items, evTickets] = await Promise.all([
     fetchAll<ExportPaymentRow>(
       client,
       "payments",
@@ -839,7 +1004,7 @@ export async function getFinanceTransactions(
     >(
       client,
       "event_registrations",
-      "id, event_id, total_amount_chf, status, paid_at, created_at, name, email",
+      "id, event_id, quantity, total_amount_chf, status, paid_at, created_at, name, email",
       "id",
     ),
     fetchAll<{ id: string; title: string }>(client, "events", "id, title", "id"),
@@ -848,7 +1013,14 @@ export async function getFinanceTransactions(
     fetchAll<EventItemRow>(
       client,
       "event_registration_items",
-      "registration_id, title_snapshot, quantity, line_total_chf",
+      "registration_id, ticket_type_id, title_snapshot, quantity, unit_amount_chf, line_total_chf",
+      "id",
+    ),
+    // …and the same refund position, for the same reason.
+    fetchAll<EventTicketRow & { name: string | null }>(
+      client,
+      "tickets",
+      "registration_id, ticket_type_id, is_comp, cancellation_status, refund_amount_chf, released_at, name",
       "id",
     ),
   ]);
@@ -887,9 +1059,11 @@ export async function getFinanceTransactions(
     });
   }
 
+  const inRangePaidRegs = new Map<string, EventRegistrationRow & { name: string; email: string }>();
   for (const r of regs.rows) {
     if (!inRange(effectivePaidMs(r), range)) continue;
     if (r.status !== "paid" && r.status !== "free") continue;
+    if (r.status === "paid") inRangePaidRegs.set(r.id, r);
     rows.push({
       type: "event",
       date: isoDate(r),
@@ -903,8 +1077,55 @@ export async function getFinanceTransactions(
     });
   }
 
+  // Refunds ride as their own negative rows rather than netting into the sale above, so the
+  // CSV keeps both halves of the story — what was sold and what went back — while a naive
+  // column sum still lands on event NET. Dated to the sale, matching how the dashboard files
+  // a refund under the month it was earned.
+  const itemsByRegForExport = new Map<string, EventItemRow[]>();
+  for (const it of items.rows) {
+    const list = itemsByRegForExport.get(it.registration_id) ?? [];
+    list.push(it);
+    itemsByRegForExport.set(it.registration_id, list);
+  }
+  // Clamped per booking, exactly as the dashboard does, so the promise above — that a naive
+  // column sum lands on event NET — actually holds. Without it an over-marked booking makes the
+  // CSV disagree with the page it was exported from, which is the failure this whole area exists
+  // to prevent.
+  const exportBudget = new Map<string, number>();
+  for (const t of evTickets.rows) {
+    if (t.cancellation_status !== "refunded" || !t.registration_id) continue;
+    if (t.released_at) continue; // tombstone, not a live seat
+    const reg = inRangePaidRegs.get(t.registration_id);
+    if (!reg) continue;
+    const lines = itemsByRegForExport.get(t.registration_id) ?? [];
+    if (!exportBudget.has(reg.id)) {
+      exportBudget.set(reg.id, eventItemTotalByReg.get(reg.id) ?? reg.total_amount_chf ?? 0);
+    }
+    const remaining = exportBudget.get(reg.id) ?? 0;
+    if (remaining <= 0) continue;
+    const amount = Math.min(refundedAmountChf(t, reg, lines), remaining);
+    if (amount <= 0) continue;
+    exportBudget.set(reg.id, remaining - amount);
+    rows.push({
+      type: "event",
+      date: isoDate(reg),
+      party: t.name || reg.name || reg.email,
+      detail: eventTitle.get(reg.event_id) ?? "Unknown event",
+      status: "refunded",
+      amountChf: round2(-amount),
+    });
+  }
+
   rows.sort((a, b) => a.date.localeCompare(b.date));
-  return rows;
+  const complete =
+    pay.complete &&
+    members.complete &&
+    tiers.complete &&
+    regs.complete &&
+    events.complete &&
+    items.complete &&
+    evTickets.complete;
+  return { rows, complete };
 }
 
 export async function getFinanceSummary(
@@ -914,7 +1135,7 @@ export async function getFinanceSummary(
 ): Promise<FinanceSummary> {
   const range = rangeFromDates(from, to);
 
-  const [pay, regs, items, members, tiers, originators, referrals] = await Promise.all([
+  const [pay, regs, items, evTickets, members, tiers, originators, referrals] = await Promise.all([
     fetchAll<MembershipPaymentRow>(
       client,
       "payments",
@@ -924,13 +1145,22 @@ export async function getFinanceSummary(
     fetchAll<EventRegistrationRow>(
       client,
       "event_registrations",
-      "id, event_id, total_amount_chf, status, paid_at, created_at",
+      "id, event_id, quantity, total_amount_chf, status, paid_at, created_at",
       "id",
     ),
     fetchAll<EventItemRow>(
       client,
       "event_registration_items",
-      "registration_id, title_snapshot, quantity, line_total_chf",
+      "registration_id, ticket_type_id, title_snapshot, quantity, unit_amount_chf, line_total_chf",
+      "id",
+    ),
+    // Cancelled seats, for the refund position. Read in full rather than filtered: `fetchAll`
+    // is a plain paginated select, and at club scale one more table read costs less than a
+    // bespoke filtered path that could drift from the aggregator's expectations.
+    fetchAll<EventTicketRow>(
+      client,
+      "tickets",
+      "registration_id, ticket_type_id, is_comp, cancellation_status, refund_amount_chf, released_at",
       "id",
     ),
     fetchAll<MemberRow>(
@@ -978,7 +1208,7 @@ export async function getFinanceSummary(
     memberNameById,
     range,
   );
-  const events = aggregateEvents(regs.rows, items.rows, eventTitleById, range);
+  const events = aggregateEvents(regs.rows, items.rows, evTickets.rows, eventTitleById, range);
   const originatorBreakdown = aggregateOriginators(
     pay.rows,
     members.rows,
@@ -999,6 +1229,7 @@ export async function getFinanceSummary(
     pay.complete &&
     regs.complete &&
     items.complete &&
+    evTickets.complete &&
     members.complete &&
     tiers.complete &&
     originators.complete &&
@@ -1008,9 +1239,11 @@ export async function getFinanceSummary(
   return {
     range: { from, to },
     totals: {
-      totalRevenue: round2(membership.net + events.gross),
+      // Both streams net of refunds, so the headline is money kept rather than money touched.
+      totalRevenue: round2(membership.net + events.net),
       membershipNet: membership.net,
       eventGross: events.gross,
+      eventNet: events.net,
       activeMembers,
       newMembers: memberHealth.newMembers,
     },

@@ -42,10 +42,11 @@ export default function EventMonthlyPanel({ events }: Props) {
       </div>
 
       <p className="text-xs text-marine/40 font-body">
-        Money received, gross of refunds, counted from the individual ticket
-        lines so later top-ups are included. Only completed checkouts count — a
+        Money kept after refunds, counted from the individual ticket lines so
+        later top-ups are included. Only completed checkouts count — a
         started-but-abandoned checkout never reaches this table. Months bucket by
-        payment date in Geneva time.
+        payment date in Geneva time, and a refund files under the month of the
+        SALE, so a closed month is never restated by a later refund.
       </p>
 
       {byMonth.length === 0 ? (
@@ -83,8 +84,13 @@ export default function EventMonthlyPanel({ events }: Props) {
                     <span className="w-28 shrink-0 text-right tabular-nums text-marine/60">
                       {m.paidRegistrations} paid
                     </span>
+                    {m.refunds > 0 && (
+                      <span className="w-28 shrink-0 text-right tabular-nums text-marine/50">
+                        −{formatCurrency(m.refunds)}
+                      </span>
+                    )}
                     <span className="w-28 shrink-0 text-right tabular-nums">
-                      {formatCurrency(m.gross)}
+                      {formatCurrency(m.net)}
                     </span>
                   </button>
 
@@ -94,7 +100,8 @@ export default function EventMonthlyPanel({ events }: Props) {
                         <tr className="text-left text-marine/50 border-b border-marine/10">
                           <th className="py-2 pl-10 font-medium">Event</th>
                           <th className="py-2 font-medium text-right">Paid</th>
-                          <th className="py-2 pr-2 font-medium text-right">Gross</th>
+                          <th className="py-2 font-medium text-right">Refunded</th>
+                          <th className="py-2 pr-2 font-medium text-right">Net</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -104,8 +111,11 @@ export default function EventMonthlyPanel({ events }: Props) {
                             <td className="py-2 text-right text-marine/70 tabular-nums">
                               {e.paidRegistrations}
                             </td>
+                            <td className="py-2 text-right text-marine/50 tabular-nums">
+                              {e.refunds > 0 ? `−${formatCurrency(e.refunds)}` : "—"}
+                            </td>
                             <td className="py-2 pr-2 text-right text-marine tabular-nums">
-                              {formatCurrency(e.gross)}
+                              {formatCurrency(e.net)}
                             </td>
                           </tr>
                         ))}

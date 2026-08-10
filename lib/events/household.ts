@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { credentialUrl } from "@/lib/events/credential";
+import type { TicketCancellationStatus } from "@/lib/events/refunds";
 
 // Household resolution for the guest manage page (U9/U10). A per-ticket manage_token opens
 // a page showing every SAME-EMAIL ticket in the same booking — the "household" (KTD3): a
@@ -19,7 +20,7 @@ export interface HouseholdTicket {
   status: string; // 'issued' | 'claimed'
   checkedIn: boolean;
   /** Holder cancellation (U14): null = live; 'requested'/'refunded' = cancelled. */
-  cancellationStatus: "requested" | "refunded" | null;
+  cancellationStatus: TicketCancellationStatus | null;
   /** QR admission URL (/c/<credential_token>) — admission only, never the manage_token. */
   credentialUrl: string;
   /** True for the ticket whose manage_token opened this page. */
@@ -126,7 +127,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
         typeTitle: typeId ? typeTitleById.get(typeId) ?? "" : "",
         status: r.slot_status as string,
         checkedIn: r.checked_in_at !== null,
-        cancellationStatus: (r.cancellation_status as "requested" | "refunded" | null) ?? null,
+        cancellationStatus: (r.cancellation_status as TicketCancellationStatus | null) ?? null,
         credentialUrl: credentialUrl((r.credential_token as string | null) ?? ""),
         isSelf: r.id === self.id,
       };

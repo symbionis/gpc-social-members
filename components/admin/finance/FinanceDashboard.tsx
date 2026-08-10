@@ -92,7 +92,9 @@ export default function FinanceDashboard({ summary, tab, stripeTestMode }: Props
       </div>
 
       <p className="text-xs text-marine/40 font-body">
-        Figures are gross of Stripe fees. Event revenue is gross of refunds.
+        Figures are gross of Stripe fees. Membership and event revenue are both net of
+        refunds. A cancellation still awaiting a refund decision is counted as revenue —
+        the club is holding the money — and flagged separately in Event sales.
         Complimentary and free records are counted but excluded from revenue.
         Date ranges are selected in whole UTC days while months are bucketed in
         Geneva time, so the first and last month of a range can be partial.

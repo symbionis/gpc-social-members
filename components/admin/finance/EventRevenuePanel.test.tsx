@@ -12,19 +12,24 @@ import type { EventSummary } from "@/lib/admin/finance";
 
 const EVENTS: EventSummary = {
   gross: 2800,
+  refunds: 0,
+  net: 2800,
+  pendingRefunds: 0,
   paidRegistrations: 5,
   freeRegistrations: 2,
   byEvent: [
-    { eventId: "e1", title: "Summer Gala", gross: 2000, paidRegistrations: 3 },
-    { eventId: "e2", title: "Autumn Ball", gross: 800, paidRegistrations: 2 },
+    { eventId: "e1", title: "Summer Gala", gross: 2000, refunds: 0, net: 2000, paidRegistrations: 3 },
+    { eventId: "e2", title: "Autumn Ball", gross: 800, refunds: 0, net: 800, paidRegistrations: 2 },
   ],
-  byTicketType: [{ title: "Standard", gross: 2800, quantity: 7 }],
+  byTicketType: [{ title: "Standard", gross: 2800, refunds: 0, net: 2800, quantity: 7 }],
   byMonth: [
     {
       monthKey: "2026-06",
       gross: 2800,
+      refunds: 0,
+      net: 2800,
       paidRegistrations: 5,
-      byEvent: [{ eventId: "e1", title: "Summer Gala", gross: 2800, paidRegistrations: 5 }],
+      byEvent: [{ eventId: "e1", title: "Summer Gala", gross: 2800, refunds: 0, net: 2800, paidRegistrations: 5 }],
     },
   ],
 };
@@ -40,12 +45,13 @@ describe("EventRevenuePanel", () => {
         .find((el) => el.className.includes("uppercase"))!;
       return labelEl.parentElement!.querySelector("div:nth-child(2)")!.textContent;
     };
+    expect(statValue("Net")).toBe("CHF 2800");
     expect(statValue("Gross")).toBe("CHF 2800");
     expect(statValue("Paid registrations")).toBe("5");
     expect(statValue("Free / comp")).toBe("2");
   });
 
-  it("lists each event, highest gross first, summing to the headline", () => {
+  it("lists each event, highest net first, summing to the headline", () => {
     render(<EventRevenuePanel events={EVENTS} />);
     const rows = within(screen.getByRole("table"))
       .getAllByRole("row")
@@ -56,11 +62,11 @@ describe("EventRevenuePanel", () => {
           .map((c) => c.textContent),
       );
     expect(rows).toEqual([
-      ["Summer Gala", "3", "CHF 2000"],
-      ["Autumn Ball", "2", "CHF 800"],
+      ["Summer Gala", "3", "CHF 2000", "—", "CHF 2000"],
+      ["Autumn Ball", "2", "CHF 800", "—", "CHF 800"],
     ]);
-    const total = rows.reduce((t, r) => t + Number(r[2]!.replace("CHF ", "")), 0);
-    expect(total).toBe(EVENTS.gross);
+    const total = rows.reduce((t, r) => t + Number(r[4]!.replace("CHF ", "")), 0);
+    expect(total).toBe(EVENTS.net);
   });
 
   it("does not render the month or ticket-type breakdowns — those are their own panels", () => {

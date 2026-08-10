@@ -14,6 +14,7 @@ import {
   type MembershipPaymentRow,
   type EventRegistrationRow,
   type EventItemRow,
+  type EventTicketRow,
   type MemberRow,
   type ReferralRow,
 } from "@/lib/admin/finance";
@@ -172,6 +173,7 @@ describe("aggregateEvents", () => {
     return {
       id: "r1",
       event_id: "e1",
+      quantity: 1,
       total_amount_chf: 50,
       status: "paid",
       paid_at: "2026-06-01T00:00:00Z",
@@ -186,7 +188,7 @@ describe("aggregateEvents", () => {
       reg({ id: "r2", total_amount_chf: 150, status: "paid" }), // includes a top-up
       reg({ id: "r3", total_amount_chf: 0, status: "free" }),
     ];
-    const s = aggregateEvents(regs, [], titles, YEAR_2026);
+    const s = aggregateEvents(regs, [], [], titles, YEAR_2026);
     expect(s.gross).toBe(200);
     expect(s.paidRegistrations).toBe(2);
     expect(s.freeRegistrations).toBe(1);
@@ -203,7 +205,7 @@ describe("aggregateEvents", () => {
       reg({ id: "r4", total_amount_chf: 0, status: "free", paid_at: "2026-09-01T00:00:00Z" }),
       reg({ id: "r5", total_amount_chf: 999, paid_at: "2027-01-01T00:00:00Z" }), // out of range
     ];
-    const s = aggregateEvents(regs, [], titles, YEAR_2026);
+    const s = aggregateEvents(regs, [], [], titles, YEAR_2026);
     expect(s.byMonth.map(({ monthKey, gross, paidRegistrations }) => ({
       monthKey,
       gross,
@@ -227,18 +229,20 @@ describe("aggregateEvents", () => {
       ["e1", "Summer Gala"],
       ["e2", "Autumn Ball"],
     ]);
-    const s = aggregateEvents(regs, [], names, YEAR_2026);
+    const s = aggregateEvents(regs, [], [], names, YEAR_2026);
 
     const june = s.byMonth.find((m) => m.monthKey === "2026-06")!;
     // Highest-grossing event first within the month.
     expect(june.byEvent).toEqual([
-      { eventId: "e2", title: "Autumn Ball", gross: 150, paidRegistrations: 1 },
-      { eventId: "e1", title: "Summer Gala", gross: 80, paidRegistrations: 2 },
+      { eventId: "e2", title: "Autumn Ball", gross: 150, refunds: 0, net: 150, paidRegistrations: 1 },
+      { eventId: "e1", title: "Summer Gala", gross: 80, refunds: 0, net: 80, paidRegistrations: 2 },
     ]);
 
     // The invariant that catches the month and event passes drifting apart.
     for (const m of s.byMonth) {
       expect(m.byEvent.reduce((t, e) => t + e.gross, 0)).toBe(m.gross);
+      expect(m.byEvent.reduce((t, e) => t + e.refunds, 0)).toBe(m.refunds);
+      expect(m.byEvent.reduce((t, e) => t + e.net, 0)).toBe(m.net);
       expect(m.byEvent.reduce((t, e) => t + e.paidRegistrations, 0)).toBe(m.paidRegistrations);
     }
     // An event spanning two months appears under each, and the whole-range
@@ -257,7 +261,7 @@ describe("aggregateEvents", () => {
       ["a1", "Alpine Cup"],
     ]);
     const order = () =>
-      aggregateEvents(regs, [], names, YEAR_2026)
+      aggregateEvents(regs, [], [], names, YEAR_2026)
         .byMonth[0].byEvent.map((e) => e.eventId);
     expect(order()).toEqual(["a1", "z1"]); // equal gross -> title ascending
     expect(order()).toEqual(order());
@@ -267,6 +271,7 @@ describe("aggregateEvents", () => {
     // 23:30 UTC on 30 June is 01:30 on 1 July in Geneva.
     const s = aggregateEvents(
       [reg({ id: "r1", total_amount_chf: 50, paid_at: "2026-06-30T23:30:00Z" })],
+      [],
       [],
       titles,
       YEAR_2026,
@@ -280,10 +285,10 @@ describe("aggregateEvents", () => {
     // what the customer actually paid.
     const regs = [reg({ id: "r1", total_amount_chf: 100, status: "paid" })];
     const items: EventItemRow[] = [
-      { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 100 },
-      { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 60 }, // top-up
+      { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 100, ticket_type_id: null, unit_amount_chf: 100 },
+      { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 60, ticket_type_id: null, unit_amount_chf: 60 }, // top-up
     ];
-    const s = aggregateEvents(regs, items, titles, YEAR_2026);
+    const s = aggregateEvents(regs, items, [], titles, YEAR_2026);
     expect(s.gross).toBe(160);
     expect(s.byEvent[0].gross).toBe(160);
     expect(s.byMonth[0].gross).toBe(160);
@@ -295,7 +300,7 @@ describe("aggregateEvents", () => {
   it("falls back to the booking total when a registration has no line items", () => {
     // A legacy row with no items must keep its money rather than reporting zero.
     const regs = [reg({ id: "r1", total_amount_chf: 250, status: "paid" })];
-    const s = aggregateEvents(regs, [], titles, YEAR_2026);
+    const s = aggregateEvents(regs, [], [], titles, YEAR_2026);
     expect(s.gross).toBe(250);
     expect(s.byMonth[0].gross).toBe(250);
   });
@@ -306,10 +311,10 @@ describe("aggregateEvents", () => {
       reg({ id: "r2", total_amount_chf: 999, status: "pending" }),
     ];
     const items: EventItemRow[] = [
-      { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 100 },
-      { registration_id: "r2", title_snapshot: "Standard", quantity: 9, line_total_chf: 999 },
+      { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 100, ticket_type_id: null, unit_amount_chf: 100 },
+      { registration_id: "r2", title_snapshot: "Standard", quantity: 9, line_total_chf: 999, ticket_type_id: null, unit_amount_chf: 999 },
     ];
-    const s = aggregateEvents(regs, items, titles, YEAR_2026);
+    const s = aggregateEvents(regs, items, [], titles, YEAR_2026);
     expect(s.gross).toBe(100);
     expect(s.paidRegistrations).toBe(1);
     expect(s.byTicketType[0].gross).toBe(100);
@@ -321,13 +326,159 @@ describe("aggregateEvents", () => {
       reg({ id: "r2", status: "free" }),
     ];
     const items: EventItemRow[] = [
-      { registration_id: "r1", title_snapshot: "Standard", quantity: 2, line_total_chf: 100 },
-      { registration_id: "r2", title_snapshot: "Standard", quantity: 1, line_total_chf: 0 },
+      { registration_id: "r1", title_snapshot: "Standard", quantity: 2, line_total_chf: 100, ticket_type_id: null, unit_amount_chf: 100 },
+      { registration_id: "r2", title_snapshot: "Standard", quantity: 1, line_total_chf: 0, ticket_type_id: null, unit_amount_chf: 0 },
     ];
-    const s = aggregateEvents(regs, items, titles, YEAR_2026);
+    const s = aggregateEvents(regs, items, [], titles, YEAR_2026);
     const standard = s.byTicketType.find((t) => t.title === "Standard")!;
     expect(standard.gross).toBe(100); // r2 (free) excluded
     expect(standard.quantity).toBe(2);
+  });
+
+  // The defect these cover, concretely: Pilates & Polo 3.0 reported CHF 960 of event revenue
+  // against CHF 400 collected, because CHF 560 of refunds had nowhere to be counted.
+  describe("refunds", () => {
+    const items: EventItemRow[] = [
+      {
+        registration_id: "r1",
+        ticket_type_id: "tt1",
+        title_snapshot: "Standard",
+        quantity: 2,
+        unit_amount_chf: 80,
+        line_total_chf: 160,
+      },
+    ];
+    const seat = (over: Partial<EventTicketRow> = {}): EventTicketRow => ({
+      registration_id: "r1",
+      ticket_type_id: "tt1",
+      is_comp: false,
+      cancellation_status: null,
+      refund_amount_chf: null,
+      released_at: null,
+      ...over,
+    });
+
+    it("subtracts refunded seats from gross to produce net", () => {
+      const regs = [reg({ id: "r1", quantity: 2, total_amount_chf: 160 })];
+      const s = aggregateEvents(
+        regs,
+        items,
+        [seat(), seat({ cancellation_status: "refunded", refund_amount_chf: 80 })],
+        titles,
+        YEAR_2026
+      );
+      expect(s.gross).toBe(160);
+      expect(s.refunds).toBe(80);
+      expect(s.net).toBe(80);
+      expect(s.byEvent[0]).toMatchObject({ gross: 160, refunds: 80, net: 80 });
+    });
+
+    it("nets out a refunded seat that predates refund accounting (no recorded amount)", () => {
+      const regs = [reg({ id: "r1", quantity: 2, total_amount_chf: 160 })];
+      const s = aggregateEvents(
+        regs,
+        items,
+        [seat({ cancellation_status: "refunded", refund_amount_chf: null })],
+        titles,
+        YEAR_2026
+      );
+      // Derived from the line's snapshotted seat price rather than counted as full revenue.
+      expect(s.refunds).toBe(80);
+      expect(s.net).toBe(80);
+    });
+
+    it("counts a pending cancellation as revenue but reports it separately", () => {
+      const regs = [reg({ id: "r1", quantity: 2, total_amount_chf: 160 })];
+      const s = aggregateEvents(
+        regs,
+        items,
+        [seat({ cancellation_status: "requested" })],
+        titles,
+        YEAR_2026
+      );
+      // The club still holds the money, so net is untouched — but the liability is visible.
+      expect(s.net).toBe(160);
+      expect(s.refunds).toBe(0);
+      expect(s.pendingRefunds).toBe(80);
+    });
+
+    it("subtracts nothing for a comped seat refunded at CHF 0", () => {
+      const regs = [reg({ id: "r1", quantity: 2, total_amount_chf: 160 })];
+      const s = aggregateEvents(
+        regs,
+        items,
+        // A comp cancellation settles as 'refunded' with no money behind it; it must not
+        // reduce revenue it never contributed.
+        [seat({ cancellation_status: "refunded", is_comp: true, refund_amount_chf: 0 })],
+        titles,
+        YEAR_2026
+      );
+      expect(s.net).toBe(160);
+      expect(s.refunds).toBe(0);
+    });
+
+    it("attributes a refund to the ticket type its seat was sold as", () => {
+      const regs = [reg({ id: "r1", quantity: 2, total_amount_chf: 160 })];
+      const s = aggregateEvents(
+        regs,
+        items,
+        [seat({ cancellation_status: "refunded", refund_amount_chf: 80 })],
+        titles,
+        YEAR_2026
+      );
+      const standard = s.byTicketType.find((t) => t.title === "Standard")!;
+      // The per-type panel must reach the same net as the headline, or the page argues
+      // with itself.
+      expect(standard).toMatchObject({ gross: 160, refunds: 80, net: 80 });
+      expect(s.byTicketType.reduce((t, r) => t + r.net, 0)).toBe(s.net);
+    });
+
+    it("clamps a refund to its own booking's gross rather than going negative", () => {
+      const regs = [reg({ id: "r1", quantity: 1, total_amount_chf: 80 })];
+      const s = aggregateEvents(
+        regs,
+        [{ ...items[0], quantity: 1, line_total_chf: 80 }],
+        // Two refunded seats on a one-seat booking is malformed data; letting it through
+        // would manufacture revenue elsewhere in the totals.
+        [
+          seat({ cancellation_status: "refunded", refund_amount_chf: 80 }),
+          seat({ cancellation_status: "refunded", refund_amount_chf: 80 }),
+        ],
+        titles,
+        YEAR_2026
+      );
+      expect(s.refunds).toBe(80);
+      expect(s.net).toBe(0);
+    });
+
+    it("ignores seats on registrations outside the period", () => {
+      const regs = [reg({ id: "r1", paid_at: "2025-06-01T00:00:00Z", created_at: "2025-06-01T00:00:00Z" })];
+      const s = aggregateEvents(
+        regs,
+        items,
+        [seat({ cancellation_status: "refunded", refund_amount_chf: 80 })],
+        titles,
+        YEAR_2026
+      );
+      expect(s.gross).toBe(0);
+      expect(s.refunds).toBe(0);
+    });
+
+    it("files a refund under the month of the sale, so months still sum to the total", () => {
+      const regs = [
+        reg({ id: "r1", quantity: 2, total_amount_chf: 160, paid_at: "2026-06-10T00:00:00Z" }),
+      ];
+      const s = aggregateEvents(
+        regs,
+        items,
+        [seat({ cancellation_status: "refunded", refund_amount_chf: 80 })],
+        titles,
+        YEAR_2026
+      );
+      expect(s.byMonth).toHaveLength(1);
+      expect(s.byMonth[0]).toMatchObject({ monthKey: "2026-06", gross: 160, refunds: 80, net: 80 });
+      expect(s.byMonth.reduce((t, m) => t + m.net, 0)).toBe(s.net);
+    });
   });
 });
 
@@ -723,6 +874,135 @@ describe("getFinanceSummary pagination", () => {
     expect(summary.complete).toBe(false);
   });
 
+  // A booking of 2 seats at CHF 80, one of them refunded. Shared by the end-to-end refund
+  // tests below so they all describe the same money.
+  const refundFixture = (ticketOver: Record<string, unknown> = {}) => ({
+    payments: [],
+    event_registrations: [
+      {
+        id: "r1",
+        event_id: "e1",
+        quantity: 2,
+        total_amount_chf: 160,
+        status: "paid",
+        paid_at: "2026-06-01T00:00:00Z",
+        created_at: "2026-06-01T00:00:00Z",
+        name: "Ana",
+        email: "ana@x.com",
+      },
+    ],
+    event_registration_items: [
+      {
+        registration_id: "r1",
+        ticket_type_id: "tt1",
+        title_snapshot: "Standard",
+        quantity: 2,
+        unit_amount_chf: 80,
+        line_total_chf: 160,
+      },
+    ],
+    tickets: [
+      {
+        registration_id: "r1",
+        ticket_type_id: "tt1",
+        is_comp: false,
+        cancellation_status: "refunded",
+        refund_amount_chf: 80,
+        released_at: null,
+        name: "Ben",
+        ...ticketOver,
+      },
+    ],
+    members: [],
+    membership_tiers: [],
+    admin_users: [],
+    referrals: [],
+    events: [{ id: "e1", title: "Summer Gala" }],
+  });
+
+  it("reports event revenue NET of refunds end to end", async () => {
+    // The regression this whole area exists to prevent: reporting gross as revenue.
+    const summary = await getFinanceSummary(makeClient(refundFixture()), "2026-01-01", "2026-12-31");
+    expect(summary.totals.eventGross).toBe(160);
+    expect(summary.totals.eventNet).toBe(80);
+    expect(summary.totals.totalRevenue).toBe(80);
+    expect(summary.events.byEvent[0]).toMatchObject({ gross: 160, refunds: 80, net: 80 });
+  });
+
+  it("reports complete:false when only the tickets read fails", async () => {
+    // `tickets` is the largest table here, so it is the likeliest to be truncated — and losing
+    // it silently means refunds vanish and the full gross is reported as revenue.
+    const tables = refundFixture();
+    const client = {
+      from(table: string) {
+        return {
+          select() {
+            const builder = {
+              order() {
+                return builder;
+              },
+              range(from: number, to: number) {
+                if (table === "tickets") {
+                  return Promise.resolve({ data: null, error: { message: "boom" } });
+                }
+                const rows = (tables as Record<string, Record<string, unknown>[]>)[table] ?? [];
+                return Promise.resolve({ data: rows.slice(from, to + 1), error: null });
+              },
+            };
+            return builder;
+          },
+        };
+      },
+    };
+    const summary = await getFinanceSummary(client, "2026-01-01", "2026-12-31");
+    expect(summary.complete).toBe(false);
+    // The banner is the only thing standing between this and a confidently wrong number.
+    expect(summary.totals.eventNet).toBe(160);
+  });
+
+  it("ignores a released tombstone so its refund is not subtracted twice", async () => {
+    const tables = refundFixture();
+    tables.tickets.push({
+      ...tables.tickets[0],
+      released_at: "2026-06-02T00:00:00Z",
+    });
+    const summary = await getFinanceSummary(makeClient(tables), "2026-01-01", "2026-12-31");
+    expect(summary.totals.eventNet).toBe(80);
+  });
+
+  it("emits CSV refund rows that sum to event net", async () => {
+    const { rows, complete } = await getFinanceTransactions(
+      makeClient(refundFixture()),
+      "2026-01-01",
+      "2026-12-31",
+    );
+    expect(complete).toBe(true);
+    const refundRow = rows.find((r) => r.status === "refunded")!;
+    expect(refundRow.amountChf).toBe(-80);
+    // The documented invariant: a naive column sum lands on event NET, so the CSV and the page
+    // it was exported from cannot disagree.
+    const summary = await getFinanceSummary(makeClient(refundFixture()), "2026-01-01", "2026-12-31");
+    expect(rows.reduce((t, r) => t + r.amountChf, 0)).toBe(summary.totals.eventNet);
+  });
+
+  it("keeps the CSV and the dashboard agreeing when a booking is over-refunded", async () => {
+    // Two refunded seats on a booking that only ever took one seat's money. The dashboard
+    // clamps; the export used to not, and drifted from it.
+    const tables = refundFixture();
+    tables.event_registrations[0].quantity = 1;
+    tables.event_registrations[0].total_amount_chf = 80;
+    tables.event_registration_items[0].quantity = 1;
+    tables.event_registration_items[0].line_total_chf = 80;
+    tables.tickets.push({ ...tables.tickets[0] });
+
+    const summary = await getFinanceSummary(makeClient(tables), "2026-01-01", "2026-12-31");
+    const { rows } = await getFinanceTransactions(makeClient(tables), "2026-01-01", "2026-12-31");
+    expect(summary.totals.eventNet).toBe(0);
+    expect(rows.reduce((t, r) => t + r.amountChf, 0)).toBe(0);
+    // And the per-type panel agrees with the headline rather than going negative.
+    expect(summary.events.byTicketType.reduce((t, r) => t + r.net, 0)).toBe(0);
+  });
+
   it("surfaces originator transactions with their Stripe reference end to end", async () => {
     // The makeClient fake ignores the column list, so the new fields have to be
     // on the fixture ROWS — widening the select string alone proves nothing.
@@ -835,7 +1115,7 @@ describe("getFinanceTransactions", () => {
       ],
       event_registration_items: [],
     });
-    const rows = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
+    const { rows } = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
     // pending excluded → 3 membership (paid, refunded, free) + 2 event = 5
     expect(rows).toHaveLength(5);
     const total = rows.reduce((s, r) => s + r.amountChf, 0);
@@ -857,12 +1137,12 @@ describe("getFinanceTransactions", () => {
         { id: "r2", event_id: "e1", total_amount_chf: 70, status: "paid", paid_at: "2026-04-02T00:00:00Z", created_at: "2026-04-02T00:00:00Z", name: "Legacy", email: "l@x.com" },
       ],
       event_registration_items: [
-        { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 100 },
-        { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 60 }, // top-up
+        { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 100, ticket_type_id: null, unit_amount_chf: 100 },
+        { registration_id: "r1", title_snapshot: "Standard", quantity: 1, line_total_chf: 60, ticket_type_id: null, unit_amount_chf: 60 }, // top-up
         // r2 has no lines — a legacy row keeps its booking total.
       ],
     });
-    const rows = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
+    const { rows } = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
     const amounts = rows.filter((r) => r.type === "event").map((r) => r.amountChf);
     expect(amounts).toEqual([160, 70]);
   });
@@ -876,7 +1156,7 @@ describe("getFinanceTransactions", () => {
       event_registrations: [],
       event_registration_items: [],
     });
-    const rows = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
+    const { rows } = await getFinanceTransactions(client, "2026-01-01", "2026-12-31");
     expect(rows).toHaveLength(0);
   });
 });

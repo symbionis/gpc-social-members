@@ -54,7 +54,16 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const rows = await getFinanceTransactions(adminClient, from, to);
+  const { rows, complete } = await getFinanceTransactions(adminClient, from, to);
+
+  // A truncated read yields partial rows that look like a whole export — refunds missing,
+  // sales intact, revenue overstated, and nothing on the page saying so. Refuse instead.
+  if (!complete) {
+    return NextResponse.json(
+      { error: "Could not read the full ledger, so this export would be incomplete. Please try again." },
+      { status: 503 },
+    );
+  }
 
   const header = ["Type", "Date", "Party", "Detail", "Status", "Amount (CHF)"];
   const lines = [

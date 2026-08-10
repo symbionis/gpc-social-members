@@ -5,6 +5,13 @@ import ManageEventTabs from "@/components/admin/ManageEventTabs";
 import { getEventReminderSummary } from "@/lib/events/reminder-summary";
 import { validateReminderSchedule } from "@/lib/events/reminder-schedule";
 import { rosterGuestSummary } from "@/lib/events/roster-fill";
+import {
+  ticketRefundValueChf,
+  type RefundRegistration,
+  type TicketCancellationStatus,
+} from "@/lib/events/refunds";
+import { mergePaymentIntentIds } from "@/lib/events/refund-pool";
+import type { CancellationRow } from "@/components/admin/CancellationsPanel";
 import { stripeTestModeFromKey } from "@/lib/stripe/dashboard";
 
 export default async function ManageEventPage({
@@ -61,7 +68,9 @@ export default async function ManageEventPage({
   const { data: ticketItemRows, error: ticketItemRowsError } = registrationIds.length
     ? await supabase
         .from("event_registration_items")
-        .select("registration_id, ticket_type_id, title_snapshot, quantity")
+        // `unit_amount_chf` is the price snapshotted at checkout — the roster shows it on the
+        // refund button so the admin sees what will leave the account before clicking.
+        .select("registration_id, ticket_type_id, title_snapshot, quantity, unit_amount_chf")
         .in("registration_id", registrationIds)
         .order("created_at", { ascending: true })
     : { data: [], error: null };
@@ -72,6 +81,7 @@ export default async function ManageEventPage({
     ticket_type_id: string | null;
     title_snapshot: string | null;
     quantity: number | null;
+    unit_amount_chf: number | string | null;
   };
 
   // Every ticket SOLD for the event — `issued` (nobody named yet) and `claimed` (named)
@@ -81,7 +91,7 @@ export default async function ManageEventPage({
   const { data: attendeeRows, error: attendeeRowsError } = await supabase
     .from("tickets")
     .select(
-      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, is_comp, manage_token, qr_email_sent_at, cancellation_status, cancellation_requested_at, cancellation_refunded_at, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, is_comp, manage_token, qr_email_sent_at, cancellation_status, cancellation_requested_at, cancellation_refunded_at, refund_amount_chf, stripe_refund_id, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", id)
     .in("slot_status", ["issued", "claimed"])
@@ -105,6 +115,8 @@ export default async function ManageEventPage({
     cancellation_status: string | null;
     cancellation_requested_at: string | null;
     cancellation_refunded_at: string | null;
+    refund_amount_chf: number | string | null;
+    stripe_refund_id: string | null;
     waiver_accepted_at: string | null;
     checked_in_at: string | null;
     created_at: string;
@@ -137,18 +149,22 @@ export default async function ManageEventPage({
   // registration. The lead ticket rides that email rather than the grouped household email,
   // so its "notified" state lives here, not on the ticket's qr_email_sent_at.
   const ticketEmailSentAtByReg = new Map<string, string | null>();
-  // The booking's Stripe PaymentIntent → the admin cancellation view's "refund in Stripe"
-  // deep link (R24). Null for free bookings (nothing was charged).
-  const stripePiByReg = new Map<string, string | null>();
+  // The booking fields the per-seat refund value is derived from, via the same helper the refund
+  // route uses — so the figure shown on the Refunds tab is the one the route will compute. What
+  // actually reaches Stripe is confirmed by the route against the booking's live charges, and
+  // the response reports it back rather than the UI assuming.
+  const regForRefundById = new Map<string, RefundRegistration>();
   for (const r of registrations ?? []) {
     refByReg.set(r.id, (r.reference_code as string | null) ?? null);
+    regForRefundById.set(r.id, {
+      id: r.id,
+      status: (r.status as string | null) ?? null,
+      quantity: (r.quantity as number | null) ?? null,
+      total_amount_chf: (r.total_amount_chf as number | string | null) ?? null,
+    });
     ticketEmailSentAtByReg.set(
       r.id,
       (r as { ticket_email_sent_at?: string | null }).ticket_email_sent_at ?? null
-    );
-    stripePiByReg.set(
-      r.id,
-      (r as { stripe_payment_intent_id?: string | null }).stripe_payment_intent_id ?? null
     );
   }
 
@@ -189,18 +205,89 @@ export default async function ManageEventPage({
       // The Guest list tab removes comp guests (remove_comp_guest).
       isComp: Boolean(a.is_comp),
       named,
-      // Holder cancellation (U14): null = live; 'requested' = seat freed, refund pending;
-      // 'refunded' = admin completed the Stripe refund. The roster renders each distinctly.
-      cancellationStatus: (a.cancellation_status as "requested" | "refunded" | null) ?? null,
+      // Holder cancellation (U14): null = live; 'requested' = seat freed, refund not yet
+      // processed (still counted as revenue); 'refunded' = settled and netted out of finance.
+      cancellationStatus: (a.cancellation_status as TicketCancellationStatus | null) ?? null,
       cancellationRequestedAt: a.cancellation_requested_at,
-      // The booking's PaymentIntent for the admin "refund in Stripe" link (null on free bookings).
-      stripePaymentIntentId: a.registration_id
-        ? stripePiByReg.get(a.registration_id) ?? null
-        : null,
     };
   });
 
   const checkedInCount = attendees.filter((a) => a.checkedIn).length;
+
+  // ---------------------------------------------------------------------------
+  // Refunds tab: the cancelled seats, with the charges their money would come back from.
+  //
+  // A booking can hold several charges — the original checkout plus one per applied top-up and
+  // priced conversion — and only the first is on the registration row. The refund route draws
+  // from all of them, so the tab shows all of them: an admin about to move money should be able
+  // to see where it comes from. Read only when there is a cancellation to explain.
+  // ---------------------------------------------------------------------------
+  const cancelledTickets = roster.filter((t) => t.cancellation_status !== null);
+  const cancelledRegIds = [
+    ...new Set(cancelledTickets.map((t) => t.registration_id).filter((id): id is string => !!id)),
+  ];
+
+  const [topupRows, conversionRows] = cancelledRegIds.length
+    ? await Promise.all([
+        supabase
+          .from("event_registration_topups")
+          .select("registration_id, stripe_payment_intent_id")
+          .in("registration_id", cancelledRegIds)
+          .not("applied_at", "is", null),
+        supabase
+          .from("event_ticket_type_conversions")
+          .select("registration_id, stripe_payment_intent_id")
+          .in("registration_id", cancelledRegIds)
+          .not("applied_at", "is", null),
+      ])
+    : [{ data: [], error: null }, { data: [], error: null }];
+  if (topupRows.error) failLoad("top-up payments", topupRows.error);
+  if (conversionRows.error) failLoad("conversion payments", conversionRows.error);
+
+  const extraPisByReg = new Map<string, (string | null)[]>();
+  for (const row of [...(topupRows.data ?? []), ...(conversionRows.data ?? [])]) {
+    const regId = row.registration_id as string;
+    const list = extraPisByReg.get(regId) ?? [];
+    list.push((row as { stripe_payment_intent_id?: string | null }).stripe_payment_intent_id ?? null);
+    extraPisByReg.set(regId, list);
+  }
+
+  const regByIdForRefunds = new Map(
+    (registrations ?? []).map((r) => [r.id as string, r])
+  );
+
+  const cancellations: CancellationRow[] = cancelledTickets
+    .map((t) => {
+      const reg = t.registration_id ? regByIdForRefunds.get(t.registration_id) : undefined;
+      const recorded = t.refund_amount_chf;
+      return {
+        ticketId: t.id,
+        name: t.name ?? "",
+        email: t.email ?? "",
+        ticketTypeTitle: t.ticket_type_id ? ticketTitleById.get(t.ticket_type_id) ?? "" : "",
+        referenceCode: (reg?.reference_code as string | null) ?? null,
+        payerName: (reg?.name as string | null) ?? "",
+        payerEmail: (reg?.email as string | null) ?? "",
+        requestedAt: t.cancellation_requested_at,
+        status: t.cancellation_status === "refunded" ? ("refunded" as const) : ("requested" as const),
+        refundValueChf: t.registration_id
+          ? ticketRefundValueChf(
+              t,
+              regForRefundById.get(t.registration_id) ?? null,
+              (ticketItemRows ?? []) as TicketItemRow[]
+            )
+          : 0,
+        refundedChf: recorded === null || recorded === undefined ? null : Number(recorded),
+        refundedAt: t.cancellation_refunded_at,
+        stripeRefundId: t.stripe_refund_id,
+        paymentIntentIds: mergePaymentIntentIds(
+          (reg?.stripe_payment_intent_id as string | null) ?? null,
+          t.registration_id ? extraPisByReg.get(t.registration_id) ?? [] : []
+        ),
+      };
+    })
+    // Oldest cancellation first: the queue is worked front to back.
+    .sort((a, b) => (a.requestedAt ?? "").localeCompare(b.requestedAt ?? ""));
 
   // Per-ticket-type breakdown for the roster header. `sold` is the tickets
   // purchased of each type (event_registration_items.quantity by ticket_type_id).
@@ -325,6 +412,7 @@ export default async function ManageEventPage({
       <ManageEventTabs
         eventId={id}
         attendees={attendees}
+        cancellations={cancellations}
         stripeTestMode={stripeTestMode}
         checkedInCount={checkedInCount}
         guestsRegistered={guestSummary.registered}

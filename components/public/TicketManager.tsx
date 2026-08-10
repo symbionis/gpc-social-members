@@ -4,6 +4,7 @@ import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { formatCurrency } from "@/lib/format";
 import { eligibleConvertTargets, type ConvertType } from "@/lib/events/convert-eligibility";
+import type { TicketCancellationStatus } from "@/lib/events/refunds";
 
 // Guest manage page view (U10 + U11). Reached via a per-ticket manage_token link. Shows
 // every SAME-EMAIL ticket in the booking (the household) — each with its own admission QR
@@ -21,7 +22,7 @@ export interface ManageTicket {
   typeTitle: string;
   checkedIn: boolean;
   /** Holder cancellation (U14): null = live; 'requested'/'refunded' = cancelled. */
-  cancellationStatus: "requested" | "refunded" | null;
+  cancellationStatus: TicketCancellationStatus | null;
   /** QR admission URL (/c/<credential_token>). */
   credentialUrl: string;
   /** The ticket whose link opened this page. */

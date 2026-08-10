@@ -227,6 +227,25 @@ export async function POST(request: NextRequest) {
             }
             return NextResponse.json({ received: true });
           }
+          // Record WHICH charge paid for this top-up. The registration row only ever holds the
+          // original checkout's PaymentIntent, so without this the money for a topped-up seat
+          // sits on a charge nothing in the database names — and a later refund would draw
+          // against the wrong charge. Feeds the booking's refundable pool
+          // (lib/events/refund-pool.ts). Best-effort: a failure here narrows the pool to the
+          // charges we do know, which is the pre-existing behaviour, not a new break.
+          if (typeof session.payment_intent === "string") {
+            const { error: piErr } = await supabase
+              .from("event_registration_topups")
+              .update({ stripe_payment_intent_id: session.payment_intent })
+              .eq("id", topupId);
+            if (piErr) {
+              console.error("[webhook] failed to record top-up PaymentIntent", {
+                topupId,
+                paymentIntent: session.payment_intent,
+                err: piErr,
+              });
+            }
+          }
           // Mint the newly-purchased slots (idempotent — only the shortfall is minted).
           await mintRegistrationTickets(eventRegistrationId);
           // Send an updated confirmation (carries manage_url + every ticket's QR, now
@@ -288,6 +307,22 @@ export async function POST(request: NextRequest) {
               }
             }
             return NextResponse.json({ received: true });
+          }
+          // Record which charge paid this conversion's delta, for the same reason as the
+          // top-up above: it is money on the booking that the registration row does not name,
+          // and the refund pool needs it. Best-effort.
+          if (typeof session.payment_intent === "string") {
+            const { error: piErr } = await supabase
+              .from("event_ticket_type_conversions")
+              .update({ stripe_payment_intent_id: session.payment_intent })
+              .eq("id", conversionId);
+            if (piErr) {
+              console.error("[webhook] failed to record conversion PaymentIntent", {
+                conversionId,
+                paymentIntent: session.payment_intent,
+                err: piErr,
+              });
+            }
           }
           // Applied: re-send the confirmation (updated type/price, same QRs) so the lead
           // has the current booking. 'already' (replay) skips the email. Best-effort.

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateTime } from "@/lib/format";
-import { stripeDashboardUrl } from "@/lib/stripe/dashboard";
+import type { TicketCancellationStatus } from "@/lib/events/refunds";
 
 /**
  * One sold ticket on the roster (U15). The interactive roster now shows EVERY ticket sold —
@@ -40,15 +40,16 @@ export interface Attendee {
   /** Whether anyone is named on this ticket yet (slot_status === 'claimed'). */
   named: boolean;
   /**
-   * Holder cancellation (U14): null = live; 'requested' = seat freed, refund pending;
-   * 'refunded' = admin completed the Stripe refund. Rendered struck-through and excluded from
-   * the Remove affordance; 'requested' rows offer the admin a Stripe link + "Mark refunded".
+   * Holder cancellation (U14): null = live; 'requested' = seat freed, refund not yet
+   * processed; 'refunded' = settled. Both non-null states render struck-through and drop the
+   * Remove affordance; only 'requested' is actionable.
+   *
+   * Finance counts 'requested' as revenue — the club still holds the money — which is why it
+   * is a queue rather than a resting place.
    */
-  cancellationStatus: "requested" | "refunded" | null;
+  cancellationStatus: TicketCancellationStatus | null;
   /** When cancellation was requested — shown on the cancelled row. */
   cancellationRequestedAt: string | null;
-  /** The booking's Stripe PaymentIntent → the admin "refund in Stripe" deep link (R24). */
-  stripePaymentIntentId: string | null;
 }
 
 interface Props {
@@ -56,8 +57,6 @@ interface Props {
   /** Absolute base URL (NEXT_PUBLIC_APP_URL); falls back to window origin. */
   baseUrl: string;
   eventId: string;
-  /** Stripe test mode → the refund deep link targets dashboard.stripe.com/test/…. */
-  stripeTestMode: boolean;
 }
 
 type MemberFilter = "all" | "members" | "non_members";
@@ -138,15 +137,13 @@ function buildGroups(attendees: Attendee[]): RosterGroup[] {
   return groups;
 }
 
-export default function AttendeeList({ attendees, baseUrl, eventId, stripeTestMode }: Props) {
+export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [memberFilter, setMemberFilter] = useState<MemberFilter>("all");
   const [removing, setRemoving] = useState<Set<string>>(new Set());
   // Addresses whose grouped email is being resent — keyed by lowercased email.
   const [resending, setResending] = useState<Set<string>>(new Set());
-  // Tickets whose refund is being marked — keyed by ticket id.
-  const [refunding, setRefunding] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -202,37 +199,6 @@ export default function AttendeeList({ attendees, baseUrl, eventId, stripeTestMo
       setRemoving((prev) => {
         const next = new Set(prev);
         next.delete(id);
-        return next;
-      });
-    }
-  }
-
-  // Mark a holder-cancelled ticket as refunded (U14). The refund itself is done by hand in
-  // Stripe (the row links out); this only advances the status so the roster reflects it.
-  async function markRefunded(ticketId: string, name: string) {
-    if (!window.confirm(`Mark ${name || "this ticket"} as refunded? Do the refund in Stripe first.`))
-      return;
-    setError(null);
-    setNotice(null);
-    setRefunding((prev) => new Set(prev).add(ticketId));
-    try {
-      const res = await fetch(`/api/admin/events/${eventId}/tickets/${ticketId}/refund`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error || "Could not update the ticket.");
-        return;
-      }
-      setNotice(`Marked ${name || "the ticket"} refunded.`);
-      router.refresh();
-    } catch {
-      setError("Could not update the ticket.");
-    } finally {
-      setRefunding((prev) => {
-        const next = new Set(prev);
-        next.delete(ticketId);
         return next;
       });
     }
@@ -325,12 +291,9 @@ export default function AttendeeList({ attendees, baseUrl, eventId, stripeTestMo
               group={group}
               origin={origin}
               removing={removing}
-              refunding={refunding}
               resending={resending.has(group.email.trim().toLowerCase())}
-              stripeTestMode={stripeTestMode}
               onRemove={removeGuest}
               onResend={resendAddress}
-              onRefund={markRefunded}
             />
           ))}
         </div>
@@ -343,22 +306,16 @@ function AddressCard({
   group,
   origin,
   removing,
-  refunding,
   resending,
-  stripeTestMode,
   onRemove,
   onResend,
-  onRefund,
 }: {
   group: RosterGroup;
   origin: string;
   removing: Set<string>;
-  refunding: Set<string>;
   resending: boolean;
-  stripeTestMode: boolean;
   onRemove: (id: string, name: string) => void;
   onResend: (email: string) => void;
-  onRefund: (ticketId: string, name: string) => void;
 }) {
   // An address whose every ticket is cancelled has nothing to notify or resend — treat it as
   // a spent group rather than badging it "Not notified" and offering a pointless Resend.
@@ -459,10 +416,7 @@ function AddressCard({
                 key={row.id}
                 row={row}
                 removing={removing.has(row.id)}
-                refunding={refunding.has(row.id)}
-                stripeTestMode={stripeTestMode}
                 onRemove={onRemove}
-                onRefund={onRefund}
               />
             ))}
           </tbody>
@@ -475,17 +429,11 @@ function AddressCard({
 function TicketRow({
   row,
   removing,
-  refunding,
-  stripeTestMode,
   onRemove,
-  onRefund,
 }: {
   row: Attendee;
   removing: boolean;
-  refunding: boolean;
-  stripeTestMode: boolean;
   onRemove: (id: string, name: string) => void;
-  onRefund: (ticketId: string, name: string) => void;
 }) {
   const cancelled = row.cancellationStatus !== null;
   // The door Remove (free-slot) frees a named guest's slot. Never a lead, a comp seat, a
@@ -497,14 +445,6 @@ function TicketRow({
     !row.checkedIn &&
     !row.isComp &&
     !cancelled;
-  const stripeUrl =
-    stripeDashboardUrl(
-      row.stripePaymentIntentId
-        ? { kind: "payment_intent", id: row.stripePaymentIntentId }
-        : null,
-      stripeTestMode,
-    ) ?? "";
-
   return (
     <tr data-testid="ticket-row" className="border-t border-border">
       <td className="px-4 py-3 text-marine">
@@ -569,30 +509,10 @@ function TicketRow({
       </td>
       <td className="px-4 py-3 text-right">
         {cancelled ? (
-          <div className="flex items-center justify-end gap-2">
-            {stripeUrl && (
-              <a
-                href={stripeUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Open this booking's payment in Stripe to issue the refund"
-                // ph-no-capture: the href carries a Stripe PaymentIntent id; keep it out of analytics.
-                className="ph-no-capture px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors whitespace-nowrap"
-              >
-                Stripe ↗
-              </a>
-            )}
-            {row.cancellationStatus === "requested" && (
-              <button
-                type="button"
-                onClick={() => onRefund(row.id, row.name)}
-                disabled={refunding}
-                className="px-2.5 py-1 rounded-lg border border-emerald-300 text-emerald-800 text-xs font-body hover:bg-emerald-50 transition-colors disabled:opacity-50 cursor-pointer whitespace-nowrap"
-              >
-                {refunding ? "…" : "Mark refunded"}
-              </button>
-            )}
-          </div>
+          // Nothing. The badge beside the name already says whether this seat is awaiting a
+          // refund or settled, and refunding is money work that lives in the Refunds tab — the
+          // roster is read at the door to find who is arriving.
+          null
         ) : (
           canRemove && (
             <button

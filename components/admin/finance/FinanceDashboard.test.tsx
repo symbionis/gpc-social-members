@@ -24,6 +24,7 @@ const SUMMARY: FinanceSummary = {
     totalRevenue: 5000,
     membershipNet: 4000,
     eventGross: 1000,
+    eventNet: 1000,
     activeMembers: 12,
     newMembers: 3,
   },
@@ -53,17 +54,22 @@ const SUMMARY: FinanceSummary = {
   ],
   events: {
     gross: 1000,
+    refunds: 0,
+    net: 1000,
+    pendingRefunds: 0,
     paidRegistrations: 1,
     freeRegistrations: 0,
-    byEvent: [{ eventId: "e1", title: "Summer Gala", gross: 1000, paidRegistrations: 1 }],
-    byTicketType: [{ title: "Standard", gross: 1000, quantity: 1 }],
+    byEvent: [{ eventId: "e1", title: "Summer Gala", gross: 1000, refunds: 0, net: 1000, paidRegistrations: 1 }],
+    byTicketType: [{ title: "Standard", gross: 1000, refunds: 0, net: 1000, quantity: 1 }],
     byMonth: [
       {
         monthKey: "2026-03",
         gross: 1000,
+        refunds: 0,
+        net: 1000,
         paidRegistrations: 1,
         byEvent: [
-          { eventId: "e1", title: "Summer Gala", gross: 1000, paidRegistrations: 1 },
+          { eventId: "e1", title: "Summer Gala", gross: 1000, refunds: 0, net: 1000, paidRegistrations: 1 },
         ],
       },
     ],

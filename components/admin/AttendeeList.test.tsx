@@ -36,7 +36,6 @@ function ticket(overrides: Partial<Attendee> = {}): Attendee {
     named: true,
     cancellationStatus: null,
     cancellationRequestedAt: null,
-    stripePaymentIntentId: null,
     ...overrides,
   };
 }
@@ -47,7 +46,6 @@ function renderList(attendees: Attendee[]) {
       attendees={attendees}
       baseUrl="https://app.test"
       eventId="evt-1"
-      stripeTestMode={false}
     />
   );
 }
@@ -145,33 +143,24 @@ describe("U14 — cancelled tickets render distinctly + refund workflow", () => 
     expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(1);
   });
 
-  it("links a cancelled ticket out to Stripe and marks it refunded", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("shows a cancelled seat's refund state without offering to move money", () => {
+    // Refunding is money work and lives in the Refunds tab. The roster is read at the door, so
+    // it reports status and nothing else — no amounts, no Stripe links, no buttons.
     renderList([
-      ticket({
-        id: "t-cancelled",
-        name: "Ben Adult",
-        email: "house@x.ch",
-        cancellationStatus: "requested",
-        stripePaymentIntentId: "pi_123",
-      }),
+      ticket({ name: "Ben Adult", email: "house@x.ch", cancellationStatus: "requested" }),
     ]);
-    // Stripe deep link (live mode → no /test/ segment).
-    const link = screen.getByRole("link", { name: "Stripe ↗" });
-    expect(link).toHaveAttribute("href", "https://dashboard.stripe.com/payments/pi_123");
-
-    await user.click(screen.getByRole("button", { name: "Mark refunded" }));
-    const [url] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe("/api/admin/events/evt-1/tickets/t-cancelled/refund");
+    expect(screen.getByText("Cancel requested")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Refund/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Stripe/ })).toBeNull();
   });
 
-  it("shows a refunded ticket as Refunded with no Mark-refunded button", () => {
+  it("shows a settled seat as Refunded, still with no actions", () => {
     renderList([
-      ticket({ name: "Ben Adult", email: "house@x.ch", cancellationStatus: "refunded", stripePaymentIntentId: "pi_9" }),
+      ticket({ name: "Ben Adult", email: "house@x.ch", cancellationStatus: "refunded" }),
     ]);
     expect(screen.getByText("Refunded")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Mark refunded" })).toBeNull();
+    expect(screen.getByText("Ben Adult")).toHaveClass("line-through");
+    expect(screen.queryByRole("button", { name: /Refund/ })).toBeNull();
   });
 
   it("marks a fully-cancelled address group 'All cancelled' with no Resend", () => {
