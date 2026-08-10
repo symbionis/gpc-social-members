@@ -194,9 +194,9 @@ export default async function ManageEventPage({
       checkedIn: a.checked_in_at !== null,
       arrivedAt: a.checked_in_at,
       createdAt: a.created_at,
-      // A comped seat: the roster's Remove button (release_ticket) must never be offered
-      // for one — that would reopen the seat publicly instead of shrinking the party.
-      // The Guest list tab removes comp guests (remove_comp_guest).
+      // A comped seat on a sponsor's guest list. Drives the Comp pill; the Guest list tab is
+      // where such a seat is removed (remove_comp_guest), which shrinks the party rather than
+      // reopening the seat publicly.
       isComp: Boolean(a.is_comp),
       // A comped seat first (a sponsor gave it away even on a paid booking), then the
       // booking's own status. `free` covers a free event and an admin-comped conversion alike:
@@ -335,9 +335,9 @@ export default async function ManageEventPage({
       people: (rosterByReg.get(r.id) ?? [])
         // COMP tickets only. A comp registration carries a manage_token and the public
         // top-up route accepts status 'free', so the sponsor lead can buy REAL paid tickets
-        // onto this very registration. Those claimed rows are is_comp = false: listing them
-        // here would put a Remove button on a ticket the customer paid for (the DELETE route
-        // refuses them anyway — this is what keeps the button from ever appearing).
+        // onto this very registration. Those claimed rows are is_comp = false, and listing
+        // them here would offer the guest-list Remove on a ticket the customer paid for (the
+        // DELETE route refuses them anyway — this is what keeps it from ever appearing).
         .filter((t) => t.is_comp)
         // Lead first, then the guests in the order they were added.
         .slice()

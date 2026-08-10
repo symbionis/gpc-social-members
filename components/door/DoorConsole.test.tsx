@@ -178,7 +178,7 @@ describe("R15 — one shared matcher across both views", () => {
     renderConsole({ parties: [party()], arrivals, notArrived: missing });
     await user.click(arrivalsTab());
     await user.type(search(), "carla");
-    await user.click(screen.getByRole("button", { name: /^Pre-registered/ }));
+    await user.click(screen.getByRole("button", { name: /^Attendees/ }));
     expect(search()).toHaveValue("carla");
   });
 });
@@ -321,7 +321,7 @@ describe("arrivals tab states", () => {
   });
 });
 
-describe("R12 — comp guests are findable in the Pre-registered tab", () => {
+describe("R12 — comp guests are findable in the Attendees tab", () => {
   it("finds a comp party's named guest by guest name", async () => {
     const user = userEvent.setup();
     const comp = party({
@@ -433,28 +433,84 @@ describe("Guest lists tab", () => {
     expect(within(list).getByText("GPC-CARDIS")).toBeInTheDocument();
     // The sponsor's whole list read as one unit — the point of the tab.
     expect(within(list).getByText("1 of 3 arrived")).toBeInTheDocument();
-    expect(within(list).getByText("Ana Vidal")).toBeInTheDocument();
-    expect(within(list).getByText("Bruno Keller")).toBeInTheDocument();
+    expect(within(list).getByDisplayValue("Ana Vidal")).toBeInTheDocument();
+    expect(within(list).getByDisplayValue("Bruno Keller")).toBeInTheDocument();
   });
 
-  it("names an unfilled seat as an open slot rather than leaving it blank", async () => {
-    const user = userEvent.setup();
-    renderConsole({ parties: [cardis()] });
-    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
-    expect(
-      within(screen.getByTestId("door-guest-list")).getByText("Open slot"),
-    ).toBeInTheDocument();
-  });
-
-  it("is read-only — admitting someone happens by scan, not from here", async () => {
+  it("checks a comp guest in from the list itself", async () => {
+    // A comp list often has no emails, so those guests never get a ticket and arrive with no
+    // QR. This list is how they are admitted, not just a view of who was invited.
     const user = userEvent.setup();
     renderConsole({ parties: [cardis()] });
     await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
 
     const panel = screen.getByTestId("door-guest-lists");
-    // Two ways to admit the same guest would mean two places to look when one misfires.
-    expect(within(panel).queryByRole("button", { name: /Check in/i })).toBeNull();
-    expect(within(panel).queryByRole("textbox")).toBeNull();
+    // Ana already arrived; Bruno and the open slot have not.
+    expect(within(panel).getAllByRole("button", { name: "Check in" }).length).toBeGreaterThan(0);
+  });
+
+  it("opens contact fields for a comp guest who has no email", async () => {
+    // A comp list often carries no emails. The door is the one moment that gap can be closed,
+    // so the row starts unlocked rather than hiding the fields behind Edit details.
+    const user = userEvent.setup();
+    const list = party({
+      leadName: "Cardis Sponsor",
+      isGuestList: true,
+      slots: [slot({ attendeeId: "g1", name: "Marta Lopez", email: "", phone: "", isLead: false })],
+    });
+    renderConsole({ parties: [list] });
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+
+    const panel = screen.getByTestId("door-guest-lists");
+    expect(within(panel).getByDisplayValue("Marta Lopez")).toBeEnabled();
+    expect(within(panel).getByPlaceholderText("Email")).toBeEnabled();
+    expect(within(panel).queryByRole("button", { name: "Edit details" })).toBeNull();
+  });
+
+  it("leaves a comp guest who already gave an email locked", async () => {
+    // Capture is offered only where the contact is missing — not as a prompt on every guest.
+    const user = userEvent.setup();
+    const list = party({
+      leadName: "Cardis Sponsor",
+      isGuestList: true,
+      slots: [
+        slot({ attendeeId: "g1", name: "Marta Lopez", email: "marta@x.ch", isLead: false }),
+      ],
+    });
+    renderConsole({ parties: [list] });
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+
+    const panel = screen.getByTestId("door-guest-lists");
+    expect(within(panel).getByDisplayValue("Marta Lopez")).toBeDisabled();
+    expect(within(panel).getByRole("button", { name: "Edit details" })).toBeInTheDocument();
+  });
+
+  it("puts the waiver in front of a comp guest before admitting them", async () => {
+    const user = userEvent.setup();
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: "needs_waiver" }),
+    });
+    const list = party({
+      leadName: "Cardis Sponsor",
+      isGuestList: true,
+      slots: [
+        slot({ attendeeId: "g1", name: "Marta Lopez", email: "marta@x.ch", isLead: false }),
+      ],
+    });
+    renderConsole({ parties: [list] });
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+
+    // A comped seat is still a person at an event with a waiver requirement.
+    expect(await screen.findByText(/accept the waiver to check in/i)).toBeInTheDocument();
+  });
+
+  it("shows an already-arrived guest as arrived rather than offering check-in again", async () => {
+    const user = userEvent.setup();
+    renderConsole({ parties: [cardis()] });
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+    expect(within(screen.getByTestId("door-guest-lists")).getByText(/^arrived/)).toBeInTheDocument();
   });
 
   it("leaves ordinary parties out of the tab", async () => {

@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
-import { mintRegistrationTickets } from "@/lib/events/roster";
+import { mintRegistrationTickets, applyPendingRoster } from "@/lib/events/roster";
+import { parseAttendeeInput } from "@/lib/events/attendee-input";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
 import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
 
@@ -25,7 +26,7 @@ export async function POST(
   const { token } = await params;
   if (!token) return bad("Invalid link", 404);
 
-  let body: { items?: unknown };
+  let body: { items?: unknown; attendees?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -125,6 +126,36 @@ export async function POST(
     }
   }
 
+  // Mandatory naming (R1) applies here too. A top-up seeds no lead slot — every seat it buys
+  // is a guest — so each one needs its own name and email. Same parser as the public checkout,
+  // so the two cannot drift: this route shipped without any naming at all, which is how a paid
+  // booking could still grow an unnamed, contactless seat long after checkout stopped allowing
+  // one.
+  const requiredPerType = new Map(items.map((li) => [li.ticket_type_id, li.quantity]));
+  const parsedAttendees = parseAttendeeInput(
+    body.attendees,
+    requiredPerType,
+    (ttId) => requiredPerType.has(ttId),
+    MAX_QTY,
+  );
+  if (!parsedAttendees.ok) return bad(parsedAttendees.error, 400);
+
+  // Stash the names BEFORE any money moves, and fail loud if the write fails — a paid top-up
+  // whose roster never persisted would mint the unnamed seats this change exists to prevent.
+  // `applyPendingRoster` clears the slot when it runs, so the booking's original roster (long
+  // since applied at payment) cannot collide with this one.
+  const { error: rosterErr } = await supabase
+    .from("event_registrations")
+    .update({ pending_roster: parsedAttendees.attendees })
+    .eq("id", reg.id as string);
+  if (rosterErr) {
+    console.error("[booking-topup] pending_roster persist failed — blocking top-up", {
+      registrationId: reg.id,
+      err: rosterErr,
+    });
+    return bad("Could not start the top-up", 500);
+  }
+
   // Record the pending top-up (service-role bypasses RLS).
   const { data: topup, error: topupErr } = await supabase
     .from("event_registration_topups")
@@ -149,6 +180,8 @@ export async function POST(
       return bad("Could not add the tickets", 500);
     }
     await mintRegistrationTickets(reg.id as string);
+    // Nothing was charged, so there is no webhook to do this — name the new seats here.
+    await applyPendingRoster(reg.id as string);
     return NextResponse.json({ ok: true, applied: true, redirectUrl: successUrl });
   }
 

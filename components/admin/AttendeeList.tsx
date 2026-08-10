@@ -39,7 +39,7 @@ export interface Attendee {
   checkedIn: boolean;
   arrivedAt: string | null;
   createdAt: string;
-  /** A comped seat on a guest list — never offer the roster's (door) Remove button for one. */
+  /** A comped seat on a sponsor's guest list. */
   isComp: boolean;
   /**
    * How this seat was obtained, which the roster shows because "did they pay?" is a question
@@ -139,7 +139,6 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [memberFilter, setMemberFilter] = useState<MemberFilter>("all");
-  const [removing, setRemoving] = useState<Set<string>>(new Set());
   // Addresses whose grouped email is being resent — keyed by lowercased email.
   const [resending, setResending] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -174,33 +173,6 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
 
   const isFiltering = query.trim() !== "" || memberFilter !== "all";
   const shownCount = filteredGroups.reduce((n, g) => n + g.rows.length, 0);
-
-  async function removeGuest(id: string, name: string) {
-    if (!window.confirm(`Remove ${name || "this guest"} and free their slot?`)) return;
-    setError(null);
-    setRemoving((prev) => new Set(prev).add(id));
-    try {
-      const res = await fetch(`/api/public/door/${eventId}/free-slot`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attendeeId: id }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error || "Could not remove the guest.");
-        return;
-      }
-      router.refresh();
-    } catch {
-      setError("Could not remove the guest.");
-    } finally {
-      setRemoving((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    }
-  }
 
   // Resend the grouped ticket email to ONE address — every QR at that address, in one email.
   // Per-address (U15): the roster groups by email, so a resend targets the address the admin
@@ -288,9 +260,7 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
               key={group.key}
               group={group}
               origin={origin}
-              removing={removing}
               resending={resending.has(group.email.trim().toLowerCase())}
-              onRemove={removeGuest}
               onResend={resendAddress}
             />
           ))}
@@ -303,16 +273,12 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
 function AddressCard({
   group,
   origin,
-  removing,
   resending,
-  onRemove,
   onResend,
 }: {
   group: RosterGroup;
   origin: string;
-  removing: Set<string>;
   resending: boolean;
-  onRemove: (id: string, name: string) => void;
   onResend: (email: string) => void;
 }) {
   const isAddress = group.kind === "address";
@@ -398,7 +364,6 @@ function AddressCard({
               <th className="px-4 py-2 font-semibold">Member</th>
               <th className="px-4 py-2 font-semibold">Waiver</th>
               <th className="px-4 py-2 font-semibold">Arrived</th>
-              <th className="px-4 py-2" />
             </tr>
           </thead>
           <tbody>
@@ -406,8 +371,6 @@ function AddressCard({
               <TicketRow
                 key={row.id}
                 row={row}
-                removing={removing.has(row.id)}
-                onRemove={onRemove}
               />
             ))}
           </tbody>
@@ -419,17 +382,9 @@ function AddressCard({
 
 function TicketRow({
   row,
-  removing,
-  onRemove,
 }: {
   row: Attendee;
-  removing: boolean;
-  onRemove: (id: string, name: string) => void;
 }) {
-  // The door Remove (free-slot) frees a named guest's slot. Never a lead, a comp seat, a
-  // checked-in person, or a still-unnamed slot. A cancelled seat cannot appear here at all.
-  const canRemove =
-    row.named && !row.isLead && !!row.registrationId && !row.checkedIn && !row.isComp;
   return (
     <tr data-testid="ticket-row" className="border-t border-border">
       <td className="px-4 py-3 text-marine">
@@ -494,18 +449,6 @@ function TicketRow({
           </div>
         ) : (
           <span className="text-xs text-muted-foreground">—</span>
-        )}
-      </td>
-      <td className="px-4 py-3 text-right">
-        {canRemove && (
-          <button
-            type="button"
-            onClick={() => onRemove(row.id, row.name)}
-            disabled={removing}
-            className="px-2.5 py-1 rounded-lg border border-red-200 text-red-700 text-xs font-body hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {removing ? "…" : "Remove"}
-          </button>
         )}
       </td>
     </tr>

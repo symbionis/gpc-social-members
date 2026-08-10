@@ -16,14 +16,12 @@ import {
   fillRegistrationRoster,
   type RosterFillAttendee,
 } from "@/lib/events/roster";
-import { isFullName, normalizeName } from "@/lib/names";
+import { isFullName } from "@/lib/names";
+import { parseAttendeeInput, EMAIL_RE } from "@/lib/events/attendee-input";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_TICKETS = 20;
 // Bounds for the nominative roster fields — this endpoint is unauthenticated, so
 // reject oversized name/email rather than storing multi-megabyte junk (R10).
-const MAX_ATTENDEE_NAME = 120;
-const MAX_ATTENDEE_EMAIL = 254;
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -208,53 +206,21 @@ export async function POST(
   // is no longer exempt (R6, R8). Any number of tickets may share one address (R2)
   // — only the booker-level registration guard below (KTD7) still rejects a
   // duplicate. Bounds close abuse paths on this unauthenticated route.
-  const rawAttendees = Array.isArray(body.attendees) ? body.attendees : [];
-  if (rawAttendees.length > MAX_TICKETS) {
-    return bad("Too many attendees for one order", 400);
-  }
-  const normalizedAttendees: RosterFillAttendee[] = [];
-  const namedPerType = new Map<string, number>();
-  // Two attendees that normalize to the same (name, email) would collapse into one
-  // ticket at claim time — claim_ticket's replay guard keys on the same case-folded,
-  // whitespace-collapsed name plus contact — silently leaving the sibling slot
-  // unnamed and defeating mandatory naming (R1). A shared email is fine (households,
-  // R2); the same person named twice is not. Reject the exact-duplicate loudly rather
-  // than drop a guest quietly. The key mirrors claim_ticket's normalization.
-  const seenIdentities = new Set<string>();
-  for (const raw of rawAttendees) {
-    const rec = (raw ?? {}) as { ticket_type_id?: unknown; name?: unknown; email?: unknown };
-    const ttId = typeof rec.ticket_type_id === "string" ? rec.ticket_type_id : "";
-    const t = typeById.get(ttId);
-    if (!t) return bad("An attendee references a ticket not in your order", 400);
-    const nm = typeof rec.name === "string" ? rec.name.trim() : "";
-    if (!nm) return bad("Each named ticket needs a name", 400);
-    if (nm.length > MAX_ATTENDEE_NAME) return bad("An attendee name is too long", 400);
-    // Every guest needs a surname to be filed under (R8) — no more name-only path.
-    if (!isFullName(nm)) {
-      return bad("Each named guest needs a first and last name", 400);
-    }
-    const e = typeof rec.email === "string" ? rec.email.trim().toLowerCase() : "";
-    if (!e || !EMAIL_RE.test(e)) return bad("Each named guest needs a valid email", 400);
-    if (e.length > MAX_ATTENDEE_EMAIL) return bad("An attendee email is too long", 400);
-    const identity = `${normalizeName(nm).toLowerCase()}|${e}`;
-    if (seenIdentities.has(identity)) {
-      return bad("Two guests have the same name and email — give each guest a distinct name", 400);
-    }
-    seenIdentities.add(identity);
-    namedPerType.set(ttId, (namedPerType.get(ttId) ?? 0) + 1);
-    normalizedAttendees.push({ ticket_type_id: ttId, name: nm, email: e });
-  }
-  // A type's named guests must exactly cover the purchased quantity minus the lead's
-  // own slot of that type (the lead is seeded, not in this list) — mandatory naming
-  // (R1) means neither fewer nor more named guests than purchased is acceptable.
+  // Mandatory naming (R1), enforced by the shared parser so the top-up path cannot drift from
+  // this one. The lead's own slot is seeded from the booker fields, so their type needs one
+  // fewer name than it sold.
   const purchasedPerType = new Map(parsed.map((p) => [p.ticket_type_id, p.quantity]));
-  for (const [ttId, purchasedQty] of purchasedPerType) {
-    const capacity = purchasedQty - (leadType === ttId ? 1 : 0);
-    const named = namedPerType.get(ttId) ?? 0;
-    if (named !== capacity) {
-      return bad("Every ticket needs a name and email before checkout can complete", 400);
-    }
-  }
+  const requiredPerType = new Map(
+    [...purchasedPerType].map(([ttId, qty]) => [ttId, qty - (leadType === ttId ? 1 : 0)]),
+  );
+  const parsedAttendees = parseAttendeeInput(
+    body.attendees,
+    requiredPerType,
+    (ttId) => typeById.has(ttId),
+    MAX_TICKETS,
+  );
+  if (!parsedAttendees.ok) return bad(parsedAttendees.error, 400);
+  const normalizedAttendees: RosterFillAttendee[] = parsedAttendees.attendees;
 
   // Resolve per-line prices. STRICT null check before any coercion — Number(null)
   // === 0 would silently make a line free, so an unset price for the resolved

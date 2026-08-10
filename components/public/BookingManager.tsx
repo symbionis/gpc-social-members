@@ -117,12 +117,34 @@ function BuyMorePanel({
 }) {
   const [open, setOpen] = useState(false);
   const [qty, setQty] = useState<Record<string, number>>({});
+  // Keyed `<ticketTypeId>#<index>` so a name stays attached to its seat when another type's
+  // quantity changes — an array keyed by position would shuffle names between people.
+  const [guests, setGuests] = useState<Record<string, { name: string; email: string }>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const totalSelected = Object.values(qty).reduce((s, n) => s + (n || 0), 0);
   const set = (id: string, n: number) =>
     setQty((prev) => ({ ...prev, [id]: Math.max(0, n) }));
+
+  // One row per seat selected. Every added ticket is named before payment (R1) — the same
+  // rule the public checkout enforces — so a top-up can no longer create a seat with nobody
+  // on it and no way to reach them.
+  const seatRows = types.flatMap((t) =>
+    Array.from({ length: qty[t.id] || 0 }, (_, i) => ({
+      key: `${t.id}#${i}`,
+      ticketTypeId: t.id,
+      title: t.title,
+      index: i,
+    })),
+  );
+  const guestOf = (key: string) => guests[key] ?? { name: "", email: "" };
+  const setGuest = (key: string, patch: Partial<{ name: string; email: string }>) =>
+    setGuests((prev) => ({ ...prev, [key]: { ...guestOf(key), ...patch } }));
+  const allNamed = seatRows.every((r) => {
+    const g = guestOf(r.key);
+    return g.name.trim() !== "" && g.email.trim() !== "";
+  });
 
   const submit = async () => {
     setSubmitting(true);
@@ -131,10 +153,14 @@ function BuyMorePanel({
       const items = Object.entries(qty)
         .filter(([, n]) => n > 0)
         .map(([ticketTypeId, quantity]) => ({ ticketTypeId, quantity }));
+      const attendees = seatRows.map((r) => {
+        const g = guestOf(r.key);
+        return { ticket_type_id: r.ticketTypeId, name: g.name.trim(), email: g.email.trim() };
+      });
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ items, attendees }),
       });
       const data = (await res.json()) as {
         ok?: boolean;
@@ -168,8 +194,8 @@ function BuyMorePanel({
       {open && (
         <div className="mt-4 space-y-4">
           <p className="font-body text-base text-marine/80">
-            Add tickets to this booking. After payment they appear here with their own QR
-            codes, ready to name.
+            Add tickets to this booking. Name each one below — after payment they appear here
+            with their own QR codes.
           </p>
           <ul className="space-y-3">
             {types.map((t) => (
@@ -201,11 +227,51 @@ function BuyMorePanel({
               </li>
             ))}
           </ul>
+          {seatRows.length > 0 && (
+            <div className="space-y-3 border-t border-border/70 pt-4">
+              <p className="font-body text-sm font-semibold text-marine">
+                Who are these tickets for?
+              </p>
+              {seatRows.map((r) => (
+                <div key={r.key} className="space-y-2">
+                  <label
+                    htmlFor={`guest-name-${r.key}`}
+                    className="font-body text-sm text-marine/70"
+                  >
+                    {r.title} · guest {r.index + 1}
+                  </label>
+                  <input
+                    id={`guest-name-${r.key}`}
+                    type="text"
+                    value={guestOf(r.key).name}
+                    onChange={(e) => setGuest(r.key, { name: e.target.value })}
+                    placeholder="First and last name"
+                    autoComplete="off"
+                    className="w-full rounded-lg border border-border/70 px-3 py-2 font-body text-base text-marine"
+                  />
+                  <input
+                    id={`guest-email-${r.key}`}
+                    type="email"
+                    value={guestOf(r.key).email}
+                    onChange={(e) => setGuest(r.key, { email: e.target.value })}
+                    placeholder="Email"
+                    aria-label={`${r.title} guest ${r.index + 1} email`}
+                    autoComplete="off"
+                    className="w-full rounded-lg border border-border/70 px-3 py-2 font-body text-base text-marine"
+                  />
+                </div>
+              ))}
+              <p className="font-body text-xs text-marine/60">
+                Each ticket needs a name and email so its holder gets their own QR code. Guests
+                can share an address if they arrive together.
+              </p>
+            </div>
+          )}
           {error && <p className="text-sm font-body text-red-600">{error}</p>}
           <button
             type="button"
             onClick={submit}
-            disabled={submitting || totalSelected === 0}
+            disabled={submitting || totalSelected === 0 || !allNamed}
             className="w-full rounded-lg bg-marine px-4 py-3 text-base font-body font-semibold text-white disabled:opacity-50"
           >
             {submitting ? "Starting…" : `Add ${totalSelected || ""} ticket${totalSelected === 1 ? "" : "s"}`}
