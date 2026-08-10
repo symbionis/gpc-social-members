@@ -34,6 +34,7 @@ function ticket(overrides: Partial<Attendee> = {}): Attendee {
     createdAt: `2026-01-01T00:00:0${seq}Z`,
     isComp: false,
     named: true,
+    paymentState: "paid" as const,
     ...overrides,
   };
 }
@@ -173,5 +174,28 @@ describe("U15 — resend targets an email address", () => {
     ]);
     expect(screen.getByText("Not notified")).toBeInTheDocument();
     expect(screen.queryByText("Notified")).toBeNull();
+  });
+});
+
+describe("payment pill", () => {
+  it("marks a paid seat", () => {
+    renderList([ticket({ name: "Ana Adult", paymentState: "paid" })]);
+    expect(screen.getByText("Paid")).toBeInTheDocument();
+  });
+
+  it("distinguishes a sponsor's comp from a free booking", () => {
+    // Different facts: a sponsor gave a seat away, versus the seat never had a price.
+    renderList([
+      ticket({ name: "Comped Guest", email: "a@x.ch", isComp: true, paymentState: "comp" }),
+      ticket({ name: "Free Guest", email: "b@x.ch", paymentState: "free" }),
+    ]);
+    expect(screen.getByText("Comp")).toBeInTheDocument();
+    expect(screen.getByText("Free")).toBeInTheDocument();
+    expect(screen.queryByText("Paid")).toBeNull();
+  });
+
+  it("shows exactly one payment pill per seat", () => {
+    renderList([ticket({ paymentState: "comp" })]);
+    expect(screen.getAllByText(/^(Paid|Comp|Free)$/)).toHaveLength(1);
   });
 });

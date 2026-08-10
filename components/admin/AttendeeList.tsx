@@ -41,6 +41,14 @@ export interface Attendee {
   createdAt: string;
   /** A comped seat on a guest list — never offer the roster's (door) Remove button for one. */
   isComp: boolean;
+  /**
+   * How this seat was obtained, which the roster shows because "did they pay?" is a question
+   * the door and the organiser both ask and neither could answer from here before:
+   *  - `paid` — bought through checkout on a paid booking
+   *  - `comp` — a sponsor's guest-list seat, given away
+   *  - `free` — a booking that cost nothing (a free event, or a comped conversion)
+   */
+  paymentState: "paid" | "comp" | "free";
   /** Whether anyone is named on this ticket yet (slot_status === 'claimed'). */
   named: boolean;
 }
@@ -430,6 +438,22 @@ function TicketRow({
           {row.isLead && (
             <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-sky/10 text-sky-dark">
               Buyer
+            </span>
+          )}
+          {/* Emerald for money in, neutral for the two that brought none — the distinction the
+              organiser is scanning for. Comp and free are kept apart because they mean
+              different things: a sponsor gave the seat away, versus it never had a price. */}
+          {row.paymentState === "paid" ? (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-50 text-emerald-700">
+              Paid
+            </span>
+          ) : row.paymentState === "comp" ? (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-50 text-amber-800">
+              Comp
+            </span>
+          ) : (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-100 text-gray-600">
+              Free
             </span>
           )}
         </span>

@@ -198,6 +198,14 @@ export default async function ManageEventPage({
       // for one — that would reopen the seat publicly instead of shrinking the party.
       // The Guest list tab removes comp guests (remove_comp_guest).
       isComp: Boolean(a.is_comp),
+      // A comped seat first (a sponsor gave it away even on a paid booking), then the
+      // booking's own status. `free` covers a free event and an admin-comped conversion alike:
+      // both took no money, which is what the pill is answering.
+      paymentState: a.is_comp
+        ? ("comp" as const)
+        : (regForRefundById.get(a.registration_id ?? "")?.status ?? "paid") === "free"
+          ? ("free" as const)
+          : ("paid" as const),
       named,
     };
   });
