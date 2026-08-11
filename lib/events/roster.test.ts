@@ -109,7 +109,25 @@ describe("applyTopupRoster", () => {
     expect(client.rpc).toHaveBeenCalledWith("apply_topup_roster", { p_topup_id: "topup-1" });
   });
 
-  it("surfaces no_roster, which is what the caller's fallback keys on", async () => {
+  // The distinction the fallback keys on. An ordinary redelivery (already applied and
+  // cleared) must NOT be treated as legacy, or it re-runs the registration-level apply.
+  it("reports an already-applied redelivery as no_roster, not legacy", async () => {
+    mockedAdmin.mockReturnValue(
+      adminWithRpc(() => ({ data: { status: "no_roster", legacy: false }, error: null }))
+    );
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("no_roster");
+  });
+
+  it("reports a pre-migration top-up as legacy_roster", async () => {
+    mockedAdmin.mockReturnValue(
+      adminWithRpc(() => ({ data: { status: "no_roster", legacy: true }, error: null }))
+    );
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("legacy_roster");
+  });
+
+  // Defensive: an RPC that predates the legacy flag omits it entirely. Absent must mean
+  // "not legacy" — guessing the other way re-runs an apply that should not run.
+  it("treats an absent legacy flag as not legacy", async () => {
     mockedAdmin.mockReturnValue(
       adminWithRpc(() => ({ data: { status: "no_roster" }, error: null }))
     );

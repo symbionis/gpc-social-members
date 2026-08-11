@@ -259,18 +259,17 @@ export async function POST(request: NextRequest) {
           // The names hang off the top-up rather than the registration precisely so that a
           // redelivery of the booking's ORIGINAL checkout cannot consume them first.
           const rosterStatus = await applyTopupRoster(topupId);
-          if (rosterStatus === "no_roster") {
-            // `no_roster` is NOT only the legacy case — it is also the steady-state answer for
-            // every redelivery of a post-migration top-up whose roster already applied and
-            // cleared. Falling back is safe in that case only because
-            // event_registrations.pending_roster is single-producer again and is already NULL
-            // on a paid registration, so this call no-ops. The case it exists for is a top-up
-            // staged before 20260811064034, which put its names on the registration instead.
+          if (rosterStatus === "legacy_roster") {
+            // ONLY for a top-up created before per-top-up rosters existed, which staged its
+            // names on the registration instead. An ordinary redelivery returns `no_roster`
+            // and lands nowhere near here — the RPC tells the two apart from created_at, so
+            // this branch is provably dead once no such row can still be in flight rather
+            // than merely believed to be harmless.
             //
-            // DELETE AFTER 2026-08-18 (24h Checkout Session expiry + ~3d Stripe retry window,
-            // after which no pre-migration top-up can still be in flight). Verify first:
-            //   select count(*) from event_registrations
-            //    where status = 'paid' and pending_roster is not null;  -- expect 0
+            // DELETE AFTER 2026-08-18 (24h Checkout Session expiry + ~3d Stripe retry
+            // window). Verify first — expect 0:
+            //   select count(*) from event_registration_topups
+            //    where created_at < '2026-08-11 06:40:34+00' and status = 'pending';
             await applyPendingRoster(eventRegistrationId);
           }
           // Send an updated confirmation (carries manage_url + every ticket's QR, now

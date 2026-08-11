@@ -93,8 +93,21 @@ export async function applyPendingRoster(registrationId: string): Promise<void> 
   }
 }
 
-/** What apply_topup_roster reports back. `error` is this helper's own signal, not the RPC's. */
-export type TopupRosterStatus = "applied" | "no_roster" | "not_found" | "error";
+/**
+ * What apply_topup_roster reports back.
+ *
+ * `legacy_roster` and `no_roster` are both "nothing staged on the top-up row", split because
+ * only the first warrants falling back to the registration-level slot: it means the top-up
+ * predates per-top-up rosters. `no_roster` is the ordinary redelivery answer — already
+ * applied and cleared — and needs no fallback at all. `error` is this helper's own signal,
+ * never a value the RPC returns.
+ */
+export type TopupRosterStatus =
+  | "applied"
+  | "legacy_roster"
+  | "no_roster"
+  | "not_found"
+  | "error";
 
 /**
  * Apply ONE top-up's staged guest names atomically.
@@ -104,12 +117,15 @@ export type TopupRosterStatus = "applied" | "no_roster" | "not_found" | "error";
  * ORIGINAL checkout from consuming a top-up's names, and keeps two concurrent top-ups on
  * one booking from overwriting each other.
  *
- * Returns the status so the caller can tell "nothing was staged" from "applied": the
- * webhook needs that to fall back to the legacy registration-level slot for top-ups that
- * were mid-flight when this shipped.
+ * Returns a status rather than throwing, because the caller has two decisions to make: only
+ * `legacy_roster` warrants falling back to the registration-level slot, and only `error`
+ * warrants asking Stripe to retry.
  *
- * Best-effort like applyPendingRoster: a failure is logged, not thrown — the payment has
- * already succeeded, and an un-cleared roster makes a later redelivery re-apply cleanly.
+ * A failure is logged, not thrown — the payment has already succeeded, so throwing past a
+ * captured charge helps nobody. The roster stays staged on failure, which is what makes a
+ * retry re-apply cleanly. **That retry is not automatic:** it happens only because the
+ * webhook turns `error` into a 500. On the free top-up path there is no webhook and no
+ * retry at all, so that caller surfaces the failure to the lead instead.
  */
 export async function applyTopupRoster(topupId: string): Promise<TopupRosterStatus> {
   const supabase = createAdminClient();
@@ -120,7 +136,9 @@ export async function applyTopupRoster(topupId: string): Promise<TopupRosterStat
     console.error("[roster] apply_topup_roster failed", { topupId, err: error });
     return "error";
   }
-  const payload = data as { status?: string; unclaimed?: unknown[] } | null;
+  const payload = data as
+    | { status?: string; legacy?: boolean; unclaimed?: unknown[] }
+    | null;
   const status = payload?.status;
   // The RPC clears the staged roster whether or not every guest was placed, so this log is
   // the only surviving record that someone paid for a seat nothing named. `already: true`
@@ -132,7 +150,10 @@ export async function applyTopupRoster(topupId: string): Promise<TopupRosterStat
       unclaimed: payload.unclaimed,
     });
   }
-  if (status === "applied" || status === "no_roster" || status === "not_found") {
+  if (status === "no_roster") {
+    return payload?.legacy === true ? "legacy_roster" : "no_roster";
+  }
+  if (status === "applied" || status === "not_found") {
     return status;
   }
   console.error("[roster] apply_topup_roster returned an unrecognised status", {

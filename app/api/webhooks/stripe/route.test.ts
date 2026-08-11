@@ -332,12 +332,22 @@ describe("stripe webhook — top-up branch", () => {
     expect(mockedApply).not.toHaveBeenCalled();
   });
 
-  it("falls back to the legacy registration slot for a top-up staged before the migration", async () => {
-    mockedApplyTopup.mockResolvedValue("no_roster");
+  it("falls back to the registration slot only for a pre-migration top-up", async () => {
+    mockedApplyTopup.mockResolvedValue("legacy_roster");
     currentEvent = makeEvent({ event_registration_id: REG, topup_id: TOPUP });
     await post();
     expect(mockedApplyTopup).toHaveBeenCalledWith(TOPUP);
     expect(mockedApply).toHaveBeenCalledWith(REG);
+  });
+
+  // An ordinary redelivery — roster already applied and cleared — must NOT re-run the
+  // registration-level apply. Conflating the two is what coupled the paths back together.
+  it("does not fall back on an ordinary redelivery", async () => {
+    mockedApplyTopup.mockResolvedValue("no_roster");
+    currentEvent = makeEvent({ event_registration_id: REG, topup_id: TOPUP });
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(mockedApply).not.toHaveBeenCalled();
   });
 
   // Seats must exist before they can be named. Swap these two and every claim no-ops

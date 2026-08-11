@@ -188,7 +188,15 @@ export async function POST(
     .limit(1)
     .maybeSingle();
   if (topupErr || !topup) {
-    console.error("[booking-topup] could not create top-up", { err: topupErr });
+    // Context matters here: without the booking, a spike in these is untraceable. `!topup`
+    // with no error is the nastier half — the insert may have committed while the client saw
+    // nothing, leaving an orphan row with a staged roster (never paid, never applied).
+    console.error("[booking-topup] could not create top-up", {
+      registrationId: reg.id,
+      eventId: reg.event_id,
+      reason: topupErr ? "insert_failed" : "no_row_returned",
+      err: topupErr,
+    });
     return bad("Could not start the top-up", 500);
   }
   const topupId = topup.id as string;

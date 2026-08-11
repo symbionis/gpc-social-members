@@ -52,8 +52,8 @@ BEGIN
   END IF;
 
   -- Lock the PARENT registration, not the top-up row: claim_ticket takes exactly this
-  -- lock as its first statement, and every other roster path locks it too, so this is
-  -- what serializes them against each other.
+  -- lock as its first statement, so this lock is what serializes this apply against
+  -- concurrent claims. (Superseded by 20260811071611, which adds the lock-order note.)
   PERFORM 1 FROM public.event_registrations WHERE id = v_reg_id FOR UPDATE;
 
   -- Re-read under the lock — a concurrent redelivery may have cleared it.
