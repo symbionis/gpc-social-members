@@ -158,8 +158,7 @@ seat-consuming *items* per registration and buckets them into paid / free / gues
 taking `activeTickets` from the authoritative `seats_used` RPC and deriving the cancelled
 count as `booked − active`.
 
-Status: this work is on branch `symbionis/roster-summary-booked-label`, **PR #118, open
-and not merged as of 2026-08-11**. Treat the fixes as pending until that PR lands.
+Status: shipped in **PR #118**, merged to `main` on 2026-08-11.
 
 ## Why This Works
 
@@ -241,8 +240,10 @@ that fires on normal operations is one nobody reads.
 
 - [Releasing a seat without invalidating its ticket lets the holder still enter](./releasing-a-seat-without-invalidating-its-ticket-lets-the-holder-still-enter.md)
   — same root cause (a ticket-level state change with a consumer that never learns about
-  it), different consumer and remedy. That doc prescribes guarding each call site
-  individually; this one supersedes that approach with a single shared owner.
+  it), different consumer and remedy. This doc supersedes its per-call-site filter **for the
+  three roster surfaces only**. The admission paths it covers — the QR scan and the by-id
+  check-in — keep their own guards and gate on credential plus cancellation, not on
+  admissibility; those are the paths that caused the double-admit there.
 - [Registration-keyed door roster orphans imported attendees](../architecture-patterns/registration-keyed-door-roster-orphans-imported-attendees.md)
   — the padding rule it documents is what re-materialised the cancelled seats here.
 - [Supabase row fetch undercount when aggregating](../database-issues/supabase-row-fetch-undercount-when-aggregating-2026-05-19.md)

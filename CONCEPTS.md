@@ -55,6 +55,16 @@ One unit of an Event's capacity. Most Ticket Types consume a Seat, but not all �
 
 The authoritative figure is **live seats**: everything sold, minus everything cancelled. Every capacity decision reads that one figure — the cap warning, the waitlist conversion, the arrivals the door expects — rather than re-deriving a count from booked quantities, because a booking's stated quantity does not shrink when one of its Tickets is cancelled. A Seat awaiting a refund is already free to resell; the money is settled separately.
 
+### Admissible Ticket
+A Ticket that can still be let through the door: not cancelled, not released, and in a Slot Status the door recognises. A booking's admissible count is what it bought less what it cancelled, never below zero.
+
+Counted in TICKETS, not Seats — the two differ because some Ticket Types take no Seat, so a booking's ticket count can exceed its seat count. Every door surface — the printed sheet, the check-in console, the admin roster — decides who is arriving from this one rule, so they cannot disagree about who is coming. Capacity is the other question and is answered by live Seats instead; mixing the two is what once printed refunded people onto the door sheet.
+
+### Unaccounted
+The door's count of Seats a booking holds that no Ticket row accounts for — a legacy party whose rows were never minted, or a row in a status the door does not recognise. It exists to make that disagreement visible rather than let it inflate a headcount over a list that does not contain those people.
+
+Its value is entirely in being rare. An ordinary business event — a cancellation, a released comp — must never land here, because an alarm that fires during normal operation is one nobody reads.
+
 ### Charge Pool
 The set of payments backing one Registration, treated as a single pot. A Registration that has been topped up or upgraded holds more than one charge — the original checkout plus one per applied Top-up and priced Conversion — so a refund draws across the pool as a whole rather than assuming a single payment.
 
@@ -126,6 +136,6 @@ A Seat awaiting a refund still counts, because the club is still holding the mon
 
 ## Flagged ambiguities
 
-- **"Expected"** means two different numbers depending on the surface: the admin reads it as live Seats (sold minus cancelled), while the door still totals booked quantities. The gap between them is reported rather than hidden, but the word alone is not precise enough to use unqualified.
+- **"Expected"** once meant two different numbers — the admin read it as live Seats, the door totalled booked quantities including cancelled ones. Settled: both now net cancellations, so the door's expected headcount and the admin's live figure answer the same question. What remains between them is genuine data disagreement, reported as Unaccounted rather than hidden.
 - **"Attendee"** is retired in favour of **Ticket** — see that entry.
 - **"Pre-registered"** was retired as a concept. Every Seat is named at purchase, so there is no separate un-named-but-expected population.
