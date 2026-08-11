@@ -77,6 +77,8 @@ function renderTabs(over: Partial<Props> = {}) {
     total: 0,
     sold: 0,
     cancelledSeats: 0,
+    guestListSeats: 0,
+    guestListCount: 0,
     seatCap: 10,
     overbooked: false,
     baseUrl: "https://example.test",

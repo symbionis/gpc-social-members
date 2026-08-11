@@ -66,6 +66,10 @@ interface Props {
   sold: number;
   /** Seats given back, so sold and live visibly reconcile. */
   cancelledSeats: number;
+  /** Comp seats standing across every guest list — the comped share of the attendee count. */
+  guestListSeats: number;
+  /** How many sponsors hold a list. */
+  guestListCount: number;
   seatCap: number | null;
   overbooked: boolean;
   baseUrl: string;
@@ -109,6 +113,8 @@ export default function ManageEventTabs({
   total,
   sold,
   cancelledSeats,
+  guestListSeats,
+  guestListCount,
   seatCap,
   overbooked,
   baseUrl,
@@ -323,6 +329,8 @@ export default function ManageEventTabs({
                 total={total}
                 sold={sold}
                 cancelledSeats={cancelledSeats}
+                guestListSeats={guestListSeats}
+                guestListCount={guestListCount}
                 hasSeatCap={hasSeatCap}
                 seatCap={seatCap}
                 overbooked={overbooked}

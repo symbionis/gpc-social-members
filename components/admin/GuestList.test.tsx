@@ -125,6 +125,8 @@ describe("ManageEventTabs — Guest list replaces Import", () => {
         cancellations={[]}
       sold={0}
       cancelledSeats={0}
+      guestListSeats={0}
+      guestListCount={0}
       guestLists={[entry()]}
       />
     );

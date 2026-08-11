@@ -27,6 +27,10 @@ interface Props {
   sold: number;
   /** Seats given back. Shown so sold and live visibly reconcile instead of contradicting. */
   cancelledSeats: number;
+  /** Comp seats standing across every guest list — the comped share of the attendee count. */
+  guestListSeats: number;
+  /** How many sponsors hold a list, which is what makes the seat figure readable. */
+  guestListCount: number;
   hasSeatCap: boolean;
   seatCap: number | null;
   overbooked: boolean;
@@ -80,6 +84,8 @@ export default function EventRosterSummary({
   total,
   sold,
   cancelledSeats,
+  guestListSeats,
+  guestListCount,
   hasSeatCap,
   seatCap,
   overbooked,
@@ -110,6 +116,21 @@ export default function EventRosterSummary({
             <Panel value={String(sold)} label="Sold" />
             <Panel value={String(cancelledSeats)} label="Cancelled" sub="see Refunds" />
           </>
+        )}
+        {/* Comped seats, shown only when there are any — same rule as sold/cancelled above.
+            This is the one part of the attendee count the seat panels cannot explain: a guest
+            list mints ordinary tickets, so its people sit in Attendees indistinguishable from
+            buyers unless the organiser opens the pill or the Guest list tab.
+
+            The figure counts comp seats, INCLUDING each list's sponsor lead, because that is
+            what both the Guest list tab and the attendee roster already count. Splitting the
+            lead out here would put a third number on the same population. */}
+        {guestListCount > 0 && (
+          <Panel
+            value={String(guestListSeats)}
+            label="Guest list seats"
+            sub={`across ${guestListCount} guest list${guestListCount === 1 ? "" : "s"}`}
+          />
         )}
       </div>
 
