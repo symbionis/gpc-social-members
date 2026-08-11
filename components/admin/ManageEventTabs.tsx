@@ -39,6 +39,9 @@ interface Waitlist {
   offerable: boolean;
   /** Human-readable reason, present only when offerable is false. */
   offerable_reason: string | null;
+  /** Whether editing the row can make it offerable. False for "already registered", where
+   * no edit helps — the row must not offer a Fix that cannot fix it. */
+  offerable_repairable: boolean;
   /** KTD3/R12: the entry's linked (or, for legacy rows, email-matched) registration has
    * reached paid/free. A redeemed entry is filtered out of the visible waitlist below. */
   redeemed: boolean;
@@ -56,17 +59,25 @@ interface Props {
   waitlist: Waitlist[];
   hasSeatCap: boolean;
   /**
-   * Seats still standing (`seats_used`): sold minus cancelled. This is the figure the public
+   * Tickets still standing (`seats_used`): booked minus cancelled. This is the figure the public
    * registration gate uses, so every seat decision in this component — the cap warning, the
    * convert-from-waitlist check, expected arrivals — is measured against the same number the
    * rest of the system is.
    */
   total: number;
-  /** Seats bought, cancellations included. Display only. */
-  sold: number;
-  /** Seats given back, so sold and live visibly reconcile. */
+  /** Every ticket booked, cancellations included: paid + free + guest list. Display only. */
+  booked: number;
+  /** True when the authoritative active count could not be read, so booked/cancelled cannot
+   * be reconciled and the breakdown must not be shown as fact. */
+  figuresDegraded: boolean;
+  /** Tickets paid for, cancellations included — the money figure. */
+  paidTickets: number;
+  /** Tickets on free bookings that are not a guest list. */
+  freeTickets: number;
+  /** Tickets given back, so booked and active visibly reconcile. */
   cancelledSeats: number;
-  /** Comp seats standing across every guest list — the comped share of the attendee count. */
+  /** Comp tickets across every guest list, cancellations included — so it is on the same
+   * basis as `booked`, not the (cancelled-excluding) attendee roster. */
   guestListSeats: number;
   /** How many sponsors hold a list. */
   guestListCount: number;
@@ -111,7 +122,10 @@ export default function ManageEventTabs({
   waitlist,
   hasSeatCap,
   total,
-  sold,
+  booked,
+  figuresDegraded,
+  paidTickets,
+  freeTickets,
   cancelledSeats,
   guestListSeats,
   guestListCount,
@@ -260,6 +274,10 @@ export default function ManageEventTabs({
         quantity: draft.quantity,
         offerable: true,
         offerable_reason: null,
+        // Clear this too, or the optimistic row lands in offerable+repairable — a pair
+        // deriveWaitlistOfferability never produces. Harmless while every consumer checks
+        // `offerable` first; a trap for the one that eventually doesn't.
+        offerable_repairable: false,
       });
       patchRepairRow(entry.id, { submitting: false, error: null });
       setRepairOpen((s) => ({ ...s, [entry.id]: false }));
@@ -327,7 +345,10 @@ export default function ManageEventTabs({
             <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
               <EventRosterSummary
                 total={total}
-                sold={sold}
+                booked={booked}
+                figuresDegraded={figuresDegraded}
+                paidTickets={paidTickets}
+                freeTickets={freeTickets}
                 cancelledSeats={cancelledSeats}
                 guestListSeats={guestListSeats}
                 guestListCount={guestListCount}
@@ -416,16 +437,26 @@ export default function ManageEventTabs({
                             {entry.quantity ? ` × ${entry.quantity}` : ""}
                             {!entry.offerable && (
                               <>
+                                {/* Repairable rows get one calm line and a Fix; the technical
+                                    specifics wait in the panel, for whoever does the repair.
+                                    An entry whose owner already holds a seat is NOT repairable
+                                    — no edit makes it offerable — so it states the fact and
+                                    offers no action, rather than sending an admin into a form
+                                    that cannot help. */}
                                 <p id={reasonId} className="text-xs text-amber-800 mt-0.5">
-                                  {entry.offerable_reason}
+                                  {entry.offerable_repairable
+                                    ? "Needs updating before it can be offered"
+                                    : entry.offerable_reason}
                                 </p>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleRepair(entry.id)}
-                                  className="text-xs text-marine underline mt-0.5 cursor-pointer"
-                                >
-                                  {isOpen ? "Cancel" : "Fix"}
-                                </button>
+                                {entry.offerable_repairable && (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleRepair(entry.id)}
+                                    className="text-xs text-marine underline mt-0.5 cursor-pointer"
+                                  >
+                                    {isOpen ? "Cancel" : "Fix"}
+                                  </button>
+                                )}
                               </>
                             )}
                           </td>
@@ -484,7 +515,12 @@ export default function ManageEventTabs({
                         </tr>
                         {isOpen && (
                           <tr className="border-t border-border/60 bg-cream/30">
-                            <td colSpan={6} className="px-4 py-3">
+                            <td colSpan={5} className="px-4 py-3">
+                              {entry.offerable_reason && (
+                                <p className="text-xs text-amber-800 mb-2">
+                                  {entry.offerable_reason}
+                                </p>
+                              )}
                               <div className="flex flex-wrap items-end gap-2">
                                 <label className="text-xs text-muted-foreground">
                                   Ticket type

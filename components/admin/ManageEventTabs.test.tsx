@@ -60,6 +60,7 @@ function waitlistEntry(over: Partial<WaitlistEntry> = {}): WaitlistEntry {
     offer_sent_count: 0,
     offerable: true,
     offerable_reason: null,
+    offerable_repairable: false,
     redeemed: false,
     ...over,
   };
@@ -75,7 +76,10 @@ function renderTabs(over: Partial<Props> = {}) {
     waitlist: [],
     hasSeatCap: true,
     total: 0,
-    sold: 0,
+    booked: 0,
+    figuresDegraded: false,
+    paidTickets: 0,
+    freeTickets: 0,
     cancelledSeats: 0,
     guestListSeats: 0,
     guestListCount: 0,
@@ -155,6 +159,7 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
           ticket_type_title: null,
           offerable: false,
           offerable_reason: "No ticket type is set for this entry",
+          offerable_repairable: true,
         }),
       ],
     });
@@ -164,9 +169,11 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
     expect(offerBtn).toHaveAttribute("aria-disabled", "true");
     const describedBy = offerBtn.getAttribute("aria-describedby");
     expect(describedBy).toBeTruthy();
+    // The row carries one calm line; the technical reason belongs to whoever repairs it.
     expect(document.getElementById(describedBy!)).toHaveTextContent(
-      "No ticket type is set for this entry"
+      "Needs updating before it can be offered"
     );
+    expect(screen.queryByText("No ticket type is set for this entry")).toBeNull();
 
     // aria-disabled keeps the control focusable rather than removed from the tab order.
     expect(offerBtn).not.toBeDisabled();
@@ -174,6 +181,49 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
     // Clicking a flagged row's Offer control must not fire the request.
     await user.click(offerBtn);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  // "Already registered" is not repairable: no edit to the ticket type or quantity makes the
+  // entry offerable, so offering a Fix would send an admin into a form that cannot help.
+  it("states the reason and offers no Fix when the entry cannot be repaired", async () => {
+    const user = userEvent.setup();
+    renderTabs({
+      waitlist: [
+        waitlistEntry({
+          offerable: false,
+          offerable_reason: "Already registered for this event",
+          offerable_repairable: false,
+        }),
+      ],
+    });
+    await openWaitlistTab(user);
+
+    expect(screen.getByText("Already registered for this event")).toBeInTheDocument();
+    expect(screen.queryByText("Needs updating before it can be offered")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Fix" })).toBeNull();
+  });
+
+  // Simplifying the row must not lose the diagnosis — it moves to where the repair happens.
+  it("shows the specific reason once the row's Fix panel is opened", async () => {
+    const user = userEvent.setup();
+    renderTabs({
+      waitlist: [
+        waitlistEntry({
+          ticket_type_id: null,
+          ticket_type_title: null,
+          offerable: false,
+          offerable_reason: "No ticket type is set for this entry",
+          offerable_repairable: true,
+        }),
+      ],
+    });
+    await openWaitlistTab(user);
+
+    expect(screen.queryByText("No ticket type is set for this entry")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Fix" }));
+    expect(
+      screen.getByText("No ticket type is set for this entry")
+    ).toBeInTheDocument();
   });
 
   it("repairing a flagged row re-renders it as offerable with Offer enabled, without a page reload", async () => {
@@ -189,6 +239,7 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
           ticket_type_title: null,
           offerable: false,
           offerable_reason: "No ticket type is set for this entry",
+          offerable_repairable: true,
         }),
       ],
     });
@@ -222,6 +273,7 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
           ticket_type_title: null,
           offerable: false,
           offerable_reason: "No ticket type is set for this entry",
+          offerable_repairable: true,
         }),
       ],
     });

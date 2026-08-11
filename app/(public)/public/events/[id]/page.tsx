@@ -143,10 +143,17 @@ export default async function PublicEventDetailPage({
   // resolved price means "not open yet" (the register API is authoritative).
   const { data: rawTicketTypes } = await supabase
     .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, invite_price, description, sort_order")
+    .select("id, title, price_member, price_non_member, invite_price, description, sort_order, counts_as_seat")
     .eq("event_id", id)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
+
+  // The waitlist only ever offers seat-consuming types: a type that takes no seat can
+  // never be offered one, so listing it would queue someone for something they can never
+  // be given. The register API applies the same rule server-side.
+  const waitlistTicketTypes = (rawTicketTypes ?? [])
+    .filter((t) => t.counts_as_seat)
+    .map((t) => ({ id: t.id, title: t.title }));
 
   const ticketTypeOptions = (rawTicketTypes ?? []).map((t) => ({
     id: t.id,
@@ -324,7 +331,7 @@ export default async function PublicEventDetailPage({
                     Information only — registration is not open for this event.
                   </p>
                 ) : isFullyBooked ? (
-                  <EventFullyBookedBlock eventId={event.id} ticketTypes={ticketTypeOptions} />
+                  <EventFullyBookedBlock eventId={event.id} ticketTypes={waitlistTicketTypes} />
                 ) : (
                   <>
                     <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-1">

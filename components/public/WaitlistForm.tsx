@@ -11,8 +11,6 @@ interface Props {
   defaultEmail?: string;
 }
 
-const MAX_WAITLIST_QUANTITY = 10;
-
 export default function WaitlistForm({
   eventId,
   ticketTypes,
@@ -22,7 +20,6 @@ export default function WaitlistForm({
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
   const [ticketTypeId, setTicketTypeId] = useState(ticketTypes[0]?.id ?? "");
-  const [quantity, setQuantity] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -53,7 +50,10 @@ export default function WaitlistForm({
           name: name.trim(),
           email: email.trim(),
           ticket_type_id: ticketTypeId,
-          quantity,
+          // One ticket per person: a waitlist request for several seats has no names or
+          // emails for the extra people, which is how unnamed tickets got back into the
+          // flow. Whoever joins names themselves, and only themselves.
+          quantity: 1,
         }),
       });
       const data = await res.json();
@@ -143,23 +143,6 @@ export default function WaitlistForm({
           </select>
         </div>
       )}
-
-      <div>
-        <label className="block text-xs font-body text-muted-foreground mb-1">
-          Number of tickets
-        </label>
-        <select
-          value={quantity}
-          onChange={(e) => setQuantity(Number(e.target.value))}
-          className={inputClass}
-        >
-          {Array.from({ length: MAX_WAITLIST_QUANTITY }, (_, i) => i + 1).map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-      </div>
 
       {error && (
         <p className="text-sm font-body text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">

@@ -110,10 +110,16 @@ export default async function EventDetailPage({
   // its member price; a null member price means "not open yet".
   const { data: rawTicketTypes } = await adminClient
     .from("event_ticket_types")
-    .select("id, title, price_member, description, sort_order")
+    .select("id, title, price_member, description, sort_order, counts_as_seat")
     .eq("event_id", id)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
+  // Seat-consuming types only for the waitlist — a type that takes no seat can never be
+  // offered one. Mirrors the public event page and the signup API's own check.
+  const waitlistTicketTypes = (rawTicketTypes ?? [])
+    .filter((t) => t.counts_as_seat)
+    .map((t) => ({ id: t.id, title: t.title }));
+
   const ticketTypeOptions = (rawTicketTypes ?? []).map((t) => ({
     id: t.id,
     title: t.title,
@@ -232,7 +238,7 @@ export default async function EventDetailPage({
             ) : isFullyBooked ? (
               <EventFullyBookedBlock
                 eventId={event.id}
-                ticketTypes={ticketTypeOptions}
+                ticketTypes={waitlistTicketTypes}
                 defaultName={memberFullName}
                 defaultEmail={member.email ?? ""}
               />

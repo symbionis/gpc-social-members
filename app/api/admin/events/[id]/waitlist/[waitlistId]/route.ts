@@ -112,6 +112,12 @@ export async function PATCH(
     .maybeSingle();
 
   if (updateErr || !updated) {
+    // 23505: the one-entry-per-email index. Repairing a mistyped address onto one that is
+    // already on this event's waitlist is an ordinary admin mistake, not a server fault —
+    // say so rather than returning a flat 500 the admin cannot act on.
+    if ((updateErr as { code?: string } | null)?.code === "23505") {
+      return bad("That email is already on the waitlist for this event");
+    }
     console.error("[waitlist-repair] update failed", { eventId, waitlistId, err: updateErr });
     return bad("Could not update waitlist entry", 500);
   }

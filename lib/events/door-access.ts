@@ -4,6 +4,11 @@
 // by the console page and its search route so both resolve the event the same way.
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  ADMISSIBLE_SLOT_STATUSES,
+  partitionByCancellation,
+  admissibleTicketsForRegistration,
+} from "@/lib/events/ticket-admissibility";
 
 export interface DoorEvent {
   id: string;
@@ -80,8 +85,8 @@ export interface DoorRoster {
   /** Checked-in headcount. */
   arrived: number;
   /**
-   * The denominator: the headcount the parties were SOLD (sum of registration quantities).
-   * It is NOT necessarily arrived + outstanding — see `unaccounted`.
+   * The denominator: the headcount still expected at the door — each party's quantity less
+   * its cancelled seats. It is NOT necessarily arrived + outstanding — see `unaccounted`.
    */
   expected: number;
   /**
@@ -98,7 +103,8 @@ export interface DoorRoster {
    */
   outstanding: number;
   /**
-   * expected − arrived − outstanding: seats sold with NO ticket row in either feed. Zero for
+   * expected − arrived − outstanding: live seats (quantity less cancellations) with NO
+   * ticket row in either feed. Zero for
    * a healthy event. Non-zero means some party's rows and its quantity disagree, and those
    * people cannot be found or checked in from the console.
    *
@@ -128,6 +134,7 @@ type AttRow = {
   checked_in_at: string | null;
   created_at: string;
   slot_status: string;
+  cancellation_status: string | null;
 };
 
 /** PostgREST's default response cap. A bigger read comes back SHORT, with no error. */
@@ -194,30 +201,42 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
   // Both filled (claimed) and open (issued) tickets in one read — issued rows ARE
   // the open slots now (U3), so there is no purchased−claimed synthesis. Released
   // rows are excluded (a released slot is reopened as a fresh issued row).
-  const attendees = await readAllRows<AttRow>("tickets", (from, to) =>
+  const allAttendees = await readAllRows<AttRow>("tickets", (from, to) =>
     supabase
       .from("tickets")
       .select(
-        "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, checked_in_at, created_at, slot_status"
+        "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, checked_in_at, created_at, slot_status, cancellation_status"
       )
       .eq("event_id", eventId)
-      .in("slot_status", ["claimed", "issued"])
+      .in("slot_status", [...ADMISSIBLE_SLOT_STATUSES])
       .is("released_at", null)
-      // Cancelled seats are excluded so the console shows the same people as the admin roster
-      // and the printed sheet. Check-in rejects them at the scan anyway (lib/events/checkin.ts),
-      // so listing one only offered the door a row it could never admit.
-      .is("cancellation_status", null)
       .order("id", { ascending: true })
       .range(from, to)
   );
 
+  // Cancelled seats are excluded so the console shows the same people as the admin roster
+  // and the printed sheet — the shared rule, and why it is not just a query filter, lives in
+  // lib/events/ticket-admissibility.ts.
+  const { live: attendees, cancelledByRegistration } =
+    partitionByCancellation(allAttendees);
+  const seatsFor = (reg: { id: string; quantity: number | null }) =>
+    admissibleTicketsForRegistration(reg, cancelledByRegistration);
+
   // Active ticket types → titles + sort order for empty slots.
-  const { data: ttRows } = await supabase
+  const { data: ttRows, error: ttErr } = await supabase
     .from("event_ticket_types")
     .select("id, title, sort_order")
     .eq("event_id", eventId)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
+  // Throw rather than degrade, exactly as readAllRows does above: on failure every slot would
+  // render with a blank ticket type, so door staff get a console with no bracelet on any line
+  // and no sign anything is wrong.
+  if (ttErr) {
+    throw new Error(`buildDoorRoster: could not load ticket types: ${ttErr.message}`, {
+      cause: ttErr,
+    });
+  }
   const ticketTitleById = new Map<string, string>();
   const ticketSortById = new Map<string, number>();
   for (const t of ttRows ?? []) {
@@ -248,7 +267,20 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
     arrivedAt: a.checked_in_at,
   });
 
-  const parties: DoorParty[] = registrations.map((reg) => {
+  const parties: DoorParty[] = registrations
+    // A booking whose every seat was cancelled has nothing left to admit. Without this it
+    // still rendered a party card at the door — a refunded guest listed as expected.
+    // Keyed on ANY live row, not just claimed ones. An over-cancelled booking that still
+    // holds an issued ticket has someone the scan would admit; dropping the party made that
+    // person unfindable on the console and, because `expected` went to 0 too, invisible in
+    // `unaccounted` as well. The sheet keeps such a party, and the two must agree.
+    .filter(
+      (reg) =>
+        seatsFor(reg) > 0 ||
+        (claimedByReg.get(reg.id)?.length ?? 0) > 0 ||
+        (issuedByReg.get(reg.id)?.length ?? 0) > 0
+    )
+    .map((reg) => {
     const claimed = (claimedByReg.get(reg.id) ?? []).slice().sort((a, b) => {
       if (a.is_lead !== b.is_lead) return a.is_lead ? -1 : 1; // lead first
       return a.created_at.localeCompare(b.created_at);
@@ -278,7 +310,7 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
         arrivedAt: null,
       }));
 
-    const quantity = reg.quantity ?? 0;
+    const quantity = seatsFor(reg);
     return {
       registrationId: reg.id,
       referenceCode: reg.reference_code,
@@ -291,12 +323,12 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
       isGuestList: Boolean(reg.is_guest_list),
       slots: [...filled, ...openSlots],
     };
-  });
+    });
 
   // Both feeds are keyed on the party, so a ticket with no registration — a legacy
   // imported row (R9) — is skipped exactly as `parties` already skips it, and stays
   // invisible at the door. That skip is also what keeps the counts reconciling:
-  // `expected` only ever sums registration quantities (KTD8).
+  // `expected` only ever sums each registration's uncancelled seats (KTD8).
   const partyById = new Map(parties.map((p) => [p.registrationId, p]));
 
   const ticketRow = (a: AttRow, party: DoorParty): DoorTicketRow => ({
@@ -338,7 +370,7 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
       (x.name ?? "").localeCompare(y.name ?? "")
   );
 
-  const expected = registrations.reduce((sum, r) => sum + (r.quantity ?? 0), 0);
+  const expected = registrations.reduce((sum, r) => sum + seatsFor(r), 0);
 
   // The number and the list are the same population BY CONSTRUCTION: outstanding IS the
   // not-arrived list's length. Any daylight between the seats sold and the ticket rows that

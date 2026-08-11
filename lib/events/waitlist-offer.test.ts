@@ -29,9 +29,9 @@ describe("deriveWaitlistOfferability", () => {
       emailAlreadyRegistered: true,
     });
     expect(result.offerable).toBe(false);
-    expect(result.reason).toBe(
-      "This email already has a registration for this event"
-    );
+    expect(result.reason).toBe("Already registered for this event");
+    // No edit makes this offerable, so the admin list must not offer a Fix.
+    expect(result.repairable).toBe(false);
   });
 
   // Reported first: fixing the ticket type would not make this entry offerable, so
@@ -43,9 +43,9 @@ describe("deriveWaitlistOfferability", () => {
       ticketType: null,
       emailAlreadyRegistered: true,
     });
-    expect(result.reason).toBe(
-      "This email already has a registration for this event"
-    );
+    expect(result.reason).toBe("Already registered for this event");
+    // No edit makes this offerable, so the admin list must not offer a Fix.
+    expect(result.repairable).toBe(false);
   });
 
   it("flags a null ticket type, naming the missing type", () => {

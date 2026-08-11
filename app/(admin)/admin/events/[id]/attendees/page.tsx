@@ -14,6 +14,11 @@ import {
   isWaitlistEntryRedeemed,
   emailAlreadyRegistered,
 } from "@/lib/events/waitlist-offer";
+import {
+  ADMISSIBLE_SLOT_STATUSES,
+  partitionByCancellation,
+} from "@/lib/events/ticket-admissibility";
+import { splitBookedTickets } from "@/lib/events/booked-tickets";
 
 export default async function ManageEventPage({
   params,
@@ -72,7 +77,10 @@ export default async function ManageEventPage({
       )
       .eq("event_id", id)
       .in("status", ["paid", "free"])
+      // `id` breaks ties: a paged read on a non-unique sort key can repeat or drop rows
+      // between pages (same rule lib/events/door-access.ts follows).
       .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
       .range(page * REG_PAGE, page * REG_PAGE + REG_PAGE - 1);
 
   type RegistrationRow = NonNullable<
@@ -91,16 +99,29 @@ export default async function ManageEventPage({
   // Per-ticket-type breakdown for each party, keyed by registration. The lead row
   // of a party carries the tickets purchased for it; guest rows show none.
   const registrationIds = (registrations ?? []).map((r) => r.id);
-  const { data: ticketItemRows, error: ticketItemRowsError } = registrationIds.length
-    ? await supabase
-        .from("event_registration_items")
-        // `unit_amount_chf` is the price snapshotted at checkout — the roster shows it on the
-        // refund button so the admin sees what will leave the account before clicking.
-        .select("registration_id, ticket_type_id, title_snapshot, quantity, unit_amount_chf")
-        .in("registration_id", registrationIds)
-        .order("created_at", { ascending: true })
-    : { data: [], error: null };
-  if (ticketItemRowsError) failLoad("ticket items", ticketItemRowsError);
+  // Paged for the same reason the registrations read above is: this set now feeds the booked
+  // ticket split, and a silently truncated read would under-count it — which the overview
+  // then displays as cancellations that never happened.
+  const fetchItemsPage = (page: number) =>
+    supabase
+      .from("event_registration_items")
+      // `unit_amount_chf` is the price snapshotted at checkout — the roster shows it on the
+      // refund button so the admin sees what will leave the account before clicking.
+      .select("registration_id, ticket_type_id, title_snapshot, quantity, unit_amount_chf")
+      .in("registration_id", registrationIds)
+      .order("id", { ascending: true })
+      .range(page * REG_PAGE, page * REG_PAGE + REG_PAGE - 1);
+
+  type ItemRow = NonNullable<Awaited<ReturnType<typeof fetchItemsPage>>["data"]>[number];
+  const ticketItemRows: ItemRow[] = [];
+  if (registrationIds.length) {
+    for (let page = 0; ; page++) {
+      const { data: pageRows, error: ticketItemRowsError } = await fetchItemsPage(page);
+      if (ticketItemRowsError) failLoad("ticket items", ticketItemRowsError);
+      ticketItemRows.push(...(pageRows ?? []));
+      if (!pageRows || pageRows.length < REG_PAGE) break;
+    }
+  }
 
   type TicketItemRow = {
     registration_id: string;
@@ -110,9 +131,9 @@ export default async function ManageEventPage({
     unit_amount_chf: number | string | null;
   };
 
-  // Every ticket SOLD for the event — `issued` (nobody named yet) and `claimed` (named)
-  // alike (R25), so the on-screen roster length matches tickets sold rather than only its
-  // named subset. `manage_token` and `qr_email_sent_at` feed the per-address manage link
+  // Every ticket BOOKED for the event — `issued` (nobody named yet) and `claimed` (named)
+  // alike (R25), so the on-screen roster length matches tickets booked rather than only its
+  // named subset. ("Sold" is reserved for money taken; comps and free bookings are in here.) `manage_token` and `qr_email_sent_at` feed the per-address manage link
   // and the per-address "notified" indicator (U15).
   const { data: attendeeRows, error: attendeeRowsError } = await supabase
     .from("tickets")
@@ -120,7 +141,7 @@ export default async function ManageEventPage({
       "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, is_comp, manage_token, qr_email_sent_at, cancellation_status, cancellation_requested_at, cancellation_refunded_at, refund_amount_chf, stripe_refund_id, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", id)
-    .in("slot_status", ["issued", "claimed"])
+    .in("slot_status", [...ADMISSIBLE_SLOT_STATUSES])
     .is("released_at", null)
     .order("created_at", { ascending: true });
   if (attendeeRowsError) failLoad("attendees", attendeeRowsError);
@@ -190,9 +211,7 @@ export default async function ManageEventPage({
   // here padded a door document with rows nobody can admit. `claimedRoster` above is
   // deliberately NOT filtered — the guest-list tab reasons about every claimed seat,
   // cancelled or not.
-  const attendees = roster
-    .filter((a) => a.cancellation_status === null)
-    .map((a) => {
+  const attendees = partitionByCancellation(roster).live.map((a) => {
     const named = a.slot_status === "claimed";
     // "Notified" is per person: a guest's QR rides the grouped household email
     // (ticket.qr_email_sent_at); the buyer's own rides the booking confirmation
@@ -388,35 +407,66 @@ export default async function ManageEventPage({
         })),
     }));
 
-  // The comped share of the attendee count. Derived from the same `guestLists` the tab uses,
-  // so the two surfaces cannot disagree, but re-filtered for cancellation: `claimedRoster`
-  // keeps cancelled rows (the Refunds tab needs them), and a comped seat that was cancelled is
-  // not standing. Counting it here would make the guest-list figure contradict Live seats.
-  const cancelledTicketIds = new Set(cancelledTickets.map((t) => t.id));
-  const guestListSeats = guestLists.reduce(
-    (acc, list) => acc + list.people.filter((p) => !cancelledTicketIds.has(p.ticketId)).length,
-    0
-  );
+  // How many sponsors hold a list. The comped TICKET count is derived with the other
+  // categories below, off the same registrations — previously it was counted here off
+  // `guestLists` and excluded cancelled comps, which made it the one figure in the overview
+  // measured after cancellation while the rest were measured before.
   const guestListCount = guestLists.length;
 
-  // Seats SOLD across every paid/free booking — what was bought, cancellations included.
-  const sold = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
-  // Seats still standing. `seats_used` is the authoritative figure: it subtracts cancelled
+  // The overview counts TICKETS, split by how they were acquired, so each figure means
+  // what its label says:
+  //
+  //   paid + free + guest list − cancelled = active
+  //
+  // "Paid" is money taken, so it counts tickets PAID FOR — including ones later
+  // cancelled, which the cancelled figure then subtracts. Lumping comps in with sold
+  // (a guest list is a `free` registration) read as revenue the club never took.
+  //
+  // Counted off seat-consuming ITEMS rather than `registration.quantity`, mirroring how
+  // `seats_used` counts, so the two agree: a non-seat type (merch) mints a ticket but takes
+  // no seat, and would otherwise show up in the split and not in the total. The rule lives in
+  // lib/events/booked-tickets.ts, where it is testable.
+  const {
+    paid: paidTickets,
+    free: freeTickets,
+    guestList: guestListTickets,
+    booked: bookedTickets,
+  } = splitBookedTickets(
+    (registrations ?? []).map((r) => ({
+      id: r.id,
+      quantity: r.quantity,
+      status: r.status,
+      is_guest_list: r.is_guest_list,
+    })),
+    ticketItemRows.map((i) => ({
+      registration_id: i.registration_id,
+      ticket_type_id: i.ticket_type_id,
+      quantity: i.quantity,
+    })),
+    (id) => ticketTypeById.get(id)?.counts_as_seat === true
+  );
+
+  // Tickets still standing. `seats_used` is the authoritative figure: it subtracts cancelled
   // seat-counting tickets and is the same number that gates public registration. Deriving the
-  // cap warning from `sold` told an admin an event was overbooked while registration was still
-  // open — 23 of 17 on screen against a real 16 of 17.
-  let liveSeats = sold;
+  // cap warning from the booked count told an admin an event was overbooked while registration
+  // was still open — 23 of 17 on screen against a real 16 of 17.
+  let activeTickets = bookedTickets;
+  // When the authoritative count is unavailable the cancelled figure below becomes
+  // `booked − booked = 0`, which renders as a confident "nothing was cancelled" for an event
+  // that may have refunds. Flag it so the breakdown hides rather than lies.
+  let figuresDegraded = false;
   try {
-    liveSeats = await getSeatsUsed(supabase, id);
+    activeTickets = await getSeatsUsed(supabase, id);
   } catch (err) {
-    // Fall back to the sold count rather than failing the page. It over-states, so the cap
+    figuresDegraded = true;
+    // Fall back to the booked count rather than failing the page. It over-states, so the cap
     // warning errs toward caution.
     console.error("[admin/events/attendees] seat usage failed", { id, err });
   }
-  const cancelledSeats = Math.max(0, sold - liveSeats);
+  const cancelledTicketCount = Math.max(0, bookedTickets - activeTickets);
   const seatCap = event.seat_cap as number | null;
   const hasSeatCap = seatCap !== null && seatCap !== undefined;
-  const overbooked = hasSeatCap && liveSeats > seatCap;
+  const overbooked = hasSeatCap && activeTickets > seatCap;
 
   // Widened per U2 of docs/plans/2026-08-11-001-feat-waitlist-paid-offer-flow-plan.md: the
   // admin surface needs what each entry actually asked for (requested type + quantity) and
@@ -473,6 +523,7 @@ export default async function ManageEventPage({
       offer_sent_count: entry.offer_sent_count,
       offerable: offerability.offerable,
       offerable_reason: offerability.reason,
+      offerable_repairable: offerability.repairable,
       redeemed,
     };
   });
@@ -522,10 +573,13 @@ export default async function ManageEventPage({
         ticketTypeSummary={ticketTypeSummary}
         waitlist={waitlist}
         hasSeatCap={hasSeatCap}
-        total={liveSeats}
-        sold={sold}
-        cancelledSeats={cancelledSeats}
-        guestListSeats={guestListSeats}
+        total={activeTickets}
+        booked={bookedTickets}
+        figuresDegraded={figuresDegraded}
+        paidTickets={paidTickets}
+        freeTickets={freeTickets}
+        cancelledSeats={cancelledTicketCount}
+        guestListSeats={guestListTickets}
         guestListCount={guestListCount}
         seatCap={seatCap}
         overbooked={overbooked}

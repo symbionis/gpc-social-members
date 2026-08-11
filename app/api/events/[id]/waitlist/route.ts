@@ -27,16 +27,22 @@ export async function POST(
     typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const ticketTypeId =
     typeof body.ticket_type_id === "string" ? body.ticket_type_id : "";
+  // One ticket per person (R6). A waitlist request for several seats carries no name or
+  // email for the extra people, so redeeming it would mint unnamed tickets — the exact
+  // thing every other purchase path was changed to prevent. An absent quantity means 1;
+  // anything else is a stale client, and is refused rather than silently reduced.
   const quantity =
-    typeof body.quantity === "number"
-      ? body.quantity
-      : Number.parseInt(String(body.quantity ?? ""), 10);
+    body.quantity === undefined || body.quantity === null
+      ? 1
+      : typeof body.quantity === "number"
+        ? body.quantity
+        : Number.parseInt(String(body.quantity), 10);
 
   if (!name) return bad("name is required");
   if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
   if (!ticketTypeId) return bad("Please choose a ticket type");
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
-    return bad("quantity must be an integer between 1 and 10");
+  if (quantity !== 1) {
+    return bad("The waitlist is one ticket per person — please refresh and try again.");
   }
 
   const supabase = createAdminClient();
@@ -106,16 +112,69 @@ export async function POST(
     return bad("Event still has availability");
   }
 
-  // Validate the chosen ticket type belongs to this event and is active.
-  const { data: ticketType } = await supabase
+  // Validate the chosen ticket type belongs to this event, is active, and consumes a
+  // seat. The seat check is the point of the waitlist: a type that takes no seat can
+  // never be offered one (deriveWaitlistOfferability rejects it), so accepting the
+  // signup would queue someone behind a seat that will never be freed for them, and
+  // leave an entry an admin can only ever repair or delete.
+  const { data: ticketType, error: ticketTypeErr } = await supabase
     .from("event_ticket_types")
     .select("id")
     .eq("id", ticketTypeId)
     .eq("event_id", eventId)
     .is("archived_at", null)
+    .eq("counts_as_seat", true)
     .maybeSingle();
+  if (ticketTypeErr) {
+    // Not the same as "no such type": telling someone their ticket type is unavailable when
+    // the lookup simply failed sends them to refresh, see it still offered, and give up —
+    // with nothing logged anywhere. Match the two guards below and fail loudly.
+    console.error("[event-waitlist] ticket type lookup failed", { eventId, ticketTypeId, err: ticketTypeErr });
+    return bad("Could not verify availability", 500);
+  }
   if (!ticketType) {
     return bad("That ticket type is no longer available — please refresh and try again.");
+  }
+
+  // Already holding a seat? Then there is nothing to queue for. The register route's
+  // duplicate-email guard would reject the redemption anyway (R12), so the entry could
+  // only ever sit in the admin waitlist unofferable, with no repair that helps.
+  //
+  // This does not make that state unreachable — someone can join the waitlist and buy a
+  // seat afterwards — but it removes the case the club will actually hit.
+  const { data: liveReg, error: liveRegErr } = await supabase
+    .from("event_registrations")
+    .select("id")
+    .eq("event_id", eventId)
+    .eq("email", email)
+    .in("status", ["paid", "free"])
+    .limit(1);
+  if (liveRegErr) {
+    // Fail closed: proceeding would create exactly the unofferable entry this check exists
+    // to prevent, and nothing downstream would flag it as an error rather than a signup.
+    console.error("[event-waitlist] registration lookup failed", { eventId, err: liveRegErr });
+    return bad("Could not verify availability", 500);
+  }
+  if (liveReg && liveReg.length > 0) {
+    return bad("You already have a registration for this event");
+  }
+
+  // One entry per email per event. A second entry cannot be offered anything the first
+  // cannot, and two rows for one person is exactly the clutter an admin then has to
+  // reconcile by hand. The unique index on (event_id, lower(trim(email))) is the race-safe
+  // backstop; this is the readable error.
+  const { data: existingEntry, error: existingErr } = await supabase
+    .from("event_waitlist")
+    .select("id")
+    .eq("event_id", eventId)
+    .eq("email", email)
+    .limit(1);
+  if (existingErr) {
+    console.error("[event-waitlist] duplicate lookup failed", { eventId, err: existingErr });
+    return bad("Could not verify availability", 500);
+  }
+  if (existingEntry && existingEntry.length > 0) {
+    return bad("You are already on the waitlist for this event");
   }
 
   const { error: insertErr } = await supabase
@@ -129,6 +188,10 @@ export async function POST(
     });
 
   if (insertErr) {
+    // 23505 = the unique index caught a concurrent duplicate the check above raced past.
+    if ((insertErr as { code?: string }).code === "23505") {
+      return bad("You are already on the waitlist for this event");
+    }
     console.error("[event-waitlist] insert failed", {
       eventId,
       email,
