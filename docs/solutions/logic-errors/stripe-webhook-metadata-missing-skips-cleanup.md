@@ -106,16 +106,19 @@ The same handler now routes event checkouts, and its two newest branches sit twe
 
 The **conversion** branch gates on data — `const conversionId = session.metadata?.conversion_id;` (`app/api/webhooks/stripe/route.ts:271`) — and its comment states the rule outright: *"Data-driven on conversion_id presence (KTD3), not a boolean flag that can be set at creation and missing at delivery."*
 
-The **top-up** branch immediately above it does not:
+The **top-up** branch immediately above it did not, for several months:
 
 ```typescript
+// before
 const topupId =
   session.metadata?.topup === "true" ? session.metadata?.topup_id : undefined;
 ```
 
-The string boolean is the outer gate, so a delivery carrying `topup_id` but not `topup` skips the branch entirely — and unlike the 2026-03 case the consequence is a **captured payment with no tickets minted**, not a stale card row. The writer sets both keys today (`app/api/public/bookings/[token]/topup/route.ts:206-207`), which is exactly the reassurance the original bug also had. `topup === "true"` proves nothing that `topup_id` presence does not already prove; drop it.
+The string boolean was the outer gate, so a delivery carrying `topup_id` but not `topup` skipped the branch entirely — and unlike the 2026-03 case the consequence is a **captured payment with no tickets minted**, not a stale card row. The writer set both keys, which is exactly the reassurance the original bug also had. Fixed 2026-08-11 to `const topupId = session.metadata?.topup_id;` — the id is both the gate and the thing the branch needs, so the two cannot disagree.
 
-**The flag can also outlive the branch it guarded.** `const isRenewal = session.metadata?.renewal === "true";` is still computed at `app/api/webhooks/stripe/route.ts:491` and read nowhere — a grep for `isRenewal` in that file returns exactly one line. Deleting a fragile condition is not the same as deleting the fragile value, and a leftover flag is an invitation for the next author to reintroduce the guard.
+**Two rules were needed here, not one.** "Prefer data-driven conditions" was already written down, already applied in the branch twenty lines below, and quoted in that branch's own comment — and the next branch still shipped with a string boolean. A rule stated in prose next to the code that follows it does not propagate to the code that does not. The regression test is what makes it stick: `app/api/webhooks/stripe/route.test.ts` now fires a completed session carrying `topup_id` with **no** `topup` flag and asserts the branch runs.
+
+**The flag can also outlive the branch it guarded.** `const isRenewal = session.metadata?.renewal === "true";` sat unread in this file for months after its guard was removed — a grep returned exactly one line, its own declaration. Deleting a fragile condition is not the same as deleting the fragile value, and a leftover flag is an invitation for the next author to reintroduce the guard. Removed 2026-08-11, with a comment in its place explaining why it is not coming back.
 
 ## Prevention Strategies
 

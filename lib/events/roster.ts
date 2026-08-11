@@ -93,6 +93,44 @@ export async function applyPendingRoster(registrationId: string): Promise<void> 
   }
 }
 
+/** What apply_topup_roster reports back. `error` is this helper's own signal, not the RPC's. */
+export type TopupRosterStatus = "applied" | "no_roster" | "not_found" | "error";
+
+/**
+ * Apply ONE top-up's staged guest names atomically.
+ *
+ * A top-up owns the names it bought — they live on the top-up row, not on the shared
+ * `event_registrations.pending_roster`. That is what keeps a redelivery of the booking's
+ * ORIGINAL checkout from consuming a top-up's names, and keeps two concurrent top-ups on
+ * one booking from overwriting each other.
+ *
+ * Returns the status so the caller can tell "nothing was staged" from "applied": the
+ * webhook needs that to fall back to the legacy registration-level slot for top-ups that
+ * were mid-flight when this shipped.
+ *
+ * Best-effort like applyPendingRoster: a failure is logged, not thrown — the payment has
+ * already succeeded, and an un-cleared roster makes a later redelivery re-apply cleanly.
+ */
+export async function applyTopupRoster(topupId: string): Promise<TopupRosterStatus> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.rpc("apply_topup_roster", {
+    p_topup_id: topupId,
+  });
+  if (error) {
+    console.error("[roster] apply_topup_roster failed", { topupId, err: error });
+    return "error";
+  }
+  const status = (data as { status?: string } | null)?.status;
+  if (status === "applied" || status === "no_roster" || status === "not_found") {
+    return status;
+  }
+  console.error("[roster] apply_topup_roster returned an unrecognised status", {
+    topupId,
+    status,
+  });
+  return "error";
+}
+
 /**
  * Apply booker-entered guest names to a confirmed registration's issued tickets by
  * calling claim_ticket once per attendee. Use this ONLY on the synchronous free

@@ -4,7 +4,7 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/stripe", () => ({ getStripe: vi.fn() }));
 vi.mock("@/lib/events/roster", () => ({
   mintRegistrationTickets: vi.fn(),
-  applyPendingRoster: vi.fn(),
+  applyTopupRoster: vi.fn().mockResolvedValue("applied"),
 }));
 vi.mock("@/lib/events/seat-usage", () => ({ getSeatsUsed: vi.fn() }));
 
@@ -12,15 +12,17 @@ import { POST } from "@/app/api/public/bookings/[token]/topup/route";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
-import { applyPendingRoster } from "@/lib/events/roster";
+import { applyTopupRoster } from "@/lib/events/roster";
 
 const mockedAdmin = vi.mocked(createAdminClient);
 const mockedStripe = vi.mocked(getStripe);
 const mockedSeats = vi.mocked(getSeatsUsed);
-const mockedApplyRoster = vi.mocked(applyPendingRoster);
+const mockedApplyRoster = vi.mocked(applyTopupRoster);
 
-/** The pending_roster payload the route stashed before checkout, if any. */
+/** The pending_roster payload the route stashed on the TOP-UP row before checkout, if any. */
 let lastRosterWrite: unknown = null;
+/** Any write to the registration's shared pending_roster slot — should stay null. */
+let registrationRosterWrite: unknown = null;
 
 const TYPE = "33333333-3333-3333-3333-333333333333";
 
@@ -39,10 +41,17 @@ function adminClient(opts: {
       c.eq = () => c;
       c.in = () => c;
       c.limit = () => c;
-      c.insert = () => c;
+      // The names ride on the top-up row itself, not on the registration's shared slot —
+      // that is what stops a redelivery of the original checkout from consuming them.
+      c.insert = (payload: Record<string, unknown>) => {
+        if (table === "event_registration_topups" && "pending_roster" in payload) {
+          lastRosterWrite = payload.pending_roster;
+        }
+        return c;
+      };
       c.update = (payload: Record<string, unknown>) => {
         if (table === "event_registrations" && "pending_roster" in payload) {
-          lastRosterWrite = payload.pending_roster;
+          registrationRosterWrite = payload.pending_roster;
         }
         return c;
       };
@@ -94,6 +103,7 @@ function post(body: unknown, token = "mtok") {
 beforeEach(() => {
   vi.clearAllMocks();
   lastRosterWrite = null;
+  registrationRosterWrite = null;
   mockedAdmin.mockReturnValue(adminClient({}));
   mockedSeats.mockResolvedValue(0);
   mockedStripe.mockReturnValue({
@@ -182,7 +192,7 @@ describe("mandatory naming on top-ups", () => {
     expect((await res.json()).error).toMatch(/same name and email/);
   });
 
-  it("stashes the names before sending the buyer to Stripe", async () => {
+  it("stashes the names on the top-up row before sending the buyer to Stripe", async () => {
     const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(2) });
     expect(res.status).toBe(200);
     // Stashed BEFORE payment: a paid top-up whose roster never persisted would mint exactly
@@ -191,12 +201,18 @@ describe("mandatory naming on top-ups", () => {
       { ticket_type_id: TYPE, name: "Guest Number1", email: "guest1@x.com" },
       { ticket_type_id: TYPE, name: "Guest Number2", email: "guest2@x.com" },
     ]);
+    // And NOT on the registration's shared slot. Writing there gave the column two
+    // producers, so a redelivery of the booking's original checkout could consume this
+    // top-up's names and leave its seats unnamed.
+    expect(registrationRosterWrite).toBeNull();
   });
 
   it("names the seats immediately on a free top-up, which has no webhook", async () => {
     mockedAdmin.mockReturnValue(adminClient({ price: 0 }));
     const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
     expect(res.status).toBe(200);
-    expect(mockedApplyRoster).toHaveBeenCalledWith("reg");
+    // Keyed on the top-up, not the registration: the free path names exactly the seats
+    // this top-up bought.
+    expect(mockedApplyRoster).toHaveBeenCalledWith("topup-1");
   });
 });
