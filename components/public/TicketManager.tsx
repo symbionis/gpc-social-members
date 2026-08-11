@@ -231,22 +231,21 @@ function TicketCard({
             onSigned={() => onSaved({ ...ticket, waiverSigned: true })}
           />
 
-          {/* Secondary: routine self-service. */}
-          <div className="flex flex-wrap gap-2">
-            <EditControl ticket={ticket} endpoint={fillEndpoint} onSaved={onSaved} />
-            {targets.length > 0 && (
-              <ConvertControl
-                endpoint={convertEndpoint}
-                ticketId={ticket.id}
-                currentPrice={currentPrice}
-                targets={targets}
-              />
-            )}
-          </div>
-
-          {/* Destructive, and deliberately last: its own area behind a rule, muted, and never
-              sitting next to a control someone meant to tap. */}
-          <div className="border-t border-border/60 pt-3">
+          {/* Everything else on one line below a rule: routine self-service to the left,
+              cancel pushed to the far right. Separated by distance and by weight rather than
+              by a row of its own — the primary action above is the only pill on the card. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border/60 pt-3">
+            <div className="flex flex-wrap items-center gap-4">
+              <EditControl ticket={ticket} endpoint={fillEndpoint} onSaved={onSaved} />
+              {targets.length > 0 && (
+                <ConvertControl
+                  endpoint={convertEndpoint}
+                  ticketId={ticket.id}
+                  currentPrice={currentPrice}
+                  targets={targets}
+                />
+              )}
+            </div>
             <CancelControl
               endpoint={cancelEndpoint}
               ticketId={ticket.id}
@@ -305,7 +304,7 @@ function EditControl({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-full border border-marine/25 px-3.5 py-1.5 font-body text-sm font-semibold text-marine transition-colors hover:bg-marine/5 cursor-pointer"
+        className="font-body text-sm font-semibold text-marine underline underline-offset-2 hover:text-marine-light cursor-pointer"
       >
         Edit name / email
       </button>
@@ -400,7 +399,7 @@ function ConvertControl({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-full border border-marine/25 px-3.5 py-1.5 font-body text-sm font-semibold text-marine transition-colors hover:bg-marine/5 cursor-pointer"
+        className="font-body text-sm font-semibold text-marine underline underline-offset-2 hover:text-marine-light cursor-pointer"
       >
         Change ticket type
       </button>

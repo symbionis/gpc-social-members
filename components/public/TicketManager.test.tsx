@@ -88,15 +88,34 @@ describe("TicketManager — what a guest sees on a phone", () => {
     expect(cancel.className).toContain("text-marine/50");
   });
 
-  // Destructive action in its own area, not inline beside the routine controls.
-  it("separates cancel from the other controls", () => {
+  // Edit and cancel share a line, but cancel is pushed to the far edge and carries no
+  // emphasis — separated by distance and weight rather than by a row of its own.
+  it("pushes cancel to the opposite end of the secondary row", () => {
     renderManager([ticket()]);
     const card = cardOf("Sophie Berger");
     const cancel = within(card).getByRole("button", { name: "Cancel ticket" });
     const edit = within(card).getByRole("button", { name: "Edit name / email" });
 
-    expect(cancel.parentElement?.className).toContain("border-t");
-    expect(edit.parentElement).not.toBe(cancel.parentElement);
+    const row = cancel.parentElement as HTMLElement;
+    expect(row.className).toContain("justify-between");
+    expect(row.className).toContain("border-t");
+    // Cancel is the row's own child; edit sits in the grouped controls to its left.
+    expect(row.contains(edit)).toBe(true);
+    expect(edit.parentElement).not.toBe(row);
+    expect(row.lastElementChild).toBe(cancel);
+  });
+
+  // Only the primary action is a pill. Edit sits with cancel as plain text so the eye lands
+  // on the one thing worth doing before the night.
+  it("keeps the waiver as the only pill on the card", () => {
+    renderManager([ticket()]);
+    const card = cardOf("Sophie Berger");
+    expect(
+      within(card).getByRole("button", { name: "Sign the waiver" }).className
+    ).toContain("rounded-full");
+    expect(
+      within(card).getByRole("button", { name: "Edit name / email" }).className
+    ).not.toContain("rounded-full");
   });
 
   it("replaces the waiver action with a signed pill once accepted", () => {
