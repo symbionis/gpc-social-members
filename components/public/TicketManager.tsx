@@ -6,6 +6,7 @@ import { formatCurrency } from "@/lib/format";
 import { eligibleConvertTargets, type ConvertType } from "@/lib/events/convert-eligibility";
 import type { TicketCancellationStatus } from "@/lib/events/refunds";
 import WaiverModal from "@/components/events/WaiverModal";
+import PhoneInput from "@/components/common/PhoneInput";
 
 // Guest manage page view (U10 + U11). Reached via a per-ticket manage_token link. Shows
 // every SAME-EMAIL ticket in the booking (the household) — each with its own admission QR
@@ -19,6 +20,7 @@ export interface ManageTicket {
   id: string;
   name: string;
   email: string;
+  phone: string;
   typeId: string;
   typeTitle: string;
   checkedIn: boolean;
@@ -476,6 +478,7 @@ function EditControl({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(ticket.name);
   const [email, setEmail] = useState(ticket.email);
+  const [phone, setPhone] = useState(ticket.phone);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Set once the guest has been told what changing the address does, so the next tap saves.
@@ -501,7 +504,12 @@ function EditControl({
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ticketId: ticket.id, name: name.trim(), email: email.trim() }),
+        body: JSON.stringify({
+          ticketId: ticket.id,
+          name: name.trim(),
+          email: email.trim(),
+          phone,
+        }),
       });
       const data = (await res.json()) as {
         ok?: boolean;
@@ -522,7 +530,7 @@ function EditControl({
         setConfirmingHandover(false);
         return;
       }
-      onSaved({ ...ticket, name: name.trim(), email: email.trim().toLowerCase() });
+      onSaved({ ...ticket, name: name.trim(), email: email.trim().toLowerCase(), phone: phone.trim() });
       setOpen(false);
       setConfirmingHandover(false);
     } catch {
@@ -566,6 +574,7 @@ function EditControl({
         placeholder="Email"
         className="w-full rounded-lg border border-border/70 px-3 py-2 text-base font-body text-marine"
       />
+      <PhoneInput id="ticket-phone" defaultValue={ticket.phone || null} onChange={(v) => setPhone(v ?? "")} />
       {error && <p className="text-sm font-body text-red-600">{error}</p>}
       {/* Consequences before the tap that causes them, not a toast afterwards — none of this
           is undoable from this page once the ticket leaves the household. */}
@@ -611,6 +620,7 @@ function EditControl({
             setConfirmingHandover(false);
             setEmail(ticket.email);
             setName(ticket.name);
+            setPhone(ticket.phone);
           }}
           className="rounded-lg border border-border/70 px-4 py-2.5 text-base font-body text-marine"
         >
