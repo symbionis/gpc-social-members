@@ -5,6 +5,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { formatCurrency } from "@/lib/format";
 import { eligibleConvertTargets, type ConvertType } from "@/lib/events/convert-eligibility";
 import type { TicketCancellationStatus } from "@/lib/events/refunds";
+import WaiverModal from "@/components/events/WaiverModal";
 
 // Guest manage page view (U10 + U11). Reached via a per-ticket manage_token link. Shows
 // every SAME-EMAIL ticket in the booking (the household) — each with its own admission QR
@@ -27,6 +28,8 @@ export interface ManageTicket {
   credentialUrl: string;
   /** The ticket whose link opened this page. */
   isSelf: boolean;
+  /** Whether this holder has already accepted the waiver — signing early skips it at the door. */
+  waiverSigned: boolean;
 }
 
 interface Props {
@@ -42,6 +45,8 @@ interface Props {
   convertEndpoint: string;
   /** POST { ticketId } — request cancellation of a ticket (final; frees the seat). */
   cancelEndpoint: string;
+  /** POST { ticketId, language, marketingConsent } — accept the waiver ahead of the event. */
+  waiverEndpoint: string;
   /** All active types priced at the booking's rate — filtered per ticket to upgrade targets. */
   convertTypes: ConvertType[];
 }
@@ -56,6 +61,7 @@ export default function TicketManager({
   fillEndpoint,
   convertEndpoint,
   cancelEndpoint,
+  waiverEndpoint,
   convertTypes,
 }: Props) {
   const [tickets, setTickets] = useState<ManageTicket[]>(initialTickets);
@@ -118,6 +124,7 @@ export default function TicketManager({
             fillEndpoint={fillEndpoint}
             convertEndpoint={convertEndpoint}
             cancelEndpoint={cancelEndpoint}
+            waiverEndpoint={waiverEndpoint}
             convertTypes={convertTypes}
             onSaved={onSaved}
           />
@@ -134,6 +141,7 @@ function TicketCard({
   fillEndpoint,
   convertEndpoint,
   cancelEndpoint,
+  waiverEndpoint,
   convertTypes,
   onSaved,
 }: {
@@ -143,6 +151,7 @@ function TicketCard({
   fillEndpoint: string;
   convertEndpoint: string;
   cancelEndpoint: string;
+  waiverEndpoint: string;
   convertTypes: ConvertType[];
   onSaved: (t: ManageTicket) => void;
 }) {
@@ -181,6 +190,11 @@ function TicketCard({
                 Cancelled
               </span>
             )}
+            {ticket.waiverSigned && !cancelled && (
+              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-sm font-body text-emerald-800">
+                Waiver signed
+              </span>
+            )}
           </div>
           <p className={`mt-1.5 font-body text-base text-marine ${cancelled ? "line-through text-marine/60" : ""}`}>
             {ticket.name ? ticket.name : <span className="text-marine/60">Unnamed ticket</span>}
@@ -204,6 +218,11 @@ function TicketCard({
                   targets={targets}
                 />
               )}
+              <WaiverControl
+                endpoint={waiverEndpoint}
+                ticket={ticket}
+                onSigned={() => onSaved({ ...ticket, waiverSigned: true })}
+              />
               <CancelControl
                 endpoint={cancelEndpoint}
                 ticketId={ticket.id}
@@ -491,5 +510,74 @@ function CancelControl({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Accept the waiver ahead of the event, one ticket at a time.
+ *
+ * A manage link opens a whole household, so this is deliberately per ticket rather than one
+ * control for everyone on the page: signing for someone who never saw it is the thing the
+ * booking flow already refuses when a lead names a guest.
+ *
+ * The payoff is at the gate. recordAttendeeCheckin skips its waiver step for a ticket that
+ * already carries waiver_accepted_at, so a guest who signs here is simply waved through.
+ */
+function WaiverControl({
+  endpoint,
+  ticket,
+  onSigned,
+}: {
+  endpoint: string;
+  ticket: ManageTicket;
+  onSigned: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (ticket.waiverSigned) return null;
+
+  const submit = async (language: string, marketingConsent: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticketId: ticket.id, language, marketingConsent }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not record your acceptance.");
+        return;
+      }
+      setOpen(false);
+      onSigned();
+    } catch {
+      setError("Could not reach the server. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="font-body text-sm font-semibold text-marine underline underline-offset-2 hover:text-marine-light cursor-pointer"
+      >
+        Sign the waiver
+      </button>
+      <WaiverModal
+        open={open}
+        guestName={ticket.name}
+        busy={busy}
+        error={error}
+        onAccept={({ language, marketingConsent }) => submit(language, marketingConsent)}
+        onClose={() => setOpen(false)}
+      />
+    </>
   );
 }

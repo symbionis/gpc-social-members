@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateTime } from "@/lib/format";
 import PhoneInput from "@/components/common/PhoneInput";
-import DoorWaiverModal, {
+import WaiverModal, {
   type WaiverAcceptance,
-} from "@/components/door/DoorWaiverModal";
+} from "@/components/events/WaiverModal";
 // The shapes this console renders are the shapes buildDoorRoster produces — imported
 // from the module that produces them rather than restated here, so the two cannot
 // drift. Type-only, so lib/events/door-access's admin Supabase client is never pulled
@@ -740,7 +740,7 @@ function SlotRow({
       {/* The waiver takes the whole screen rather than a box inside this row — it is a legal
           document read on a phone, outdoors, with a queue waiting. Dismissing it leaves the
           guest un-checked-in, which is the honest outcome: nothing was signed. */}
-      <DoorWaiverModal
+      <WaiverModal
         open={needsWaiver}
         guestName={name || slot.name || ""}
         onAccept={(acceptance) => checkInAdult(acceptance)}

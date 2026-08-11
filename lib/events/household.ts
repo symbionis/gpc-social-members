@@ -25,6 +25,12 @@ export interface HouseholdTicket {
   credentialUrl: string;
   /** True for the ticket whose manage_token opened this page. */
   isSelf: boolean;
+  /**
+   * Whether this ticket's holder has already accepted the waiver. The door skips its waiver
+   * step for a signed ticket (lib/events/checkin.ts never re-stamps), so accepting here is
+   * what buys a guest a faster arrival.
+   */
+  waiverSigned: boolean;
 }
 
 export interface HouseholdEvent {
@@ -92,7 +98,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
 
     const { data: rows } = await supabase
       .from("tickets")
-      .select("id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status")
+      .select("id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status, waiver_accepted_at")
       .eq("registration_id", self.registration_id as string)
       .in("slot_status", LIVE_SLOTS)
       .is("released_at", null);
@@ -106,7 +112,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
     status = "free";
     const { data: solo } = await supabase
       .from("tickets")
-      .select("id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status")
+      .select("id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status, waiver_accepted_at")
       .eq("id", self.id as string)
       .maybeSingle();
     siblingRows = solo ? [solo] : [];
@@ -130,6 +136,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
         cancellationStatus: (r.cancellation_status as TicketCancellationStatus | null) ?? null,
         credentialUrl: credentialUrl((r.credential_token as string | null) ?? ""),
         isSelf: r.id === self.id,
+        waiverSigned: r.waiver_accepted_at !== null,
       };
     });
 

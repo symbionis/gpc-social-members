@@ -54,7 +54,7 @@ export interface WaiverAcceptance {
   marketingConsent: boolean;
 }
 
-export default function DoorWaiverModal({
+export default function WaiverModal({
   open,
   guestName,
   onAccept,

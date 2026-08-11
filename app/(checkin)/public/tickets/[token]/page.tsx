@@ -85,6 +85,7 @@ export default async function TicketManagePage({
     cancellationStatus: t.cancellationStatus,
     credentialUrl: t.credentialUrl,
     isSelf: t.isSelf,
+    waiverSigned: t.waiverSigned,
   }));
 
   // Upgrade targets: active types priced at the household's rate (member/non-member with
@@ -120,6 +121,7 @@ export default async function TicketManagePage({
       fillEndpoint={`/api/public/bookings/${token}/fill`}
       convertEndpoint={`/api/public/bookings/${token}/convert`}
       cancelEndpoint={`/api/public/bookings/${token}/cancel`}
+      waiverEndpoint={`/api/public/bookings/${token}/waiver`}
       convertTypes={convertTypes}
     />
   );

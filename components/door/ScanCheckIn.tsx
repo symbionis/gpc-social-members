@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import CredentialScanner from "./CredentialScanner";
 import PhoneInput from "@/components/common/PhoneInput";
-import DoorWaiverModal from "@/components/door/DoorWaiverModal";
+import WaiverModal from "@/components/events/WaiverModal";
 
 interface CheckinResult {
   status: string;
@@ -15,7 +15,7 @@ interface CheckinResult {
 
 type Phase = "scan" | "busy" | "needs_name" | "needs_waiver" | "result";
 
-// The guest-facing waiver copy that used to live here moved into DoorWaiverModal, which the
+// The guest-facing waiver copy that used to live here moved into WaiverModal, which the
 // roster path renders too — one component, so the two door surfaces cannot present the same
 // legal document differently.
 
@@ -237,11 +237,11 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
                 </div>
               )}
 
-              {/* The waiver is the shared DoorWaiverModal, not a phase-local block: the roster
+              {/* The waiver is the shared WaiverModal, not a phase-local block: the roster
                   path raises the same one. Two presentations of a legal document agreed on the
                   text but had already diverged on the chrome and the acceptance gesture, and the
                   recorded WAIVER_VERSION cannot tell them apart. */}
-              <DoorWaiverModal
+              <WaiverModal
                 open={phase === "needs_waiver"}
                 guestName={result?.name ?? name.trim()}
                 busy={false}
