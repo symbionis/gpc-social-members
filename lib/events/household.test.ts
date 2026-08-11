@@ -129,4 +129,45 @@ describe("resolveHousehold", () => {
     expect(hh!.referenceCode).toBeNull();
     expect(hh!.status).toBe("free");
   });
+
+  // waiverSigned drives whether the guest is offered the Sign control at all, so getting it
+  // wrong in the TRUE direction is the dangerous one: the control disappears and the guest
+  // arrives at the gate believing they are done.
+  it("reports waiverSigned from the acceptance timestamp, both ways", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        self: { id: "T1", event_id: "E1", registration_id: "R1", email: "house@x.com" },
+        event: EVENT,
+        reg: { id: "R1", status: "paid", reference_code: "ABC" },
+        siblings: [
+          { id: "T1", name: "Alice", email: "house@x.com", ticket_type_id: "TT1", slot_status: "claimed", credential_token: "c1", checked_in_at: null, created_at: "2026-01-01T00:00:00Z", waiver_accepted_at: "2026-08-01T09:00:00Z" },
+          { id: "T2", name: "Bob", email: "house@x.com", ticket_type_id: "TT1", slot_status: "claimed", credential_token: "c2", checked_in_at: null, created_at: "2026-01-01T00:00:01Z", waiver_accepted_at: null },
+        ],
+        types: TYPES,
+      })
+    );
+    const hh = await resolveHousehold("tok");
+    expect(hh!.tickets.find((t) => t.id === "T1")!.waiverSigned).toBe(true);
+    expect(hh!.tickets.find((t) => t.id === "T2")!.waiverSigned).toBe(false);
+  });
+
+  // The projection is a hand-written column string. If waiver_accepted_at ever falls out of
+  // it the column is absent rather than null — and `undefined !== null` is TRUE, which would
+  // mark EVERY ticket signed and hide the Sign control from a whole household at once. On a
+  // legal acceptance the failure has to land closed.
+  it("treats a missing waiver column as unsigned, never as signed", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        self: { id: "T1", event_id: "E1", registration_id: "R1", email: "house@x.com" },
+        event: EVENT,
+        reg: { id: "R1", status: "paid", reference_code: "ABC" },
+        siblings: [
+          { id: "T1", name: "Alice", email: "house@x.com", ticket_type_id: "TT1", slot_status: "claimed", credential_token: "c1", checked_in_at: null, created_at: "2026-01-01T00:00:00Z" },
+        ],
+        types: TYPES,
+      })
+    );
+    const hh = await resolveHousehold("tok");
+    expect(hh!.tickets[0].waiverSigned).toBe(false);
+  });
 });

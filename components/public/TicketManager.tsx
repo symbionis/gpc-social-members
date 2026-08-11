@@ -161,6 +161,10 @@ function TicketCard({
   const cancelled = ticket.cancellationStatus !== null;
   // A cancelled ticket is spent — no editing, upgrading, or re-cancelling it.
   const canEdit = !ticket.checkedIn && !cancelled;
+  // A waiver attests to a person, so there has to be one. Naming a seat also clears any
+  // acceptance on it (fill_ticket), so signing first would be wiped by the Edit below —
+  // the route refuses this too; hiding it here is so the control never invites a dead end.
+  const canSign = canEdit && ticket.name.trim() !== "";
 
   return (
     <li className="relative rounded-2xl border border-border/70 bg-white p-4 shadow-sm sm:p-5">
@@ -195,7 +199,7 @@ function TicketCard({
 
           {/* The primary action sits with the ticket it applies to, not adrift below the QR.
               Full width on a phone (where the column is the whole card), inline from `sm`. */}
-          {canEdit && (
+          {canSign && (
             <div className="mt-3">
               <WaiverControl
                 endpoint={waiverEndpoint}

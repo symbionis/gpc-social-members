@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import WaiverText from "@/components/events/WaiverText";
 import type { WaiverLanguage } from "@/lib/events/waiver";
 
 /**
- * The waiver, full screen, at the moment of check-in. THE single presentation — both door
- * paths render this one component.
+ * The waiver, full screen. THE single presentation — every surface that records an acceptance
+ * renders this one component: both door paths (QR scan, roster row) and the guest's own ticket
+ * page, where they can sign before they arrive rather than at the gate.
  *
  * There were two before: the QR scan phase and the roster row's own block. They agreed on the
  * waiver body (both render WaiverText, so both stamp the same WAIVER_VERSION) but had already
@@ -17,8 +18,10 @@ import type { WaiverLanguage } from "@/lib/events/waiver";
  * invisible in the record: the answer depended on which surface admitted them and nothing said
  * which. One component is the only way that stays true.
  *
- * The phone is handed to the GUEST here, so the chrome is bilingual, the type is large, and
- * the targets are thumb-sized.
+ * Written for the worst case, which is the door: a phone handed to a stranger in a queue. So
+ * the chrome is bilingual, the type is large, and the targets are thumb-sized. That is stricter
+ * than the ticket page needs — a guest on their own phone, unhurried — and deliberately so:
+ * the two surfaces sharing one presentation is the whole point, and the stricter one wins.
  *
  * Rendered through a portal to document.body. A `fixed` element is positioned against its
  * nearest transformed/filtered ancestor rather than the viewport, so "full screen" quietly
@@ -79,15 +82,25 @@ export default function WaiverModal({
   const [marketingConsent, setMarketingConsent] = useState(true);
   const closeRef = useRef<HTMLButtonElement | null>(null);
 
-  // Reset every time it opens. Without this the affirmation carries: the clerk checks in one
-  // guest, opens the next, and the box is still ticked — admitting someone on a stranger's
-  // acceptance. The one piece of state in here that must never persist across guests.
-  useEffect(() => {
+  // Reset every time it opens, AND whenever the person changes while it stays open. Without
+  // this the affirmation carries: the clerk checks in one guest, opens the next, and the box
+  // is still ticked — admitting someone on a stranger's acceptance. The one piece of state in
+  // here that must never persist across guests.
+  //
+  // useLayoutEffect, not useEffect, and that is load-bearing. `open: false` returns null but
+  // does NOT unmount (the component keeps its state), so on the render where `open` flips true
+  // React can commit and the browser can PAINT before a passive effect runs — showing the
+  // previous guest's tick, with Accept live, to whoever is holding the phone. A layout effect
+  // runs before paint, so that frame cannot exist.
+  //
+  // `guestName` is in the deps because ScanCheckIn reuses ONE instance across a queue: "Scan
+  // next guest" swaps the person without ever closing the modal, so `open` alone never changes.
+  useLayoutEffect(() => {
     if (!open) return;
     setLanguage(defaultLanguage);
     setAccepted(false);
     setMarketingConsent(true);
-  }, [open, defaultLanguage]);
+  }, [open, guestName, defaultLanguage]);
 
   // Escape closes, and the page behind must not scroll under the overlay — on a phone that is
   // how a "modal" ends up showing the roster sliding around beneath the waiver.
