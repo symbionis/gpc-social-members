@@ -395,14 +395,15 @@ export async function POST(request: NextRequest) {
 
         if (updateErr) {
           // The partial unique index (event_id, lower(email)) WHERE status IN
-          // ('paid','free') can reject this promotion if the person was already
-          // comped off the waitlist (a 'free' row took the slot) while this paid
-          // checkout was in flight. The customer HAS been charged but a
-          // registration already exists — do NOT 500-loop on Stripe retries.
-          // Acknowledge and flag loudly for manual refund / reconciliation.
+          // ('paid','free') can reject this promotion if the person already
+          // holds a live registration for this email — most commonly two
+          // waitlist offers sent to the same person both getting redeemed. The
+          // customer HAS been charged but a registration already exists — do
+          // NOT 500-loop on Stripe retries. Acknowledge and flag loudly for
+          // manual refund / reconciliation.
           if ((updateErr as { code?: string }).code === "23505") {
             console.error(
-              "[webhook] duplicate registration on pending→paid (likely a waitlist comp) — payment captured, NEEDS MANUAL REFUND/RECONCILIATION",
+              "[webhook] duplicate registration on pending→paid — payment captured, NEEDS MANUAL REFUND/RECONCILIATION",
               {
                 registrationId: existing.id,
                 sessionId: session.id,

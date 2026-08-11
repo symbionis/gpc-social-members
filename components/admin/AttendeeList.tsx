@@ -46,7 +46,8 @@ export interface Attendee {
    * the door and the organiser both ask and neither could answer from here before:
    *  - `paid` — bought through checkout on a paid booking
    *  - `comp` — a sponsor's guest-list seat, given away
-   *  - `free` — a booking that cost nothing (a free event, or a comped conversion)
+   *  - `free` — a booking that cost nothing (a free event, a zero-price offer redemption,
+   *    or a historical waitlist comp from before the paid offer flow)
    */
   paymentState: "paid" | "comp" | "free";
   /** Whether anyone is named on this ticket yet (slot_status === 'claimed'). */

@@ -110,21 +110,9 @@ export default function ManageEventTabs({
   const pendingCancellations = cancellations.filter((c) => c.status === "requested").length;
   const router = useRouter();
 
-  // Per-row convert state (in-flight / inline error) + a component-level notice
-  // that survives the soft refresh after a successful conversion. Quantity is no
-  // longer admin-entered (U4): it comes from the entry, and R4 makes offering (or
-  // converting) past the seat cap intentional rather than something to confirm.
-  const [rows, setRows] = useState<
-    Record<string, { submitting: boolean; error: string | null }>
-  >({});
+  // Component-level notice banner that survives the soft refresh after a
+  // successful Offer/Resend/Withdraw/repair action.
   const [notice, setNotice] = useState<string | null>(null);
-
-  function row(id: string) {
-    return rows[id] ?? { submitting: false, error: null };
-  }
-  function patchRow(id: string, patch: Partial<{ submitting: boolean; error: string | null }>) {
-    setRows((s) => ({ ...s, [id]: { ...row(id), ...patch } }));
-  }
 
   // Per-entry field overrides applied on top of the `waitlist` prop after a
   // successful Offer/Resend/Withdraw/repair — so the row re-renders immediately
@@ -140,32 +128,6 @@ export default function ManageEventTabs({
   // Redeemed entries (KTD3/R12) are done — hide them from the working list rather
   // than showing an entry nobody can act on anymore.
   const visibleWaitlist = effectiveWaitlist.filter((w) => !w.redeemed);
-
-  async function convertEntry(entry: Waitlist) {
-    const qty = entry.quantity ?? 1;
-    patchRow(entry.id, { submitting: true, error: null });
-    setNotice(null);
-    try {
-      const res = await fetch(`/api/admin/events/${eventId}/waitlist/convert`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ waitlistId: entry.id, quantity: qty }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        patchRow(entry.id, { submitting: false, error: data.error || "Could not register." });
-        return;
-      }
-      setNotice(
-        data.email_sent === false
-          ? `${entry.name} registered (ref ${data.reference_code}) — confirmation email failed, please notify them manually.`
-          : `${entry.name} registered and emailed.`
-      );
-      router.refresh();
-    } catch {
-      patchRow(entry.id, { submitting: false, error: "Network error. Try again." });
-    }
-  }
 
   // Offer / Resend (R1, R3, R4): mints or resends a token by entry id. The route
   // rejects an unofferable, redeemed, or closed-registration entry — surfaced
@@ -434,12 +396,10 @@ export default function ManageEventTabs({
                     <th className="px-4 py-2 text-left">Requested</th>
                     <th className="px-4 py-2 text-left">Joined</th>
                     <th className="px-4 py-2 text-left">Offer</th>
-                    <th className="px-4 py-2 text-left">Convert</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleWaitlist.map((entry) => {
-                    const r = row(entry.id);
                     const or = offerRow(entry.id);
                     const wr = withdrawRow(entry.id);
                     const rr = repairRow(entry.id);
@@ -511,17 +471,6 @@ export default function ManageEventTabs({
                             )}
                             {or.error && <p className="text-xs text-red-700 mt-1">{or.error}</p>}
                             {wr.error && <p className="text-xs text-red-700 mt-1">{wr.error}</p>}
-                          </td>
-                          <td className="px-4 py-2">
-                            <button
-                              type="button"
-                              onClick={() => convertEntry(entry)}
-                              disabled={r.submitting}
-                              className="px-3 py-1.5 border border-marine text-marine rounded-lg text-xs font-body font-medium hover:bg-marine/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                            >
-                              {r.submitting ? "Registering…" : "Register free"}
-                            </button>
-                            {r.error && <p className="text-xs text-red-700 mt-1">{r.error}</p>}
                           </td>
                         </tr>
                         {isOpen && (

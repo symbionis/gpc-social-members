@@ -235,7 +235,7 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
     expect(screen.queryByRole("button", { name: "Withdraw" })).not.toBeInTheDocument();
   });
 
-  it("does not render a quantity input or an over-cap confirmation", async () => {
+  it("does not render a quantity input, a Register free action, or an over-cap confirmation", async () => {
     const confirmSpy = vi.spyOn(window, "confirm");
     const user = userEvent.setup();
     renderTabs({
@@ -246,8 +246,7 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
     await openWaitlistTab(user);
 
     expect(screen.queryByLabelText("Tickets")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Register free" }));
+    expect(screen.queryByRole("button", { name: "Register free" })).not.toBeInTheDocument();
     expect(confirmSpy).not.toHaveBeenCalled();
   });
 
