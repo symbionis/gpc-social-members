@@ -27,7 +27,7 @@ tags: [stripe, webhook, idempotency, postgres, security-definer, roster, race-co
 > 1. **Redelivery of the original checkout.** The webhook's paid short-circuit gates on `alreadyPaid && pending_roster IS NULL` — deliberately, because that is how a mid-crash first delivery recovers. While a top-up's names sat staged, that gate failed, execution fell through, and the generic fill consumed the *top-up's* names against the pre-top-up slot set and cleared them. The top-up's own webhook then minted its seats with an empty roster.
 > 2. **Two concurrent top-ups on one booking.** The second stash simply overwrote the first's names.
 >
-> The fix was ownership rather than a bigger guard (`20260811090000_topup_owns_its_roster.sql`): the names belong to the top-up that bought them, so they live on the top-up row, and `apply_topup_roster(p_topup_id)` applies+clears them under the parent registration's lock exactly as `apply_pending_roster` does. `event_registrations.pending_roster` is single-producer again.
+> The fix was ownership rather than a bigger guard (`20260811064034_topup_owns_its_roster.sql`): the names belong to the top-up that bought them, so they live on the top-up row, and `apply_topup_roster(p_topup_id)` applies+clears them under the parent registration's lock exactly as `apply_pending_roster` does. `event_registrations.pending_roster` is single-producer again.
 >
 > **The generalisable point:** the atomic fill+clear below makes a staging slot safe against *replay*. It does nothing about a *second producer* — the loser of that race reads a perfectly consistent roster that simply belongs to someone else. When a staging slot acquires a second writer, the question is not "is the apply atomic?" but "whose data is this, and does the consumer know?"
 

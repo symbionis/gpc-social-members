@@ -260,7 +260,7 @@ export async function POST(request: NextRequest) {
           // redelivery of the booking's ORIGINAL checkout cannot consume them first.
           const rosterStatus = await applyTopupRoster(topupId);
           if (rosterStatus === "no_roster") {
-            // Transition shim: top-ups created before 20260811090000 staged their names on
+            // Transition shim: top-ups created before 20260811064034 staged their names on
             // event_registrations.pending_roster. Once no such top-up can still be in flight
             // (Stripe stops retrying a session long before then), delete this branch.
             await applyPendingRoster(eventRegistrationId);

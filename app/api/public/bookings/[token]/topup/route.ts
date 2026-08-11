@@ -146,7 +146,7 @@ export async function POST(
   // is the original checkout's staging slot, and a second producer writing it lets a
   // redelivery of the original session consume this top-up's names (and lets two concurrent
   // top-ups overwrite each other), minting the unnamed seats mandatory naming exists to
-  // prevent. See 20260811090000_topup_owns_its_roster.sql.
+  // prevent. See 20260811064034_topup_owns_its_roster.sql.
   //
   // Stashed BEFORE any money moves, and we fail loud if the write fails — a paid top-up whose
   // roster never persisted is exactly the seat we refuse to create.
