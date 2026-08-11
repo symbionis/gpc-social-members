@@ -94,23 +94,63 @@ export function isWaitlistEntryRedeemed(
   );
 }
 
+export type RedeemingRegistration = LiveRegistrationForRedemption & {
+  reference_code: string;
+};
+
 /**
- * Every live (paid/free) registration for an event, scoped for the redemption check above.
- * The single query behind isWaitlistEntryRedeemed at all four call sites (the admin repair
- * route, the admin offer route, the register route, and the public offer landing) — kept
- * here so the query shape can't drift from what the predicate expects.
+ * The live (paid/free) registration that redeems this entry, or null if there is none.
+ * Returns the row rather than a boolean so a caller that needs to name it — the offer
+ * landing's already-registered panel — doesn't have to re-implement the match.
+ *
+ * Asks the per-entry question with a per-entry query. Fetching the event's whole live
+ * registration set and filtering client-side would hit the Supabase JS 1000-row default
+ * truncation, which returns short WITHOUT an error: past 1000 registrations a redeemed
+ * entry would silently read as un-redeemed, and the register route would send a buyer
+ * who already holds a ticket to Stripe. Same rule, same reason as lib/events/seat-usage.ts.
+ *
+ * Matching mirrors isWaitlistEntryRedeemed: the `waitlist_entry_id` link is authoritative
+ * (KTD3), with an email fallback for legacy entries created before U1. Email is compared
+ * against the normalised (trimmed, lowercased) form the register route writes (route.ts:58)
+ * and the existing duplicate guard already matches on.
+ *
+ * Used by the admin offer route, the admin repair route, the register route, and the public
+ * offer landing. The attendees page does NOT use this — it answers the same question for a
+ * whole list off its already-loaded registration set, via isWaitlistEntryRedeemed directly.
  */
-export async function fetchLiveRegistrationsForRedemption(
+export async function findRedeemingRegistration(
   supabase: SupabaseClient<Database>,
-  eventId: string
+  eventId: string,
+  entry: { id: string; email: string }
 ): Promise<{
-  data: (LiveRegistrationForRedemption & { reference_code: string })[] | null;
+  data: RedeemingRegistration | null;
   error: { message: string } | null;
 }> {
-  const { data, error } = await supabase
+  const select = "waitlist_entry_id, email, reference_code";
+  const live = ["paid", "free"];
+
+  const linked = await supabase
     .from("event_registrations")
-    .select("waitlist_entry_id, email, reference_code")
+    .select(select)
     .eq("event_id", eventId)
-    .in("status", ["paid", "free"]);
-  return { data, error };
+    .eq("waitlist_entry_id", entry.id)
+    .in("status", live)
+    .limit(1);
+  if (linked.error) return { data: null, error: linked.error };
+  if (linked.data && linked.data.length > 0) {
+    return { data: linked.data[0], error: null };
+  }
+
+  // Two queries rather than one `.or()`: an email is caller-supplied text, and
+  // interpolating it into PostgREST's filter grammar would make the match depend
+  // on which punctuation it happens to contain.
+  const byEmail = await supabase
+    .from("event_registrations")
+    .select(select)
+    .eq("event_id", eventId)
+    .eq("email", entry.email.trim().toLowerCase())
+    .in("status", live)
+    .limit(1);
+  if (byEmail.error) return { data: null, error: byEmail.error };
+  return { data: byEmail.data?.[0] ?? null, error: null };
 }

@@ -18,7 +18,8 @@ import {
 } from "@/lib/events/roster";
 import { isFullName } from "@/lib/names";
 import { parseAttendeeInput, EMAIL_RE } from "@/lib/events/attendee-input";
-import { fetchLiveRegistrationsForRedemption, isWaitlistEntryRedeemed } from "@/lib/events/waitlist-offer";
+import { findRedeemingRegistration } from "@/lib/events/waitlist-offer";
+import { captureServerException } from "@/lib/analytics/server-errors";
 
 const MAX_TICKETS = 20;
 // Bounds for the nominative roster fields — this endpoint is unauthenticated, so
@@ -142,15 +143,16 @@ export async function POST(
 
     // KTD3: redeemed once the linked registration (or, for a pre-link legacy
     // entry, a live registration sharing its email — R12) reaches paid or free.
-    const { data: liveRegs, error: liveRegsErr } = await fetchLiveRegistrationsForRedemption(
+    const { data: redeeming, error: liveRegsErr } = await findRedeemingRegistration(
       supabase,
-      eventId
+      eventId,
+      { id: entry.id, email: entry.email }
     );
     if (liveRegsErr) {
       console.error("[event-register] offer redemption check failed", { eventId, err: liveRegsErr });
       return bad("Could not verify this offer link", 500);
     }
-    if (isWaitlistEntryRedeemed({ id: entry.id, email: entry.email }, liveRegs ?? [])) {
+    if (redeeming) {
       return bad("This offer has already been redeemed", 400);
     }
 
@@ -405,10 +407,27 @@ export async function POST(
           .delete()
           .eq("id", registrationId);
         if (rollbackErr) {
-          console.error("[event-register] free-registration rollback after link failure also failed", {
-            registrationId,
-            err: rollbackErr,
-          });
+          // The rollback itself failed, so the terminal free registration the delete
+          // was meant to remove is still there — with no tickets, no confirmation
+          // email, and no waitlist link. From here the entry reads as "already
+          // registered" to the duplicate guard and as redeemed to
+          // findRedeemingRegistration, which also hides it from the admin waitlist.
+          // Retrying cannot succeed, so do not tell them to retry: send them to a
+          // human with the reference code, and raise it where someone will see it.
+          console.error(
+            "[event-register] free-registration rollback after link failure also failed — registration is stuck, NEEDS MANUAL RECONCILIATION",
+            { registrationId, referenceCode, waitlistEntryId: offerEntry.id, err: rollbackErr }
+          );
+          captureServerException(
+            new Error(
+              `Offer redemption stuck: free registration ${registrationId} (ref ${referenceCode}) survived a failed waitlist_entry_id link for entry ${offerEntry.id}`
+            ),
+            { path: `/api/events/${eventId}/register`, method: "POST", status: 500 }
+          );
+          return bad(
+            `Something went wrong confirming your offer and it needs to be sorted out by hand. Please contact the club quoting reference ${referenceCode} — retrying this link will not work.`,
+            500
+          );
         }
       }
       return bad("Could not confirm your offer. Please try again.", 500);

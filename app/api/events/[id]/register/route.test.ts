@@ -7,6 +7,10 @@ vi.mock("@/lib/email/event-registration", () => ({
   sendEventRegistrationConfirmation: vi.fn(),
 }));
 vi.mock("@/lib/events/seat-usage", () => ({ getSeatsUsed: vi.fn() }));
+// Mocked for its `server-only` import, which will not resolve under vitest.
+vi.mock("@/lib/analytics/server-errors", () => ({
+  captureServerException: vi.fn(),
+}));
 // @/lib/events/registration is NOT mocked — real isValidInviteCode / generateReferenceCode.
 
 import { POST } from "@/app/api/events/[id]/register/route";
@@ -795,6 +799,26 @@ describe("offer redemption (U6)", () => {
     const cfg: Cfg = { event: offerEvent, ticketTypes: [freeType], waitlistEntry: entryQty2, waitlistLinkUpdateError: true };
     await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
     expect(cfg.capturedRegistrationDelete).toBe("reg-1");
+  });
+
+  // When the rollback itself fails the free registration is stuck: it is terminal,
+  // ticketless, and now reads as "already registered" everywhere. Retrying cannot
+  // clear it, so the copy must not tell them to retry — it must hand them a
+  // reference code and point them at a human.
+  it("a failed rollback tells the buyer to contact the club with their reference, not to retry", async () => {
+    const cfg: Cfg = {
+      event: offerEvent,
+      ticketTypes: [freeType],
+      waitlistEntry: entryQty2,
+      waitlistLinkUpdateError: true,
+      registrationDeleteError: true,
+    };
+    const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toContain("contact the club");
+    expect(body.error).not.toContain("Please try again");
+    expect(mockedSendEmail).not.toHaveBeenCalled();
   });
 
   it("a failure writing waitlist_entry_id on the paid path does NOT delete the registration (a pending row is already retryable)", async () => {

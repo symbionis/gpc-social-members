@@ -2,8 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { assertAdmin, bad } from "@/lib/events/guest-list-auth";
 import {
   deriveWaitlistOfferability,
-  fetchLiveRegistrationsForRedemption,
-  isWaitlistEntryRedeemed,
+  findRedeemingRegistration,
 } from "@/lib/events/waitlist-offer";
 import { generateSelfRegToken } from "@/lib/events/registration";
 import { sendWaitlistOffer } from "@/lib/email/event-waitlist-offer";
@@ -37,15 +36,16 @@ async function checkRedeemed(
   eventId: string,
   entry: { id: string; email: string }
 ): Promise<{ redeemed: boolean } | { error: string; status: number }> {
-  const { data: liveRegs, error: regErr } = await fetchLiveRegistrationsForRedemption(
+  const { data: redeeming, error: regErr } = await findRedeemingRegistration(
     adminClient,
-    eventId
+    eventId,
+    entry
   );
   if (regErr) {
     console.error("[waitlist-offer] registration lookup failed", { eventId, entryId: entry.id, err: regErr });
     return { error: "Service temporarily unavailable", status: 503 };
   }
-  return { redeemed: isWaitlistEntryRedeemed(entry, liveRegs ?? []) };
+  return { redeemed: redeeming !== null };
 }
 
 export async function POST(

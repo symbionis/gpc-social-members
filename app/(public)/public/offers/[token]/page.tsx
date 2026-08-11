@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
-import { fetchLiveRegistrationsForRedemption, isWaitlistEntryRedeemed } from "@/lib/events/waitlist-offer";
+import { findRedeemingRegistration } from "@/lib/events/waitlist-offer";
 import { resolveOfferLandingOutcome } from "@/lib/events/offer-landing";
 import OfferTerminalPanel from "@/components/public/OfferTerminalPanel";
 import EventRegistrationForm, { type TicketTypeOption } from "@/components/public/EventRegistrationForm";
@@ -88,13 +88,19 @@ export default async function OfferLandingPage({
   // Independent of the capacity check below, so both run concurrently.
   async function resolveRedemption(): Promise<{ reference_code: string } | null> {
     if (!entry || !event) return null;
-    const { data: liveRegs } = await fetchLiveRegistrationsForRedemption(supabase, event.id);
-    if (!isWaitlistEntryRedeemed(entry, liveRegs ?? [])) return null;
-    const emailLower = entry.email.trim().toLowerCase();
-    const match = (liveRegs ?? []).find(
-      (r) => r.waitlist_entry_id === entry.id || r.email.trim().toLowerCase() === emailLower
+    const { data: redeeming, error } = await findRedeemingRegistration(
+      supabase,
+      event.id,
+      entry
     );
-    return match ? { reference_code: match.reference_code } : null;
+    // Fail closed, like resolveSeatsFree below: treating "we couldn't check" as
+    // "not redeemed" would hand a fresh checkout form to someone who has already
+    // paid. An error page is the honest outcome — every other call site 503s here.
+    if (error) {
+      console.error("[offer-landing] redemption check failed", { eventId: event.id, err: error });
+      throw new Error("Offer redemption check failed");
+    }
+    return redeeming ? { reference_code: redeeming.reference_code } : null;
   }
 
   // Capacity: only seat-consuming registrations count against the cap (mirrors

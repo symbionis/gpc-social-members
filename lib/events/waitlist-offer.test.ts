@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   deriveWaitlistOfferability,
   isWaitlistEntryRedeemed,
+  findRedeemingRegistration,
 } from "@/lib/events/waitlist-offer";
 
 const liveType = { title: "Standard", archived_at: null, counts_as_seat: true };
@@ -111,5 +112,121 @@ describe("isWaitlistEntryRedeemed", () => {
       [{ waitlist_entry_id: "wl-9", email: "different@x.com" }]
     );
     expect(redeemed).toBe(false);
+  });
+});
+
+type QueryResult = { data: unknown[] | null; error: { message: string } | null };
+
+/**
+ * Records the filters each query applies. The matching that used to happen in
+ * `isWaitlistEntryRedeemed` now lives in the query itself, so asserting the
+ * filters IS asserting the predicate — a mock that ignored them would let a
+ * dropped `.eq` pass unnoticed.
+ */
+function fakeSupabase(responses: QueryResult[]) {
+  const calls: Record<string, unknown>[] = [];
+  let next = 0;
+  const client = {
+    from() {
+      const filters: Record<string, unknown> = {};
+      const builder = {
+        select: () => builder,
+        eq: (col: string, val: unknown) => {
+          filters[col] = val;
+          return builder;
+        },
+        in: (col: string, val: unknown) => {
+          filters[col] = val;
+          return builder;
+        },
+        limit: () => {
+          calls.push(filters);
+          return Promise.resolve(
+            responses[next++] ?? { data: [], error: null }
+          );
+        },
+      };
+      return builder;
+    },
+  };
+  return { client: client as never, calls };
+}
+
+const ROW = { waitlist_entry_id: "wl-1", email: "a@x.com", reference_code: "REF1" };
+
+describe("findRedeemingRegistration", () => {
+  it("returns the linked registration and does not fall through to the email query", async () => {
+    const { client, calls } = fakeSupabase([{ data: [ROW], error: null }]);
+    const { data, error } = await findRedeemingRegistration(client, "ev-1", {
+      id: "wl-1",
+      email: "a@x.com",
+    });
+
+    expect(error).toBeNull();
+    expect(data).toEqual(ROW);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      event_id: "ev-1",
+      waitlist_entry_id: "wl-1",
+      status: ["paid", "free"],
+    });
+  });
+
+  it("falls back to a normalised email match for a legacy entry with no link", async () => {
+    const { client, calls } = fakeSupabase([
+      { data: [], error: null },
+      { data: [{ ...ROW, waitlist_entry_id: null }], error: null },
+    ]);
+    const { data } = await findRedeemingRegistration(client, "ev-1", {
+      id: "wl-1",
+      email: "  A@X.com  ",
+    });
+
+    expect(data?.reference_code).toBe("REF1");
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({ event_id: "ev-1", email: "a@x.com" });
+  });
+
+  it("returns null when neither the link nor the email matches", async () => {
+    const { client } = fakeSupabase([
+      { data: [], error: null },
+      { data: [], error: null },
+    ]);
+    const { data, error } = await findRedeemingRegistration(client, "ev-1", {
+      id: "wl-1",
+      email: "a@x.com",
+    });
+
+    expect(data).toBeNull();
+    expect(error).toBeNull();
+  });
+
+  // Fail closed: a caller that read a swallowed error as "not redeemed" would send
+  // someone who already holds a ticket back to checkout.
+  it("propagates a link-query error without running the email query", async () => {
+    const { client, calls } = fakeSupabase([
+      { data: null, error: { message: "boom" } },
+    ]);
+    const { data, error } = await findRedeemingRegistration(client, "ev-1", {
+      id: "wl-1",
+      email: "a@x.com",
+    });
+
+    expect(data).toBeNull();
+    expect(error).toEqual({ message: "boom" });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("propagates an email-query error", async () => {
+    const { client } = fakeSupabase([
+      { data: [], error: null },
+      { data: null, error: { message: "boom" } },
+    ]);
+    const { error } = await findRedeemingRegistration(client, "ev-1", {
+      id: "wl-1",
+      email: "a@x.com",
+    });
+
+    expect(error).toEqual({ message: "boom" });
   });
 });
