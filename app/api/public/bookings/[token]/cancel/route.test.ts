@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
+vi.mock("@/lib/email/cancellation-notice", () => ({ sendCancellationNotices: vi.fn() }));
 
 import { POST } from "@/app/api/public/bookings/[token]/cancel/route";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendCancellationNotices } from "@/lib/email/cancellation-notice";
 
 const mockedAdmin = vi.mocked(createAdminClient);
+const mockedNotices = vi.mocked(sendCancellationNotices);
 const TICKET = "33333333-3333-3333-3333-333333333333";
 
 interface Opts {
@@ -18,6 +21,7 @@ interface Opts {
 // object returns the reg for event_registrations, the ticket for a tickets SELECT, and the
 // update result once `.update()` has been called on it.
 let lastUpdate: Record<string, unknown> | null = null;
+let callOrder: string[] = [];
 
 function adminClient(opts: Opts) {
   return {
@@ -31,6 +35,7 @@ function adminClient(opts: Opts) {
       c.update = (payload: Record<string, unknown>) => {
         c._upd = true;
         lastUpdate = payload;
+        callOrder.push("seat-release");
         return c;
       };
       c.maybeSingle = async () => {
@@ -71,6 +76,11 @@ function post(ticketId: string = TICKET, token = "lead-token") {
 beforeEach(() => {
   vi.clearAllMocks();
   lastUpdate = null;
+  callOrder = [];
+  mockedNotices.mockImplementation(async (ticketId: string) => {
+    callOrder.push("notices:" + ticketId);
+    return { holderSent: true, payerSent: true };
+  });
 });
 
 describe("POST booking cancel (U14)", () => {
@@ -136,5 +146,41 @@ describe("POST booking cancel (U14)", () => {
     mockedAdmin.mockReturnValue(adminClient({ ticket: null }));
     const res = await post();
     expect(res.status).toBe(409);
+  });
+
+  it("sends cancellation notices for the freed ticket after a successful cancellation (U5)", async () => {
+    mockedAdmin.mockReturnValue(adminClient({}));
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(mockedNotices).toHaveBeenCalledTimes(1);
+    expect(mockedNotices).toHaveBeenCalledWith(TICKET);
+    // The seat release (the update) happened before the notice send was attempted.
+    expect(callOrder).toEqual(["seat-release", "notices:" + TICKET]);
+  });
+
+  it("does not send notices for an idempotent already-cancelled no-op (R22)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        ticket: {
+          id: TICKET,
+          email: "h@x.com",
+          slot_status: "claimed",
+          checked_in_at: null,
+          released_at: null,
+          cancellation_status: "requested",
+        },
+      })
+    );
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(mockedNotices).not.toHaveBeenCalled();
+  });
+
+  it("a failing notice send is logged and the cancellation still succeeds", async () => {
+    mockedNotices.mockRejectedValueOnce(new Error("postmark down"));
+    mockedAdmin.mockReturnValue(adminClient({}));
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
   });
 });

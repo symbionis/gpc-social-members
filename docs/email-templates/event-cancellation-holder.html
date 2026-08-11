@@ -1,0 +1,36 @@
+<!-- event-cancellation-holder: sent to the HOLDER when their ticket is cancelled from the
+     manage page (U5/U14). Confirmation only — the cancellation is already final and the seat
+     already freed by the time this sends. Renders inside the main-polo-club layout. Uses
+     Mustachio section tags only (no if-blocks); pass null (not an empty string) to omit an
+     optional block. IMPORTANT: keep template tags out of comments — Postmark parses them here too. -->
+<h1>Your ticket is cancelled.</h1>
+
+<p>{{#holder_name}}Hi {{.}} — this{{/holder_name}}{{^holder_name}}This{{/holder_name}} confirms your ticket for <strong>{{event_title}}</strong> has been cancelled, as requested. Your seat has already been released.</p>
+
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 20px 0 28px 0;">
+  <tr>
+    <td align="center" style="background-color: #052938; border-radius: 8px; padding: 24px 32px;">
+      <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 3px;"><font color="#95CEE1">Cancelled</font></p>
+      <p style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600;"><font color="#ffffff">{{event_title}}</font></p>
+      {{#event_date_label}}
+      <p style="margin: 0 0 4px 0; font-size: 14px;"><font color="#ffffff">{{.}}</font></p>
+      {{/event_date_label}}
+      {{#event_time}}
+      <p style="margin: 0 0 4px 0; font-size: 14px;"><font color="#ffffff">Was due to start at {{.}}</font></p>
+      {{/event_time}}
+      {{#event_location}}
+      <p style="margin: 0 0 16px 0; font-size: 14px;"><font color="#c8dfe8">{{.}}</font></p>
+      {{/event_location}}
+      {{#reference_code}}
+      <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 2px;"><font color="#7aafc4">Reference</font></p>
+      <p style="margin: 0; font-size: 14px; letter-spacing: 2px; font-weight: 600;"><font color="#ffffff">{{.}}</font></p>
+      {{/reference_code}}
+    </td>
+  </tr>
+</table>
+
+<p>If a refund is due, it'll be issued to whoever paid for the ticket via the original payment method — no action needed from you.</p>
+
+<p>If this wasn't you, or you've changed your mind, please get in touch and we'll help sort it out.</p>
+
+<p>The Geneva Polo Social Club Team</p>
