@@ -50,7 +50,7 @@ named_tickets = 1                        <-- should be 2
 
 Every path that named a slot was exposed — including the paid one. `apply_pending_roster` `PERFORM`s `public.claim_ticket` once per guest (`supabase/migrations/20260708130000_apply_pending_roster.sql:50-60`), so the paid checkout inherited the same guard rather than escaping it. *(An earlier revision of this doc, and the header of the fix migration `20260711140000_claim_ticket_identity_dedupe.sql:25-26`, both claimed the paid path escaped because `apply_pending_roster` "does not dedupe at all." That was wrong, and nothing in the repo supports the "paid group bookings kept all their tickets" explanation.)*
 
-As of 2026-08-11 two direct callers remain: the door console's walk-up fill (`app/api/public/door/[id]/save-attendee/route.ts:132`) and the free-checkout roster fill (`lib/events/roster.ts:115`), plus the SQL-internal call inside `apply_pending_roster`. Self-registration via the party link was retired (`claim_self_registration` dropped in `supabase/migrations/20260722150000_drop_self_reg_token.sql:8`).
+As of 2026-08-11 two direct callers remain: the door console's walk-up fill (`app/api/public/door/[id]/save-attendee/route.ts:132`) and the free-checkout roster fill (`lib/events/roster.ts:185`), plus two SQL-internal calls — inside `apply_pending_roster` and inside the top-up roster application (`supabase/migrations/20260811064034_topup_owns_its_roster.sql:90`). Self-registration via the party link was retired (`claim_self_registration` dropped in `supabase/migrations/20260722150000_drop_self_reg_token.sql:8`).
 
 ## The fix
 
@@ -94,7 +94,8 @@ Two lessons generalise. **A dedupe key is only as good as the set it is compared
 
 ## What to watch for
 
-- Any dedupe or idempotency key built from contact details alone has this bug. Contact identifies a *mailbox*, not a *human*.
+- Any dedupe or idempotency key built from contact details alone risks this bug. Contact identifies a *mailbox*, not a *human*.
+- **The dangerous shape is contact-only plus a silent success — not contact-only by itself.** A guard that *rejects visibly* on a contact match is a different, defensible trade: the affected person is told, and can act. The waitlist's one-entry-per-email rule (2026-08-11) is deliberately that shape — it returns a 400 the person can read, and the migration that added the index names the trade-off and points at itself as the line to change if the club ever needs two people on one mailbox. Judge a contact-only key by what it does when it matches, not by the key alone.
 - **An absent mailbox is a normal, designed state.** Comp guest lists routinely carry no email at all — the door captures it at admission — so a guard must not assume contact is *present*, let alone unique.
 - If you need a genuinely reliable replay guard for a per-person write, do not infer identity — carry an explicit idempotency key from the client, as `add_comp_guests` does with `comp_guest_batches`.
 - The SQL here is not covered by the test suite (vitest mocks Supabase entirely). Verify changes to `claim_ticket` with a rolled-back `DO` block — see `verify-security-definer-rpc-do-block-rollback.md`.

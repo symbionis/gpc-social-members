@@ -59,7 +59,11 @@ Enforce the cancelled state at **every** admission path, not just the count. The
    if (attendee.cancellation_status != null) return { ok: false, reason: "not_found" };
    ```
 
-3. **The hand-check surfaces** — PR #91 originally carried a `cancelled` flag per roster row and struck those rows through on the printed sheet. That was superseded: as of PRs #107/#108/#111 the hand-check surfaces **exclude** cancelled tickets at the query instead of marking them, because a line the door cannot admit is noise on a document read under pressure. All three now apply `.is("cancellation_status", null)` — `lib/events/door-roster.ts:158` (printed sheet), `lib/events/door-access.ts:209` (door console), and `app/(admin)/admin/events/[id]/attendees/page.tsx:164` (admin roster). The CSV export that carried a `cancelled` column was deleted outright in #108.
+3. **The hand-check surfaces** — PR #91 originally carried a `cancelled` flag per roster row and struck those rows through on the printed sheet. That was superseded: as of PRs #107/#108/#111 the hand-check surfaces **exclude** cancelled tickets rather than marking them, because a line the door cannot admit is noise on a document read under pressure. The CSV export that carried a `cancelled` column was deleted outright in #108.
+
+   **Updated 2026-08-11 (PR #118).** This item used to prescribe `.is("cancellation_status", null)` at each of the three call sites. That prescription was incomplete, not merely relocated: dropping the cancelled rows in the query also drops the cancelled *count*, so each surface then reached for `registration.quantity` — which still includes them — and padded the cancelled person back on. The three surfaces now import one shared rule (`lib/events/ticket-admissibility.ts`), which returns the live rows **and** the per-booking cancelled tally together. See [cancelled seats reappear when counts derive from registration.quantity](./cancelled-seats-reappear-when-counts-derive-from-registration-quantity.md).
+
+   The shared rule covers the three **roster** surfaces only. The admission paths in this doc — the QR scan and the by-id check-in — keep their own guards (`lib/events/checkin.ts:70`, and the SQL guard inside `checkin_by_credential`) and gate on credential plus cancellation rather than on admissibility. Those are the paths that caused the double-admit, so do not read the shared module as covering them.
 
 The RPC guard was proven in a rolled-back transaction before applying: a live ticket returned `would_proceed`, the same ticket after `cancellation_status='requested'` returned `not_recognised`.
 
@@ -79,6 +83,7 @@ A cancellation is a state transition that **releases a shared resource** (a seat
 
 - Shipped in PR #91 (U14 — ticket cancellation + immediate seat release); the guard migration is `20260722130000_checkin_reject_cancelled.sql`.
 - Follow-on: PRs #107/#108/#111 replaced strike-through with exclusion across the roster and both door surfaces, deleted the CSV export, and closed the second `buildDoorRoster`. Read the exclusion decision from here, not the original marking design.
+- What superseded this doc's per-call-site filter for the roster surfaces (and why a query filter alone was insufficient): [`./cancelled-seats-reappear-when-counts-derive-from-registration-quantity.md`](./cancelled-seats-reappear-when-counts-derive-from-registration-quantity.md).
 - The projection that orphans rows the same way, and which owns the two-builders problem: [`../architecture-patterns/registration-keyed-door-roster-orphans-imported-attendees.md`](../architecture-patterns/registration-keyed-door-roster-orphans-imported-attendees.md).
 - The seat-count rewrite it pairs with: [`../best-practices/prove-a-hot-function-rewrite-byte-for-byte-before-shipping.md`](../best-practices/prove-a-hot-function-rewrite-byte-for-byte-before-shipping.md).
 - Related field-ownership trap: [`../architecture-patterns/single-writer-field-ownership-across-routes.md`](../architecture-patterns/single-writer-field-ownership-across-routes.md).
