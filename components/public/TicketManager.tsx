@@ -26,8 +26,6 @@ export interface ManageTicket {
   cancellationStatus: TicketCancellationStatus | null;
   /** QR admission URL (/c/<credential_token>). */
   credentialUrl: string;
-  /** The ticket whose link opened this page. */
-  isSelf: boolean;
   /** Whether this holder has already accepted the waiver — signing early skips it at the door. */
   waiverSigned: boolean;
 }
@@ -121,6 +119,7 @@ export default function TicketManager({
             ticket={t}
             index={i + 1}
             many={many}
+            total={tickets.length}
             fillEndpoint={fillEndpoint}
             convertEndpoint={convertEndpoint}
             cancelEndpoint={cancelEndpoint}
@@ -138,6 +137,7 @@ function TicketCard({
   ticket,
   index,
   many,
+  total,
   fillEndpoint,
   convertEndpoint,
   cancelEndpoint,
@@ -148,6 +148,7 @@ function TicketCard({
   ticket: ManageTicket;
   index: number;
   many: boolean;
+  total: number;
   fillEndpoint: string;
   convertEndpoint: string;
   cancelEndpoint: string;
@@ -162,76 +163,98 @@ function TicketCard({
   const canEdit = !ticket.checkedIn && !cancelled;
 
   return (
-    <li className="rounded-2xl border border-border/70 bg-white p-5 shadow-sm">
-      <div className="flex gap-4">
-        <div className="shrink-0 rounded-lg border border-border/60 bg-white p-2">
+    <li className="relative rounded-2xl border border-border/70 bg-white p-4 shadow-sm sm:p-5">
+      {/* Which of several tickets this is — a quiet corner label, not a heading. With one
+          ticket there is nothing to disambiguate, so it is omitted entirely. */}
+      {many && (
+        <span className="absolute right-4 top-4 font-body text-xs text-marine/45">
+          {index} of {total}
+        </span>
+      )}
+
+      {/* Stacks on a phone (where this page is nearly always read) and sits side by side from
+          `sm` up. */}
+      <div className="flex flex-col gap-4 sm:flex-row">
+        <div className="shrink-0 self-start rounded-lg border border-border/60 bg-white p-2">
           <QRCodeSVG value={ticket.credentialUrl} size={112} fgColor="#052938" bgColor="#FFFFFF" level="M" />
         </div>
+
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-heading text-base font-bold text-marine">
-              {many ? `Ticket ${index}` : "Ticket"}
-            </span>
-            <span className="rounded-full bg-marine/10 px-2.5 py-0.5 text-sm font-body text-marine/80">
-              {ticket.typeTitle || "Ticket"}
-            </span>
-            {ticket.isSelf && many && (
-              <span className="rounded-full bg-marine/10 px-2.5 py-0.5 text-sm font-body font-semibold text-marine">
-                This link
-              </span>
-            )}
-            {ticket.checkedIn && (
-              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-sm font-body font-semibold text-emerald-800">
-                Checked in
-              </span>
-            )}
-            {cancelled && (
-              <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-sm font-body font-semibold text-red-800">
-                Cancelled
-              </span>
-            )}
-            {ticket.waiverSigned && !cancelled && (
-              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-sm font-body text-emerald-800">
-                Waiver signed
-              </span>
-            )}
-          </div>
-          <p className={`mt-1.5 font-body text-base text-marine ${cancelled ? "line-through text-marine/60" : ""}`}>
-            {ticket.name ? ticket.name : <span className="text-marine/60">Unnamed ticket</span>}
+          {/* Name leads — it is what the holder scans for when three tickets look alike. */}
+          <p
+            className={`font-heading text-lg font-bold leading-tight text-marine ${
+              cancelled ? "text-marine/50 line-through" : ""
+            }`}
+          >
+            {ticket.name || <span className="font-body font-normal text-marine/60">Unnamed ticket</span>}
           </p>
-          {ticket.email && <p className="font-body text-sm text-marine/70">{ticket.email}</p>}
+          {ticket.email && (
+            <p className="truncate font-body text-sm text-marine/70">{ticket.email}</p>
+          )}
+          <p className="mt-1 font-body text-sm text-marine/80">{ticket.typeTitle || "Ticket"}</p>
+
+          {/* Status only — never actions. A pill here means "this is true of the ticket". */}
+          {(ticket.checkedIn || cancelled || ticket.waiverSigned) && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {ticket.checkedIn && (
+                <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-body font-semibold text-emerald-800">
+                  Checked in
+                </span>
+              )}
+              {cancelled && (
+                <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-body font-semibold text-red-800">
+                  Cancelled
+                </span>
+              )}
+              {ticket.waiverSigned && !cancelled && (
+                <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-body text-emerald-800">
+                  Waiver signed
+                </span>
+              )}
+            </div>
+          )}
 
           {cancelled && (
             <p className="mt-2 font-body text-sm text-red-700">
               This ticket has been cancelled. A refund will follow from the organiser.
             </p>
           )}
-
-          {canEdit && (
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-              <EditControl ticket={ticket} endpoint={fillEndpoint} onSaved={onSaved} />
-              {targets.length > 0 && (
-                <ConvertControl
-                  endpoint={convertEndpoint}
-                  ticketId={ticket.id}
-                  currentPrice={currentPrice}
-                  targets={targets}
-                />
-              )}
-              <WaiverControl
-                endpoint={waiverEndpoint}
-                ticket={ticket}
-                onSigned={() => onSaved({ ...ticket, waiverSigned: true })}
-              />
-              <CancelControl
-                endpoint={cancelEndpoint}
-                ticketId={ticket.id}
-                onCancelled={() => onSaved({ ...ticket, cancellationStatus: "requested" })}
-              />
-            </div>
-          )}
         </div>
       </div>
+
+      {canEdit && (
+        <div className="mt-4 space-y-3">
+          {/* Primary: the one thing we want done before the night. Full width on a phone. */}
+          <WaiverControl
+            endpoint={waiverEndpoint}
+            ticket={ticket}
+            onSigned={() => onSaved({ ...ticket, waiverSigned: true })}
+          />
+
+          {/* Secondary: routine self-service. */}
+          <div className="flex flex-wrap gap-2">
+            <EditControl ticket={ticket} endpoint={fillEndpoint} onSaved={onSaved} />
+            {targets.length > 0 && (
+              <ConvertControl
+                endpoint={convertEndpoint}
+                ticketId={ticket.id}
+                currentPrice={currentPrice}
+                targets={targets}
+              />
+            )}
+          </div>
+
+          {/* Destructive, and deliberately last: its own area behind a rule, muted, and never
+              sitting next to a control someone meant to tap. */}
+          <div className="border-t border-border/60 pt-3">
+            <CancelControl
+              endpoint={cancelEndpoint}
+              ticketId={ticket.id}
+              onCancelled={() => onSaved({ ...ticket, cancellationStatus: "requested" })}
+            />
+          </div>
+        </div>
+      )}
     </li>
   );
 }
@@ -282,7 +305,7 @@ function EditControl({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-sm font-body font-semibold text-marine underline underline-offset-2"
+        className="rounded-full border border-marine/25 px-3.5 py-1.5 font-body text-sm font-semibold text-marine transition-colors hover:bg-marine/5 cursor-pointer"
       >
         Edit name / email
       </button>
@@ -377,7 +400,7 @@ function ConvertControl({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-sm font-body font-semibold text-marine underline underline-offset-2"
+        className="rounded-full border border-marine/25 px-3.5 py-1.5 font-body text-sm font-semibold text-marine transition-colors hover:bg-marine/5 cursor-pointer"
       >
         Change ticket type
       </button>
@@ -477,7 +500,7 @@ function CancelControl({
       <button
         type="button"
         onClick={() => setConfirming(true)}
-        className="text-sm font-body font-semibold text-red-700 underline underline-offset-2"
+        className="font-body text-sm text-marine/50 underline underline-offset-2 transition-colors hover:text-red-700 cursor-pointer"
       >
         Cancel ticket
       </button>
@@ -566,7 +589,7 @@ function WaiverControl({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="font-body text-sm font-semibold text-marine underline underline-offset-2 hover:text-marine-light cursor-pointer"
+        className="w-full rounded-full bg-marine px-4 py-2.5 font-body text-sm font-semibold text-white transition-colors hover:bg-marine-light cursor-pointer sm:w-auto"
       >
         Sign the waiver
       </button>

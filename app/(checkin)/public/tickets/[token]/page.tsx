@@ -84,7 +84,6 @@ export default async function TicketManagePage({
     checkedIn: t.checkedIn,
     cancellationStatus: t.cancellationStatus,
     credentialUrl: t.credentialUrl,
-    isSelf: t.isSelf,
     waiverSigned: t.waiverSigned,
   }));
 
