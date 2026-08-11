@@ -38,6 +38,14 @@ Three compounding issues blocked the admin magic-link login flow on Railway. Eac
 
 ## Fix 1: `NEXT_PUBLIC_` Variables Compiled as `undefined`
 
+> **The root cause below still holds; the prescribed fix has been superseded (2026-08-11).**
+> The app now solves this two ways, neither of which is "move it to a Server Action":
+>
+> 1. **Declare the build args.** `Dockerfile` explicitly declares `ARG NEXT_PUBLIC_APP_URL`, `ARG NEXT_PUBLIC_SUPABASE_URL`, `ARG NEXT_PUBLIC_SUPABASE_ANON_KEY`, `ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`. A variable set on Railway but **not declared as an ARG reads as undefined during the build, silently** — the same failure later recurred with `POSTHOG_PERSONAL_API_KEY`/`POSTHOG_ENV_ID` and shipped minified stack traces to production until it was caught. That generalisation is the durable lesson here.
+> 2. **Runtime fallback via body data-attributes.** `lib/supabase/client.ts` reads `document.body.dataset.supabaseUrl` / `.supabaseAnonKey`, injected by `app/layout.tsx`. Browser clients therefore work even when the build-time inline is missing, so the "always move it server-side" advice below is no longer the standing pattern — two components still use the browser client deliberately.
+>
+> Note `lib/supabase/client.ts` carries a comment saying `NEXT_PUBLIC_` vars "aren't available at build time" on Railway. That described the pre-ARG world; with the ARGs declared, the fallback is belt-and-braces rather than the primary mechanism.
+
 ### Root Cause
 
 Next.js inlines `NEXT_PUBLIC_` variables at **build time**, not runtime. When Railway builds the Docker image, it runs `next build` inside a build container. If `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are not present in that container's environment, Next.js replaces every reference with the literal string `undefined` — producing a broken client bundle that fails at runtime with no obvious pointer back to the missing variables.
@@ -93,7 +101,9 @@ async function handleSubmit(e: React.FormEvent) {
 
 ---
 
-## Fix 2: Magic Link Email Redirecting to `0.0.0.0:8080`
+## Fix 2: Magic Link Email Redirecting to an Internal Address
+
+> **Still correct, but no longer the main path (2026-08-11).** Login is now a 6-digit OTP: `app/actions/auth.ts` calls `signInWithOtp` with no `emailRedirectTo` anywhere in the repo, and the redirect is a relative path handed back to the client. The confirm routes survive as a secondary path and are exercised by the E2E setup, so the Site URL config below still matters — it is just no longer what most sign-ins touch.
 
 ### Root Cause
 
@@ -103,8 +113,8 @@ Supabase generates magic-link URLs using the **Site URL** configured in the dash
 
 In the Supabase dashboard → **Authentication → URL Configuration**:
 
-1. Set **Site URL** to: `https://gpc-social-members-production.up.railway.app`
-2. Add to **Redirect URLs** allowlist: `https://gpc-social-members-production.up.railway.app/**`
+1. Set **Site URL** to: `https://social.genevapolo.com`
+2. Add to **Redirect URLs** allowlist: `https://social.genevapolo.com/**`
 3. Keep `http://localhost:3000/**` in the allowlist for local development
 
 ---
@@ -113,20 +123,22 @@ In the Supabase dashboard → **Authentication → URL Configuration**:
 
 ### Root Cause
 
-Railway's `output: "standalone"` Next.js server binds to `0.0.0.0:8080` internally. `request.url` in Route Handlers reflects this internal binding address, not the public domain. Extracting `origin` from `request.url` yields `http://0.0.0.0:8080`, which becomes the base for all post-auth redirects.
+Railway's `output: "standalone"` Next.js server binds to `0.0.0.0` on its internal port (`8080` when this was written; the Dockerfile now sets `PORT=3000`, so the address you actually see may differ — the shape of the bug is what matters, not the number). `request.url` in Route Handlers reflects this internal binding address, not the public domain. Extracting `origin` from `request.url` yields `http://0.0.0.0:8080`, which becomes the base for all post-auth redirects.
 
 ### Fix
 
 **Before — `app/auth/confirm/route.ts`**
 ```ts
 const { searchParams, origin } = new URL(request.url);
-// origin = "http://0.0.0.0:8080" on Railway
+// origin = the container's internal bind address, not the public domain
 ```
 
-**After**
+**After** — the cascade now in `app/auth/confirm/route.ts:11-19` and `app/auth/member-confirm/route.ts:7-18`:
 ```ts
 const { searchParams } = new URL(request.url);
+// APP_URL is a runtime env var (not inlined at build like NEXT_PUBLIC_APP_URL)
 const origin =
+  process.env.APP_URL ||
   process.env.NEXT_PUBLIC_APP_URL ||
   (() => {
     const proto = request.headers.get("x-forwarded-proto") ?? "https";
@@ -134,6 +146,19 @@ const origin =
     return `${proto}://${host}`;
   })();
 ```
+
+**Priority order, and why:**
+
+1. `APP_URL` — runtime server env var. Most reliable on Railway: changing it needs no rebuild.
+2. `NEXT_PUBLIC_APP_URL` — inlined at build, so it is only right if it was set before the build.
+3. Forwarded headers — correct behind a reverse proxy.
+4. `request.url` origin — last resort; this is the thing that breaks.
+
+`APP_URL` is a **runtime** variable and is absent from `.env.local.example`, so nothing in the repo tells you to set it. It must be set on the Railway service.
+
+**Why one route worked and its sibling did not.** The admin confirm route was fixed in an earlier session with a `NEXT_PUBLIC_APP_URL` fallback; the member confirm route still used the naive `new URL(request.url).origin`. The same fix reached one file and not its neighbour — which is the argument for centralising origin resolution rather than fixing it per route.
+
+**That centralisation was never done, and the anti-pattern has since returned.** `app/auth/callback/route.ts:8` and `app/auth/session/route.ts:7` both destructure `origin` straight from `new URL(request.url)` and redirect from it. They are reachable in the OTP flow; if a redirect ever lands on an internal address again, start there.
 
 ---
 

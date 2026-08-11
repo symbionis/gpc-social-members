@@ -27,7 +27,7 @@ related:
 Postmark email templates using `{{#section}}` blocks render variables blank or behave unexpectedly. This has manifested in three distinct ways across sessions:
 
 1. **Mar 29:** Button href renders empty inside `{{#checkout_url}}` — using `{{checkout_url}}` instead of `{{.}}`
-2. **Mar 29:** Conditional block renders when `has_payment: false` is passed — boolean `false` is truthy in Mustachio
+2. **Mar 29:** Conditional block rendered when `has_payment: false` was passed. The diagnosis recorded at the time — "boolean `false` is truthy" — was **wrong**: a 2026-08-11 probe against Postmark's validate endpoint shows `false` is falsy. Something else made that block render (a stringified `"false"` and a whitespace-only value are both truthy, and either would look identical from the outside). The symptom was real; the cause was never confirmed.
 3. **Apr 13:** Variables like `{{first_name}}`, `{{portal_url}}` render blank inside `{{#has_card}}` block — parent scope inaccessible without `{{../}}` syntax (session history)
 
 ## Root Cause
@@ -38,9 +38,11 @@ Postmark uses **Mustachio** (a Mustache variant). Three key behaviors differ fro
 
 When you write `{{#checkout_url}}`, Mustachio scopes the context inside the block to the **value** of `checkout_url` (the URL string). Inside that block, `{{checkout_url}}` tries to look up a property called `checkout_url` on the string itself — which doesn't exist — so it renders empty.
 
-### 2. Boolean `false` is not falsy
+### 2. Guard on presence, not on a truthiness you have guessed
 
-Mustachio treats any **present** value (including boolean `false`) as truthy for section blocks. Only `null`, `undefined`, empty string, or missing keys are falsy.
+**Corrected 2026-08-11.** This section previously said boolean `false` was truthy. It is not — verified against Postmark's `POST /templates/validate`: missing keys, `null`, `""`, `false` and `[]` are all falsy, while `0`, a whitespace-only string and the string `"false"` are truthy. The full table lives in [postmark-mustachio-conditional-syntax.md](./postmark-mustachio-conditional-syntax.md) and is not restated here — restating it is how the two docs came to disagree.
+
+The practical rule is unchanged: pass `null` for an absent optional value, and never gate a block on a number.
 
 ### 3. Parent scope requires `{{../}}` traversal
 
@@ -148,10 +150,10 @@ Reference: [Postmark template syntax docs](https://postmarkapp.com/support/artic
 |------|--------|
 | `{{#var}}` scopes context | Inside the block, `{{.}}` = the value; `{{var}}` looks for a property on the value |
 | `{{../var}}` for parent scope | Access sibling variables from outside the current section block |
-| Boolean `false` is truthy | Only missing/null/undefined/empty-string keys are falsy |
+| Guard on presence | `false`, `null`, `""` and `[]` are falsy; `0` and `" "` are truthy — see the canonical table in the conditional-syntax doc |
 | Use variable as guard | `{{#checkout_url}}` gates on presence — no separate boolean needed |
 | `{{.}}` for current value | Always use dot notation inside section blocks to reference the scoped value |
-| Pass `null` not `""` | Empty string is truthy; pass `null` for absent optional values |
+| Pass `null` not `""` | Both are falsy for a block, but `null` states the intent and avoids rendering an empty interpolation |
 
 ## Prevention Checklist
 

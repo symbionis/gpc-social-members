@@ -95,6 +95,14 @@ The private, rotatable per-Ticket link that opens a Ticket's Household — letti
 ### Door Console
 The public, no-login check-in surface for an Event, opened by staff at a hard-to-guess per-Event link, used to scan Ticket QRs, fill in missing names and waivers, admit walk-ups against unredeemed Tickets, and resend a party's Tickets to its Lead.
 
+## Membership applications
+
+### Approval Committee
+The admins who decide on membership applications — a named subset of staff, not every admin. Notifications about pending applications go to this set, and it is the reason "notify the admins" and "notify the committee" are different actions in this codebase.
+
+### Authorization Hold
+A card authorization taken at application time without charging it — the money is reserved, not captured. An application on a paid tier reaches the Approval Committee only once its hold succeeds, so an abandoned checkout never becomes something a human has to triage. The charge is captured later, on approval; a decline releases the hold instead.
+
 ## Pricing
 
 ### Rate Class
