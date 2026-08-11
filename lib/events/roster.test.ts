@@ -109,27 +109,19 @@ describe("applyTopupRoster", () => {
     expect(client.rpc).toHaveBeenCalledWith("apply_topup_roster", { p_topup_id: "topup-1" });
   });
 
-  // The distinction the fallback keys on. An ordinary redelivery (already applied and
-  // cleared) must NOT be treated as legacy, or it re-runs the registration-level apply.
-  it("reports an already-applied redelivery as no_roster, not legacy", async () => {
+  it("reports an already-applied redelivery as no_roster", async () => {
     mockedAdmin.mockReturnValue(
-      adminWithRpc(() => ({ data: { status: "no_roster", legacy: false }, error: null }))
+      adminWithRpc(() => ({ data: { status: "no_roster" }, error: null }))
     );
     await expect(applyTopupRoster("topup-1")).resolves.toBe("no_roster");
   });
 
-  it("reports a pre-migration top-up as legacy_roster", async () => {
+  // The RPC still reports `legacy` for a top-up that predates per-top-up rosters. The shim
+  // that consumed it is retired, so the flag must no longer change the answer — if it did,
+  // a redelivery would re-run the registration-level apply the ownership fix removed.
+  it("ignores the RPC's legacy flag now that the fallback is gone", async () => {
     mockedAdmin.mockReturnValue(
       adminWithRpc(() => ({ data: { status: "no_roster", legacy: true }, error: null }))
-    );
-    await expect(applyTopupRoster("topup-1")).resolves.toBe("legacy_roster");
-  });
-
-  // Defensive: an RPC that predates the legacy flag omits it entirely. Absent must mean
-  // "not legacy" — guessing the other way re-runs an apply that should not run.
-  it("treats an absent legacy flag as not legacy", async () => {
-    mockedAdmin.mockReturnValue(
-      adminWithRpc(() => ({ data: { status: "no_roster" }, error: null }))
     );
     await expect(applyTopupRoster("topup-1")).resolves.toBe("no_roster");
   });

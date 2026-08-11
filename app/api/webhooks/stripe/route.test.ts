@@ -332,23 +332,19 @@ describe("stripe webhook — top-up branch", () => {
     expect(mockedApply).not.toHaveBeenCalled();
   });
 
-  it("falls back to the registration slot only for a pre-migration top-up", async () => {
-    mockedApplyTopup.mockResolvedValue("legacy_roster");
-    currentEvent = makeEvent({ event_registration_id: REG, topup_id: TOPUP });
-    await post();
-    expect(mockedApplyTopup).toHaveBeenCalledWith(TOPUP);
-    expect(mockedApply).toHaveBeenCalledWith(REG);
-  });
-
-  // An ordinary redelivery — roster already applied and cleared — must NOT re-run the
-  // registration-level apply. Conflating the two is what coupled the paths back together.
-  it("does not fall back on an ordinary redelivery", async () => {
-    mockedApplyTopup.mockResolvedValue("no_roster");
-    currentEvent = makeEvent({ event_registration_id: REG, topup_id: TOPUP });
-    const res = await post();
-    expect(res.status).toBe(200);
-    expect(mockedApply).not.toHaveBeenCalled();
-  });
+  // The transition shim that fell back to the registration slot is retired, so this is now
+  // unconditional: a top-up must NEVER reach event_registrations.pending_roster, whatever the
+  // apply reports. A second producer on that column is the whole defect 20260811064034 fixed.
+  it.each(["applied", "no_roster", "not_found"] as const)(
+    "never touches the registration's roster slot (status: %s)",
+    async (status) => {
+      mockedApplyTopup.mockResolvedValue(status);
+      currentEvent = makeEvent({ event_registration_id: REG, topup_id: TOPUP });
+      await post();
+      expect(mockedApplyTopup).toHaveBeenCalledWith(TOPUP);
+      expect(mockedApply).not.toHaveBeenCalled();
+    }
+  );
 
   // Seats must exist before they can be named. Swap these two and every claim no-ops
   // against a set of tickets that has not been minted yet, while the RPC clears the
