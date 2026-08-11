@@ -1,0 +1,36 @@
+Dear {{first_name}},
+
+{{#resend}}
+Here's a copy of your receipt for {{event_title}}.
+
+{{/resend}}
+{{#is_free}}
+This confirms your spot at {{event_title}} — no payment was due.
+{{/is_free}}
+{{^is_free}}
+Thank you — here's your receipt for {{event_title}}.
+{{/is_free}}
+
+RECEIPT
+-------
+{{#each receipt_lines}}
+  {{quantity}} x {{title}} · {{unitLabel}} each - {{lineLabel}}
+{{/each}}
+Total:        {{amount_label}}
+{{#reference_code}}
+Reference:    {{.}}
+{{/reference_code}}
+{{#paid_date_label}}
+Paid:         {{.}}
+{{/paid_date_label}}
+{{#charge_reference}}
+Charge ref:   {{.}}
+{{/charge_reference}}
+
+Your tickets and QR codes arrive in a separate email.
+
+Warm regards,
+The Geneva Polo Social Club Team
+
+---
+Geneva Polo Social Club
