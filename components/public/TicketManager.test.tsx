@@ -75,6 +75,17 @@ describe("TicketManager — what a guest sees on a phone", () => {
     expect(screen.queryByText(/of 1$/)).toBeNull();
   });
 
+  // It belongs with the ticket it applies to — in the details column under the type, not
+  // adrift below the QR where it reads as a card-level action.
+  it("puts the waiver action in the same column as the ticket type", () => {
+    renderManager([ticket()]);
+    const column = within(cardOf("Sophie Berger")).getByText("Clubhouse Dinner")
+      .parentElement as HTMLElement;
+    expect(within(column).getByRole("button", { name: "Sign the waiver" })).toBeInTheDocument();
+    // ...and the secondary row is NOT in that column.
+    expect(within(column).queryByRole("button", { name: "Cancel ticket" })).toBeNull();
+  });
+
   it("offers the waiver as the prominent action and cancel as the quiet one", () => {
     renderManager([ticket()]);
     const card = cardOf("Sophie Berger");

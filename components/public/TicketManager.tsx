@@ -193,6 +193,18 @@ function TicketCard({
           )}
           <p className="mt-1 font-body text-sm text-marine/80">{ticket.typeTitle || "Ticket"}</p>
 
+          {/* The primary action sits with the ticket it applies to, not adrift below the QR.
+              Full width on a phone (where the column is the whole card), inline from `sm`. */}
+          {canEdit && (
+            <div className="mt-3">
+              <WaiverControl
+                endpoint={waiverEndpoint}
+                ticket={ticket}
+                onSigned={() => onSaved({ ...ticket, waiverSigned: true })}
+              />
+            </div>
+          )}
+
           {/* Status only — never actions. A pill here means "this is true of the ticket". */}
           {(ticket.checkedIn || cancelled || ticket.waiverSigned) && (
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -223,14 +235,7 @@ function TicketCard({
       </div>
 
       {canEdit && (
-        <div className="mt-4 space-y-3">
-          {/* Primary: the one thing we want done before the night. Full width on a phone. */}
-          <WaiverControl
-            endpoint={waiverEndpoint}
-            ticket={ticket}
-            onSigned={() => onSaved({ ...ticket, waiverSigned: true })}
-          />
-
+        <div className="mt-4">
           {/* Everything else on one line below a rule: routine self-service to the left,
               cancel pushed to the far right. Separated by distance and by weight rather than
               by a row of its own — the primary action above is the only pill on the card. */}
