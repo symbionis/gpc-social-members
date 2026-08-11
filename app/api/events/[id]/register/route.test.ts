@@ -40,7 +40,13 @@ type TicketType = {
 
 type RpcArgs = { p_status: string; p_is_member: boolean; p_member_id: string | null; p_items: { ticket_type_id: string; unit_amount_chf: number; line_total_chf: number; quantity: number }[] };
 
-type WaitlistEntry = { id: string; email: string; quantity: number | null } | null;
+type WaitlistEntry = {
+  id: string;
+  email: string;
+  quantity: number | null;
+  offer_token?: string;
+  event_id?: string;
+} | null;
 type LiveReg = { waitlist_entry_id: string | null; email: string };
 
 type Cfg = {
@@ -58,6 +64,7 @@ type Cfg = {
   // paid/free registrations used to derive redeemed state (KTD3), and the
   // fail-loud waitlist_entry_id write on the created registration.
   waitlistEntry?: WaitlistEntry;
+  capturedWaitlistFilters?: Record<string, unknown>;
   waitlistEntryLookupError?: boolean;
   liveRegs?: LiveReg[];
   liveRegsLookupError?: boolean;
@@ -145,14 +152,32 @@ function adminClient(cfg: Cfg) {
         return c;
       }
       if (table === "event_waitlist") {
+        // The filters are RECORDED and honoured, not ignored. The offer-token lookup
+        // is scoped by `.eq("event_id", eventId)` — the only thing standing between an
+        // unauthenticated, long-lived token minted for event A and a redemption against
+        // event B. A mock that swallowed `.eq` would let that guard be deleted with the
+        // suite still green.
+        const filters: Record<string, unknown> = {};
         const c: Record<string, unknown> = {};
         c.select = () => c;
-        c.eq = () => c;
+        c.eq = (col: string, val: unknown) => {
+          filters[col] = val;
+          return c;
+        };
         c.limit = () => c;
-        c.maybeSingle = async () =>
-          cfg.waitlistEntryLookupError
-            ? { data: null, error: { message: "waitlist entry lookup failed" } }
-            : { data: cfg.waitlistEntry ?? null, error: null };
+        c.maybeSingle = async () => {
+          cfg.capturedWaitlistFilters = { ...filters };
+          if (cfg.waitlistEntryLookupError) {
+            return { data: null, error: { message: "waitlist entry lookup failed" } };
+          }
+          const entry = cfg.waitlistEntry ?? null;
+          if (!entry) return { data: null, error: null };
+          // Mimic Postgres: a row is returned only if it satisfies every filter.
+          const matches =
+            (!("offer_token" in filters) || filters.offer_token === entry.offer_token) &&
+            (!("event_id" in filters) || filters.event_id === entry.event_id);
+          return { data: matches ? entry : null, error: null };
+        };
         return c;
       }
       throw new Error(`unexpected table ${table}`);
@@ -641,7 +666,13 @@ describe("offer redemption (U6)", () => {
   const offerEvent = { ...membersOnlyEvent, visibility: "public" };
   const OFFER_TOKEN = "offer-tok-abc";
   const ENTRY_EMAIL = "invitee@example.com";
-  const entryQty2: WaitlistEntry = { id: "wl-1", email: ENTRY_EMAIL, quantity: 2 };
+  const entryQty2: WaitlistEntry = {
+    id: "wl-1",
+    email: ENTRY_EMAIL,
+    quantity: 2,
+    offer_token: OFFER_TOKEN,
+    event_id: "evt-1",
+  };
 
   const dinner: TicketType = { id: "t1", title: "Dinner", price_member: 80, price_non_member: 80, invite_price: null, counts_as_seat: true, archived_at: null };
   const lunch: TicketType = { id: "t2", title: "Lunch", price_member: 50, price_non_member: 50, invite_price: null, counts_as_seat: true, archived_at: null };
@@ -717,16 +748,45 @@ describe("offer redemption (U6)", () => {
     expect(stripeCreate).not.toHaveBeenCalled();
   });
 
-  it("rejects a requested type belonging to another event (IDOR)", async () => {
-    // The ticket-types mock returns whatever `ticketTypes` is configured with,
-    // regardless of the `.in(ids)` filter — matching the pre-existing IDOR test's
-    // shape (line ~278): request two ids while the fixture only "has" one, so the
-    // route's own `types.length < ids.length` guard is what fires.
+  it("rejects a basket naming a ticket type the event does not have", async () => {
+    // Named for what it actually exercises: the ticket-types mock ignores `.in(ids)`,
+    // so requesting two ids while the fixture has one trips the route's own
+    // `types.length < ids.length` count guard, not per-event scoping. Cross-event
+    // scoping of the TOKEN is covered by the IDOR test below.
     const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
     const res = await offerPost(cfg, {
       items: [{ ticket_type_id: "t1", quantity: 1 }, { ticket_type_id: "tX", quantity: 1 }],
     });
     expect(res.status).toBe(400);
+  });
+
+  // IDOR: the token is unauthenticated and long-lived, so the ONLY thing stopping a
+  // token minted for event A from redeeming against event B is the lookup's
+  // `.eq("event_id", eventId)`. Delete that line and this test fails.
+  it("refuses a token whose entry belongs to a different event", async () => {
+    const cfg: Cfg = {
+      event: offerEvent,
+      ticketTypes: [dinner],
+      waitlistEntry: { ...entryQty2, event_id: "evt-OTHER" },
+    };
+    const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+
+    expect(res.status).toBe(400);
+    expect(cfg.capturedRpc).toBeUndefined();
+    expect(stripeCreate).not.toHaveBeenCalled();
+    expect(cfg.capturedWaitlistFilters).toMatchObject({
+      offer_token: OFFER_TOKEN,
+      event_id: "evt-1",
+    });
+  });
+
+  it("scopes the token lookup by both the token and the event", async () => {
+    const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
+    await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(cfg.capturedWaitlistFilters).toMatchObject({
+      offer_token: OFFER_TOKEN,
+      event_id: "evt-1",
+    });
   });
 
   it("rejects an unresolvable offer token", async () => {

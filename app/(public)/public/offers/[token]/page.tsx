@@ -26,52 +26,77 @@ export default async function OfferLandingPage({
   const supabase = createAdminClient();
 
   // Session awareness is independent of the token — resolve it alongside the entry
-  // lookup rather than after. Any failure here degrades to signed-out rendering — a
-  // landing that can't check the session must not silently grant a member rate.
+  // lookup rather than after.
+  //
+  // An auth failure degrades to signed-out, which is safe: it forces a re-auth and
+  // cannot mint a member rate. A failed MEMBERSHIP read is different and must not
+  // degrade — a Supabase query error does not throw, so treating it as "not a member"
+  // silently quotes an active member the non-member price on a public event, and
+  // bounces them off a members-only one. Neither failure is visible to anyone.
   async function resolveSession(): Promise<{ isLoggedIn: boolean; isActiveMember: boolean }> {
+    let userId: string | null = null;
     try {
       const sessionClient = await createClient();
       const {
         data: { user },
       } = await sessionClient.auth.getUser();
-      if (!user?.id) return { isLoggedIn: false, isActiveMember: false };
-      const { data: memberRow } = await supabase
-        .from("members")
-        .select("id")
-        .eq("auth_user_id", user.id)
-        .eq("status", "active")
-        .limit(1)
-        .maybeSingle();
-      return { isLoggedIn: true, isActiveMember: Boolean(memberRow) };
+      userId = user?.id ?? null;
     } catch (err) {
       console.error("[public/offers/[token]] session lookup failed", err);
       return { isLoggedIn: false, isActiveMember: false };
     }
+    if (!userId) return { isLoggedIn: false, isActiveMember: false };
+
+    const { data: memberRow, error: memberErr } = await supabase
+      .from("members")
+      .select("id")
+      .eq("auth_user_id", userId)
+      .eq("status", "active")
+      .limit(1)
+      .maybeSingle();
+    if (memberErr) {
+      console.error("[public/offers/[token]] member status lookup failed", memberErr);
+      throw new Error("Member status lookup failed");
+    }
+    return { isLoggedIn: true, isActiveMember: Boolean(memberRow) };
   }
 
   // KTD4: event_waitlist has RLS with no policies — resolve server-side only.
-  const [{ data: entryRow }, { isLoggedIn, isActiveMember }] = await Promise.all([
-    supabase
-      .from("event_waitlist")
-      .select("id, email, name, quantity, ticket_type_id, event_id")
-      .eq("offer_token", token)
-      .limit(1)
-      .maybeSingle(),
-    resolveSession(),
-  ]);
+  const [{ data: entryRow, error: entryErr }, { isLoggedIn, isActiveMember }] =
+    await Promise.all([
+      supabase
+        .from("event_waitlist")
+        .select("id, email, name, quantity, ticket_type_id, event_id")
+        .eq("offer_token", token)
+        .limit(1)
+        .maybeSingle(),
+      resolveSession(),
+    ]);
+  // A lookup failure is not a bad link. Falling through to the `invalid` panel would
+  // tell someone holding a perfectly good offer that their link is forged or expired,
+  // and would do it without logging anything.
+  if (entryErr) {
+    console.error("[public/offers/[token]] entry lookup failed", entryErr);
+    throw new Error("Offer lookup failed");
+  }
 
   const entry = entryRow
     ? { id: entryRow.id, email: entryRow.email, quantity: entryRow.quantity }
     : null;
 
-  const { data: event } = entryRow
+  const { data: event, error: eventErr } = entryRow
     ? await supabase
         .from("events")
         .select("id, title, is_published, registration_enabled, visibility, seat_cap")
         .eq("id", entryRow.event_id)
         .limit(1)
         .maybeSingle()
-    : { data: null };
+    : { data: null, error: null };
+  // Same reasoning as the entry lookup: a failed read is not an invalid link.
+  if (eventErr) {
+    console.error("[public/offers/[token]] event lookup failed", eventErr);
+    throw new Error("Offer event lookup failed");
+  }
 
   const eventGate = event
     ? {
@@ -184,13 +209,20 @@ export default async function OfferLandingPage({
   // outcome.kind === "checkout" from here.
   // KTD6: only seat-counting, non-archived types are offered — a non-seat type
   // would let the redemption skip the capacity it was meant to consume.
-  const { data: rawTicketTypes } = await supabase
+  const { data: rawTicketTypes, error: ticketTypesErr } = await supabase
     .from("event_ticket_types")
     .select("id, title, price_member, price_non_member, description, sort_order, counts_as_seat")
     .eq("event_id", event!.id)
     .eq("counts_as_seat", true)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
+  // Without this check an empty result renders "Registration details coming soon",
+  // which reads as an admin who hasn't finished setting the event up — a dead end
+  // for a live, seat-backed offer, and indistinguishable from the real thing.
+  if (ticketTypesErr) {
+    console.error("[public/offers/[token]] ticket type lookup failed", ticketTypesErr);
+    throw new Error("Offer ticket type lookup failed");
+  }
 
   // KTD7: pricing is session-derived, never token-derived — the member rate only
   // applies to a session already confirmed active member above.

@@ -456,11 +456,20 @@ export default function ManageEventTabs({
                                 </button>
                               )}
                             </div>
-                            {entry.offered && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Offered{entry.offer_sent_count > 1 ? ` ×${entry.offer_sent_count}` : ""}
-                              </p>
-                            )}
+                            {entry.offered &&
+                              (entry.offer_sent_count === 0 ? (
+                                // The count only moves on a delivered send, so an offered
+                                // entry still at 0 means the email never went out. The
+                                // post-Offer notice is component state and does not
+                                // survive a refresh — this does.
+                                <p className="text-xs text-red-700 mt-1">
+                                  Email not delivered — resend, or contact them directly
+                                </p>
+                              ) : (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Offered{entry.offer_sent_count > 1 ? ` ×${entry.offer_sent_count}` : ""}
+                                </p>
+                              ))}
                             {or.error && <p className="text-xs text-red-700 mt-1">{or.error}</p>}
                             {wr.error && <p className="text-xs text-red-700 mt-1">{wr.error}</p>}
                           </td>

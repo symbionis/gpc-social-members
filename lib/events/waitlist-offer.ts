@@ -22,6 +22,12 @@ export interface WaitlistOfferabilityInput {
   ticket_type_id: string | null;
   quantity: number | null;
   ticketType: OfferabilityTicketType | null;
+  /** R12: a live registration already exists for this entry's email, with no
+   * `waitlist_entry_id` linking the two (a pre-U1 legacy entry, or a second entry
+   * by someone who booked separately). Not redeemed — nothing links them — but not
+   * offerable either: the register route's duplicate-email guard would 409 the
+   * redemption, so offering would walk the person into a dead end. */
+  emailAlreadyRegistered?: boolean;
 }
 
 export interface WaitlistOfferabilityResult {
@@ -35,10 +41,20 @@ export interface WaitlistOfferabilityResult {
  * R13/R14: an offerable entry needs a live, non-archived, seat-counting ticket type
  * (KTD6) and a quantity between 1 and 10. Ticket-type problems are reported before
  * quantity problems, matching the order the plan states them in.
+ *
+ * An email that already holds a registration is reported before either: it is the
+ * decisive fact about the entry, and fixing the ticket type would not make it
+ * offerable.
  */
 export function deriveWaitlistOfferability(
   entry: WaitlistOfferabilityInput
 ): WaitlistOfferabilityResult {
+  if (entry.emailAlreadyRegistered) {
+    return {
+      offerable: false,
+      reason: "This email already has a registration for this event",
+    };
+  }
   if (!entry.ticket_type_id) {
     return { offerable: false, reason: "No ticket type is set for this entry" };
   }
@@ -75,22 +91,39 @@ export interface LiveRegistrationForRedemption {
 }
 
 /**
- * KTD3: an entry is redeemed once its linked registration (`waitlist_entry_id`) reaches
- * paid or free. Legacy entries created before U1 have no such link, so also fall back to
- * an email match against a live (paid/free) registration for the same event — this is the
- * same email+event lookup the register route runs before its capacity check.
+ * KTD3: an entry is redeemed once ITS OWN linked registration (`waitlist_entry_id`)
+ * reaches paid or free. A bare email match is deliberately NOT redemption — see
+ * `emailAlreadyRegistered` below for why the two are separate signals.
  *
  * `liveRegistrations` must already be scoped to the entry's event and to paid/free status.
  */
 export function isWaitlistEntryRedeemed(
-  entry: { id: string; email: string },
+  entry: { id: string },
+  liveRegistrations: LiveRegistrationForRedemption[]
+): boolean {
+  return liveRegistrations.some((r) => r.waitlist_entry_id === entry.id);
+}
+
+/**
+ * R12: a live registration shares this entry's email but nothing links the two — a
+ * pre-U1 legacy entry, or someone who joined the waitlist and then booked separately.
+ *
+ * Kept distinct from redemption on purpose. Folding it into `isWaitlistEntryRedeemed`
+ * made such entries vanish from the admin waitlist entirely, which reads as data loss:
+ * the admin cannot see the entry, cannot tell why, and cannot act on it. Reporting it
+ * as "not redeemed, but not offerable, and here is the reason" keeps the row visible
+ * while still refusing to offer a seat the register route's duplicate-email guard
+ * would reject at checkout.
+ *
+ * `liveRegistrations` must already be scoped to the entry's event and to paid/free status.
+ */
+export function emailAlreadyRegistered(
+  entry: { email: string },
   liveRegistrations: LiveRegistrationForRedemption[]
 ): boolean {
   const emailLower = entry.email.trim().toLowerCase();
   return liveRegistrations.some(
-    (r) =>
-      r.waitlist_entry_id === entry.id ||
-      r.email.trim().toLowerCase() === emailLower
+    (r) => r.email.trim().toLowerCase() === emailLower
   );
 }
 

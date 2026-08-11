@@ -31,7 +31,9 @@ Guests are name-only: contact details and waiver are collected at the door on ch
 A name, email, requested Ticket Type, and quantity recorded when someone tries to register for a fully-booked Event. Not a Registration and not a queue position — an admin decides who to Offer a seat to, in any order, whenever capacity frees up.
 
 ### Offer
-An admin action that turns a Waitlist Entry into an emailed, per-entry link into ordinary checkout — never a free Registration. An Offer confers no seat hold and no expiry: several Entries can be offered against the same freed capacity, and seats go to whoever completes payment first. The buyer may pick any live Ticket Type, but may buy at most the Entry's requested quantity. A Waitlist Entry stops being offerable once its Offer is redeemed (or withdrawn by an admin) — nothing else removes it from the list.
+An admin action that turns a Waitlist Entry into an emailed, per-entry link into ordinary checkout — never a free Registration. An Offer confers no seat hold and no expiry: several Entries can be offered against the same freed capacity, and seats go to whoever completes payment first. The buyer may pick any live Ticket Type, but may buy at most the Entry's requested quantity.
+
+A Waitlist Entry stops being offerable once its Offer is redeemed — that is, once the Registration created from it is paid or free. Withdrawal is the opposite: it cancels an issued Offer, the link stops resolving, and the Entry returns to the queue, offerable again. An Entry whose email already holds a Registration for the Event, with nothing linking the two, is neither redeemed nor offerable: it stays visible to the admin with a reason, because hiding it would look like the Entry had been lost.
 
 ### Top-up
 Adding further Tickets to an existing confirmed Registration after booking — the "Buy more tickets" flow. A Top-up is priced at the Registration's original Rate Class and, when it costs money, runs its own checkout before the new Tickets are minted.

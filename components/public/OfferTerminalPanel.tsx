@@ -1,7 +1,7 @@
 // U5 of docs/plans/2026-08-11-001-feat-waitlist-paid-offer-flow-plan.md.
 //
-// The five terminal (non-checkout) outcomes of the offer landing's six-outcome
-// gate (lib/events/offer-landing.ts). None of these render EventFullyBookedBlock
+// The five terminal (non-checkout) outcomes of the offer landing's gate
+// (lib/events/offer-landing.ts). None of these render EventFullyBookedBlock
 // or WaitlistForm (R10) — an offer holder is already on the waitlist they'd be
 // invited to rejoin.
 
@@ -17,7 +17,7 @@ interface Props {
   /** Required for "already_registered" only. */
   eventTitle?: string;
   /** Required for "already_registered" only. Never the registration's manage_token
-   *  (R12 approach step 7) — that token authorises cancellation/conversion/top-up
+   *  (U5 approach step 7) — that token authorises cancellation/conversion/top-up
    *  and must not be reachable from a long-lived, potentially-forwarded offer link. */
   referenceCode?: string;
 }

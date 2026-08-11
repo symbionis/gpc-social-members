@@ -267,6 +267,7 @@ flowchart TD
 - The returned payload contains no `offer_token` value.
 - An entry linked to a paid registration is returned as redeemed; one linked to a pending registration is not.
 - A post-migration entry sharing an email with an unrelated paid registration (no `waitlist_entry_id` link between them) stays offerable.
+  - **Superseded 2026-08-11 (post-merge review).** Such an entry is now *visible but not offerable*, with the reason "This email already has a registration for this event". As shipped it was neither: the email match counted as redemption, which hid the entry from the admin waitlist entirely and read as data loss. Making it offerable again was rejected too — the register route's duplicate-email guard would 409 the redemption, so an offer would walk the person into a dead end. Redemption is now the entry's own `waitlist_entry_id` link only (`isWaitlistEntryRedeemed`); the email match is a separate signal (`emailAlreadyRegistered`) feeding offerability.
 - PATCH with a corrected email on an unredeemed entry updates it; PATCH with an email on a redeemed entry is rejected.
 
 **Verification.** The Waitlist tab data includes requested type, quantity, offer state, and an offerable flag for every entry, including legacy rows.

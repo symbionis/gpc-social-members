@@ -3,10 +3,8 @@
 import { useEffect, Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
-import {
-  redactPathForAnalytics,
-  redactUrlForAnalytics,
-} from "@/lib/analytics/redact-path";
+import { redactUrlForAnalytics } from "@/lib/analytics/redact-path";
+import { redactAnalyticsEvent } from "@/lib/analytics/redact-event";
 
 /**
  * Initializes PostHog and tracks pageviews on App Router navigation.
@@ -47,39 +45,10 @@ export default function PostHogProvider({
       disable_surveys: true,
       autocapture: true,
       capture_exceptions: true,
-      before_send: (event) => {
-        if (!event) return event;
-        // U5/KTD4: redact the offer token from EVERY captured event, not just the
-        // manual $pageview call below — autocapture (clicks, form submits) and
-        // $exception events stamp $current_url/$pathname from window.location
-        // independently of that call, and would otherwise ship the live token.
-        // URL-space, not path-space: on /login the token rides in ?next= (AE8).
-        if (typeof event.properties?.$current_url === "string") {
-          event.properties.$current_url = redactUrlForAnalytics(
-            event.properties.$current_url
-          );
-        }
-        if (typeof event.properties?.$pathname === "string") {
-          event.properties.$pathname = redactPathForAnalytics(event.properties.$pathname);
-        }
-        if (event.event === "$exception") {
-          const list = event.properties?.$exception_list as
-            | Array<{ value?: string; type?: string }>
-            | undefined;
-          const first = list?.[0];
-          const value = first?.value || "";
-          // Browser-extension noise: a content script (commonly Microsoft Editor
-          // and similar) throws this verbatim into the page. Not our code.
-          if (value.includes("Object Not Found Matching Id")) return null;
-          // Android WebView in-app browser: native bridge is GC'd while a JS
-          // postMessage is in flight (user backgrounded the host app).
-          if (value.includes("Java object is gone")) return null;
-          // iOS WKWebView in-app browser: third-party SDK/bridge code probes for
-          // a native message handler the host app didn't register.
-          if (value.includes("window.webkit.messageHandlers")) return null;
-        }
-        return event;
-      },
+      // U5/KTD4 offer-token redaction plus third-party noise filtering. The body
+      // lives in lib/analytics/redact-event.ts so it is unit-testable — the leak
+      // this guards against was a property of the hook, not of its helpers.
+      before_send: redactAnalyticsEvent,
     });
 
     (window as { __ph_initialized?: boolean }).__ph_initialized = true;
