@@ -203,6 +203,58 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
     expect(screen.queryByRole("button", { name: "Fix" })).toBeNull();
   });
 
+  // R4 lets an admin offer to more entries than there are free seats — they race to pay, and
+  // that is deliberate. Zero free seats is the case R4 does not cover: every offer is dead on
+  // arrival, because the landing tells whoever opens it that the seats have gone.
+  it("warns before the click when the event is full", async () => {
+    const user = userEvent.setup();
+    renderTabs({ hasSeatCap: true, seatCap: 10, total: 10, waitlist: [waitlistEntry()] });
+    await openWaitlistTab(user);
+
+    expect(screen.getByText(/This event is full/)).toBeInTheDocument();
+    expect(screen.getByText(/cannot be redeemed/)).toBeInTheDocument();
+  });
+
+  it("says nothing about capacity while seats remain", async () => {
+    const user = userEvent.setup();
+    renderTabs({ hasSeatCap: true, seatCap: 10, total: 9, waitlist: [waitlistEntry()] });
+    await openWaitlistTab(user);
+
+    expect(screen.queryByText(/This event is full/)).toBeNull();
+  });
+
+  // An overbooked event is still full — more so.
+  it("warns when the event is overbooked", async () => {
+    const user = userEvent.setup();
+    renderTabs({ hasSeatCap: true, seatCap: 10, total: 12, overbooked: true, waitlist: [waitlistEntry()] });
+    await openWaitlistTab(user);
+
+    expect(screen.getByText(/overbooked/)).toBeInTheDocument();
+  });
+
+  // An uncapped event can always take one more, so the warning must not fire.
+  it("says nothing on an uncapped event", async () => {
+    const user = userEvent.setup();
+    renderTabs({ hasSeatCap: false, seatCap: null, total: 99, waitlist: [waitlistEntry()] });
+    await openWaitlistTab(user);
+
+    expect(screen.queryByText(/This event is full/)).toBeNull();
+  });
+
+  // The banner is preventive; this is the confirmation the admin actually reads afterwards.
+  it("repeats the caveat in the post-offer notice", async () => {
+    const user = userEvent.setup();
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, email_sent: true, offer_sent_count: 1 }),
+    });
+    renderTabs({ hasSeatCap: true, seatCap: 10, total: 10, waitlist: [waitlistEntry()] });
+    await openWaitlistTab(user);
+    await user.click(screen.getByRole("button", { name: "Offer" }));
+
+    expect(await screen.findByText(/cannot check out until a seat frees up/)).toBeInTheDocument();
+  });
+
   // Simplifying the row must not lose the diagnosis — it moves to where the repair happens.
   it("shows the specific reason once the row's Fix panel is opened", async () => {
     const user = userEvent.setup();
