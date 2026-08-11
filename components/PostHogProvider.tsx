@@ -3,7 +3,10 @@
 import { useEffect, Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
-import { redactPathForAnalytics } from "@/lib/analytics/redact-path";
+import {
+  redactPathForAnalytics,
+  redactUrlForAnalytics,
+} from "@/lib/analytics/redact-path";
 
 /**
  * Initializes PostHog and tracks pageviews on App Router navigation.
@@ -50,14 +53,11 @@ export default function PostHogProvider({
         // manual $pageview call below — autocapture (clicks, form submits) and
         // $exception events stamp $current_url/$pathname from window.location
         // independently of that call, and would otherwise ship the live token.
+        // URL-space, not path-space: on /login the token rides in ?next= (AE8).
         if (typeof event.properties?.$current_url === "string") {
-          try {
-            const url = new URL(event.properties.$current_url);
-            url.pathname = redactPathForAnalytics(url.pathname);
-            event.properties.$current_url = url.toString();
-          } catch {
-            /* malformed $current_url — leave as-is rather than throw in an analytics hook */
-          }
+          event.properties.$current_url = redactUrlForAnalytics(
+            event.properties.$current_url
+          );
         }
         if (typeof event.properties?.$pathname === "string") {
           event.properties.$pathname = redactPathForAnalytics(event.properties.$pathname);
@@ -104,14 +104,16 @@ function PageviewTracker() {
     if (!(window as { __ph_initialized?: boolean }).__ph_initialized) return;
     if (!pathname) return;
 
-    // U5/KTD4: an offer path carries a long-lived emailed secret in its last
-    // segment — never ship the live token to PostHog.
-    const url =
+    // U5/KTD4: an offer path carries a long-lived emailed secret — in its last
+    // segment on the landing itself, and in ?next= on the /login round trip
+    // (AE8). Redact the whole URL, never just the path.
+    const url = redactUrlForAnalytics(
       window.location.origin +
-      redactPathForAnalytics(pathname) +
-      (searchParams && searchParams.toString()
-        ? `?${searchParams.toString()}`
-        : "");
+        pathname +
+        (searchParams && searchParams.toString()
+          ? `?${searchParams.toString()}`
+          : "")
+    );
 
     posthog.capture("$pageview", { $current_url: url });
   }, [pathname, searchParams]);
