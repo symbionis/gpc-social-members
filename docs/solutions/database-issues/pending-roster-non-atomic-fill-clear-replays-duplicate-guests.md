@@ -7,7 +7,7 @@ problem_type: database_issue
 component: payments
 symptoms:
   - Duplicate name-only children appear on an event roster after a Stripe webhook retry, while adults on the same registration are unaffected
-  - Duplicated children consume issued ticket slots that were meant to stay open for the party self-registration link
+  - "(historical) Duplicated children consume issued ticket slots that were meant to stay open for the party self-registration link — both `is_child` and self-registration have since been retired"
   - claim_ticket only dedupes when an email or phone is present, so name-only child records are never idempotent on replay while adults deduped by email are safe
   - The pending_roster presence-gate does not prevent re-application because the clear runs after the fill in the same invocation, so a crash-before-clear re-runs the whole fill
 root_cause: logic_error
@@ -21,6 +21,15 @@ tags: [stripe, webhook, idempotency, postgres, security-definer, roster, race-co
 # Non-atomic roster fill+clear re-applies name-only guests on Stripe webhook redelivery
 
 > **Update (2026-07-22):** The specific amplifier described here — **name-only children** (no email/phone, so `claim_ticket`'s contact-based idempotency branch was skipped) — no longer exists. Mandatory nominative checkout (Phase A / PR #76) now requires a name **and email** on every ticket, and `is_child` was retired entirely (PR #81), so no ticket is name-only. Self-registration was also retired (PR #88). This exact replay-duplication vector is therefore closed. The **core lesson and the fix remain current**: `apply_pending_roster` performs the fill+clear atomically in one transaction under a row lock, and idempotency belongs at the transaction boundary — not per-item on data (names) that has no natural key. Note also that the shared contact-vs-identity dedup trap it touches is documented at [`./contact-only-replay-guard-swallows-people-sharing-an-email.md`](./contact-only-replay-guard-swallows-people-sharing-an-email.md).
+>
+> **Update (2026-08-11): a second producer on this column was a bug, and has been removed.** For a few weeks the top-up route also wrote `event_registrations.pending_roster`, on an already-`paid` registration, which broke the one-producer assumption this whole doc rests on. Two ways to lose a paid seat's name followed:
+>
+> 1. **Redelivery of the original checkout.** The webhook's paid short-circuit gates on `alreadyPaid && pending_roster IS NULL` — deliberately, because that is how a mid-crash first delivery recovers. While a top-up's names sat staged, that gate failed, execution fell through, and the generic fill consumed the *top-up's* names against the pre-top-up slot set and cleared them. The top-up's own webhook then minted its seats with an empty roster.
+> 2. **Two concurrent top-ups on one booking.** The second stash simply overwrote the first's names.
+>
+> The fix was ownership rather than a bigger guard (`20260811064034_topup_owns_its_roster.sql`): the names belong to the top-up that bought them, so they live on the top-up row, and `apply_topup_roster(p_topup_id)` applies+clears them under the parent registration's lock exactly as `apply_pending_roster` does. `event_registrations.pending_roster` is single-producer again.
+>
+> **The generalisable point:** the atomic fill+clear below makes a staging slot safe against *replay*. It does nothing about a *second producer* — the loser of that race reads a perfectly consistent roster that simply belongs to someone else. When a staging slot acquires a second writer, the question is not "is the apply atomic?" but "whose data is this, and does the consumer know?"
 
 ## Problem
 
@@ -57,7 +66,7 @@ The common thread: idempotency was being sought per-item, on data (names) that h
 
 Move the fill **and** the clear into a single `SECURITY DEFINER` plpgsql function that runs in one transaction under a row lock. The webhook calls it once. A crash rolls back both the claims and the clear together, so `pending_roster` stays set and a redelivery re-applies cleanly from a clean slate. Concurrent redeliveries serialise on the `FOR UPDATE` lock; the loser reads a now-`NULL` roster and returns without re-claiming.
 
-The synchronous free-registration path (no webhook, no replay) keeps the simple app-side loop — only the replay-prone webhook path needs the atomic RPC.
+The public register route's free path keeps the simple app-side loop (`fillRegistrationRoster`, `app/api/events/[id]/register/route.ts:349`). Every other path — the Stripe webhook and both top-up branches — uses the atomic RPC. Note that a *synchronous* path may use the atomic RPC too: the free top-up does (`app/api/public/bookings/[token]/topup/route.ts:184`). The rule is not "async paths need the RPC"; it is that **a replayable path may not use anything else**.
 
 ### Before — app-side loop plus a separate clear (not replay-safe for children)
 
@@ -180,6 +189,8 @@ Concrete rules of thumb:
 - Keep the simple, non-atomic path only where there is genuinely no replay — a synchronous request the user drives once. The moment a code path can be redelivered, it needs the atomic version.
 
 ## Related Issues
+
+- `apply_pending_roster` calls `claim_ticket` once per guest, so this doc's transaction-boundary fix and that RPC's per-item key choice are two layers of the same replay story. The key choice is documented at [`./contact-only-replay-guard-swallows-people-sharing-an-email.md`](./contact-only-replay-guard-swallows-people-sharing-an-email.md) — worth reading together, because that doc previously asserted the paid path bypassed `claim_ticket` entirely, which the migration source contradicts.
 
 - [`database-issues/partial-unique-index-stripe-webhook-23505-deadlock`](partial-unique-index-stripe-webhook-23505-deadlock-2026-05-21.md) — closest sibling: same Stripe webhook (`app/api/webhooks/stripe/route.ts`) and the same "must be replay-safe" cluster, but a different root cause (unique-index 23505 collision on a single-row promotion) and a different fix (catch 23505, 200-ack + refund tag). The two together cover the two shapes of webhook replay hazard: single-row error handling vs. batch apply-then-clear atomicity.
 - [`security/supabase-securitydefiner-anon-execute-grant`](../security/supabase-securitydefiner-anon-execute-grant-2026-06-04.md) — the new `apply_pending_roster` function is `SECURITY DEFINER`, so it follows that doc's rule: `REVOKE ALL … FROM PUBLIC, anon, authenticated` (revoking `FROM PUBLIC` alone is insufficient on Supabase), then `GRANT EXECUTE … TO service_role`.

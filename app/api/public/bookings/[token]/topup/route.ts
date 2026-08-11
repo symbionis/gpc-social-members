@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
-import { mintRegistrationTickets, applyPendingRoster } from "@/lib/events/roster";
-import { parseAttendeeInput } from "@/lib/events/attendee-input";
+import { mintRegistrationTickets, applyTopupRoster } from "@/lib/events/roster";
+import { parseAttendeeInput, collidesWithClaimed } from "@/lib/events/attendee-input";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
 import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
 
@@ -140,31 +140,63 @@ export async function POST(
   );
   if (!parsedAttendees.ok) return bad(parsedAttendees.error, 400);
 
-  // Stash the names BEFORE any money moves, and fail loud if the write fails — a paid top-up
-  // whose roster never persisted would mint the unnamed seats this change exists to prevent.
-  // `applyPendingRoster` clears the slot when it runs, so the booking's original roster (long
-  // since applied at payment) cannot collide with this one.
-  const { error: rosterErr } = await supabase
-    .from("event_registrations")
-    .update({ pending_roster: parsedAttendees.attendees })
-    .eq("id", reg.id as string);
-  if (rosterErr) {
-    console.error("[booking-topup] pending_roster persist failed — blocking top-up", {
+  // ...and the same person cannot be named onto a SECOND seat of a booking they already hold
+  // one on. parseAttendeeInput only sees this order; claim_ticket dedupes against every seat
+  // already named on the registration, so a lead topping up under their own name and email
+  // gets `already: true`, no seat claimed, and a charge for a permanently unnamed ticket.
+  // A top-up is the one purchase path where prior claimed seats exist, so this is the one
+  // place it can happen. Refuse before money moves, while the buyer can still fix it.
+  const { data: claimedRows, error: claimedErr } = await supabase
+    .from("tickets")
+    .select("name, email")
+    .eq("registration_id", reg.id as string)
+    .eq("slot_status", "claimed")
+    .is("released_at", null);
+  if (claimedErr) {
+    console.error("[booking-topup] could not read existing names — blocking top-up", {
       registrationId: reg.id,
-      err: rosterErr,
+      err: claimedErr,
     });
     return bad("Could not start the top-up", 500);
   }
+  const clash = collidesWithClaimed(parsedAttendees.attendees, claimedRows ?? []);
+  if (clash) {
+    return bad(
+      `${clash.name} already has a ticket on this booking — give the new guest their own name and email`,
+      400,
+    );
+  }
 
-  // Record the pending top-up (service-role bypasses RLS).
+  // Record the pending top-up (service-role bypasses RLS), carrying the names it bought.
+  //
+  // The names go on the TOP-UP row, not on event_registrations.pending_roster: that column
+  // is the original checkout's staging slot, and a second producer writing it lets a
+  // redelivery of the original session consume this top-up's names (and lets two concurrent
+  // top-ups overwrite each other), minting the unnamed seats mandatory naming exists to
+  // prevent. See 20260811064034_topup_owns_its_roster.sql.
+  //
+  // Stashed BEFORE any money moves, and we fail loud if the write fails — a paid top-up whose
+  // roster never persisted is exactly the seat we refuse to create.
   const { data: topup, error: topupErr } = await supabase
     .from("event_registration_topups")
-    .insert({ registration_id: reg.id as string, items })
+    .insert({
+      registration_id: reg.id as string,
+      items,
+      pending_roster: parsedAttendees.attendees,
+    })
     .select("id")
     .limit(1)
     .maybeSingle();
   if (topupErr || !topup) {
-    console.error("[booking-topup] could not create top-up", { err: topupErr });
+    // Context matters here: without the booking, a spike in these is untraceable. `!topup`
+    // with no error is the nastier half — the insert may have committed while the client saw
+    // nothing, leaving an orphan row with a staged roster (never paid, never applied).
+    console.error("[booking-topup] could not create top-up", {
+      registrationId: reg.id,
+      eventId: reg.event_id,
+      reason: topupErr ? "insert_failed" : "no_row_returned",
+      err: topupErr,
+    });
     return bad("Could not start the top-up", 500);
   }
   const topupId = topup.id as string;
@@ -181,7 +213,25 @@ export async function POST(
     }
     await mintRegistrationTickets(reg.id as string);
     // Nothing was charged, so there is no webhook to do this — name the new seats here.
-    await applyPendingRoster(reg.id as string);
+    // And no webhook means no retry either: this is the only attempt these names get, so a
+    // failure has to be loud and has to reach the lead, who can still fix it from their
+    // booking page. Silently returning success is how an unnamed seat reaches the door.
+    const rosterStatus = await applyTopupRoster(topupId);
+    if (rosterStatus !== "applied") {
+      console.error("[booking-topup] free top-up seats added but NOT named", {
+        topupId,
+        registrationId: reg.id,
+        eventId: reg.event_id,
+        rosterStatus,
+      });
+      return NextResponse.json({
+        ok: true,
+        applied: true,
+        redirectUrl: successUrl,
+        warning:
+          "Your tickets were added, but we couldn't attach the guest names — please add them from your booking page.",
+      });
+    }
     return NextResponse.json({ ok: true, applied: true, redirectUrl: successUrl });
   }
 
@@ -198,12 +248,16 @@ export async function POST(
         quantity: li.quantity,
       })),
       customer_email: (reg.email as string) ?? undefined,
-      // Distinct discriminator so the webhook applies the top-up BEFORE its paid
-      // short-circuit (the registration is already 'paid').
+      // `topup_id` is the discriminator: the webhook gates on its PRESENCE to apply the
+      // top-up BEFORE its paid short-circuit (the registration is already 'paid'). It is
+      // deliberately the id rather than a `topup: "true"` flag — the id is both the gate and
+      // the thing the branch needs, so a delivery cannot arrive carrying one without the
+      // other. A separate boolean previously could, and a delivery missing it captured
+      // payment and minted nothing.
+      // See docs/solutions/logic-errors/stripe-webhook-metadata-missing-skips-cleanup.md.
       metadata: {
         event_registration_id: reg.id as string,
         event_id: reg.event_id as string,
-        topup: "true",
         topup_id: topupId,
       },
       success_url: successUrl,

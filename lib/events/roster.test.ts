@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 
-import { fillRegistrationRoster } from "@/lib/events/roster";
+import { fillRegistrationRoster, applyTopupRoster } from "@/lib/events/roster";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const mockedAdmin = vi.mocked(createAdminClient);
@@ -92,5 +92,109 @@ describe("fillRegistrationRoster", () => {
     await fillRegistrationRoster("reg-1", attendees);
 
     expect(client.rpc).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("applyTopupRoster", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("passes the top-up id to the RPC and returns its status", async () => {
+    const client = adminWithRpc(() => ({ data: { status: "applied" }, error: null }));
+    mockedAdmin.mockReturnValue(client);
+
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("applied");
+    expect(client.rpc).toHaveBeenCalledWith("apply_topup_roster", { p_topup_id: "topup-1" });
+  });
+
+  // The distinction the fallback keys on. An ordinary redelivery (already applied and
+  // cleared) must NOT be treated as legacy, or it re-runs the registration-level apply.
+  it("reports an already-applied redelivery as no_roster, not legacy", async () => {
+    mockedAdmin.mockReturnValue(
+      adminWithRpc(() => ({ data: { status: "no_roster", legacy: false }, error: null }))
+    );
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("no_roster");
+  });
+
+  it("reports a pre-migration top-up as legacy_roster", async () => {
+    mockedAdmin.mockReturnValue(
+      adminWithRpc(() => ({ data: { status: "no_roster", legacy: true }, error: null }))
+    );
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("legacy_roster");
+  });
+
+  // Defensive: an RPC that predates the legacy flag omits it entirely. Absent must mean
+  // "not legacy" — guessing the other way re-runs an apply that should not run.
+  it("treats an absent legacy flag as not legacy", async () => {
+    mockedAdmin.mockReturnValue(
+      adminWithRpc(() => ({ data: { status: "no_roster" }, error: null }))
+    );
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("no_roster");
+  });
+
+  it("surfaces not_found", async () => {
+    mockedAdmin.mockReturnValue(
+      adminWithRpc(() => ({ data: { status: "not_found" }, error: null }))
+    );
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("not_found");
+  });
+
+  // The retry signal. Collapsing this into a success would strand the staged names, since
+  // nothing else in the system ever reads that column.
+  it("reports an RPC failure as error rather than a domain outcome", async () => {
+    mockedAdmin.mockReturnValue(
+      adminWithRpc(() => ({ data: null, error: { message: "deadlock" } }))
+    );
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("error");
+  });
+
+  // Guards against SQL drift: if someone adds a status to the RPC and forgets this file,
+  // the unknown value must be loud and retryable, never silently treated as success.
+  it("treats an unrecognised status as an error", async () => {
+    mockedAdmin.mockReturnValue(
+      adminWithRpc(() => ({ data: { status: "partial" }, error: null }))
+    );
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("error");
+  });
+
+  it("treats a null payload as an error", async () => {
+    mockedAdmin.mockReturnValue(adminWithRpc(() => ({ data: null, error: null })));
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("error");
+  });
+
+  // The RPC clears the roster whether or not every guest was placed, so this log is the only
+  // surviving trace that someone paid for a seat nothing named.
+  it("logs the guests the apply could not name", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockedAdmin.mockReturnValue(
+      adminWithRpc(() => ({
+        data: {
+          status: "applied",
+          unclaimed: [{ name: "Ana Vidal", email: "ana@x.ch", result: { already: true } }],
+        },
+        error: null,
+      }))
+    );
+
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("applied");
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("UNNAMED"),
+      expect.objectContaining({
+        topupId: "topup-1",
+        unclaimed: expect.arrayContaining([expect.objectContaining({ name: "Ana Vidal" })]),
+      })
+    );
+  });
+
+  it("stays quiet when every guest was named", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockedAdmin.mockReturnValue(
+      adminWithRpc(() => ({ data: { status: "applied", unclaimed: [] }, error: null }))
+    );
+
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("applied");
+    expect(spy).not.toHaveBeenCalled();
   });
 });

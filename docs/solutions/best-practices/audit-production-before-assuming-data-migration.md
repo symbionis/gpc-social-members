@@ -15,6 +15,7 @@ applies_when:
   - "You are about to write a one-off backfill migration before measuring the real gap"
   - "The remaining gap might be communication or UX rather than missing data"
   - "A public no-auth surface needs to trigger an action an admin route already performs"
+  - "The fact being audited is owned by an external system (Stripe, Postmark) and the app table is a mirror of it"
 tags:
   - migration
   - backfill
@@ -23,6 +24,8 @@ tags:
   - postmark
   - email-templates
   - ticketing
+  - stripe
+  - reconciliation
 ---
 
 # Audit production before assuming you need a data migration
@@ -39,6 +42,8 @@ The reframe came from looking before building. A read-only production audit show
 
 **Lead principle: audit production before assuming a data migration.** When a shipped schema or feature change raises "what about the existing records?", the first action is a targeted, read-only query comparing what the migrations *already produced* against what is *actually missing* — not writing a backfill. Split the affected population by relevance before you measure the gap; the gap is often zero for the subset that matters.
 
+**But name the system of record first.** A read-only query over our own tables answers "what did our migrations produce?" — not "what is true." When the fact being audited is owned by an external system and our column is a *mirror* of it, auditing the mirror returns a confident wrong number.
+
 ```sql
 -- Audit shape: bucket by relevance, then measure the gap that actually matters.
 select
@@ -54,6 +59,18 @@ group by 1;
 -- upcoming bucket: 0 with zero tickets → the backfill was already complete.
 -- The "migration" was never needed; only an email resend was.
 ```
+
+**For money, audit the payment provider, not the app DB.** Event refunds were once issued by hand in the Stripe dashboard and mirrored into the app by an optional human step. Auditing `tickets.cancellation_status` alone would have reported CHF 240 refunded against CHF 560 actually returned: of four real refunds, one had no app record at all and another had only 1 of its 3 seats marked (`supabase/migrations/20260810204016_backfill_pilates3_refunds.sql:18-24`). The audit discipline above was still exactly right — it produced an exact number and a real backfill — but only because it read Stripe rather than our own flags. Record the provider's object id (`stripe_refund_id`) so the next reconciliation is exact rather than by-amount guesswork, and make the migration assert the figure it verified:
+
+```sql
+IF v_total <> 560.00 OR v_seats <> 7 THEN
+  RAISE EXCEPTION
+    'Pilates & Polo 3.0 refund backfill mismatch: got CHF % over % seats, expected CHF 560.00 over 7',
+    v_total, v_seats;
+END IF;
+```
+
+Nineteen lines converting "someone checked this once" into "this is still true, or the deploy stops."
 
 **Use a NULL timestamp column as both "not yet done" and an idempotency signal.** The fix added `ticket_email_sent_at timestamptz` (nullable, **no backfill**) to `event_registrations`. NULL means "not yet notified"; it is stamped **on send success only**, so a failed send stays NULL and remains retryable. The bulk resend targets `ticket_email_sent_at IS NULL`, so re-runs never double-send. Crucially, the *existing* callers (the registration handler and the Stripe webhook) stamp the column on their normal sends too — which automatically excludes brand-new registrants from the bulk set, so it only ever picks up the genuine pre-feature backlog.
 
@@ -120,6 +137,7 @@ if (res.success) {
 
 ## Related
 
+- `docs/solutions/best-practices/a-comment-that-justifies-an-omission-is-load-bearing.md` — why an app-DB mirror drifts, and why an optional human mirroring step is a bug rather than a workflow. That doc owns the *why*; this one owns *what to do before you audit*.
 - `docs/solutions/architecture-patterns/live-table-rename-on-shared-prod-db.md` — the prequel: the FEAT-41 migration that *already moved the data* (this learning is why no further data migration was needed, only a comms/UX notification).
 - `docs/solutions/integration-issues/postmark-mustachio-conditional-syntax.md` — the `{{#scope}}` not `{{#if}}` rule the `{{#resend}}` block follows (reference, not restated).
 - `docs/solutions/database-issues/partial-unique-index-stripe-webhook-23505-deadlock-2026-05-21.md` — related registration/idempotency theme (the missing-confirmation-email edge).

@@ -10,6 +10,7 @@ applies_when:
   - "Removing a user-facing flow that has already produced data other people may still be holding"
   - "The feature spans a write path, a read/delegate view, DB columns, and an external template"
   - "You need to retire the capability without stranding anyone mid-flight"
+  - "Retiring a concept or label that has no data behind it — the residue is comments and identifiers, invisible to the type-checker"
 tags:
   - deprecation
   - safe-deletion
@@ -32,6 +33,8 @@ R28 (PR #92) retired ticket forwarding — a live flow that let a lead hand a ba
 Separate what a retirement *stops* from what it must *preserve*, and gate anything user-reachable on live data:
 
 1. **Drop the write path in full** — the routes, RPCs, and external template that *create* new instances of the flow. Nothing new can happen after this.
+
+   "In full" means every **reachable** entry point, which is narrower than every object. A `SECURITY DEFINER` RPC granted only to `service_role`, with no route calling it, is not reachable: dropping it buys no safety and costs a future flow its starting point. PR #111 retired the roster's Remove button and the `free-slot` route but deliberately kept `release_ticket` on exactly this reasoning, and `import_event_attendees` was kept the same way. **Drop the RPC when it carries an anon/authenticated grant or a token-addressable route; otherwise retire its callers and leave it.** This is the same "prove zero live consumers" gate as step 3, applied to a backend instead of a view.
 2. **Keep the historical data** — columns and rows already written are provenance, not dead weight. Retire the *reads* (drop the `SELECT` of the column and any UI that renders it), but leave the column. Cheap to keep, expensive to reconstruct.
 3. **Before deleting a user-reachable *view* that serves already-created data, prove zero live consumers** — query for how many rows are still actionable, scoped to **upcoming** (not all-time) data:
 
@@ -61,8 +64,11 @@ Separate what a retirement *stops* from what it must *preserve*, and gate anythi
 - **Kept, not dropped**: `tickets.batch_token` — retired from every `SELECT` (`app/(checkin)/public/bookings/[token]/page.tsx`, the convert route) but the column stays (`supabase/migrations/20260722140000_retire_forward_rpcs.sql` documents the intent). 44 historical rows preserved.
 - **Dropped after proving callerless**: `forward_ticket_batch` and `fill_batch_ticket` RPCs, plus the `claim_self_registration` RPC and the `event_registrations.self_reg_token` column (a U16 follow-up folded into the same PR), each verified gone in a rolled-back transaction with `540 registrations intact`.
 - **External surface, manual step**: the `event-ticket-forward` Postmark template — the app can't reach Postmark admin, so retirement shipped a one-shot idempotent delete script (`scripts/postmark/delete-ticket-forward-template.mjs`) rather than a code path.
+- **Swept the types, missed the prose** (step 5, learned again in PRs #107–#111): the attendee CSV export route was deleted, but `lib/events/door-roster.ts:6` and `components/admin/ManageEventTabs.tsx:218` still describe it as a live consumer, and "Pre-registered" outlived its retirement in five comments across the door and roster code. A grep for the retired *noun* belongs in the same sweep as the grep for the retired path — a comment naming a deleted route is invisible to the type-checker for exactly the reason a runtime string endpoint is.
+- **Retiring a concept that has no data at all**: "Pre-registered" was retired as vocabulary rather than as a table or a route (`lib/events/roster-fill.ts` deleted, the roster header rebuilt as an Overview). Steps 2–4 have nothing to act on in that case; the entire retirement is step 5.
 
 ## Related
 
 - Same shared-DB rolled-back verification discipline: [`./verify-security-definer-rpc-do-block-rollback.md`](./verify-security-definer-rpc-do-block-rollback.md).
 - Auditing production before assuming a migration's shape: [`./audit-production-before-assuming-data-migration.md`](./audit-production-before-assuming-data-migration.md).
+- The doc that documents `release_ticket` as live machinery, and which this one's step 1 qualifies: [`../design-patterns/race-safe-claim-rpc-capacity-cap.md`](../design-patterns/race-safe-claim-rpc-capacity-cap.md).

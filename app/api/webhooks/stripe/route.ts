@@ -6,6 +6,7 @@ import {
   seedLeadAttendee,
   mintRegistrationTickets,
   applyPendingRoster,
+  applyTopupRoster,
 } from "@/lib/events/roster";
 import { generateCardNumber } from "@/lib/utils/card";
 import { NextResponse, type NextRequest } from "next/server";
@@ -185,8 +186,13 @@ export async function POST(request: NextRequest) {
         // branch the short-circuit would ack it and mint nothing, charging for tickets
         // that never appear. apply_registration_topup is idempotent (keyed on the
         // top-up id), and mint is idempotent, so a webhook replay is safe.
-        const topupId =
-          session.metadata?.topup === "true" ? session.metadata?.topup_id : undefined;
+        //
+        // Data-driven on topup_id presence, like the conversion branch below — never on a
+        // `topup === "true"` string boolean, which can be set at creation and missing at
+        // delivery. The id is both the gate and the thing the branch needs, so the two
+        // cannot disagree; a flag that can vanish independently would skip the branch
+        // entirely and leave a captured payment with no tickets minted.
+        const topupId = session.metadata?.topup_id;
         if (topupId) {
           const { data: applied, error: applyErr } = await supabase.rpc(
             "apply_registration_topup",
@@ -248,15 +254,55 @@ export async function POST(request: NextRequest) {
           }
           // Mint the newly-purchased slots (idempotent — only the shortfall is minted).
           await mintRegistrationTickets(eventRegistrationId);
-          // Name them. The top-up route stashed the buyer's guest names before checkout, the
-          // same way the public register route does; applyPendingRoster claims each seat and
-          // clears the slot, so a webhook redelivery is a no-op rather than a double-apply.
-          await applyPendingRoster(eventRegistrationId);
+          // Name them from THIS top-up's own staged roster, which claims each seat and clears
+          // the slot in one transaction, so a redelivery is a no-op rather than a double-apply.
+          // The names hang off the top-up rather than the registration precisely so that a
+          // redelivery of the booking's ORIGINAL checkout cannot consume them first.
+          const rosterStatus = await applyTopupRoster(topupId);
+          if (rosterStatus === "legacy_roster") {
+            // ONLY for a top-up created before per-top-up rosters existed, which staged its
+            // names on the registration instead. An ordinary redelivery returns `no_roster`
+            // and lands nowhere near here — the RPC tells the two apart from created_at, so
+            // this branch is provably dead once no such row can still be in flight rather
+            // than merely believed to be harmless.
+            //
+            // DELETE AFTER 2026-08-18 (24h Checkout Session expiry + ~3d Stripe retry
+            // window). Verify first — expect 0:
+            //   select count(*) from event_registration_topups
+            //    where created_at < '2026-08-11 06:40:34+00' and status = 'pending';
+            await applyPendingRoster(eventRegistrationId);
+          }
           // Send an updated confirmation (carries manage_url + every ticket's QR, now
           // including the new ones) so the lead can name/forward them. Best-effort.
+          //
+          // Sent BEFORE the retry decision below on purpose: apply_registration_topup returns
+          // 'already' on replay, so this block is skipped on a retry — 500-ing first would
+          // mean the buyer never receives it at all.
           if (topupStatus === "applied") {
             await sendEventRegistrationConfirmation(eventRegistrationId).catch((err) =>
               console.error("[webhook] top-up confirmation email failed", err)
+            );
+          }
+          if (rosterStatus === "error") {
+            // 500 for retry, matching apply_registration_topup above. The roster transaction
+            // rolled back, so the names are STILL staged on the top-up row — and nothing else
+            // in the system ever reads that column. Acking 200 here would strand them
+            // permanently and leave exactly the paid, unnamed, contactless seat this branch
+            // exists to prevent. Every step above is idempotent, so the retry is clean.
+            console.error("[webhook] top-up roster apply failed — 500 for retry", {
+              topupId,
+              eventRegistrationId,
+              sessionId: session.id,
+            });
+            return NextResponse.json({ error: "Top-up roster apply failed" }, { status: 500 });
+          }
+          if (rosterStatus === "not_found") {
+            // Unreachable today: apply_registration_topup returns 'not_found' above and exits
+            // before we get here, so the row provably exists. Loud rather than silent because
+            // reaching it means that invariant broke, and a retry could never fix it.
+            console.error(
+              "[webhook] top-up row vanished between apply and roster — seats may be unnamed",
+              { topupId, eventRegistrationId, sessionId: session.id }
             );
           }
           return NextResponse.json({ received: true, topup: topupStatus });
@@ -488,7 +534,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ received: true, already_processed: true });
       }
 
-      const isRenewal = session.metadata?.renewal === "true";
+      // Deliberately no `renewal` metadata guard here: the card-deactivation guard it fed was
+      // removed in 2026-03 (deactivation is unconditional in activateMembership above), and
+      // the renewal token is marked on `renewal_token_id` presence below. The `renewal` key
+      // is still written at checkout creation by three callers; it simply has no reader here,
+      // by design. Don't reintroduce a guard on it.
+      // See docs/solutions/logic-errors/stripe-webhook-metadata-missing-skips-cleanup.md.
       let tierId: string | null = session.metadata?.tier_id || null;
       if (!tierId) {
         const { data: memberData } = await supabase
@@ -545,6 +596,24 @@ export async function POST(request: NextRequest) {
         if (error) {
           console.error("[webhook] failed to clear pending_roster on session expiry", {
             regId,
+            err: error,
+          });
+        }
+      }
+      // An abandoned TOP-UP checkout stages its guest names on the top-up row, not on the
+      // registration, so the sweep above cannot reach them — and once the top-up is
+      // abandoned nothing else ever reads that column. Same PII argument, second home.
+      // Guarded on 'pending' so an applied top-up's cleared roster is never touched.
+      const expiredTopupId = session.metadata?.topup_id;
+      if (expiredTopupId) {
+        const { error } = await supabase
+          .from("event_registration_topups")
+          .update({ pending_roster: null })
+          .eq("id", expiredTopupId)
+          .eq("status", "pending");
+        if (error) {
+          console.error("[webhook] failed to clear top-up pending_roster on session expiry", {
+            topupId: expiredTopupId,
             err: error,
           });
         }

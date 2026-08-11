@@ -4,7 +4,7 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/stripe", () => ({ getStripe: vi.fn() }));
 vi.mock("@/lib/events/roster", () => ({
   mintRegistrationTickets: vi.fn(),
-  applyPendingRoster: vi.fn(),
+  applyTopupRoster: vi.fn().mockResolvedValue("applied"),
 }));
 vi.mock("@/lib/events/seat-usage", () => ({ getSeatsUsed: vi.fn() }));
 
@@ -12,15 +12,19 @@ import { POST } from "@/app/api/public/bookings/[token]/topup/route";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
-import { applyPendingRoster } from "@/lib/events/roster";
+import { applyTopupRoster } from "@/lib/events/roster";
 
 const mockedAdmin = vi.mocked(createAdminClient);
 const mockedStripe = vi.mocked(getStripe);
 const mockedSeats = vi.mocked(getSeatsUsed);
-const mockedApplyRoster = vi.mocked(applyPendingRoster);
+const mockedApplyRoster = vi.mocked(applyTopupRoster);
 
-/** The pending_roster payload the route stashed before checkout, if any. */
+/** The pending_roster payload the route stashed on the TOP-UP row before checkout, if any. */
 let lastRosterWrite: unknown = null;
+/** Any write to the registration's shared pending_roster slot — should stay null. */
+let registrationRosterWrite: unknown = null;
+/** The Stripe checkout session mock, so tests can assert what metadata went on the wire. */
+let sessionCreate: ReturnType<typeof vi.fn>;
 
 const TYPE = "33333333-3333-3333-3333-333333333333";
 
@@ -31,6 +35,8 @@ function adminClient(opts: {
   price?: number | null;
   seatCap?: number | null;
   countsAsSeat?: boolean;
+  /** Seats already named on the booking, as claim_ticket's dedupe would see them. */
+  claimed?: { name: string | null; email: string | null }[];
 }) {
   return {
     from: (table: string) => {
@@ -38,11 +44,19 @@ function adminClient(opts: {
       c.select = () => c;
       c.eq = () => c;
       c.in = () => c;
+      c.is = () => c;
       c.limit = () => c;
-      c.insert = () => c;
+      // The names ride on the top-up row itself, not on the registration's shared slot —
+      // that is what stops a redelivery of the original checkout from consuming them.
+      c.insert = (payload: Record<string, unknown>) => {
+        if (table === "event_registration_topups" && "pending_roster" in payload) {
+          lastRosterWrite = payload.pending_roster;
+        }
+        return c;
+      };
       c.update = (payload: Record<string, unknown>) => {
         if (table === "event_registrations" && "pending_roster" in payload) {
-          lastRosterWrite = payload.pending_roster;
+          registrationRosterWrite = payload.pending_roster;
         }
         return c;
       };
@@ -60,6 +74,8 @@ function adminClient(opts: {
         return { data: null, error: null };
       };
       (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) => {
+        // Seats already named on this booking — what claim_ticket would dedupe against.
+        if (table === "tickets") return resolve({ data: opts.claimed ?? [], error: null });
         if (table === "event_ticket_types")
           return resolve({
             data: [{ id: TYPE, title: "Adult", price_member: opts.price ?? 25, price_non_member: 40, archived_at: null, counts_as_seat: opts.countsAsSeat ?? false }],
@@ -94,10 +110,12 @@ function post(body: unknown, token = "mtok") {
 beforeEach(() => {
   vi.clearAllMocks();
   lastRosterWrite = null;
+  registrationRosterWrite = null;
   mockedAdmin.mockReturnValue(adminClient({}));
   mockedSeats.mockResolvedValue(0);
+  sessionCreate = vi.fn().mockResolvedValue({ url: "https://stripe.test/cs" });
   mockedStripe.mockReturnValue({
-    checkout: { sessions: { create: vi.fn().mockResolvedValue({ url: "https://stripe.test/cs" }) } },
+    checkout: { sessions: { create: sessionCreate } },
   } as never);
 });
 
@@ -173,6 +191,46 @@ describe("mandatory naming on top-ups", () => {
     expect(res.status).toBe(400);
   });
 
+  // parseAttendeeInput only sees ONE order. claim_ticket dedupes against every seat already
+  // named on the booking — so a lead topping up under their own name and email got
+  // `already: true`, no seat claimed, and a charge for a permanently unnamed ticket. A
+  // top-up is the only purchase path where prior claimed seats exist.
+  it("refuses a guest who already holds a seat on this booking", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ claimed: [{ name: "Ana Vidal", email: "ana@x.com" }] })
+    );
+    const res = await post({
+      items: [{ ticketTypeId: TYPE, quantity: 1 }],
+      attendees: [{ ticket_type_id: TYPE, name: "Ana Vidal", email: "ana@x.com" }],
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/already has a ticket on this booking/i);
+  });
+
+  it("matches the existing seat the way claim_ticket does — case and spacing folded", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ claimed: [{ name: "Ana  Vidal", email: "Ana@X.com" }] })
+    );
+    const res = await post({
+      items: [{ ticketTypeId: TYPE, quantity: 1 }],
+      attendees: [{ ticket_type_id: TYPE, name: "ana vidal", email: "ana@x.com" }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  // A shared address is legitimate (households book on one email) — only the same PERSON
+  // twice is refused.
+  it("allows a different guest on an email already used by another seat", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ claimed: [{ name: "Ana Vidal", email: "shared@x.com" }] })
+    );
+    const res = await post({
+      items: [{ ticketTypeId: TYPE, quantity: 1 }],
+      attendees: [{ ticket_type_id: TYPE, name: "Ben Torres", email: "shared@x.com" }],
+    });
+    expect(res.status).toBe(200);
+  });
+
   it("refuses the same person named twice", async () => {
     // Two identical identities collapse into one ticket at claim time, leaving the sibling
     // seat unnamed — the exact bypass the checkout already rejects.
@@ -182,7 +240,7 @@ describe("mandatory naming on top-ups", () => {
     expect((await res.json()).error).toMatch(/same name and email/);
   });
 
-  it("stashes the names before sending the buyer to Stripe", async () => {
+  it("stashes the names on the top-up row before sending the buyer to Stripe", async () => {
     const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(2) });
     expect(res.status).toBe(200);
     // Stashed BEFORE payment: a paid top-up whose roster never persisted would mint exactly
@@ -191,12 +249,47 @@ describe("mandatory naming on top-ups", () => {
       { ticket_type_id: TYPE, name: "Guest Number1", email: "guest1@x.com" },
       { ticket_type_id: TYPE, name: "Guest Number2", email: "guest2@x.com" },
     ]);
+    // And NOT on the registration's shared slot. Writing there gave the column two
+    // producers, so a redelivery of the booking's original checkout could consume this
+    // top-up's names and leave its seats unnamed.
+    expect(registrationRosterWrite).toBeNull();
   });
 
   it("names the seats immediately on a free top-up, which has no webhook", async () => {
     mockedAdmin.mockReturnValue(adminClient({ price: 0 }));
     const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
     expect(res.status).toBe(200);
-    expect(mockedApplyRoster).toHaveBeenCalledWith("reg");
+    // Keyed on the top-up, not the registration: the free path names exactly the seats
+    // this top-up bought.
+    expect(mockedApplyRoster).toHaveBeenCalledWith("topup-1");
+  });
+
+  // The webhook gates SOLELY on topup_id presence now. If this key is ever dropped or
+  // renamed here, every paid top-up captures money and mints nothing — and no other test
+  // would notice, because both sides use a hardcoded id.
+  it("puts topup_id on the checkout session so the webhook can find the branch", async () => {
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(200);
+    expect(sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          topup_id: "topup-1",
+          event_registration_id: "reg",
+        }),
+      })
+    );
+  });
+
+  // No webhook on the free path means no retry: this is the only attempt these names get,
+  // so the lead has to be told rather than shown a clean success.
+  it("warns the lead when a free top-up's seats could not be named", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ price: 0 }));
+    mockedApplyRoster.mockResolvedValue("error");
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      warning: expect.stringMatching(/couldn't attach the guest names/i),
+    });
   });
 });

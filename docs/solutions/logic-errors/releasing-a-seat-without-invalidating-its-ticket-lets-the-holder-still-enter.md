@@ -59,7 +59,7 @@ Enforce the cancelled state at **every** admission path, not just the count. The
    if (attendee.cancellation_status != null) return { ok: false, reason: "not_found" };
    ```
 
-3. **The hand-check door roster** — `lib/events/door-roster.ts` carries a `cancelled` flag per row (`:248`), strikes cancelled rows on the printed sheet, adds a `cancelled` column to the CSV, and excludes them from catering totals (`:417`) so staff don't hand-admit or over-cater.
+3. **The hand-check surfaces** — PR #91 originally carried a `cancelled` flag per roster row and struck those rows through on the printed sheet. That was superseded: as of PRs #107/#108/#111 the hand-check surfaces **exclude** cancelled tickets at the query instead of marking them, because a line the door cannot admit is noise on a document read under pressure. All three now apply `.is("cancellation_status", null)` — `lib/events/door-roster.ts:158` (printed sheet), `lib/events/door-access.ts:209` (door console), and `app/(admin)/admin/events/[id]/attendees/page.tsx:164` (admin roster). The CSV export that carried a `cancelled` column was deleted outright in #108.
 
 The RPC guard was proven in a rolled-back transaction before applying: a live ticket returned `would_proceed`, the same ticket after `cancellation_status='requested'` returned `not_recognised`.
 
@@ -70,6 +70,7 @@ A cancellation is a state transition that **releases a shared resource** (a seat
 ## Prevention
 
 - **When a state frees a shared resource, enumerate every consumer of that resource and guard the new state at each one — not just where the resource is counted.** For a ticket: the seat count, the QR-scan RPC, the by-id check-in, and any printed/exported roster. A grep for the resource's existing gate (here, `released_at`/`checked_in_at` filters) finds the consumers that also need the new guard.
+- **Enumerate consumers by query shape, not by name.** Two different functions were both called `buildDoorRoster` — `lib/events/door-roster.ts` feeds the printed sheet, `lib/events/door-access.ts` feeds the console — so fixing "the door roster" fixed only one of them. The console kept listing seats the scan already rejected for three weeks after this doc was written, and PR #111 was the fix (15 rows on screen against 11 live). Grep the *filter* (`released_at`, `cancellation_status`), never the identifier.
 - **Treat "the count is right" and "the system is right" as different claims.** Verify the counter *and* the consumers.
 - **A plan's scope boundary is not a correctness proof.** "Out of scope" for a deliberate reason (don't change door seat-release) does not extend to "this feature can't create a new hole at the door." Re-derive the blast radius from the code, and let review check the boundary.
 - Consider making the two sides atomic where possible (e.g., a single status that both the count and the gates read) so a future change can't update one without the other.
@@ -77,5 +78,7 @@ A cancellation is a state transition that **releases a shared resource** (a seat
 ## Related Issues
 
 - Shipped in PR #91 (U14 — ticket cancellation + immediate seat release); the guard migration is `20260722130000_checkin_reject_cancelled.sql`.
+- Follow-on: PRs #107/#108/#111 replaced strike-through with exclusion across the roster and both door surfaces, deleted the CSV export, and closed the second `buildDoorRoster`. Read the exclusion decision from here, not the original marking design.
+- The projection that orphans rows the same way, and which owns the two-builders problem: [`../architecture-patterns/registration-keyed-door-roster-orphans-imported-attendees.md`](../architecture-patterns/registration-keyed-door-roster-orphans-imported-attendees.md).
 - The seat-count rewrite it pairs with: [`../best-practices/prove-a-hot-function-rewrite-byte-for-byte-before-shipping.md`](../best-practices/prove-a-hot-function-rewrite-byte-for-byte-before-shipping.md).
 - Related field-ownership trap: [`../architecture-patterns/single-writer-field-ownership-across-routes.md`](../architecture-patterns/single-writer-field-ownership-across-routes.md).

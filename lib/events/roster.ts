@@ -94,6 +94,76 @@ export async function applyPendingRoster(registrationId: string): Promise<void> 
 }
 
 /**
+ * What apply_topup_roster reports back.
+ *
+ * `legacy_roster` and `no_roster` are both "nothing staged on the top-up row", split because
+ * only the first warrants falling back to the registration-level slot: it means the top-up
+ * predates per-top-up rosters. `no_roster` is the ordinary redelivery answer — already
+ * applied and cleared — and needs no fallback at all. `error` is this helper's own signal,
+ * never a value the RPC returns.
+ */
+export type TopupRosterStatus =
+  | "applied"
+  | "legacy_roster"
+  | "no_roster"
+  | "not_found"
+  | "error";
+
+/**
+ * Apply ONE top-up's staged guest names atomically.
+ *
+ * A top-up owns the names it bought — they live on the top-up row, not on the shared
+ * `event_registrations.pending_roster`. That is what keeps a redelivery of the booking's
+ * ORIGINAL checkout from consuming a top-up's names, and keeps two concurrent top-ups on
+ * one booking from overwriting each other.
+ *
+ * Returns a status rather than throwing, because the caller has two decisions to make: only
+ * `legacy_roster` warrants falling back to the registration-level slot, and only `error`
+ * warrants asking Stripe to retry.
+ *
+ * A failure is logged, not thrown — the payment has already succeeded, so throwing past a
+ * captured charge helps nobody. The roster stays staged on failure, which is what makes a
+ * retry re-apply cleanly. **That retry is not automatic:** it happens only because the
+ * webhook turns `error` into a 500. On the free top-up path there is no webhook and no
+ * retry at all, so that caller surfaces the failure to the lead instead.
+ */
+export async function applyTopupRoster(topupId: string): Promise<TopupRosterStatus> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.rpc("apply_topup_roster", {
+    p_topup_id: topupId,
+  });
+  if (error) {
+    console.error("[roster] apply_topup_roster failed", { topupId, err: error });
+    return "error";
+  }
+  const payload = data as
+    | { status?: string; legacy?: boolean; unclaimed?: unknown[] }
+    | null;
+  const status = payload?.status;
+  // The RPC clears the staged roster whether or not every guest was placed, so this log is
+  // the only surviving record that someone paid for a seat nothing named. `already: true`
+  // is in here too: that guest matched a seat already named on the booking, so no new seat
+  // was consumed and one stays open. Recoverable by hand from the booking page.
+  if (Array.isArray(payload?.unclaimed) && payload.unclaimed.length > 0) {
+    console.error("[roster] top-up seats left UNNAMED — needs manual naming", {
+      topupId,
+      unclaimed: payload.unclaimed,
+    });
+  }
+  if (status === "no_roster") {
+    return payload?.legacy === true ? "legacy_roster" : "no_roster";
+  }
+  if (status === "applied" || status === "not_found") {
+    return status;
+  }
+  console.error("[roster] apply_topup_roster returned an unrecognised status", {
+    topupId,
+    status,
+  });
+  return "error";
+}
+
+/**
  * Apply booker-entered guest names to a confirmed registration's issued tickets by
  * calling claim_ticket once per attendee. Use this ONLY on the synchronous free
  * path, where there is no webhook replay — it is not atomic across attendees, unlike

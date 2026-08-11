@@ -465,24 +465,30 @@ export type Database = {
           created_at: string
           id: string
           items: Json
+          pending_roster: Json | null
           registration_id: string
           status: string
+          stripe_payment_intent_id: string | null
         }
         Insert: {
           applied_at?: string | null
           created_at?: string
           id?: string
           items: Json
+          pending_roster?: Json | null
           registration_id: string
           status?: string
+          stripe_payment_intent_id?: string | null
         }
         Update: {
           applied_at?: string | null
           created_at?: string
           id?: string
           items?: Json
+          pending_roster?: Json | null
           registration_id?: string
           status?: string
+          stripe_payment_intent_id?: string | null
         }
         Relationships: [
           {
@@ -1603,6 +1609,7 @@ export type Database = {
         Returns: undefined
       }
       apply_registration_topup: { Args: { p_topup_id: string }; Returns: Json }
+      apply_topup_roster: { Args: { p_topup_id: string }; Returns: Json }
       apply_ticket_type_conversion: {
         Args: { p_conversion_id: string }
         Returns: Json
