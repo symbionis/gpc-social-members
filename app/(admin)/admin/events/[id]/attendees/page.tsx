@@ -399,21 +399,24 @@ export default async function ManageEventPage({
   );
   const guestListCount = guestLists.length;
 
-  // Seats SOLD across every paid/free booking — what was bought, cancellations included.
-  const sold = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
+  // Every seat booked, comp guest-list seats included — a guest list is a `free`
+  // registration, so its seats are in here too. Named `booked`, not `sold`: it is the
+  // left-hand side of `booked − cancelled = live`, and some of these seats may never
+  // have been paid for.
+  const booked = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
   // Seats still standing. `seats_used` is the authoritative figure: it subtracts cancelled
   // seat-counting tickets and is the same number that gates public registration. Deriving the
-  // cap warning from `sold` told an admin an event was overbooked while registration was still
+  // cap warning from `booked` told an admin an event was overbooked while registration was still
   // open — 23 of 17 on screen against a real 16 of 17.
-  let liveSeats = sold;
+  let liveSeats = booked;
   try {
     liveSeats = await getSeatsUsed(supabase, id);
   } catch (err) {
-    // Fall back to the sold count rather than failing the page. It over-states, so the cap
+    // Fall back to the booked count rather than failing the page. It over-states, so the cap
     // warning errs toward caution.
     console.error("[admin/events/attendees] seat usage failed", { id, err });
   }
-  const cancelledSeats = Math.max(0, sold - liveSeats);
+  const cancelledSeats = Math.max(0, booked - liveSeats);
   const seatCap = event.seat_cap as number | null;
   const hasSeatCap = seatCap !== null && seatCap !== undefined;
   const overbooked = hasSeatCap && liveSeats > seatCap;
@@ -523,7 +526,7 @@ export default async function ManageEventPage({
         waitlist={waitlist}
         hasSeatCap={hasSeatCap}
         total={liveSeats}
-        sold={sold}
+        booked={booked}
         cancelledSeats={cancelledSeats}
         guestListSeats={guestListSeats}
         guestListCount={guestListCount}

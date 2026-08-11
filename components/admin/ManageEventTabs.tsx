@@ -56,14 +56,14 @@ interface Props {
   waitlist: Waitlist[];
   hasSeatCap: boolean;
   /**
-   * Seats still standing (`seats_used`): sold minus cancelled. This is the figure the public
+   * Seats still standing (`seats_used`): booked minus cancelled. This is the figure the public
    * registration gate uses, so every seat decision in this component — the cap warning, the
    * convert-from-waitlist check, expected arrivals — is measured against the same number the
    * rest of the system is.
    */
   total: number;
-  /** Seats bought, cancellations included. Display only. */
-  sold: number;
+  /** Every seat booked, cancellations and comp guest-list seats included. Display only. */
+  booked: number;
   /** Seats given back, so sold and live visibly reconcile. */
   cancelledSeats: number;
   /** Comp seats standing across every guest list — the comped share of the attendee count. */
@@ -111,7 +111,7 @@ export default function ManageEventTabs({
   waitlist,
   hasSeatCap,
   total,
-  sold,
+  booked,
   cancelledSeats,
   guestListSeats,
   guestListCount,
@@ -327,7 +327,7 @@ export default function ManageEventTabs({
             <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
               <EventRosterSummary
                 total={total}
-                sold={sold}
+                booked={booked}
                 cancelledSeats={cancelledSeats}
                 guestListSeats={guestListSeats}
                 guestListCount={guestListCount}

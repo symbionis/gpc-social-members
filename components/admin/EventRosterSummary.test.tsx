@@ -15,7 +15,7 @@ function renderSummary(overrides: Partial<React.ComponentProps<typeof EventRoste
   return render(
     <EventRosterSummary
       total={16}
-      sold={23}
+      booked={23}
       cancelledSeats={7}
       guestListSeats={5}
       guestListCount={1}
@@ -41,7 +41,7 @@ describe("EventRosterSummary — guest list panel", () => {
     expect(screen.getByText("across 3 guest lists")).toBeInTheDocument();
   });
 
-  // Same rule the sold/cancelled panels follow: a zero panel is noise on an event that has
+  // Same rule the booked/cancelled panels follow: a zero panel is noise on an event that has
   // no guest lists at all.
   it("is absent when the event has no guest lists", () => {
     renderSummary({ guestListSeats: 0, guestListCount: 0 });
@@ -60,5 +60,33 @@ describe("EventRosterSummary — guest list panel", () => {
     renderSummary();
     expect(screen.getByText("Live seats")).toBeInTheDocument();
     expect(screen.getByText("of 17 cap")).toBeInTheDocument();
+  });
+});
+
+describe("EventRosterSummary — the booked panel", () => {
+  // This figure counts every seat booked, comp guest-list seats included (a guest list is a
+  // `free` registration). Calling it "Sold" read as a revenue claim and misled an admin
+  // looking at an event with a guest list: 3 of the seats had never been paid for.
+  it("labels the figure Booked, never Sold", () => {
+    renderSummary();
+    expect(screen.getByText("Booked")).toBeInTheDocument();
+    expect(screen.queryByText("Sold")).toBeNull();
+  });
+
+  // The whole point of showing the panel: booked − cancelled = live, on one screen.
+  it("reconciles with live seats and cancellations", () => {
+    renderSummary({ total: 8, booked: 10, cancelledSeats: 2 });
+    expect(screen.getByText("Booked")).toBeInTheDocument();
+    expect(screen.getByText("10")).toBeInTheDocument();
+    expect(screen.getByText("Cancelled")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("8")).toBeInTheDocument();
+  });
+
+  // On a clean event all three are the same number; two of them are noise.
+  it("is hidden when nothing has been cancelled", () => {
+    renderSummary({ total: 10, booked: 10, cancelledSeats: 0 });
+    expect(screen.queryByText("Booked")).toBeNull();
+    expect(screen.queryByText("Cancelled")).toBeNull();
   });
 });

@@ -21,11 +21,16 @@ export interface TicketTypeSummaryRow {
 }
 
 interface Props {
-  /** Seats still standing — `seats_used`, i.e. sold minus cancelled. Drives the cap warning. */
+  /** Seats still standing — `seats_used`, i.e. booked minus cancelled. Drives the cap warning. */
   total: number;
-  /** Seats bought across every booking, cancellations included. */
-  sold: number;
-  /** Seats given back. Shown so sold and live visibly reconcile instead of contradicting. */
+  /**
+   * Every seat booked, cancellations included — comp guest-list seats among them, since a
+   * guest list is a `free` registration. Labelled "Booked", never "Sold": it is the
+   * left-hand side of `booked − cancelled = live`, not a revenue figure, and calling a
+   * comped seat sold misreads as money the club never took.
+   */
+  booked: number;
+  /** Seats given back. Shown so booked and live visibly reconcile instead of contradicting. */
   cancelledSeats: number;
   /** Comp seats standing across every guest list — the comped share of the attendee count. */
   guestListSeats: number;
@@ -82,7 +87,7 @@ function Panel({
 
 export default function EventRosterSummary({
   total,
-  sold,
+  booked,
   cancelledSeats,
   guestListSeats,
   guestListCount,
@@ -102,7 +107,7 @@ export default function EventRosterSummary({
       <p className="font-body text-sm font-bold text-marine">Overview</p>
 
       {/* Live seats lead: that is the number the cap, the waitlist and public registration all
-          reason about. Sold and cancelled appear only when they differ from it — on an event
+          reason about. Booked and cancelled appear only when they differ from it — on an event
           with no cancellations all three are the same figure and two of them are noise. */}
       <div className="flex flex-wrap gap-3">
         <Panel
@@ -113,11 +118,11 @@ export default function EventRosterSummary({
         />
         {cancelledSeats > 0 && (
           <>
-            <Panel value={String(sold)} label="Sold" />
+            <Panel value={String(booked)} label="Booked" />
             <Panel value={String(cancelledSeats)} label="Cancelled" sub="see Refunds" />
           </>
         )}
-        {/* Comped seats, shown only when there are any — same rule as sold/cancelled above.
+        {/* Comped seats, shown only when there are any — same rule as booked/cancelled above.
             This is the one part of the attendee count the seat panels cannot explain: a guest
             list mints ordinary tickets, so its people sit in Attendees indistinguishable from
             buyers unless the organiser opens the pill or the Guest list tab.

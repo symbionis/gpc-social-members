@@ -75,7 +75,7 @@ function renderTabs(over: Partial<Props> = {}) {
     waitlist: [],
     hasSeatCap: true,
     total: 0,
-    sold: 0,
+    booked: 0,
     cancelledSeats: 0,
     guestListSeats: 0,
     guestListCount: 0,
