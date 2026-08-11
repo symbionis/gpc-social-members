@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateTime } from "@/lib/format";
 import PhoneInput from "@/components/common/PhoneInput";
-import WaiverText from "@/components/events/WaiverText";
+import DoorWaiverModal from "@/components/door/DoorWaiverModal";
 import type { WaiverLanguage } from "@/lib/events/waiver";
 // The shapes this console renders are the shapes buildDoorRoster produces — imported
 // from the module that produces them rather than restated here, so the two cannot
@@ -734,51 +734,21 @@ function SlotRow({
         </p>
       )}
 
-      {needsWaiver && (
-        <div className="mt-2 space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="font-body text-base font-semibold text-amber-900">
-              Read &amp; accept the waiver to check in.
-            </p>
-            <div className="flex gap-1 shrink-0">
-              {(["en", "fr"] as const).map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  onClick={() => setLanguage(l)}
-                  className={`rounded-lg border-2 px-3 py-1 font-body text-sm font-semibold transition-colors ${
-                    language === l
-                      ? "border-marine bg-marine text-white"
-                      : "border-marine/30 text-marine/60"
-                  }`}
-                >
-                  {l.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </div>
-          <WaiverText lang={language} textSize="text-sm" maxHeightClass="max-h-56" />
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={marketingConsent}
-              onChange={(e) => setMarketingConsent(e.target.checked)}
-              className="mt-0.5 h-6 w-6 shrink-0 accent-marine cursor-pointer"
-            />
-            <span className="font-body text-sm text-amber-900">
-              They’d like to receive news and invitations from Geneva Polo Social Club.
-            </span>
-          </label>
-          <button
-            type="button"
-            onClick={() => checkInAdult(true)}
-            disabled={checkingIn}
-            className="w-full px-3 py-3 rounded-lg bg-marine text-white font-body font-semibold text-base disabled:opacity-50 cursor-pointer"
-          >
-            {checkingIn ? "…" : "Accept & check in"}
-          </button>
-        </div>
-      )}
+      {/* The waiver takes the whole screen rather than a box inside this row — it is a legal
+          document read on a phone, outdoors, with a queue waiting. Dismissing it leaves the
+          guest un-checked-in, which is the honest outcome: nothing was signed. */}
+      <DoorWaiverModal
+        open={needsWaiver}
+        guestName={name || slot.name || ""}
+        language={language}
+        onLanguageChange={setLanguage}
+        marketingConsent={marketingConsent}
+        onMarketingConsentChange={setMarketingConsent}
+        onAccept={() => checkInAdult(true)}
+        onClose={() => setNeedsWaiver(false)}
+        busy={checkingIn}
+        error={error}
+      />
 
       {locked ? (
         <button
