@@ -593,6 +593,87 @@ describe("Guest lists tab", () => {
     });
   });
 
+  // A refusal from this route arrives as HTTP 200 with a status, not as a non-2xx. The handler
+  // used to treat everything that was not needs_waiver as success, so the server could say NO
+  // and the operator would see the row refresh and hand over a bracelet.
+  //
+  // The positive control below is what stops these three passing vacuously: on a real check-in
+  // the console MUST still refresh.
+  it("admits and refreshes on a genuine check-in", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "checked_in" }) });
+    renderConsole({
+      parties: [party({ slots: [slot({ attendeeId: "a1", name: "Ana Vidal" })] })],
+    });
+    refresh.mockClear();
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("does NOT admit on a 200 not_recognised, and says not to", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "not_recognised" }) });
+    renderConsole({
+      parties: [party({ slots: [slot({ attendeeId: "a1", name: "Ana Vidal" })] })],
+    });
+    refresh.mockClear();
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+
+    expect(refresh).not.toHaveBeenCalled();
+    // The operator has to be told not to admit — a silently unchanged row is a clue they will
+    // miss with a queue behind the guest.
+    expect(await screen.findByText(/Do not admit/i)).toBeInTheDocument();
+    // not_recognised covers a CANCELLED ticket as well as an unknown one, so the message must
+    // not tell the operator it is merely unrecognised.
+    expect(screen.getByText(/cancelled/i)).toBeInTheDocument();
+  });
+
+  // The worst version: the guest has already read and ticked the waiver on the operator's
+  // phone. Nothing was written — not the check-in and not the acceptance — so the modal must
+  // not close as though it had been.
+  it("does NOT admit when not_recognised comes back after the waiver was accepted", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "needs_waiver" }) });
+    renderConsole({
+      parties: [party({ slots: [slot({ attendeeId: "a1", name: "Ana Vidal" })] })],
+    });
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+    const dialog = await screen.findByRole("dialog");
+
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "not_recognised" }) });
+    refresh.mockClear();
+    await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
+    await user.click(within(dialog).getByRole("button", { name: "Accept" }));
+
+    expect(refresh).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Do not admit/i)).toBeInTheDocument();
+  });
+
+  // A status this screen does not know is a refusal, never an admission — and it is logged,
+  // because otherwise the only symptom is a door that quietly stops working for one guest.
+  it("refuses, and logs, a status it does not recognise", async () => {
+    const user = userEvent.setup();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "quarantined" }) });
+    renderConsole({
+      parties: [party({ slots: [slot({ attendeeId: "a1", name: "Ana Vidal" })] })],
+    });
+    refresh.mockClear();
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+
+    expect(refresh).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Could not check in/i)).toBeInTheDocument();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unrecognised status"),
+      expect.objectContaining({ status: "quarantined" })
+    );
+    errorSpy.mockRestore();
+  });
+
   it("translates the whole modal, not just the waiver body", async () => {
     const user = userEvent.setup();
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({

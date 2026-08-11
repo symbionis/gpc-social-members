@@ -26,6 +26,22 @@ import type {
  */
 type ListRow = DoorNotArrived & { arrivedAt?: string };
 
+/**
+ * What POST /api/public/door/[id]/check-in answers on the ticketId path.
+ *
+ * `status` is deliberately widened past the four the route sends today. The response is parsed
+ * from JSON, so the compiler cannot promise it is one of them, and a union of exactly four
+ * would let a caller narrow with `else` and treat a fifth as success. Callers must admit only
+ * on an explicit `checked_in` / `already`.
+ *
+ * Note that a refusal arrives as HTTP 200 with a status, not as a non-2xx — `res.ok` alone
+ * says nothing about whether the guest may come in.
+ */
+interface DoorCheckInResponse {
+  status?: "checked_in" | "already" | "needs_waiver" | "not_recognised" | (string & {});
+  error?: string;
+}
+
 interface Props {
   eventId: string;
   eventTitle: string;
@@ -629,13 +645,42 @@ function SlotRow({
         }),
         signal: AbortSignal.timeout(10000),
       });
-      const data = await res.json().catch(() => ({}));
+      const data: DoorCheckInResponse = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error || "Could not check in.");
         return;
       }
       if (data.status === "needs_waiver") {
         setNeedsWaiver(true);
+        return;
+      }
+      // Only these two mean a person was admitted. Everything else — including a 200 the
+      // server sends to say NO — has to stop here.
+      //
+      // This used to fall through to onSaved(): `not_recognised` is HTTP 200, and anything
+      // that was not needs_waiver counted as success. So the modal closed cleanly, the row
+      // refreshed, and the operator handed over a bracelet for a ticket the server had just
+      // refused. Worse on the waiver path, where the guest had read and accepted first —
+      // nothing was written, neither the check-in nor the acceptance.
+      //
+      // not_recognised is the server's answer for a ticket that is unknown to this event OR
+      // cancelled (lib/events/checkin.ts maps both to not_found), so the wording cannot claim
+      // it is merely unrecognised — a refunded seat is the likelier case at a real door.
+      if (data.status !== "checked_in" && data.status !== "already") {
+        setNeedsWaiver(false);
+        setError(
+          data.status === "not_recognised"
+            ? "Not valid for this event — it may have been cancelled. Do not admit; check the roster."
+            : "Could not check in. Try again, or find the guest by name in the roster."
+        );
+        if (data.status !== "not_recognised") {
+          // An unknown status means the route grew an answer this screen does not know. It is
+          // handled as a refusal above (never admit on a status we cannot read), and logged
+          // because the only other symptom is a door that stops working for one guest.
+          console.error("[door/check-in] unrecognised status from the route", {
+            status: data.status,
+          });
+        }
         return;
       }
       setNeedsWaiver(false);
