@@ -4,6 +4,11 @@
 // by the console page and its search route so both resolve the event the same way.
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  ADMISSIBLE_SLOT_STATUSES,
+  partitionByCancellation,
+  seatsForRegistration,
+} from "@/lib/events/ticket-admissibility";
 
 export interface DoorEvent {
   id: string;
@@ -202,31 +207,19 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
         "id, registration_id, name, email, phone_e164, is_lead, ticket_type_id, checked_in_at, created_at, slot_status, cancellation_status"
       )
       .eq("event_id", eventId)
-      .in("slot_status", ["claimed", "issued"])
+      .in("slot_status", [...ADMISSIBLE_SLOT_STATUSES])
       .is("released_at", null)
       .order("id", { ascending: true })
       .range(from, to)
   );
 
   // Cancelled seats are excluded so the console shows the same people as the admin roster
-  // and the printed sheet. Check-in rejects them at the scan anyway (lib/events/checkin.ts),
-  // so listing one only offered the door a row it could never admit.
-  //
-  // Split here rather than in the query because `registration.quantity` still counts the
-  // cancelled seat. Dropping the rows alone left the party reading "1 / 2 named" with a
-  // seat nobody can fill, kept a fully refunded booking on the list, and inflated
-  // `expected` over a roster that no longer contained those people.
-  const attendees = allAttendees.filter((a) => (a.cancellation_status ?? null) === null);
-  const cancelledByReg = new Map<string, number>();
-  for (const a of allAttendees) {
-    if ((a.cancellation_status ?? null) === null || !a.registration_id) continue;
-    cancelledByReg.set(
-      a.registration_id,
-      (cancelledByReg.get(a.registration_id) ?? 0) + 1
-    );
-  }
+  // and the printed sheet — the shared rule, and why it is not just a query filter, lives in
+  // lib/events/ticket-admissibility.ts.
+  const { live: attendees, cancelledByRegistration } =
+    partitionByCancellation(allAttendees);
   const seatsFor = (reg: { id: string; quantity: number | null }) =>
-    Math.max(0, (reg.quantity ?? 0) - (cancelledByReg.get(reg.id) ?? 0));
+    seatsForRegistration(reg, cancelledByRegistration);
 
   // Active ticket types → titles + sort order for empty slots.
   const { data: ttRows } = await supabase

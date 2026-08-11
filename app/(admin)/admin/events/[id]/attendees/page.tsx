@@ -14,6 +14,10 @@ import {
   isWaitlistEntryRedeemed,
   emailAlreadyRegistered,
 } from "@/lib/events/waitlist-offer";
+import {
+  ADMISSIBLE_SLOT_STATUSES,
+  partitionByCancellation,
+} from "@/lib/events/ticket-admissibility";
 
 export default async function ManageEventPage({
   params,
@@ -120,7 +124,7 @@ export default async function ManageEventPage({
       "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, is_comp, manage_token, qr_email_sent_at, cancellation_status, cancellation_requested_at, cancellation_refunded_at, refund_amount_chf, stripe_refund_id, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", id)
-    .in("slot_status", ["issued", "claimed"])
+    .in("slot_status", [...ADMISSIBLE_SLOT_STATUSES])
     .is("released_at", null)
     .order("created_at", { ascending: true });
   if (attendeeRowsError) failLoad("attendees", attendeeRowsError);
@@ -190,9 +194,7 @@ export default async function ManageEventPage({
   // here padded a door document with rows nobody can admit. `claimedRoster` above is
   // deliberately NOT filtered — the guest-list tab reasons about every claimed seat,
   // cancelled or not.
-  const attendees = roster
-    .filter((a) => a.cancellation_status === null)
-    .map((a) => {
+  const attendees = partitionByCancellation(roster).live.map((a) => {
     const named = a.slot_status === "claimed";
     // "Notified" is per person: a guest's QR rides the grouped household email
     // (ticket.qr_email_sent_at); the buyer's own rides the booking confirmation

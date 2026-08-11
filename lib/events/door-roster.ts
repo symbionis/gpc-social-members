@@ -1,11 +1,19 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
+import {
+  ADMISSIBLE_SLOT_STATUSES,
+  partitionByCancellation,
+  seatsForRegistration,
+} from "@/lib/events/ticket-admissibility";
 
 // The door roster: every ticket sold for an event, as one row each, in a single flat
 // A–Z list by surname across the whole event — leads and named guests intermixed, so
-// any named person can be found directly by their own surname. Shared by the CSV export
-// (app/api/admin/events/[id]/attendees) and the printed door sheet
-// (app/(print)/print/door-roster/[id]) so the two surfaces can never drift — the
-// printed page and the spreadsheet must list the same people in the same order.
+// any named person can be found directly by their own surname. Backs the printed door sheet
+// (app/(print)/print/door-roster/[id]). It once also backed an attendees CSV export, which
+// no longer exists — the shape stays export-friendly, but there is only one consumer today.
+//
+// Which tickets count as admissible is NOT decided here — lib/events/ticket-admissibility.ts
+// owns that rule, shared with the door console so the printed sheet and the live console can
+// never disagree about who is arriving.
 //
 // A row exists for a ticket whether or not anyone has been named on it: tickets are
 // minted `issued` (carrying their own ticket type and QR credential) and flipped to
@@ -149,7 +157,7 @@ export async function buildDoorRoster(
       "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, cancellation_status, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", eventId)
-    .in("slot_status", ["issued", "claimed"])
+    .in("slot_status", [...ADMISSIBLE_SLOT_STATUSES])
     .is("released_at", null)
     .order("created_at", { ascending: true });
   if (ticketsError) return fail("tickets", ticketsError);
@@ -163,16 +171,9 @@ export async function buildDoorRoster(
   // to `registration.quantity`, and that quantity still counts cancelled seats. Filtering
   // in SQL alone put them straight back on the sheet as blank "to fill in" lines — and
   // re-materialised a fully refunded booking as a reconstructed lead row.
-  const allTickets = (ticketData || []) as unknown as TicketRow[];
-  const tickets = allTickets.filter((t) => t.cancellation_status === null);
-  const cancelledByReg = new Map<string, number>();
-  for (const t of allTickets) {
-    if (t.cancellation_status === null || !t.registration_id) continue;
-    cancelledByReg.set(
-      t.registration_id,
-      (cancelledByReg.get(t.registration_id) ?? 0) + 1
-    );
-  }
+  const { live: tickets, cancelledByRegistration } = partitionByCancellation(
+    (ticketData || []) as unknown as TicketRow[]
+  );
 
   const { data: typeRows, error: typeRowsError } = await adminClient
     .from("event_ticket_types")
@@ -303,7 +304,7 @@ export async function buildDoorRoster(
     const bookingRef = reg.reference_code ?? "";
     // Seats this booking can still bring through the door: what it bought, less what has
     // been cancelled. Using the raw quantity padded refunded seats back onto the sheet.
-    const quantity = Math.max(0, (reg.quantity ?? 0) - (cancelledByReg.get(reg.id) ?? 0));
+    const quantity = seatsForRegistration(reg, cancelledByRegistration);
     const live = liveByReg.get(reg.id) ?? [];
     // Nothing left standing — a fully cancelled booking. Emit no rows at all: without this
     // the lead is rebuilt from the purchaser below and a refunded party prints as arrivable.
