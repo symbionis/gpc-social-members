@@ -468,6 +468,7 @@ export type Database = {
           pending_roster: Json | null
           registration_id: string
           status: string
+          stripe_payment_intent_id: string | null
         }
         Insert: {
           applied_at?: string | null
@@ -477,6 +478,7 @@ export type Database = {
           pending_roster?: Json | null
           registration_id: string
           status?: string
+          stripe_payment_intent_id?: string | null
         }
         Update: {
           applied_at?: string | null
@@ -486,6 +488,7 @@ export type Database = {
           pending_roster?: Json | null
           registration_id?: string
           status?: string
+          stripe_payment_intent_id?: string | null
         }
         Relationships: [
           {

@@ -23,6 +23,15 @@
 -- After this, `event_registrations.pending_roster` is once again single-producer.
 --
 -- pending_roster shape is unchanged: jsonb array of { ticket_type_id, name, email|null }.
+--
+-- APPLIED to production 2026-08-11. The function body was then exercised against a
+-- throwaway fixture inside a rolled-back transaction (the DO-block pattern in
+-- docs/solutions/best-practices/verify-security-definer-rpc-do-block-rollback.md),
+-- returning ALL_PASS on six assertions:
+--   unknown id -> 'not_found'; first apply -> 'applied'; both staged guests claimed;
+--   pending_roster cleared in the same transaction; replay -> 'no_roster';
+--   replay claims nothing further (no double-claim).
+-- Verified afterwards that the rollback left no fixture rows behind.
 
 ALTER TABLE public.event_registration_topups
   ADD COLUMN IF NOT EXISTS pending_roster jsonb;

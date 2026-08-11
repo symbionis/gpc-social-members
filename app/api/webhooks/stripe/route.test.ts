@@ -45,7 +45,9 @@ let updates: Record<string, unknown>[];
 function rosterAdmin() {
   return {
     from: (table: string) => {
-      if (table !== "event_registrations") throw new Error(`unexpected table ${table}`);
+      if (table !== "event_registrations" && table !== "event_registration_topups") {
+        throw new Error(`unexpected table ${table}`);
+      }
       const c: Record<string, unknown> = {};
       c.select = () => ({
         eq: () => ({ limit: () => ({ maybeSingle: async () => ({ data: regRow, error: null }) }) }),
@@ -336,5 +338,61 @@ describe("stripe webhook — top-up branch", () => {
     await post();
     expect(mockedApplyTopup).toHaveBeenCalledWith(TOPUP);
     expect(mockedApply).toHaveBeenCalledWith(REG);
+  });
+
+  // Seats must exist before they can be named. Swap these two and every claim no-ops
+  // against a set of tickets that has not been minted yet, while the RPC clears the
+  // roster regardless — a permanently unnamed, paid seat with nothing logged.
+  it("mints the new seats before naming them", async () => {
+    currentEvent = makeEvent({ event_registration_id: REG, topup_id: TOPUP });
+    await post();
+    expect(mockedMint.mock.invocationCallOrder[0]).toBeLessThan(
+      mockedApplyTopup.mock.invocationCallOrder[0]
+    );
+  });
+
+  // The whole point of the status return. A 200 here would stop Stripe retrying and strand
+  // the names on a column nothing else reads — the exact defect this branch exists to fix.
+  it("returns 500 so Stripe retries when the roster apply fails", async () => {
+    mockedApplyTopup.mockResolvedValue("error");
+    currentEvent = makeEvent({ event_registration_id: REG, topup_id: TOPUP });
+    const res = await post();
+    expect(res.status).toBe(500);
+    // ...but only after the confirmation email, which the retry would skip:
+    // apply_registration_topup returns 'already' on replay.
+    expect(mockedEmail).toHaveBeenCalledWith(REG);
+  });
+
+  it("does not fall back to the registration slot on an apply failure", async () => {
+    mockedApplyTopup.mockResolvedValue("error");
+    currentEvent = makeEvent({ event_registration_id: REG, topup_id: TOPUP });
+    await post();
+    expect(mockedApply).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkout.session.expired — top-up guest PII sweep", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    updates = [];
+    mockedAdmin.mockReturnValue(rosterAdmin());
+    mockedStripe.mockReturnValue({
+      webhooks: { constructEvent },
+      paymentIntents: { update: piUpdate, retrieve: vi.fn() },
+    } as never);
+  });
+
+  // An abandoned top-up stages names and emails on the top-up row, which the registration
+  // sweep cannot reach — and once abandoned, nothing ever reads that column again.
+  it("clears the abandoned top-up's staged names", async () => {
+    regRow = { id: REG, status: "pending", pending_roster: null };
+    currentEvent = {
+      type: "checkout.session.expired",
+      id: "evt_exp",
+      data: { object: { id: "cs_1", metadata: { topup_id: TOPUP } } },
+    };
+    await post();
+    expect(updates.some((u) => "pending_roster" in u && u.pending_roster === null)).toBe(true);
   });
 });

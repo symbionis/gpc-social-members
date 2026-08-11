@@ -23,6 +23,8 @@ const mockedApplyRoster = vi.mocked(applyTopupRoster);
 let lastRosterWrite: unknown = null;
 /** Any write to the registration's shared pending_roster slot — should stay null. */
 let registrationRosterWrite: unknown = null;
+/** The Stripe checkout session mock, so tests can assert what metadata went on the wire. */
+let sessionCreate: ReturnType<typeof vi.fn>;
 
 const TYPE = "33333333-3333-3333-3333-333333333333";
 
@@ -106,8 +108,9 @@ beforeEach(() => {
   registrationRosterWrite = null;
   mockedAdmin.mockReturnValue(adminClient({}));
   mockedSeats.mockResolvedValue(0);
+  sessionCreate = vi.fn().mockResolvedValue({ url: "https://stripe.test/cs" });
   mockedStripe.mockReturnValue({
-    checkout: { sessions: { create: vi.fn().mockResolvedValue({ url: "https://stripe.test/cs" }) } },
+    checkout: { sessions: { create: sessionCreate } },
   } as never);
 });
 
@@ -214,5 +217,34 @@ describe("mandatory naming on top-ups", () => {
     // Keyed on the top-up, not the registration: the free path names exactly the seats
     // this top-up bought.
     expect(mockedApplyRoster).toHaveBeenCalledWith("topup-1");
+  });
+
+  // The webhook gates SOLELY on topup_id presence now. If this key is ever dropped or
+  // renamed here, every paid top-up captures money and mints nothing — and no other test
+  // would notice, because both sides use a hardcoded id.
+  it("puts topup_id on the checkout session so the webhook can find the branch", async () => {
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(200);
+    expect(sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          topup_id: "topup-1",
+          event_registration_id: "reg",
+        }),
+      })
+    );
+  });
+
+  // No webhook on the free path means no retry: this is the only attempt these names get,
+  // so the lead has to be told rather than shown a clean success.
+  it("warns the lead when a free top-up's seats could not be named", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ price: 0 }));
+    mockedApplyRoster.mockResolvedValue("error");
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      warning: expect.stringMatching(/couldn't attach the guest names/i),
+    });
   });
 });

@@ -178,7 +178,25 @@ export async function POST(
     }
     await mintRegistrationTickets(reg.id as string);
     // Nothing was charged, so there is no webhook to do this — name the new seats here.
-    await applyTopupRoster(topupId);
+    // And no webhook means no retry either: this is the only attempt these names get, so a
+    // failure has to be loud and has to reach the lead, who can still fix it from their
+    // booking page. Silently returning success is how an unnamed seat reaches the door.
+    const rosterStatus = await applyTopupRoster(topupId);
+    if (rosterStatus !== "applied") {
+      console.error("[booking-topup] free top-up seats added but NOT named", {
+        topupId,
+        registrationId: reg.id,
+        eventId: reg.event_id,
+        rosterStatus,
+      });
+      return NextResponse.json({
+        ok: true,
+        applied: true,
+        redirectUrl: successUrl,
+        warning:
+          "Your tickets were added, but we couldn't attach the guest names — please add them from your booking page.",
+      });
+    }
     return NextResponse.json({ ok: true, applied: true, redirectUrl: successUrl });
   }
 
@@ -195,12 +213,16 @@ export async function POST(
         quantity: li.quantity,
       })),
       customer_email: (reg.email as string) ?? undefined,
-      // Distinct discriminator so the webhook applies the top-up BEFORE its paid
-      // short-circuit (the registration is already 'paid').
+      // `topup_id` is the discriminator: the webhook gates on its PRESENCE to apply the
+      // top-up BEFORE its paid short-circuit (the registration is already 'paid'). It is
+      // deliberately the id rather than a `topup: "true"` flag — the id is both the gate and
+      // the thing the branch needs, so a delivery cannot arrive carrying one without the
+      // other. A separate boolean previously could, and a delivery missing it captured
+      // payment and minted nothing.
+      // See docs/solutions/logic-errors/stripe-webhook-metadata-missing-skips-cleanup.md.
       metadata: {
         event_registration_id: reg.id as string,
         event_id: reg.event_id as string,
-        topup: "true",
         topup_id: topupId,
       },
       success_url: successUrl,
