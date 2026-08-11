@@ -4,8 +4,7 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import CredentialScanner from "./CredentialScanner";
 import PhoneInput from "@/components/common/PhoneInput";
-import WaiverText from "@/components/events/WaiverText";
-import type { WaiverLanguage } from "@/lib/events/waiver";
+import DoorWaiverModal from "@/components/door/DoorWaiverModal";
 
 interface CheckinResult {
   status: string;
@@ -16,27 +15,9 @@ interface CheckinResult {
 
 type Phase = "scan" | "busy" | "needs_name" | "needs_waiver" | "result";
 
-// Guest-facing copy for the waiver step (we hand the phone to the guest here), in the
-// language they pick with the EN/FR toggle. The waiver body itself comes from WaiverText.
-const WAIVER_COPY: Record<
-  WaiverLanguage,
-  { title: string; intro: string; accept: string; comms: string; button: string }
-> = {
-  en: {
-    title: "Waiver",
-    intro: "Please read and accept the waiver to check in.",
-    accept: "I have read and accept the waiver above.",
-    comms: "I'd like to receive news and invitations from Geneva Polo Social Club.",
-    button: "Accept & check in",
-  },
-  fr: {
-    title: "Décharge",
-    intro: "Merci de lire et d'accepter la décharge pour l'enregistrement.",
-    accept: "J'ai lu et j'accepte la décharge ci-dessus.",
-    comms: "Je souhaite recevoir les actualités et invitations du Geneva Polo Social Club.",
-    button: "Accepter et enregistrer",
-  },
-};
+// The guest-facing waiver copy that used to live here moved into DoorWaiverModal, which the
+// roster path renders too — one component, so the two door surfaces cannot present the same
+// legal document differently.
 
 const bigField =
   "w-full rounded-xl border-2 border-marine/30 bg-white px-4 py-4 text-lg font-body text-marine placeholder:text-marine/40 focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
@@ -61,9 +42,6 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState<string | null>(null);
-  const [language, setLanguage] = useState<WaiverLanguage>("en");
-  const [waiverChecked, setWaiverChecked] = useState(false);
-  const [marketingConsent, setMarketingConsent] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Reset to a fresh scan (keeps the modal open — used by "Scan next guest").
@@ -74,9 +52,6 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
     setName("");
     setEmail("");
     setPhone(null);
-    setLanguage("en");
-    setWaiverChecked(false);
-    setMarketingConsent(true);
     setError(null);
   }, []);
 
@@ -137,7 +112,6 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
   // Every guest must give a contact (email OR phone).
   const canContinue =
     name.trim() !== "" && (email.trim() !== "" || Boolean(phone));
-  const copy = WAIVER_COPY[language];
 
   return (
     <>
@@ -263,84 +237,27 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
                 </div>
               )}
 
-              {phase === "needs_waiver" && (
-                <div className="space-y-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="font-heading text-xl font-bold text-marine">{copy.title}</h3>
-                    <div className="flex gap-2">
-                      {(["en", "fr"] as const).map((l) => (
-                        <button
-                          key={l}
-                          type="button"
-                          onClick={() => setLanguage(l)}
-                          className={`rounded-lg border-2 px-4 py-2 font-body text-base font-semibold transition-colors ${
-                            language === l
-                              ? "border-marine bg-marine text-white"
-                              : "border-marine/30 text-marine/60"
-                          }`}
-                        >
-                          {l.toUpperCase()}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <p className="font-body text-base text-marine/70">
-                    {result?.name ? `${result.name} — ` : ""}
-                    {copy.intro}
-                  </p>
-                  <WaiverText lang={language} textSize="text-base" maxHeightClass="max-h-[40vh]" />
-
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={waiverChecked}
-                      onChange={(e) => setWaiverChecked(e.target.checked)}
-                      className="mt-1 h-7 w-7 shrink-0 accent-marine cursor-pointer"
-                    />
-                    <span className="font-body text-base font-medium text-marine">
-                      {copy.accept}
-                    </span>
-                  </label>
-
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={marketingConsent}
-                      onChange={(e) => setMarketingConsent(e.target.checked)}
-                      className="mt-1 h-7 w-7 shrink-0 accent-marine cursor-pointer"
-                    />
-                    <span className="font-body text-base text-marine/70">{copy.comms}</span>
-                  </label>
-
-                  {error && (
-                    <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 font-body text-base text-red-700">
-                      {error}
-                    </p>
-                  )}
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      disabled={!waiverChecked}
-                      onClick={() =>
-                        submit(token, {
-                          name: name.trim(),
-                          email: email.trim(),
-                          phone: phone ?? "",
-                          waiverAccepted: true,
-                          language,
-                          marketingConsent,
-                        })
-                      }
-                      className={primaryBtn}
-                    >
-                      {copy.button}
-                    </button>
-                    <button type="button" onClick={closeScanner} className={secondaryBtn}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* The waiver is the shared DoorWaiverModal, not a phase-local block: the roster
+                  path raises the same one. Two presentations of a legal document agreed on the
+                  text but had already diverged on the chrome and the acceptance gesture, and the
+                  recorded WAIVER_VERSION cannot tell them apart. */}
+              <DoorWaiverModal
+                open={phase === "needs_waiver"}
+                guestName={result?.name ?? name.trim()}
+                busy={false}
+                error={error}
+                onClose={closeScanner}
+                onAccept={({ language, marketingConsent }) =>
+                  submit(token, {
+                    name: name.trim(),
+                    email: email.trim(),
+                    phone: phone ?? "",
+                    waiverAccepted: true,
+                    language,
+                    marketingConsent,
+                  })
+                }
+              />
 
               {phase === "result" && result && (
                 <div className="space-y-4">

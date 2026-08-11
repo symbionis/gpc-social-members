@@ -538,11 +538,34 @@ describe("Guest lists tab", () => {
     await screen.findByRole("dialog");
 
     const callsBefore = fetchMock.mock.calls.length;
-    await user.click(screen.getByRole("button", { name: "Close waiver" }));
+    await user.click(screen.getByRole("button", { name: "Close" }));
 
     expect(screen.queryByRole("dialog")).toBeNull();
     // Dismissing signs nothing, so it must not admit them.
     expect(fetchMock.mock.calls.length).toBe(callsBefore);
+  });
+
+  // The affirmation is a separate act from the button. A phone gets passed between people at
+  // the door; a stray tap must not be able to accept a liability waiver on someone's behalf.
+  it("will not check in until the guest ticks the acceptance box", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "needs_waiver" }) });
+    renderConsole({
+      parties: [party({ slots: [slot({ attendeeId: "a1", name: "Ana Vidal" })] })],
+    });
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+    const dialog = await screen.findByRole("dialog");
+
+    const accept = within(dialog).getByRole("button", { name: /Accept & check in/ });
+    expect(accept).toBeDisabled();
+
+    fetchMock.mockClear();
+    await user.click(accept);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
+    expect(accept).toBeEnabled();
   });
 
   it("accepts the waiver and checks in from inside the modal", async () => {
@@ -556,10 +579,67 @@ describe("Guest lists tab", () => {
     const dialog = await screen.findByRole("dialog");
 
     fetchMock.mockClear();
+    await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
     await user.click(within(dialog).getByRole("button", { name: /Accept & check in/ }));
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(body).toMatchObject({ ticketId: "a1", waiverAccepted: true });
+    // The guest's own language and consent choices ride along, sourced from the modal so the
+    // scan path cannot answer them differently.
+    expect(body).toMatchObject({
+      ticketId: "a1",
+      waiverAccepted: true,
+      language: "en",
+      marketingConsent: true,
+    });
+  });
+
+  it("translates the whole modal, not just the waiver body", async () => {
+    const user = userEvent.setup();
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: "needs_waiver" }),
+    });
+    renderConsole({
+      parties: [party({ slots: [slot({ attendeeId: "a1", name: "Ana Vidal" })] })],
+    });
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(within(dialog).getByRole("button", { name: "FR" }));
+
+    // Previously the body switched to French under English instructions.
+    expect(within(dialog).getByText("Conditions et décharge")).toBeInTheDocument();
+    expect(within(dialog).getByText(/J'ai lu et j'accepte/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Accepter et enregistrer/ })).toBeInTheDocument();
+  });
+
+  // The one piece of modal state that must never persist: a tick left over from the previous
+  // guest would admit this one on a stranger's acceptance.
+  it("clears the acceptance tick between guests", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "needs_waiver" }) });
+    renderConsole({
+      parties: [
+        party({
+          slots: [
+            slot({ attendeeId: "a1", name: "Ana Vidal" }),
+            slot({ attendeeId: "a2", name: "Ben Torres", isLead: false }),
+          ],
+        }),
+      ],
+    });
+
+    const [first, second] = screen.getAllByRole("button", { name: "Check in" });
+    await user.click(first);
+    let dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    await user.click(second);
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("checkbox", { name: /I have read and accept/i })).not.toBeChecked();
+    expect(within(dialog).getByRole("button", { name: /Accept & check in/ })).toBeDisabled();
   });
 
   it("shows an already-arrived guest as arrived rather than offering check-in again", async () => {

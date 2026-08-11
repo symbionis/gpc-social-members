@@ -4,8 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateTime } from "@/lib/format";
 import PhoneInput from "@/components/common/PhoneInput";
-import DoorWaiverModal from "@/components/door/DoorWaiverModal";
-import type { WaiverLanguage } from "@/lib/events/waiver";
+import DoorWaiverModal, {
+  type WaiverAcceptance,
+} from "@/components/door/DoorWaiverModal";
 // The shapes this console renders are the shapes buildDoorRoster produces — imported
 // from the module that produces them rather than restated here, so the two cannot
 // drift. Type-only, so lib/events/door-access's admin Supabase client is never pulled
@@ -549,8 +550,6 @@ function SlotRow({
   const [saving, setSaving] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
   const [needsWaiver, setNeedsWaiver] = useState(false);
-  const [language, setLanguage] = useState<WaiverLanguage>("en");
-  const [marketingConsent, setMarketingConsent] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const isOpen = slot.attendeeId === null;
@@ -609,9 +608,13 @@ function SlotRow({
   }
 
   // Lost-QR check-in: a named ticket found in the roster is checked in by id.
-  // If the waiver is unsigned the route returns needs_waiver — we surface a one-tap
-  // accept, then re-submit. Idempotent on the server.
-  async function checkInAdult(waiverAccepted: boolean) {
+  // If the waiver is unsigned the route returns needs_waiver — we raise the waiver modal and
+  // re-submit with its acceptance. Idempotent on the server.
+  //
+  // `acceptance` is undefined on the first attempt (nothing signed yet) and carries the
+  // guest's own language + consent choices on the second. Those choices live in the modal
+  // rather than here, so the scan path and this one cannot answer them differently.
+  async function checkInAdult(acceptance?: WaiverAcceptance) {
     setError(null);
     setCheckingIn(true);
     try {
@@ -620,9 +623,9 @@ function SlotRow({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ticketId: slot.attendeeId,
-          waiverAccepted,
-          language,
-          marketingConsent,
+          waiverAccepted: acceptance !== undefined,
+          language: acceptance?.language,
+          marketingConsent: acceptance?.marketingConsent,
         }),
         signal: AbortSignal.timeout(10000),
       });
@@ -685,7 +688,7 @@ function SlotRow({
         {!slot.checkedIn && !isOpen && (
           <button
             type="button"
-            onClick={() => checkInAdult(false)}
+            onClick={() => checkInAdult()}
             disabled={checkingIn}
             className="shrink-0 px-3 py-1 rounded-lg border border-marine text-marine text-xs font-body font-semibold hover:bg-marine hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
           >
@@ -740,11 +743,7 @@ function SlotRow({
       <DoorWaiverModal
         open={needsWaiver}
         guestName={name || slot.name || ""}
-        language={language}
-        onLanguageChange={setLanguage}
-        marketingConsent={marketingConsent}
-        onMarketingConsentChange={setMarketingConsent}
-        onAccept={() => checkInAdult(true)}
+        onAccept={(acceptance) => checkInAdult(acceptance)}
         onClose={() => setNeedsWaiver(false)}
         busy={checkingIn}
         error={error}
