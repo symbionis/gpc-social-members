@@ -195,6 +195,101 @@ describe("TicketManager — what a guest sees on a phone", () => {
     errorSpy.mockRestore();
   });
 
+  // Changing the address hands the seat to someone else: the ticket leaves this household and
+  // vanishes from the page, the new address gets its own link and QR, and any signed waiver is
+  // cleared. None of it is undoable from here, so it is confirmed before the tap, not after.
+  it("confirms before handing a ticket to a different email, and does not save on the first tap", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    renderManager([ticket({ waiverSigned: true })]);
+
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
+    const emailField = screen.getByPlaceholderText("Email");
+    await user.clear(emailField);
+    await user.type(emailField, "someone.else@example.com");
+
+    fetchMock.mockClear();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    // Nothing sent yet — the tap only surfaced the consequences.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/gives the ticket to someone else/i)).toBeInTheDocument();
+    expect(screen.getByText(/disappears from this page/i)).toBeInTheDocument();
+    // The signed waiver is called out, since it is cleared.
+    expect(screen.getByText(/waiver signed for Sophie Berger is cleared/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Yes, give it to them" }));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+      email: "someone.else@example.com",
+    });
+  });
+
+  // A typo fix is not a handover, and must not be gated behind a scary confirmation.
+  it("saves a name-only edit without confirming", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    renderManager([ticket()]);
+
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
+    const nameField = screen.getByPlaceholderText("Full name");
+    await user.clear(nameField);
+    await user.type(nameField, "Sophie Berger-Roux");
+
+    fetchMock.mockClear();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(screen.queryByText(/gives the ticket to someone else/i)).toBeNull();
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+      name: "Sophie Berger-Roux",
+    });
+  });
+
+  // A confirmation belongs to the address that was on screen when it was given. Otherwise
+  // confirming for one address and typing another would save the second one unconfirmed.
+  it("re-asks when the address changes again after confirming", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    renderManager([ticket()]);
+
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
+    const emailField = screen.getByPlaceholderText("Email");
+    await user.clear(emailField);
+    await user.type(emailField, "first@example.com");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByText(/gives the ticket to someone else/i)).toBeInTheDocument();
+
+    await user.type(emailField, "x");
+    fetchMock.mockClear();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // The save can succeed while the delivery fails. Once the address changes the ticket leaves
+  // this page, so if we do not say it here nobody ever finds out the guest has no QR.
+  it("warns when the ticket was saved but the QR could not be emailed", async () => {
+    const user = userEvent.setup();
+    renderManager([ticket()]);
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, emailChanged: true, qrEmailSent: false }),
+    });
+
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
+    const emailField = screen.getByPlaceholderText("Email");
+    await user.clear(emailField);
+    await user.type(emailField, "unreachable@example.com");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Yes, give it to them" }));
+
+    // Scoped to the error line — the page also carries a standing "no QR code, no bracelet"
+    // notice, so a bare /no QR code/ matches two different things.
+    const warning = await screen.findByText(/could not email unreachable@example\.com/i);
+    expect(warning).toHaveTextContent(/They have no QR code/i);
+    expect(warning).toHaveTextContent(/save again to retry/i);
+    // The form stays open so the retry is right there.
+    expect(screen.getByPlaceholderText("Email")).toBeInTheDocument();
+  });
+
   it("shows the waiver pill and drops the control once genuinely signed", async () => {
     const user = userEvent.setup();
     renderManager([ticket()]);

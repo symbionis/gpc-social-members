@@ -149,6 +149,12 @@ export async function POST(
       // Email this guest their own entry QR. Best-effort: a send failure never fails the
       // save — the name is already on the roster, and a NULL qr_email_sent_at leaves the
       // ticket eligible for a retry on the next save.
+      // Whether the QR actually reached the address we just saved. Reported to the caller
+      // rather than swallowed: a changed email moves the ticket OUT of the household that
+      // edited it, so this page will no longer show it. If the send also fails, the seat is
+      // unreachable from both directions — off the page it was managed from, and no mail to
+      // its new holder. On a "no QR, no bracelet" event that is a guest turned away.
+      let qrEmailSent = true;
       if (email && fill.attendee_id) {
         if (emailChanged && tk.qr_email_sent_at) {
           const { error: clearErr } = await supabase
@@ -159,11 +165,25 @@ export async function POST(
             console.error("[booking-fill] could not clear qr_email_sent_at", { err: clearErr });
           }
         }
-        await sendTicketQrEmail(fill.attendee_id).catch((err) =>
-          console.error("[booking-fill] guest QR send failed", { err })
-        );
+        // Still best-effort for the SAVE — the name is on the roster either way, and a NULL
+        // qr_email_sent_at leaves the ticket eligible for a retry on the next save. What
+        // changes is that the outcome is no longer invisible.
+        const send = await sendTicketQrEmail(fill.attendee_id).catch((err) => {
+          console.error("[booking-fill] guest QR send failed", { err });
+          return { success: false as const, skipped: undefined };
+        });
+        // `already_sent` is a skip, not a failure — this address has the QR. It cannot occur
+        // on a changed email (the stamp was just cleared above), but reporting it as a failure
+        // would put a warning on an unchanged-email save that is working perfectly.
+        qrEmailSent = send.success || send.skipped === "already_sent";
       }
-      return NextResponse.json({ ok: true, ticketId: fill.attendee_id, name: fill.name });
+      return NextResponse.json({
+        ok: true,
+        ticketId: fill.attendee_id,
+        name: fill.name,
+        emailChanged,
+        qrEmailSent,
+      });
     }
     case "invalid_input":
       return bad("Enter a name and a valid email so we can send this guest their QR code.");

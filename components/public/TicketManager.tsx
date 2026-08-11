@@ -282,10 +282,23 @@ function EditControl({
   const [email, setEmail] = useState(ticket.email);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set once the guest has been told what changing the address does, so the next tap saves.
+  const [confirmingHandover, setConfirmingHandover] = useState(false);
+
+  const emailChanged = email.trim().toLowerCase() !== ticket.email.trim().toLowerCase();
 
   const submit = async () => {
     if (!name.trim()) return setError("Enter a name.");
     if (!EMAIL_RE.test(email.trim())) return setError("Enter a valid email.");
+    // Changing the address hands the seat to a different person, and that is not obvious from
+    // a form that also fixes typos. Three things happen at once, none of them undoable from
+    // this page: the ticket leaves this household (siblings are matched on shared email, so it
+    // disappears from here), the new address gets its own link and QR, and any signed waiver
+    // is cleared. Confirm once, then save.
+    if (emailChanged && !confirmingHandover) {
+      setConfirmingHandover(true);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -294,13 +307,28 @@ function EditControl({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ticketId: ticket.id, name: name.trim(), email: email.trim() }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        emailChanged?: boolean;
+        qrEmailSent?: boolean;
+      };
       if (!res.ok || !data.ok) {
         setError(data.error ?? "Could not save. Please try again.");
         return;
       }
+      // The save worked; the delivery may not have. Say so here, because once the address
+      // changes this page stops showing the ticket and nobody would ever find out.
+      if (data.emailChanged && data.qrEmailSent === false) {
+        setError(
+          `Saved, but we could not email ${email.trim()} their ticket. They have no QR code — save again to retry.`
+        );
+        setConfirmingHandover(false);
+        return;
+      }
       onSaved({ ...ticket, name: name.trim(), email: email.trim().toLowerCase() });
       setOpen(false);
+      setConfirmingHandover(false);
     } catch {
       setError("Could not save. Please try again.");
     } finally {
@@ -330,24 +358,64 @@ function EditControl({
       />
       <input
         value={email}
-        onChange={(e) => setEmail(e.target.value)}
+        onChange={(e) => {
+          setEmail(e.target.value);
+          // Re-arm: a confirmation is for the address that was on screen when it was given.
+          // Without this, confirming for one address and then typing another would save the
+          // second one unconfirmed — and typing the original back would still show a warning
+          // about a handover that is no longer happening.
+          setConfirmingHandover(false);
+        }}
         type="email"
         placeholder="Email"
         className="w-full rounded-lg border border-border/70 px-3 py-2 text-base font-body text-marine"
       />
       {error && <p className="text-sm font-body text-red-600">{error}</p>}
+      {/* Consequences before the tap that causes them, not a toast afterwards — none of this
+          is undoable from this page once the ticket leaves the household. */}
+      {confirmingHandover && (
+        <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+          <p className="font-body text-sm font-semibold text-marine">
+            This gives the ticket to someone else
+          </p>
+          <ul className="list-disc space-y-1 pl-4 font-body text-sm text-marine/80">
+            <li>
+              It moves to <span className="font-semibold">{email.trim()}</span> and disappears
+              from this page — you manage tickets on your own address.
+            </li>
+            <li>They get their own link and QR code by email.</li>
+            {ticket.waiverSigned && (
+              <li>
+                The waiver signed for {ticket.name || "this ticket"} is cleared — the new holder
+                signs their own.
+              </li>
+            )}
+          </ul>
+          <p className="font-body text-sm text-marine/70">
+            Only fixing a typo? Change it back and save — the address must match to keep the
+            ticket here.
+          </p>
+        </div>
+      )}
       <div className="flex gap-2">
         <button
           type="button"
           onClick={submit}
           disabled={busy}
-          className="flex-1 rounded-lg bg-marine px-4 py-2.5 text-base font-body font-semibold text-white disabled:opacity-50"
+          className={`flex-1 rounded-lg px-4 py-2.5 text-base font-body font-semibold text-white disabled:opacity-50 ${
+            confirmingHandover ? "bg-amber-600" : "bg-marine"
+          }`}
         >
-          {busy ? "Saving…" : "Save"}
+          {busy ? "Saving…" : confirmingHandover ? "Yes, give it to them" : "Save"}
         </button>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={() => {
+            setOpen(false);
+            setConfirmingHandover(false);
+            setEmail(ticket.email);
+            setName(ticket.name);
+          }}
           className="rounded-lg border border-border/70 px-4 py-2.5 text-base font-body text-marine"
         >
           Cancel
