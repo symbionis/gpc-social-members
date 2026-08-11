@@ -4,8 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateTime } from "@/lib/format";
 import PhoneInput from "@/components/common/PhoneInput";
-import DoorWaiverModal from "@/components/door/DoorWaiverModal";
-import type { WaiverLanguage } from "@/lib/events/waiver";
+import WaiverModal, {
+  type WaiverAcceptance,
+} from "@/components/events/WaiverModal";
 // The shapes this console renders are the shapes buildDoorRoster produces — imported
 // from the module that produces them rather than restated here, so the two cannot
 // drift. Type-only, so lib/events/door-access's admin Supabase client is never pulled
@@ -24,6 +25,22 @@ import type {
  * name variant: null is an unnamed open slot, rendered as "Open slot" (KTD8).
  */
 type ListRow = DoorNotArrived & { arrivedAt?: string };
+
+/**
+ * What POST /api/public/door/[id]/check-in answers on the ticketId path.
+ *
+ * `status` is deliberately widened past the four the route sends today. The response is parsed
+ * from JSON, so the compiler cannot promise it is one of them, and a union of exactly four
+ * would let a caller narrow with `else` and treat a fifth as success. Callers must admit only
+ * on an explicit `checked_in` / `already`.
+ *
+ * Note that a refusal arrives as HTTP 200 with a status, not as a non-2xx — `res.ok` alone
+ * says nothing about whether the guest may come in.
+ */
+interface DoorCheckInResponse {
+  status?: "checked_in" | "already" | "needs_waiver" | "not_recognised" | (string & {});
+  error?: string;
+}
 
 interface Props {
   eventId: string;
@@ -549,8 +566,6 @@ function SlotRow({
   const [saving, setSaving] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
   const [needsWaiver, setNeedsWaiver] = useState(false);
-  const [language, setLanguage] = useState<WaiverLanguage>("en");
-  const [marketingConsent, setMarketingConsent] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const isOpen = slot.attendeeId === null;
@@ -609,9 +624,13 @@ function SlotRow({
   }
 
   // Lost-QR check-in: a named ticket found in the roster is checked in by id.
-  // If the waiver is unsigned the route returns needs_waiver — we surface a one-tap
-  // accept, then re-submit. Idempotent on the server.
-  async function checkInAdult(waiverAccepted: boolean) {
+  // If the waiver is unsigned the route returns needs_waiver — we raise the waiver modal and
+  // re-submit with its acceptance. Idempotent on the server.
+  //
+  // `acceptance` is undefined on the first attempt (nothing signed yet) and carries the
+  // guest's own language + consent choices on the second. Those choices live in the modal
+  // rather than here, so the scan path and this one cannot answer them differently.
+  async function checkInAdult(acceptance?: WaiverAcceptance) {
     setError(null);
     setCheckingIn(true);
     try {
@@ -620,19 +639,48 @@ function SlotRow({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ticketId: slot.attendeeId,
-          waiverAccepted,
-          language,
-          marketingConsent,
+          waiverAccepted: acceptance !== undefined,
+          language: acceptance?.language,
+          marketingConsent: acceptance?.marketingConsent,
         }),
         signal: AbortSignal.timeout(10000),
       });
-      const data = await res.json().catch(() => ({}));
+      const data: DoorCheckInResponse = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error || "Could not check in.");
         return;
       }
       if (data.status === "needs_waiver") {
         setNeedsWaiver(true);
+        return;
+      }
+      // Only these two mean a person was admitted. Everything else — including a 200 the
+      // server sends to say NO — has to stop here.
+      //
+      // This used to fall through to onSaved(): `not_recognised` is HTTP 200, and anything
+      // that was not needs_waiver counted as success. So the modal closed cleanly, the row
+      // refreshed, and the operator handed over a bracelet for a ticket the server had just
+      // refused. Worse on the waiver path, where the guest had read and accepted first —
+      // nothing was written, neither the check-in nor the acceptance.
+      //
+      // not_recognised is the server's answer for a ticket that is unknown to this event OR
+      // cancelled (lib/events/checkin.ts maps both to not_found), so the wording cannot claim
+      // it is merely unrecognised — a refunded seat is the likelier case at a real door.
+      if (data.status !== "checked_in" && data.status !== "already") {
+        setNeedsWaiver(false);
+        setError(
+          data.status === "not_recognised"
+            ? "Not valid for this event — it may have been cancelled. Do not admit; check the roster."
+            : "Could not check in. Try again, or find the guest by name in the roster."
+        );
+        if (data.status !== "not_recognised") {
+          // An unknown status means the route grew an answer this screen does not know. It is
+          // handled as a refusal above (never admit on a status we cannot read), and logged
+          // because the only other symptom is a door that stops working for one guest.
+          console.error("[door/check-in] unrecognised status from the route", {
+            status: data.status,
+          });
+        }
         return;
       }
       setNeedsWaiver(false);
@@ -685,7 +733,7 @@ function SlotRow({
         {!slot.checkedIn && !isOpen && (
           <button
             type="button"
-            onClick={() => checkInAdult(false)}
+            onClick={() => checkInAdult()}
             disabled={checkingIn}
             className="shrink-0 px-3 py-1 rounded-lg border border-marine text-marine text-xs font-body font-semibold hover:bg-marine hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
           >
@@ -737,14 +785,10 @@ function SlotRow({
       {/* The waiver takes the whole screen rather than a box inside this row — it is a legal
           document read on a phone, outdoors, with a queue waiting. Dismissing it leaves the
           guest un-checked-in, which is the honest outcome: nothing was signed. */}
-      <DoorWaiverModal
+      <WaiverModal
         open={needsWaiver}
         guestName={name || slot.name || ""}
-        language={language}
-        onLanguageChange={setLanguage}
-        marketingConsent={marketingConsent}
-        onMarketingConsentChange={setMarketingConsent}
-        onAccept={() => checkInAdult(true)}
+        onAccept={(acceptance) => checkInAdult(acceptance)}
         onClose={() => setNeedsWaiver(false)}
         busy={checkingIn}
         error={error}

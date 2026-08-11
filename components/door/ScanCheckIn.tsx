@@ -4,8 +4,7 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import CredentialScanner from "./CredentialScanner";
 import PhoneInput from "@/components/common/PhoneInput";
-import WaiverText from "@/components/events/WaiverText";
-import type { WaiverLanguage } from "@/lib/events/waiver";
+import WaiverModal from "@/components/events/WaiverModal";
 
 interface CheckinResult {
   status: string;
@@ -16,27 +15,9 @@ interface CheckinResult {
 
 type Phase = "scan" | "busy" | "needs_name" | "needs_waiver" | "result";
 
-// Guest-facing copy for the waiver step (we hand the phone to the guest here), in the
-// language they pick with the EN/FR toggle. The waiver body itself comes from WaiverText.
-const WAIVER_COPY: Record<
-  WaiverLanguage,
-  { title: string; intro: string; accept: string; comms: string; button: string }
-> = {
-  en: {
-    title: "Waiver",
-    intro: "Please read and accept the waiver to check in.",
-    accept: "I have read and accept the waiver above.",
-    comms: "I'd like to receive news and invitations from Geneva Polo Social Club.",
-    button: "Accept & check in",
-  },
-  fr: {
-    title: "Décharge",
-    intro: "Merci de lire et d'accepter la décharge pour l'enregistrement.",
-    accept: "J'ai lu et j'accepte la décharge ci-dessus.",
-    comms: "Je souhaite recevoir les actualités et invitations du Geneva Polo Social Club.",
-    button: "Accepter et enregistrer",
-  },
-};
+// The guest-facing waiver copy that used to live here moved into WaiverModal, which the
+// roster path renders too — one component, so the two door surfaces cannot present the same
+// legal document differently.
 
 const bigField =
   "w-full rounded-xl border-2 border-marine/30 bg-white px-4 py-4 text-lg font-body text-marine placeholder:text-marine/40 focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
@@ -61,10 +42,10 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState<string | null>(null);
-  const [language, setLanguage] = useState<WaiverLanguage>("en");
-  const [waiverChecked, setWaiverChecked] = useState(false);
-  const [marketingConsent, setMarketingConsent] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The phase the in-flight request was launched from — where a failure returns to, and what
+  // keeps the waiver modal mounted while its own submit is in flight.
+  const [submittedFrom, setSubmittedFrom] = useState<Phase>("scan");
 
   // Reset to a fresh scan (keeps the modal open — used by "Scan next guest").
   const resetFields = useCallback(() => {
@@ -74,9 +55,6 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
     setName("");
     setEmail("");
     setPhone(null);
-    setLanguage("en");
-    setWaiverChecked(false);
-    setMarketingConsent(true);
     setError(null);
   }, []);
 
@@ -90,8 +68,17 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
     resetFields();
   }, [resetFields]);
 
+  // `from` is the phase this attempt was launched in, and a failure lands back there.
+  //
+  // It used to fall back to `extra.name ? "needs_name" : "scan"`, which sent a failed WAIVER
+  // submit to the scanner — and on a scanned, already-named ticket `name` is "", so even the
+  // guest-details case missed. Dropping out of the waiver discards what the guest just did:
+  // the modal unmounts, its state resets, and they have to read and tick the whole thing
+  // again while the queue waits. Landing back on needs_waiver keeps the acceptance on screen
+  // with the error inside the modal, so "try again" is one tap.
   const submit = useCallback(
-    async (raw: string, extra: Record<string, unknown> = {}) => {
+    async (raw: string, extra: Record<string, unknown> = {}, from: Phase = "scan") => {
+      setSubmittedFrom(from);
       setPhase("busy");
       setError(null);
       try {
@@ -103,24 +90,53 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
           // door console's save/check-in timeouts).
           signal: AbortSignal.timeout(10000),
         });
-        const data = (await res.json()) as CheckinResult & { error?: string };
-        if (!res.ok && data.error) {
-          setError(data.error);
-          setPhase(extra.name ? "needs_name" : "scan");
+
+        // Parsed defensively: a 500 from the framework or a 502 from a proxy can carry JSON
+        // with no `error` key, or no JSON at all.
+        let data: (CheckinResult & { error?: string }) | null = null;
+        try {
+          data = (await res.json()) as CheckinResult & { error?: string };
+        } catch (err) {
+          console.error("[door/scan] response was not JSON", { status: res.status, err });
+        }
+
+        // `!res.ok` alone. This was `!res.ok && data.error`, so a non-ok response without an
+        // `error` key skipped this branch entirely, fell through to setResult(), and landed on
+        // the result screen — where ResultCard's fallback reads "Ticket not recognised". The
+        // operator was told the guest's QR was bad when it was the server that failed.
+        if (!res.ok) {
+          setError(data?.error || "Something went wrong. Try again.");
+          setPhase(from);
           return;
         }
-        setResult(data);
-        if (data.status === "needs_name") setPhase("needs_name");
-        else if (data.status === "needs_waiver") setPhase("needs_waiver");
-        else {
+
+        if (data?.status === "needs_name") {
+          setResult(data);
+          setPhase("needs_name");
+          return;
+        }
+        if (data?.status === "needs_waiver") {
+          setResult(data);
+          setPhase("needs_waiver");
+          return;
+        }
+        // Only a real outcome reaches the result screen. An unknown status is the server
+        // saying something this screen cannot read, which must not be shown to an operator as
+        // a verdict about the guest's ticket.
+        if (data?.status === "checked_in" || data?.status === "already" || data?.status === "not_recognised") {
+          setResult(data);
           setPhase("result");
           // A scan is a check-in: pull the roster and the arrivals counts forward now
           // rather than leaving them stale until the console's 20s poll fires.
           if (data.status === "checked_in") router.refresh();
+          return;
         }
+        console.error("[door/scan] unrecognised status from the route", { status: data?.status });
+        setError("Something went wrong. Try again, or find the guest by name in the roster.");
+        setPhase(from);
       } catch {
         setError("Could not reach the server. Try again.");
-        setPhase("scan");
+        setPhase(from);
       }
     },
     [eventId, router]
@@ -137,7 +153,6 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
   // Every guest must give a contact (email OR phone).
   const canContinue =
     name.trim() !== "" && (email.trim() !== "" || Boolean(phone));
-  const copy = WAIVER_COPY[language];
 
   return (
     <>
@@ -246,11 +261,15 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
                       type="button"
                       disabled={!canContinue}
                       onClick={() =>
-                        submit(token, {
-                          name: name.trim(),
-                          email: email.trim(),
-                          phone: phone ?? "",
-                        })
+                        submit(
+                          token,
+                          {
+                            name: name.trim(),
+                            email: email.trim(),
+                            phone: phone ?? "",
+                          },
+                          "needs_name"
+                        )
                       }
                       className={primaryBtn}
                     >
@@ -263,84 +282,38 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
                 </div>
               )}
 
-              {phase === "needs_waiver" && (
-                <div className="space-y-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="font-heading text-xl font-bold text-marine">{copy.title}</h3>
-                    <div className="flex gap-2">
-                      {(["en", "fr"] as const).map((l) => (
-                        <button
-                          key={l}
-                          type="button"
-                          onClick={() => setLanguage(l)}
-                          className={`rounded-lg border-2 px-4 py-2 font-body text-base font-semibold transition-colors ${
-                            language === l
-                              ? "border-marine bg-marine text-white"
-                              : "border-marine/30 text-marine/60"
-                          }`}
-                        >
-                          {l.toUpperCase()}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <p className="font-body text-base text-marine/70">
-                    {result?.name ? `${result.name} — ` : ""}
-                    {copy.intro}
-                  </p>
-                  <WaiverText lang={language} textSize="text-base" maxHeightClass="max-h-[40vh]" />
-
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={waiverChecked}
-                      onChange={(e) => setWaiverChecked(e.target.checked)}
-                      className="mt-1 h-7 w-7 shrink-0 accent-marine cursor-pointer"
-                    />
-                    <span className="font-body text-base font-medium text-marine">
-                      {copy.accept}
-                    </span>
-                  </label>
-
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={marketingConsent}
-                      onChange={(e) => setMarketingConsent(e.target.checked)}
-                      className="mt-1 h-7 w-7 shrink-0 accent-marine cursor-pointer"
-                    />
-                    <span className="font-body text-base text-marine/70">{copy.comms}</span>
-                  </label>
-
-                  {error && (
-                    <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 font-body text-base text-red-700">
-                      {error}
-                    </p>
-                  )}
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      disabled={!waiverChecked}
-                      onClick={() =>
-                        submit(token, {
-                          name: name.trim(),
-                          email: email.trim(),
-                          phone: phone ?? "",
-                          waiverAccepted: true,
-                          language,
-                          marketingConsent,
-                        })
-                      }
-                      className={primaryBtn}
-                    >
-                      {copy.button}
-                    </button>
-                    <button type="button" onClick={closeScanner} className={secondaryBtn}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* The waiver is the shared WaiverModal, not a phase-local block: the roster
+                  path raises the same one. Two presentations of a legal document agreed on the
+                  text but had already diverged on the chrome and the acceptance gesture, and the
+                  recorded WAIVER_VERSION cannot tell them apart. */}
+              {/* Stays mounted across its OWN submit. `open={phase === "needs_waiver"}` alone
+                  unmounted it the instant submit set "busy" — so `busy` could never be true,
+                  the guest got no in-flight feedback, and a failure discarded their acceptance
+                  along with the component's state. */}
+              <WaiverModal
+                open={
+                  phase === "needs_waiver" ||
+                  (phase === "busy" && submittedFrom === "needs_waiver")
+                }
+                guestName={result?.name ?? name.trim()}
+                busy={phase === "busy"}
+                error={error}
+                onClose={closeScanner}
+                onAccept={({ language, marketingConsent }) =>
+                  submit(
+                    token,
+                    {
+                      name: name.trim(),
+                      email: email.trim(),
+                      phone: phone ?? "",
+                      waiverAccepted: true,
+                      language,
+                      marketingConsent,
+                    },
+                    "needs_waiver"
+                  )
+                }
+              />
 
               {phase === "result" && result && (
                 <div className="space-y-4">

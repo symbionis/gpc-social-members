@@ -538,11 +538,34 @@ describe("Guest lists tab", () => {
     await screen.findByRole("dialog");
 
     const callsBefore = fetchMock.mock.calls.length;
-    await user.click(screen.getByRole("button", { name: "Close waiver" }));
+    await user.click(screen.getByRole("button", { name: "Close" }));
 
     expect(screen.queryByRole("dialog")).toBeNull();
     // Dismissing signs nothing, so it must not admit them.
     expect(fetchMock.mock.calls.length).toBe(callsBefore);
+  });
+
+  // The affirmation is a separate act from the button. A phone gets passed between people at
+  // the door; a stray tap must not be able to accept a liability waiver on someone's behalf.
+  it("will not check in until the guest ticks the acceptance box", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "needs_waiver" }) });
+    renderConsole({
+      parties: [party({ slots: [slot({ attendeeId: "a1", name: "Ana Vidal" })] })],
+    });
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+    const dialog = await screen.findByRole("dialog");
+
+    const accept = within(dialog).getByRole("button", { name: "Accept" });
+    expect(accept).toBeDisabled();
+
+    fetchMock.mockClear();
+    await user.click(accept);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
+    expect(accept).toBeEnabled();
   });
 
   it("accepts the waiver and checks in from inside the modal", async () => {
@@ -556,10 +579,148 @@ describe("Guest lists tab", () => {
     const dialog = await screen.findByRole("dialog");
 
     fetchMock.mockClear();
-    await user.click(within(dialog).getByRole("button", { name: /Accept & check in/ }));
+    await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
+    await user.click(within(dialog).getByRole("button", { name: "Accept" }));
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(body).toMatchObject({ ticketId: "a1", waiverAccepted: true });
+    // The guest's own language and consent choices ride along, sourced from the modal so the
+    // scan path cannot answer them differently.
+    expect(body).toMatchObject({
+      ticketId: "a1",
+      waiverAccepted: true,
+      language: "en",
+      marketingConsent: true,
+    });
+  });
+
+  // A refusal from this route arrives as HTTP 200 with a status, not as a non-2xx. The handler
+  // used to treat everything that was not needs_waiver as success, so the server could say NO
+  // and the operator would see the row refresh and hand over a bracelet.
+  //
+  // The positive control below is what stops these three passing vacuously: on a real check-in
+  // the console MUST still refresh.
+  it("admits and refreshes on a genuine check-in", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "checked_in" }) });
+    renderConsole({
+      parties: [party({ slots: [slot({ attendeeId: "a1", name: "Ana Vidal" })] })],
+    });
+    refresh.mockClear();
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("does NOT admit on a 200 not_recognised, and says not to", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "not_recognised" }) });
+    renderConsole({
+      parties: [party({ slots: [slot({ attendeeId: "a1", name: "Ana Vidal" })] })],
+    });
+    refresh.mockClear();
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+
+    expect(refresh).not.toHaveBeenCalled();
+    // The operator has to be told not to admit — a silently unchanged row is a clue they will
+    // miss with a queue behind the guest.
+    expect(await screen.findByText(/Do not admit/i)).toBeInTheDocument();
+    // not_recognised covers a CANCELLED ticket as well as an unknown one, so the message must
+    // not tell the operator it is merely unrecognised.
+    expect(screen.getByText(/cancelled/i)).toBeInTheDocument();
+  });
+
+  // The worst version: the guest has already read and ticked the waiver on the operator's
+  // phone. Nothing was written — not the check-in and not the acceptance — so the modal must
+  // not close as though it had been.
+  it("does NOT admit when not_recognised comes back after the waiver was accepted", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "needs_waiver" }) });
+    renderConsole({
+      parties: [party({ slots: [slot({ attendeeId: "a1", name: "Ana Vidal" })] })],
+    });
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+    const dialog = await screen.findByRole("dialog");
+
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "not_recognised" }) });
+    refresh.mockClear();
+    await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
+    await user.click(within(dialog).getByRole("button", { name: "Accept" }));
+
+    expect(refresh).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Do not admit/i)).toBeInTheDocument();
+  });
+
+  // A status this screen does not know is a refusal, never an admission — and it is logged,
+  // because otherwise the only symptom is a door that quietly stops working for one guest.
+  it("refuses, and logs, a status it does not recognise", async () => {
+    const user = userEvent.setup();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "quarantined" }) });
+    renderConsole({
+      parties: [party({ slots: [slot({ attendeeId: "a1", name: "Ana Vidal" })] })],
+    });
+    refresh.mockClear();
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+
+    expect(refresh).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Could not check in/i)).toBeInTheDocument();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unrecognised status"),
+      expect.objectContaining({ status: "quarantined" })
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("translates the whole modal, not just the waiver body", async () => {
+    const user = userEvent.setup();
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: "needs_waiver" }),
+    });
+    renderConsole({
+      parties: [party({ slots: [slot({ attendeeId: "a1", name: "Ana Vidal" })] })],
+    });
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(within(dialog).getByRole("button", { name: "FR" }));
+
+    // Previously the body switched to French under English instructions.
+    expect(within(dialog).getByText("Conditions et décharge")).toBeInTheDocument();
+    expect(within(dialog).getByText(/J'ai lu et j'accepte/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Accepter" })).toBeInTheDocument();
+  });
+
+  // The one piece of modal state that must never persist: a tick left over from the previous
+  // guest would admit this one on a stranger's acceptance.
+  it("clears the acceptance tick between guests", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "needs_waiver" }) });
+    renderConsole({
+      parties: [
+        party({
+          slots: [
+            slot({ attendeeId: "a1", name: "Ana Vidal" }),
+            slot({ attendeeId: "a2", name: "Ben Torres", isLead: false }),
+          ],
+        }),
+      ],
+    });
+
+    const [first, second] = screen.getAllByRole("button", { name: "Check in" });
+    await user.click(first);
+    let dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    await user.click(second);
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("checkbox", { name: /I have read and accept/i })).not.toBeChecked();
+    expect(within(dialog).getByRole("button", { name: "Accept" })).toBeDisabled();
   });
 
   it("shows an already-arrived guest as arrived rather than offering check-in again", async () => {

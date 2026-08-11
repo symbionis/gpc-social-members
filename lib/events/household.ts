@@ -25,6 +25,12 @@ export interface HouseholdTicket {
   credentialUrl: string;
   /** True for the ticket whose manage_token opened this page. */
   isSelf: boolean;
+  /**
+   * Whether this ticket's holder has already accepted the waiver. The door skips its waiver
+   * step for a signed ticket (lib/events/checkin.ts never re-stamps), so accepting here is
+   * what buys a guest a faster arrival.
+   */
+  waiverSigned: boolean;
 }
 
 export interface HouseholdEvent {
@@ -49,6 +55,18 @@ export interface Household {
 }
 
 const LIVE_SLOTS = ["issued", "claimed"];
+
+/**
+ * The one projection both household branches select — the sibling query and the standalone
+ * one. It was two hand-maintained copies that had to stay in step, and `waiverSigned` is
+ * derived from a column in it: drop `waiver_accepted_at` from one list and every ticket in
+ * that branch reads as SIGNED, hiding the only control that could fix it.
+ *
+ * Same reasoning as ADMISSIBLE_SLOT_STATUSES in lib/events/ticket-admissibility.ts — a rule
+ * that governs a door belongs in one place, not in a copy per surface.
+ */
+const HOUSEHOLD_TICKET_COLUMNS =
+  "id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status, waiver_accepted_at";
 
 /**
  * Resolve the household behind a per-ticket manage_token. Returns null when the token
@@ -92,7 +110,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
 
     const { data: rows } = await supabase
       .from("tickets")
-      .select("id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status")
+      .select(HOUSEHOLD_TICKET_COLUMNS)
       .eq("registration_id", self.registration_id as string)
       .in("slot_status", LIVE_SLOTS)
       .is("released_at", null);
@@ -106,7 +124,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
     status = "free";
     const { data: solo } = await supabase
       .from("tickets")
-      .select("id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status")
+      .select(HOUSEHOLD_TICKET_COLUMNS)
       .eq("id", self.id as string)
       .maybeSingle();
     siblingRows = solo ? [solo] : [];
@@ -130,6 +148,11 @@ export async function resolveHousehold(token: string): Promise<Household | null>
         cancellationStatus: (r.cancellation_status as TicketCancellationStatus | null) ?? null,
         credentialUrl: credentialUrl((r.credential_token as string | null) ?? ""),
         isSelf: r.id === self.id,
+        // Boolean(), not `!== null`: rows arrive untyped, so a missing column is `undefined`,
+        // and `undefined !== null` is TRUE — every ticket would claim to be signed and the
+        // Sign control would vanish for guests who signed nothing. On a legal acceptance the
+        // default has to fail closed.
+        waiverSigned: Boolean(r.waiver_accepted_at),
       };
     });
 

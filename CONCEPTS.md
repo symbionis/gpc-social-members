@@ -76,6 +76,11 @@ The per-Ticket amount recorded on a Registration at the moment of purchase. Repr
 ### Ticket Credential
 The unguessable bearer token carried by each Ticket, rendered as a QR code and used as the entry token at the door. Holding the credential is what admits a guest; identity (name, waiver) is metadata attached around it. Designed so an NFC bracelet could later be paired to the same credential.
 
+### Waiver
+The single liability text a guest accepts before entering an Event. Deliberately generic — it names no specific Event, so one text serves all of them, and the surface the guest is looking at supplies the occasion.
+
+An acceptance belongs to one Ticket and is never re-stamped: a Ticket already carrying one keeps its original version, moment and language, because re-signing would move a holder onto text they may never have read. Each acceptance records a version derived from the waiver's own wording, which means it attests to the **text and nothing else** — not the language of the surrounding instructions, nor what gesture counted as consent. That is why a single presentation is used wherever the waiver is accepted; a second one would let those diverge while every record still claimed the same version. Acceptance is also never made on another holder's behalf: a Lead naming a guest does not accept for them, and a Manage Link that opens several Tickets offers each its own. It may be accepted ahead of the Event from the holder's own page or at the door, and a Ticket that arrives already accepted is admitted without being asked again.
+
 ### Slot Status
 The lifecycle state of a Ticket: **issued** (minted with a credential at purchase, no name yet), **claimed** (filled with a person's name and contact), or **unclaimed** (a legacy open slot predating per-ticket minting).
 
@@ -90,7 +95,7 @@ The Lead's self-service page for a Registration, reached by a private manage lin
 The set of live Tickets within one Registration that share the same email address — a couple or a family who booked together on one address. The Household is the unit of Ticket delivery and self-service: its Tickets arrive as one grouped email carrying every QR, and are managed together through any one member's Manage Link.
 
 ### Manage Link
-The private, rotatable per-Ticket link that opens a Ticket's Household — letting whoever holds it view every QR at that address, correct a name or email, upgrade (see Conversion), or cancel (see Cancellation). Distinct from the Ticket Credential: the Manage Link governs the booking, the Credential only admits at the door. Rotating a Manage Link revokes the old one for the whole Household.
+The private, rotatable per-Ticket link that opens a Ticket's Household — letting whoever holds it view every QR at that address, correct a name or email, upgrade (see Conversion), cancel (see Cancellation), or accept the Waiver ahead of the Event. Distinct from the Ticket Credential: the Manage Link governs the booking, the Credential only admits at the door. Rotating a Manage Link revokes the old one for the whole Household.
 
 ### Door Console
 The public, no-login check-in surface for an Event, opened by staff at a hard-to-guess per-Event link, used to scan Ticket QRs, fill in missing names and waivers, admit walk-ups against unredeemed Tickets, and resend a party's Tickets to its Lead.
