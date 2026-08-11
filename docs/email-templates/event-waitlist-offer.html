@@ -1,0 +1,42 @@
+<h1>A seat has opened up</h1>
+
+<p>Hello {{first_name}},</p>
+
+<p>A seat is available for <strong>{{event_title}}</strong> and it's yours to claim — for {{quantity}} ticket(s){{#ticket_type_title}} ({{.}}){{/ticket_type_title}}.</p>
+
+<p><strong>This seat is not held.</strong> It goes to whoever completes payment first, so please don't wait to claim it.</p>
+
+{{#is_members_only}}
+<p>This event is members only — please sign in with your member account before you check out.</p>
+{{/is_members_only}}
+
+<!-- Event card -->
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 32px 0;">
+  <tr>
+    <td align="center" style="background-color: #052938; border-radius: 8px; padding: 28px 32px;">
+      <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 3px;"><font color="#95CEE1">Your offer</font></p>
+      <p style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600;"><font color="#ffffff">{{event_title}}</font></p>
+      {{#event_date_label}}
+      <p style="margin: 0 0 4px 0; font-size: 14px;"><font color="#ffffff">{{.}}</font></p>
+      {{/event_date_label}}
+      {{#event_time_label}}
+      <p style="margin: 0 0 4px 0; font-size: 14px;"><font color="#ffffff">Starts at {{.}}</font></p>
+      {{/event_time_label}}
+      {{#event_location}}
+      <p style="margin: 0 0 16px 0; font-size: 14px;"><font color="#c8dfe8">{{.}}</font></p>
+      {{/event_location}}
+      {{#ticket_type_title}}
+      <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 2px;"><font color="#7aafc4">Requested ticket</font></p>
+      <p style="margin: 0; font-size: 14px; font-weight: 600;"><font color="#ffffff">{{quantity}} × {{.}}</font></p>
+      {{/ticket_type_title}}
+    </td>
+  </tr>
+</table>
+
+<p style="text-align: center; margin: 32px 0;">
+  <a href="{{offer_url}}" class="button" style="color: #FFFFFF !important; text-decoration: none; display: inline-block; background-color: #052938; border-radius: 3px; font-family: 'Poppins', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 500; letter-spacing: 1px; text-align: center; padding: 12px 32px; -webkit-text-size-adjust: none;">Claim Your Seat</a>
+</p>
+
+<p>You'll pick your ticket type and pay on the next screen — the same checkout as any other booking. You're welcome to choose a different ticket type than the one you originally requested, as long as it's still available.</p>
+
+<p>Warm regards,<br><strong>The Geneva Polo Social Club Team</strong></p>

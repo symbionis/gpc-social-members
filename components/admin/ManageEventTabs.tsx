@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import AttendeeList, { type Attendee } from "@/components/admin/AttendeeList";
 import GuestList, { type GuestListEntry } from "@/components/admin/GuestList";
@@ -25,6 +25,23 @@ interface Waitlist {
   name: string;
   email: string;
   created_at: string;
+  /** The ticket type the entry asked for at signup — may be null (legacy) or dangling. */
+  ticket_type_id: string | null;
+  /** The requested type's title, even when archived, so a flagged row still names what
+   * was asked for (R14: no silent fallback). Null when ticket_type_id is null/dangling. */
+  ticket_type_title: string | null;
+  quantity: number | null;
+  /** Whether an offer has ever been sent (offered_at !== null on the entry). */
+  offered: boolean;
+  offer_sent_count: number;
+  /** R13/R14: false when the entry's type/quantity fail validation; Offer stays disabled
+   * until an admin repairs it via the PATCH route. */
+  offerable: boolean;
+  /** Human-readable reason, present only when offerable is false. */
+  offerable_reason: string | null;
+  /** KTD3/R12: the entry's linked (or, for legacy rows, email-matched) registration has
+   * reached paid/free. A redeemed entry is filtered out of the visible waitlist below. */
+  redeemed: boolean;
 }
 
 interface Props {
@@ -65,6 +82,22 @@ interface Props {
   cancellations: CancellationRow[];
 }
 
+type RowState = { submitting: boolean; error: string | null };
+
+/** Per-entry submitting/error state for one action (Offer, Withdraw, or Repair) on the
+ * waitlist table, keyed by entry id. Each action gets its own instance so submitting one
+ * doesn't disable the others on the same row. */
+function useRowState() {
+  const [rows, setRows] = useState<Record<string, RowState>>({});
+  function get(id: string): RowState {
+    return rows[id] ?? { submitting: false, error: null };
+  }
+  function patch(id: string, next: Partial<RowState>) {
+    setRows((s) => ({ ...s, [id]: { ...get(id), ...next } }));
+  }
+  return [get, patch] as const;
+}
+
 export default function ManageEventTabs({
   eventId,
   attendees,
@@ -93,59 +126,140 @@ export default function ManageEventTabs({
   const pendingCancellations = cancellations.filter((c) => c.status === "requested").length;
   const router = useRouter();
 
-  // Per-row convert state (quantity / in-flight / inline error) + a component-
-  // level notice that survives the soft refresh after a successful conversion.
-  const [rows, setRows] = useState<
-    Record<string, { quantity: number; submitting: boolean; error: string | null }>
-  >({});
+  // Component-level notice banner that survives the soft refresh after a
+  // successful Offer/Resend/Withdraw/repair action.
   const [notice, setNotice] = useState<string | null>(null);
 
-  function row(id: string) {
-    return rows[id] ?? { quantity: 1, submitting: false, error: null };
+  // Per-entry field overrides applied on top of the `waitlist` prop after a
+  // successful Offer/Resend/Withdraw/repair — so the row re-renders immediately
+  // (F4: "no full-page reload") rather than waiting on the next server fetch.
+  // router.refresh() is still called for eventual consistency, but the visible
+  // state change does not depend on it.
+  const [overrides, setOverrides] = useState<Record<string, Partial<Waitlist>>>({});
+  function applyOverride(id: string, patch: Partial<Waitlist>) {
+    setOverrides((s) => ({ ...s, [id]: { ...s[id], ...patch } }));
   }
-  function patchRow(id: string, patch: Partial<{ quantity: number; submitting: boolean; error: string | null }>) {
-    setRows((s) => ({ ...s, [id]: { ...row(id), ...patch } }));
-  }
+  const effectiveWaitlist = waitlist.map((w) => ({ ...w, ...overrides[w.id] }));
 
-  // Self-heal: hide waitlist entries whose email already has a registration
-  // (e.g. an orphan left by a delete-after-insert failure).
-  const registeredEmails = new Set(attendees.map((a) => a.email.toLowerCase()));
-  const visibleWaitlist = waitlist.filter(
-    (w) => !registeredEmails.has(w.email.toLowerCase())
-  );
+  // Redeemed entries (KTD3/R12) are done — hide them from the working list rather
+  // than showing an entry nobody can act on anymore.
+  const visibleWaitlist = effectiveWaitlist.filter((w) => !w.redeemed);
 
-  async function convertEntry(entry: Waitlist) {
-    const qty = row(entry.id).quantity;
-    if (hasSeatCap && seatCap !== null && total + qty > seatCap) {
-      if (
-        !window.confirm(
-          `This will put the event at ${total + qty} / ${seatCap} tickets — convert anyway?`
-        )
-      ) {
-        return;
-      }
-    }
-    patchRow(entry.id, { submitting: true, error: null });
+  // Offer / Resend (R1, R3, R4): mints or resends a token by entry id. The route
+  // rejects an unofferable, redeemed, or closed-registration entry — surfaced
+  // inline rather than guessed at client-side.
+  const [offerRow, patchOfferRow] = useRowState();
+
+  async function sendOffer(entry: Waitlist) {
+    if (!entry.offerable || offerRow(entry.id).submitting) return;
+    patchOfferRow(entry.id, { submitting: true, error: null });
     setNotice(null);
     try {
-      const res = await fetch(`/api/admin/events/${eventId}/waitlist/convert`, {
+      const res = await fetch(`/api/admin/events/${eventId}/waitlist/${entry.id}/offer`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ waitlistId: entry.id, quantity: qty }),
       });
       const data = await res.json();
       if (!res.ok) {
-        patchRow(entry.id, { submitting: false, error: data.error || "Could not register." });
+        patchOfferRow(entry.id, { submitting: false, error: data.error || "Could not send the offer." });
         return;
       }
+      patchOfferRow(entry.id, { submitting: false, error: null });
+      applyOverride(entry.id, { offered: true, offer_sent_count: data.offer_sent_count });
       setNotice(
         data.email_sent === false
-          ? `${entry.name} registered (ref ${data.reference_code}) — confirmation email failed, please notify them manually.`
-          : `${entry.name} registered and emailed.`
+          ? `Offer saved for ${entry.name} — the email failed to send, please notify them manually.`
+          : `Offer sent to ${entry.name}.`
       );
       router.refresh();
     } catch {
-      patchRow(entry.id, { submitting: false, error: "Network error. Try again." });
+      patchOfferRow(entry.id, { submitting: false, error: "Network error. Try again." });
+    }
+  }
+
+  // Withdraw (R5a / AE10): clears the token; the entry returns to queued and its
+  // old link stops resolving.
+  const [withdrawRow, patchWithdrawRow] = useRowState();
+
+  async function withdrawOffer(entry: Waitlist) {
+    if (withdrawRow(entry.id).submitting) return;
+    patchWithdrawRow(entry.id, { submitting: true, error: null });
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/events/${eventId}/waitlist/${entry.id}/offer`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        patchWithdrawRow(entry.id, { submitting: false, error: data.error || "Could not withdraw the offer." });
+        return;
+      }
+      patchWithdrawRow(entry.id, { submitting: false, error: null });
+      applyOverride(entry.id, { offered: false, offer_sent_count: 0 });
+      setNotice(`Offer withdrawn for ${entry.name}.`);
+      router.refresh();
+    } catch {
+      patchWithdrawRow(entry.id, { submitting: false, error: "Network error. Try again." });
+    }
+  }
+
+  // Inline repair (F4/R14): a flagged row expands to a ticket-type + quantity
+  // form. Only live, seat-counting types are offered — the same KTD6 constraint
+  // the register route enforces — so a successful save is guaranteed offerable.
+  const liveSeatTicketTypes = ticketTypes.filter((t) => t.counts_as_seat);
+  const [repairOpen, setRepairOpen] = useState<Record<string, boolean>>({});
+  const [repairDraft, setRepairDraft] = useState<
+    Record<string, { ticketTypeId: string; quantity: number }>
+  >({});
+  const [repairRow, patchRepairRow] = useRowState();
+  function draftFor(entry: Waitlist) {
+    return (
+      repairDraft[entry.id] ?? {
+        ticketTypeId: entry.ticket_type_id ?? liveSeatTicketTypes[0]?.id ?? "",
+        quantity: entry.quantity && entry.quantity >= 1 && entry.quantity <= 10 ? entry.quantity : 1,
+      }
+    );
+  }
+  function patchDraft(
+    entry: Waitlist,
+    patch: Partial<{ ticketTypeId: string; quantity: number }>
+  ) {
+    setRepairDraft((s) => ({ ...s, [entry.id]: { ...draftFor(entry), ...s[entry.id], ...patch } }));
+  }
+  function toggleRepair(id: string) {
+    setRepairOpen((s) => ({ ...s, [id]: !s[id] }));
+  }
+
+  async function saveRepair(entry: Waitlist) {
+    const draft = draftFor(entry);
+    if (!draft.ticketTypeId) {
+      patchRepairRow(entry.id, { error: "Choose a ticket type" });
+      return;
+    }
+    patchRepairRow(entry.id, { submitting: true, error: null });
+    try {
+      const res = await fetch(`/api/admin/events/${eventId}/waitlist/${entry.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket_type_id: draft.ticketTypeId, quantity: draft.quantity }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        patchRepairRow(entry.id, { submitting: false, error: data.error || "Could not save." });
+        return;
+      }
+      const title = liveSeatTicketTypes.find((t) => t.id === draft.ticketTypeId)?.title ?? null;
+      applyOverride(entry.id, {
+        ticket_type_id: draft.ticketTypeId,
+        ticket_type_title: title,
+        quantity: draft.quantity,
+        offerable: true,
+        offerable_reason: null,
+      });
+      patchRepairRow(entry.id, { submitting: false, error: null });
+      setRepairOpen((s) => ({ ...s, [entry.id]: false }));
+      router.refresh();
+    } catch {
+      patchRepairRow(entry.id, { submitting: false, error: "Network error. Try again." });
     }
   }
 
@@ -271,47 +385,136 @@ export default function ManageEventTabs({
                   <tr>
                     <th className="px-4 py-2 text-left">Name</th>
                     <th className="px-4 py-2 text-left">Email</th>
+                    <th className="px-4 py-2 text-left">Requested</th>
                     <th className="px-4 py-2 text-left">Joined</th>
-                    <th className="px-4 py-2 text-left">Register</th>
+                    <th className="px-4 py-2 text-left">Offer</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleWaitlist.map((entry) => {
-                    const r = row(entry.id);
+                    const or = offerRow(entry.id);
+                    const wr = withdrawRow(entry.id);
+                    const rr = repairRow(entry.id);
+                    const reasonId = `waitlist-reason-${entry.id}`;
+                    const draft = draftFor(entry);
+                    const isOpen = Boolean(repairOpen[entry.id]);
                     return (
-                      <tr key={entry.id} className="border-t border-border/60 align-top">
-                        <td className="px-4 py-2 text-marine">{entry.name}</td>
-                        <td className="px-4 py-2 text-muted-foreground">{entry.email}</td>
-                        <td className="px-4 py-2 text-muted-foreground text-xs">
-                          {formatDateTime(entry.created_at)}
-                        </td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min={1}
-                              max={6}
-                              value={r.quantity}
-                              onChange={(e) =>
-                                patchRow(entry.id, {
-                                  quantity: Math.max(1, Math.min(6, Number(e.target.value) || 1)),
-                                })
-                              }
-                              className="w-14 px-2 py-1 rounded-md border border-border bg-white text-marine text-sm"
-                              aria-label="Tickets"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => convertEntry(entry)}
-                              disabled={r.submitting}
-                              className="px-3 py-1.5 bg-marine text-white rounded-lg text-xs font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                            >
-                              {r.submitting ? "Registering…" : "Register"}
-                            </button>
-                          </div>
-                          {r.error && <p className="text-xs text-red-700 mt-1">{r.error}</p>}
-                        </td>
-                      </tr>
+                      <Fragment key={entry.id}>
+                        <tr className="border-t border-border/60 align-top">
+                          <td className="px-4 py-2 text-marine">{entry.name}</td>
+                          <td className="px-4 py-2 text-muted-foreground">{entry.email}</td>
+                          <td className="px-4 py-2 text-muted-foreground">
+                            {entry.ticket_type_title ?? "—"}
+                            {entry.quantity ? ` × ${entry.quantity}` : ""}
+                            {!entry.offerable && (
+                              <>
+                                <p id={reasonId} className="text-xs text-amber-800 mt-0.5">
+                                  {entry.offerable_reason}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleRepair(entry.id)}
+                                  className="text-xs text-marine underline mt-0.5 cursor-pointer"
+                                >
+                                  {isOpen ? "Cancel" : "Fix"}
+                                </button>
+                              </>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-muted-foreground text-xs">
+                            {formatDateTime(entry.created_at)}
+                          </td>
+                          <td className="px-4 py-2">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => sendOffer(entry)}
+                                aria-disabled={!entry.offerable || or.submitting}
+                                aria-describedby={!entry.offerable ? reasonId : undefined}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-body font-medium transition-colors cursor-pointer ${
+                                  !entry.offerable
+                                    ? "bg-border/40 text-muted-foreground cursor-not-allowed"
+                                    : "bg-marine text-white hover:bg-marine-light disabled:opacity-50"
+                                }`}
+                              >
+                                {or.submitting
+                                  ? entry.offered
+                                    ? "Resending…"
+                                    : "Offering…"
+                                  : entry.offered
+                                    ? "Resend"
+                                    : "Offer"}
+                              </button>
+                              {entry.offered && (
+                                <button
+                                  type="button"
+                                  onClick={() => withdrawOffer(entry)}
+                                  disabled={wr.submitting}
+                                  className="px-3 py-1.5 border border-border text-marine rounded-lg text-xs font-body font-medium hover:bg-marine/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                  {wr.submitting ? "Withdrawing…" : "Withdraw"}
+                                </button>
+                              )}
+                            </div>
+                            {entry.offered && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Offered{entry.offer_sent_count > 1 ? ` ×${entry.offer_sent_count}` : ""}
+                              </p>
+                            )}
+                            {or.error && <p className="text-xs text-red-700 mt-1">{or.error}</p>}
+                            {wr.error && <p className="text-xs text-red-700 mt-1">{wr.error}</p>}
+                          </td>
+                        </tr>
+                        {isOpen && (
+                          <tr className="border-t border-border/60 bg-cream/30">
+                            <td colSpan={6} className="px-4 py-3">
+                              <div className="flex flex-wrap items-end gap-2">
+                                <label className="text-xs text-muted-foreground">
+                                  Ticket type
+                                  <select
+                                    value={draft.ticketTypeId}
+                                    onChange={(e) => patchDraft(entry, { ticketTypeId: e.target.value })}
+                                    className="block mt-1 px-2 py-1.5 rounded-md border border-border bg-white text-marine text-sm"
+                                  >
+                                    <option value="" disabled>
+                                      Choose a type
+                                    </option>
+                                    {liveSeatTicketTypes.map((t) => (
+                                      <option key={t.id} value={t.id}>
+                                        {t.title}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="text-xs text-muted-foreground">
+                                  Quantity
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={10}
+                                    value={draft.quantity}
+                                    onChange={(e) =>
+                                      patchDraft(entry, {
+                                        quantity: Math.max(1, Math.min(10, Number(e.target.value) || 1)),
+                                      })
+                                    }
+                                    className="block mt-1 w-16 px-2 py-1.5 rounded-md border border-border bg-white text-marine text-sm"
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => saveRepair(entry)}
+                                  disabled={rr.submitting}
+                                  className="px-3 py-1.5 bg-marine text-white rounded-lg text-xs font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                  {rr.submitting ? "Saving…" : "Save"}
+                                </button>
+                                {rr.error && <p className="text-xs text-red-700">{rr.error}</p>}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     );
                   })}
                 </tbody>

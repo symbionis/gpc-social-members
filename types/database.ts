@@ -524,6 +524,7 @@ export type Database = {
           ticket_email_sent_at: string | null
           total_amount_chf: number
           unit_amount_chf: number
+          waitlist_entry_id: string | null
         }
         Insert: {
           converted_by?: string | null
@@ -548,6 +549,7 @@ export type Database = {
           ticket_email_sent_at?: string | null
           total_amount_chf: number
           unit_amount_chf: number
+          waitlist_entry_id?: string | null
         }
         Update: {
           converted_by?: string | null
@@ -572,6 +574,7 @@ export type Database = {
           ticket_email_sent_at?: string | null
           total_amount_chf?: number
           unit_amount_chf?: number
+          waitlist_entry_id?: string | null
         }
         Relationships: [
           {
@@ -600,6 +603,13 @@ export type Database = {
             columns: ["member_id"]
             isOneToOne: false
             referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registrations_waitlist_entry_id_fkey"
+            columns: ["waitlist_entry_id"]
+            isOneToOne: false
+            referencedRelation: "event_waitlist"
             referencedColumns: ["id"]
           },
         ]
@@ -656,6 +666,7 @@ export type Database = {
           id: string
           registration_id: string
           status: string
+          stripe_payment_intent_id: string | null
           ticket_id: string
           to_type_id: string
           to_unit_chf: number
@@ -669,6 +680,7 @@ export type Database = {
           id?: string
           registration_id: string
           status?: string
+          stripe_payment_intent_id?: string | null
           ticket_id: string
           to_type_id: string
           to_unit_chf: number
@@ -682,6 +694,7 @@ export type Database = {
           id?: string
           registration_id?: string
           status?: string
+          stripe_payment_intent_id?: string | null
           ticket_id?: string
           to_type_id?: string
           to_unit_chf?: number
@@ -801,6 +814,10 @@ export type Database = {
           event_id: string
           id: string
           name: string
+          offer_sent_count: number
+          offer_token: string | null
+          offered_at: string | null
+          offered_by: string | null
           quantity: number | null
           ticket_type_id: string | null
         }
@@ -810,6 +827,10 @@ export type Database = {
           event_id: string
           id?: string
           name: string
+          offer_sent_count?: number
+          offer_token?: string | null
+          offered_at?: string | null
+          offered_by?: string | null
           quantity?: number | null
           ticket_type_id?: string | null
         }
@@ -819,6 +840,10 @@ export type Database = {
           event_id?: string
           id?: string
           name?: string
+          offer_sent_count?: number
+          offer_token?: string | null
+          offered_at?: string | null
+          offered_by?: string | null
           quantity?: number | null
           ticket_type_id?: string | null
         }
@@ -828,6 +853,13 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_waitlist_offered_by_fkey"
+            columns: ["offered_by"]
+            isOneToOne: false
+            referencedRelation: "admin_users"
             referencedColumns: ["id"]
           },
           {
@@ -1499,9 +1531,11 @@ export type Database = {
           name: string | null
           phone_e164: string | null
           qr_email_sent_at: string | null
+          refund_amount_chf: number | null
           registration_id: string | null
           released_at: string | null
           slot_status: string
+          stripe_refund_id: string | null
           ticket_type_id: string | null
           waiver_accepted_at: string | null
           waiver_version: string | null
@@ -1526,9 +1560,11 @@ export type Database = {
           name?: string | null
           phone_e164?: string | null
           qr_email_sent_at?: string | null
+          refund_amount_chf?: number | null
           registration_id?: string | null
           released_at?: string | null
           slot_status?: string
+          stripe_refund_id?: string | null
           ticket_type_id?: string | null
           waiver_accepted_at?: string | null
           waiver_version?: string | null
@@ -1553,9 +1589,11 @@ export type Database = {
           name?: string | null
           phone_e164?: string | null
           qr_email_sent_at?: string | null
+          refund_amount_chf?: number | null
           registration_id?: string | null
           released_at?: string | null
           slot_status?: string
+          stripe_refund_id?: string | null
           ticket_type_id?: string | null
           waiver_accepted_at?: string | null
           waiver_version?: string | null

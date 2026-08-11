@@ -27,6 +27,12 @@ A sponsor's comp list, held as a zero-price Registration — a Lead plus any num
 
 Guests are name-only: contact details and waiver are collected at the door on check-in. Unlike a bought Registration, a Guest List has no quantity ceiling — an admin adds or removes guests at any time, and each addition mints a Ticket. Its guests consume seats and may take an Event past its cap. Because a Guest List is an ordinary Registration underneath, the Door Console sees it as a normal party with no special handling.
 
+### Waitlist Entry
+A name, email, requested Ticket Type, and quantity recorded when someone tries to register for a fully-booked Event. Not a Registration and not a queue position — an admin decides who to Offer a seat to, in any order, whenever capacity frees up.
+
+### Offer
+An admin action that turns a Waitlist Entry into an emailed, per-entry link into ordinary checkout — never a free Registration. An Offer confers no seat hold and no expiry: several Entries can be offered against the same freed capacity, and seats go to whoever completes payment first. The buyer may pick any live Ticket Type, but may buy at most the Entry's requested quantity. A Waitlist Entry stops being offerable once its Offer is redeemed (or withdrawn by an admin) — nothing else removes it from the list.
+
 ### Top-up
 Adding further Tickets to an existing confirmed Registration after booking — the "Buy more tickets" flow. A Top-up is priced at the Registration's original Rate Class and, when it costs money, runs its own checkout before the new Tickets are minted.
 

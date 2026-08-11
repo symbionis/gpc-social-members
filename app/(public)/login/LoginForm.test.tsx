@@ -60,7 +60,7 @@ describe("OTP entry — iOS one-time-code autofill", () => {
       ["1", "2", "3", "4", "5", "6"],
     );
     expect(mocks.verifyOtpCode).toHaveBeenCalledTimes(1);
-    expect(mocks.verifyOtpCode).toHaveBeenCalledWith("member@example.com", "123456", "member");
+    expect(mocks.verifyOtpCode).toHaveBeenCalledWith("member@example.com", "123456", "member", null);
   });
 
   it("keeps digits separate when they arrive as six one-per-box events", async () => {
@@ -71,7 +71,7 @@ describe("OTP entry — iOS one-time-code autofill", () => {
     });
 
     expect(mocks.verifyOtpCode).toHaveBeenCalledTimes(1);
-    expect(mocks.verifyOtpCode).toHaveBeenCalledWith("member@example.com", "123456", "member");
+    expect(mocks.verifyOtpCode).toHaveBeenCalledWith("member@example.com", "123456", "member", null);
   });
 
   it("submits once when the digits arrive one at a time", async () => {
@@ -82,7 +82,7 @@ describe("OTP entry — iOS one-time-code autofill", () => {
     }
 
     expect(mocks.verifyOtpCode).toHaveBeenCalledTimes(1);
-    expect(mocks.verifyOtpCode).toHaveBeenCalledWith("member@example.com", "123456", "member");
+    expect(mocks.verifyOtpCode).toHaveBeenCalledWith("member@example.com", "123456", "member", null);
   });
 
   it("submits a pasted code exactly once", async () => {
@@ -93,7 +93,7 @@ describe("OTP entry — iOS one-time-code autofill", () => {
     });
 
     expect(mocks.verifyOtpCode).toHaveBeenCalledTimes(1);
-    expect(mocks.verifyOtpCode).toHaveBeenCalledWith("member@example.com", "123456", "member");
+    expect(mocks.verifyOtpCode).toHaveBeenCalledWith("member@example.com", "123456", "member", null);
   });
 
   it("does not resubmit the same digits when the component re-renders", async () => {

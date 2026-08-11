@@ -14,15 +14,41 @@ export interface TicketTypeOption {
   description?: string | null;
 }
 
+/**
+ * U7: props the offer landing (U5) passes to redeem a waitlist offer through the
+ * normal checkout. `redeemableQuantity` is already the ceiling U5 computes —
+ * `min(entry.quantity, seats free)` — so this component only has to enforce it as
+ * an upper bound (R6), never re-derive it and never treat it as an exact total.
+ */
+export interface OfferMode {
+  /** Forwarded to the register API as `offer_token` alongside the basket. */
+  token: string;
+  /** Upper bound on total basket quantity. Not the raw entry quantity — U5 already
+   *  clamps it to seats free. */
+  redeemableQuantity: number;
+  /** The waitlist entry's email (KTD8). Rendered read-only; the route pins it
+   *  server-side regardless of what this component sends. */
+  email: string;
+  /** Pre-filled from the entry; unlike email, the buyer may still edit it. */
+  name?: string;
+  /** Pre-selected when still live and seat-counting. When the id isn't among the
+   *  live `ticketTypes` passed in (archived / retired), the form shows a
+   *  replacement message and leaves nothing pre-selected (R7). */
+  ticketTypeId?: string;
+}
+
 interface Props {
   eventId: string;
   ticketTypes: TicketTypeOption[];
   defaultName?: string;
   defaultEmail?: string;
-  /** Remaining-seat cap for capped events; total selected tickets can't exceed it. */
+  /** Remaining-seat cap for capped events; total selected tickets can't exceed it.
+   *  Ignored when `offer` is set — `offer.redeemableQuantity` is the ceiling then. */
   maxQuantity?: number;
   /** Invite code from the URL, forwarded to the register API (members-only invite flow). */
   code?: string;
+  /** Set by the offer landing (U5) to redeem a waitlist offer. */
+  offer?: OfferMode;
 }
 
 const MAX_QUANTITY_HARD_CAP = 20;
@@ -47,17 +73,36 @@ export default function EventRegistrationForm({
   defaultEmail = "",
   maxQuantity,
   code,
+  offer,
 }: Props) {
-  const cap = Math.max(1, Math.min(MAX_QUANTITY_HARD_CAP, maxQuantity ?? MAX_QUANTITY_HARD_CAP));
+  // Offer mode's redeemable quantity IS the ceiling (U5 already clamped it to seats
+  // free) — it overrides maxQuantity rather than combining with it.
+  const cap = Math.max(
+    1,
+    Math.min(MAX_QUANTITY_HARD_CAP, (offer ? offer.redeemableQuantity : maxQuantity) ?? MAX_QUANTITY_HARD_CAP)
+  );
   const selectable = useMemo(() => ticketTypes.filter((t) => t.price !== null), [ticketTypes]);
+  // R7: the pre-selected type only holds when it's still live (present with a
+  // resolved price). An archived/retired type never appears in `ticketTypes` at
+  // all, so its absence here is exactly the signal we need.
+  const offerTypeUnavailable = Boolean(
+    offer?.ticketTypeId && !selectable.some((t) => t.id === offer.ticketTypeId)
+  );
 
-  const [firstName, setFirstName] = useState(() => splitName(defaultName).first);
-  const [lastName, setLastName] = useState(() => splitName(defaultName).last);
+  const [firstName, setFirstName] = useState(() => splitName(offer?.name ?? defaultName).first);
+  const [lastName, setLastName] = useState(() => splitName(offer?.name ?? defaultName).last);
   const name = joinName(firstName, lastName);
-  const [email, setEmail] = useState(defaultEmail);
+  const [email, setEmail] = useState(offer?.email ?? defaultEmail);
   const [phone, setPhone] = useState<string | null>(null);
   // Quantities for the WHOLE party (the buyer's own ticket included). No implicit +1.
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  // Offer mode pre-selects the entry's requested type at quantity 1 when it's still
+  // live; otherwise the basket starts empty and `offerTypeUnavailable` prompts a pick.
+  const [quantities, setQuantities] = useState<Record<string, number>>(() => {
+    if (offer?.ticketTypeId && selectable.some((t) => t.id === offer.ticketTypeId)) {
+      return { [offer.ticketTypeId]: 1 };
+    }
+    return {};
+  });
   const [step, setStep] = useState<"tickets" | "attendees">("tickets");
   // The buyer's own meal. Auto when one adult type is selected; chosen in step 2 otherwise.
   const [leadTicketTypeId, setLeadTicketTypeId] = useState("");
@@ -174,6 +219,14 @@ export default function EventRegistrationForm({
     if (!email.trim()) return setError("Please enter your email.");
     if (totalQuantity < 1) return setError("Add at least one ticket.");
     if (!leadTicketTypeId) return setError("Please choose which ticket is yours.");
+    // R6 backstop: the stepper cap already enforces this (cap === redeemableQuantity
+    // in offer mode), but the submit path re-checks independently rather than
+    // trusting client-side clamping alone.
+    if (offer && totalQuantity > offer.redeemableQuantity) {
+      return setError(
+        `This offer is for up to ${offer.redeemableQuantity} ticket${offer.redeemableQuantity === 1 ? "" : "s"}.`
+      );
+    }
     if (totalQuantity > cap) return setError(`A maximum of ${cap} tickets can be booked at once.`);
 
     const { attendees, ok } = validateGuests();
@@ -196,6 +249,7 @@ export default function EventRegistrationForm({
           leadTicketTypeId,
           ...(attendees.length ? { attendees } : {}),
           ...(code ? { code } : {}),
+          ...(offer ? { offer_token: offer.token } : {}),
         }),
       });
       const data = await res.json();
@@ -260,6 +314,27 @@ export default function EventRegistrationForm({
   }
 
   if (soldOut) {
+    // U7/KTD9: the route's 409 message text is unchanged — only this panel's copy
+    // and CTA branch. Offer mode can only reach this by racing page-load against
+    // submit (U5's gate already keeps a zero-seats visitor off this form), so there
+    // is no waitlist to rejoin: send them back to the offer landing to re-check.
+    if (offer) {
+      return (
+        <div className="rounded-xl border border-marine/20 bg-marine/5 p-6 space-y-3">
+          <h3 className="font-heading text-lg font-bold text-marine">Sorry — those seats just went.</h3>
+          <p className="font-body text-sm text-marine/80">
+            Someone else completed checkout first. Seats can still free up — check your offer link again for the
+            latest availability.
+          </p>
+          <a
+            href={`/public/offers/${encodeURIComponent(offer.token)}`}
+            className="inline-block w-full text-center px-4 py-2 rounded-lg bg-marine text-white text-sm font-body font-semibold hover:bg-marine-light transition-colors cursor-pointer"
+          >
+            Check availability
+          </a>
+        </div>
+      );
+    }
     return (
       <div className="rounded-xl border border-marine/20 bg-marine/5 p-6 space-y-3">
         <h3 className="font-heading text-lg font-bold text-marine">Sorry — this event just sold out.</h3>
@@ -311,13 +386,41 @@ export default function EventRegistrationForm({
 
           <div>
             <label htmlFor="reg-email" className="block text-xs font-body text-muted-foreground mb-1">Email</label>
-            <input id="reg-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} autoComplete="email" />
+            <input
+              id="reg-email"
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              readOnly={Boolean(offer)}
+              aria-describedby={offer ? "reg-email-pinned" : undefined}
+              className={`${inputClass}${offer ? " bg-cream/60 cursor-not-allowed" : ""}`}
+              autoComplete="email"
+            />
+            {offer && (
+              <p id="reg-email-pinned" className="font-body text-xs text-muted-foreground mt-1">
+                Pinned to your offer.
+              </p>
+            )}
           </div>
 
           <div>
             <label htmlFor="reg-phone" className="block text-xs font-body text-muted-foreground mb-1">Phone</label>
             <PhoneInput id="reg-phone" defaultValue={null} onChange={setPhone} />
           </div>
+
+          {offer && (
+            <p className="font-body text-xs text-sky-800 bg-sky/10 border border-sky/30 rounded-lg px-3 py-2">
+              You can buy up to {offer.redeemableQuantity} ticket{offer.redeemableQuantity === 1 ? "" : "s"} with
+              this offer.
+            </p>
+          )}
+
+          {offerTypeUnavailable && (
+            <p className="font-body text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              The ticket you requested is no longer offered. Please choose another below.
+            </p>
+          )}
 
           <div className="space-y-2">
             <label className="block text-xs font-body text-muted-foreground">Tickets</label>

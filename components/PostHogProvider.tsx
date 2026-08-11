@@ -3,6 +3,10 @@
 import { useEffect, Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
+import {
+  redactPathForAnalytics,
+  redactUrlForAnalytics,
+} from "@/lib/analytics/redact-path";
 
 /**
  * Initializes PostHog and tracks pageviews on App Router navigation.
@@ -44,7 +48,21 @@ export default function PostHogProvider({
       autocapture: true,
       capture_exceptions: true,
       before_send: (event) => {
-        if (event && event.event === "$exception") {
+        if (!event) return event;
+        // U5/KTD4: redact the offer token from EVERY captured event, not just the
+        // manual $pageview call below — autocapture (clicks, form submits) and
+        // $exception events stamp $current_url/$pathname from window.location
+        // independently of that call, and would otherwise ship the live token.
+        // URL-space, not path-space: on /login the token rides in ?next= (AE8).
+        if (typeof event.properties?.$current_url === "string") {
+          event.properties.$current_url = redactUrlForAnalytics(
+            event.properties.$current_url
+          );
+        }
+        if (typeof event.properties?.$pathname === "string") {
+          event.properties.$pathname = redactPathForAnalytics(event.properties.$pathname);
+        }
+        if (event.event === "$exception") {
           const list = event.properties?.$exception_list as
             | Array<{ value?: string; type?: string }>
             | undefined;
@@ -86,12 +104,16 @@ function PageviewTracker() {
     if (!(window as { __ph_initialized?: boolean }).__ph_initialized) return;
     if (!pathname) return;
 
-    const url =
+    // U5/KTD4: an offer path carries a long-lived emailed secret — in its last
+    // segment on the landing itself, and in ?next= on the /login round trip
+    // (AE8). Redact the whole URL, never just the path.
+    const url = redactUrlForAnalytics(
       window.location.origin +
-      pathname +
-      (searchParams && searchParams.toString()
-        ? `?${searchParams.toString()}`
-        : "");
+        pathname +
+        (searchParams && searchParams.toString()
+          ? `?${searchParams.toString()}`
+          : "")
+    );
 
     posthog.capture("$pageview", { $current_url: url });
   }, [pathname, searchParams]);

@@ -18,10 +18,9 @@ import {
 // See docs/plans/2026-07-11-001-feat-admin-guest-list-door-console-plan.md (U2).
 //
 // NO SEAT-CAP GATE (KTD6 / R11): the cap is enforced only on the public register route.
-// waitlist/convert deliberately omits it so an admin can comp past a full event, and a
-// comp list follows the same rule. `seats_used` is returned for DISPLAY only, after the
-// write. Nothing is emailed here (R8) — the existing resend-tickets action is the
-// delivery path.
+// This comp guest list deliberately omits it so an admin can comp past a full event.
+// `seats_used` is returned for DISPLAY only, after the write. Nothing is emailed here
+// (R8) — the existing resend-tickets action is the delivery path.
 //
 // Only handlers may be exported from this file; every helper lives in
 // lib/events/guest-list.ts and lib/events/guest-list-auth.ts

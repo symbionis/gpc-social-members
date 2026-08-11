@@ -1,11 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { safeOfferReturnPath } from "@/lib/auth/offer-return-path";
 import { NextResponse, type NextRequest } from "next/server";
 
 // Post-auth redirect: check if user is admin or member, redirect accordingly
 export async function GET(request: NextRequest) {
-  const { origin } = new URL(request.url);
+  const { origin, searchParams } = new URL(request.url);
   const supabase = await createClient();
+  // U5/R11/KTD7: same offer-landing return path as verifyOtpCode. Member-only —
+  // the admin branch below is untouched.
+  const memberDest = safeOfferReturnPath(searchParams.get("next")) ?? "/dashboard";
 
   const {
     data: { user },
@@ -52,7 +56,7 @@ export async function GET(request: NextRequest) {
         .update({ auth_user_id: user.id })
         .eq("id", member.id);
     }
-    return NextResponse.redirect(`${origin}/dashboard`);
+    return NextResponse.redirect(`${origin}${memberDest}`);
   }
 
   // User exists in auth but not in members or admin_users
