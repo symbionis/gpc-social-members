@@ -388,38 +388,62 @@ export default async function ManageEventPage({
         })),
     }));
 
-  // The comped share of the attendee count. Derived from the same `guestLists` the tab uses,
-  // so the two surfaces cannot disagree, but re-filtered for cancellation: `claimedRoster`
-  // keeps cancelled rows (the Refunds tab needs them), and a comped seat that was cancelled is
-  // not standing. Counting it here would make the guest-list figure contradict Live seats.
-  const cancelledTicketIds = new Set(cancelledTickets.map((t) => t.id));
-  const guestListSeats = guestLists.reduce(
-    (acc, list) => acc + list.people.filter((p) => !cancelledTicketIds.has(p.ticketId)).length,
-    0
-  );
+  // How many sponsors hold a list. The comped TICKET count is derived with the other
+  // categories below, off the same registrations — previously it was counted here off
+  // `guestLists` and excluded cancelled comps, which made it the one figure in the overview
+  // measured after cancellation while the rest were measured before.
   const guestListCount = guestLists.length;
 
-  // Every seat booked, comp guest-list seats included — a guest list is a `free`
-  // registration, so its seats are in here too. Named `booked`, not `sold`: it is the
-  // left-hand side of `booked − cancelled = live`, and some of these seats may never
-  // have been paid for.
-  const booked = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
-  // Seats still standing. `seats_used` is the authoritative figure: it subtracts cancelled
+  // The overview counts TICKETS, split by how they were acquired, so each figure means
+  // what its label says:
+  //
+  //   sold + free + guest list − cancelled = active
+  //
+  // "Sold" is money taken, so it counts tickets PAID FOR — including ones later
+  // cancelled, which the cancelled figure then subtracts. Lumping comps in with sold
+  // (a guest list is a `free` registration) read as revenue the club never took.
+  //
+  // Counted off seat-consuming ITEMS rather than `registration.quantity`, so the split
+  // reconciles with `seats_used` by construction: a non-seat type (merch) mints a ticket
+  // but takes no seat, and would otherwise show up in the split and not in the total.
+  const seatItemsByRegistration = new Map<string, number>();
+  for (const item of (ticketItemRows ?? []) as TicketItemRow[]) {
+    const type = item.ticket_type_id ? ticketTypeById.get(item.ticket_type_id) : null;
+    if (!type?.counts_as_seat) continue;
+    seatItemsByRegistration.set(
+      item.registration_id,
+      (seatItemsByRegistration.get(item.registration_id) ?? 0) + (item.quantity ?? 0)
+    );
+  }
+  let paidTickets = 0;
+  let freeTickets = 0;
+  let guestListTickets = 0;
+  for (const r of registrations ?? []) {
+    // A registration with no items at all predates per-type baskets; fall back to its
+    // own quantity so a legacy booking still appears in the split.
+    const seats = seatItemsByRegistration.get(r.id) ?? r.quantity;
+    if (r.is_guest_list) guestListTickets += seats;
+    else if (r.status === "paid") paidTickets += seats;
+    else freeTickets += seats;
+  }
+  const bookedTickets = paidTickets + freeTickets + guestListTickets;
+
+  // Tickets still standing. `seats_used` is the authoritative figure: it subtracts cancelled
   // seat-counting tickets and is the same number that gates public registration. Deriving the
-  // cap warning from `booked` told an admin an event was overbooked while registration was still
-  // open — 23 of 17 on screen against a real 16 of 17.
-  let liveSeats = booked;
+  // cap warning from the booked count told an admin an event was overbooked while registration
+  // was still open — 23 of 17 on screen against a real 16 of 17.
+  let activeTickets = bookedTickets;
   try {
-    liveSeats = await getSeatsUsed(supabase, id);
+    activeTickets = await getSeatsUsed(supabase, id);
   } catch (err) {
     // Fall back to the booked count rather than failing the page. It over-states, so the cap
     // warning errs toward caution.
     console.error("[admin/events/attendees] seat usage failed", { id, err });
   }
-  const cancelledSeats = Math.max(0, booked - liveSeats);
+  const cancelledTicketCount = Math.max(0, bookedTickets - activeTickets);
   const seatCap = event.seat_cap as number | null;
   const hasSeatCap = seatCap !== null && seatCap !== undefined;
-  const overbooked = hasSeatCap && liveSeats > seatCap;
+  const overbooked = hasSeatCap && activeTickets > seatCap;
 
   // Widened per U2 of docs/plans/2026-08-11-001-feat-waitlist-paid-offer-flow-plan.md: the
   // admin surface needs what each entry actually asked for (requested type + quantity) and
@@ -525,10 +549,12 @@ export default async function ManageEventPage({
         ticketTypeSummary={ticketTypeSummary}
         waitlist={waitlist}
         hasSeatCap={hasSeatCap}
-        total={liveSeats}
-        booked={booked}
-        cancelledSeats={cancelledSeats}
-        guestListSeats={guestListSeats}
+        total={activeTickets}
+        booked={bookedTickets}
+        paidTickets={paidTickets}
+        freeTickets={freeTickets}
+        cancelledSeats={cancelledTicketCount}
+        guestListSeats={guestListTickets}
         guestListCount={guestListCount}
         seatCap={seatCap}
         overbooked={overbooked}

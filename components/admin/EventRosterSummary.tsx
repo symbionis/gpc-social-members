@@ -20,19 +20,27 @@ export interface TicketTypeSummaryRow {
   sold: number;
 }
 
+/**
+ * Everything here counts TICKETS, and the figures reconcile two ways:
+ *
+ *   paid + free + guest list = booked
+ *   booked − cancelled       = active
+ *
+ * The split matters because "sold" used to mean "booked" and swept comps in with it, so an
+ * event with a guest list reported seats as sold that the club had never been paid for.
+ */
 interface Props {
-  /** Seats still standing — `seats_used`, i.e. booked minus cancelled. Drives the cap warning. */
+  /** Tickets still standing — `seats_used`, i.e. booked minus cancelled. Drives the cap warning. */
   total: number;
-  /**
-   * Every seat booked, cancellations included — comp guest-list seats among them, since a
-   * guest list is a `free` registration. Labelled "Booked", never "Sold": it is the
-   * left-hand side of `booked − cancelled = live`, not a revenue figure, and calling a
-   * comped seat sold misreads as money the club never took.
-   */
+  /** Every ticket booked, cancellations included: paid + free + guest list. */
   booked: number;
-  /** Seats given back. Shown so booked and live visibly reconcile instead of contradicting. */
+  /** Tickets PAID FOR, cancellations included — the money figure. */
+  paidTickets: number;
+  /** Tickets on free bookings that are not a guest list (a free event, or a zero-priced type). */
+  freeTickets: number;
+  /** Tickets given back. Shown so booked and active visibly reconcile instead of contradicting. */
   cancelledSeats: number;
-  /** Comp seats standing across every guest list — the comped share of the attendee count. */
+  /** Comp tickets across every guest list, cancellations included. */
   guestListSeats: number;
   /** How many sponsors hold a list, which is what makes the seat figure readable. */
   guestListCount: number;
@@ -88,6 +96,8 @@ function Panel({
 export default function EventRosterSummary({
   total,
   booked,
+  paidTickets,
+  freeTickets,
   cancelledSeats,
   guestListSeats,
   guestListCount,
@@ -96,6 +106,11 @@ export default function EventRosterSummary({
   overbooked,
   ticketTypeSummary,
 }: Props) {
+  // Worth showing only when booked says something active does not: a cancellation happened,
+  // or the tickets came from more than one place (paid, free, a guest list).
+  const categories = [paidTickets, freeTickets, guestListSeats].filter((n) => n > 0);
+  const showBreakdown = cancelledSeats > 0 || categories.length > 1;
+
   const capacitySub = hasSeatCap
     ? overbooked
       ? `of ${seatCap} cap — overbooked`
@@ -106,34 +121,37 @@ export default function EventRosterSummary({
     <div className="flex-1 min-w-0 space-y-5">
       <p className="font-body text-sm font-bold text-marine">Overview</p>
 
-      {/* Live seats lead: that is the number the cap, the waitlist and public registration all
-          reason about. Booked and cancelled appear only when they differ from it — on an event
-          with no cancellations all three are the same figure and two of them are noise. */}
+      {/* Active tickets lead: that is the number the cap, the waitlist and public registration
+          all reason about. The rest appear only when they add something — on a straightforward
+          paid event with no cancellations, active/booked/paid are one number said three times. */}
       <div className="flex flex-wrap gap-3">
         <Panel
           value={String(total)}
-          label="Live seats"
+          label="Active tickets"
           sub={capacitySub}
           tone={overbooked ? "alert" : "default"}
         />
-        {cancelledSeats > 0 && (
+        {showBreakdown && (
           <>
-            <Panel value={String(booked)} label="Booked" />
-            <Panel value={String(cancelledSeats)} label="Cancelled" sub="see Refunds" />
+            <Panel value={String(booked)} label="Booked tickets" sub="before cancellations" />
+            {paidTickets > 0 && <Panel value={String(paidTickets)} label="Paid tickets" />}
+            {freeTickets > 0 && <Panel value={String(freeTickets)} label="Free tickets" />}
           </>
         )}
-        {/* Comped seats, shown only when there are any — same rule as booked/cancelled above.
-            This is the one part of the attendee count the seat panels cannot explain: a guest
-            list mints ordinary tickets, so its people sit in Attendees indistinguishable from
-            buyers unless the organiser opens the pill or the Guest list tab.
+        {cancelledSeats > 0 && (
+          <Panel value={String(cancelledSeats)} label="Cancelled tickets" sub="see Refunds" />
+        )}
+        {/* Comped tickets, shown only when a list exists. A guest list mints ordinary tickets,
+            so its people sit in the attendee roster indistinguishable from buyers unless the
+            organiser opens the pill or the Guest list tab — this is what names them.
 
-            The figure counts comp seats, INCLUDING each list's sponsor lead, because that is
+            The figure counts comp tickets, INCLUDING each list's sponsor lead, because that is
             what both the Guest list tab and the attendee roster already count. Splitting the
             lead out here would put a third number on the same population. */}
         {guestListCount > 0 && (
           <Panel
             value={String(guestListSeats)}
-            label="Guest list seats"
+            label="Guest list tickets"
             sub={`across ${guestListCount} guest list${guestListCount === 1 ? "" : "s"}`}
           />
         )}
