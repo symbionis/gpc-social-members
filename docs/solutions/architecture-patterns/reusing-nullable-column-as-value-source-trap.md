@@ -2,7 +2,7 @@
 title: "Don't reuse a column that's force-null for a row category as a value source"
 date: "2026-05-26"
 last_refreshed: "2026-05-26"
-last_updated: "2026-07-09"
+last_updated: "2026-08-11"
 category: "architecture-patterns"
 module: "events"
 problem_type: "architecture_pattern"
@@ -14,6 +14,7 @@ applies_when:
   - "Numeric coercion is applied to a possibly-null value (Number(null) becomes 0)"
   - "Planning a guest/comp/alternate-price feature against members_only events"
   - "Adding a new code path (top-up, admin add-tickets, import, manage page) or display projection that re-resolves event ticket pricing"
+  - "Adding a consumer that resolves what a ticket is worth (pricing, refunds, exports)"
 related_components:
   - "payments"
   - "tooling"
@@ -26,6 +27,7 @@ tags:
   - "silent-bug"
   - "single-writer"
   - "topup"
+  - "refunds"
 ---
 
 # Don't reuse a column that's force-null for a row category as a value source
@@ -105,9 +107,9 @@ const amount = unit === null ? null : Number(unit);
 .filter((t) => t.priceLabel !== "—");   // on an invite-only event: drops EVERY type
 ```
 
-On an invite-only event every type has `price_non_member = NULL`, so for a non-member lead all types were dropped, `buyableTypes` came back `[]`, and `components/public/BookingManager.tsx:131` gates the panel behind `topupEndpoint && buyableTypes && buyableTypes.length > 0`. The whole "Buy more tickets" panel vanished. **No error, no log, no empty state, HTTP 200** — the affordance simply ceased to exist for exactly the guests an invite-only event is built for.
+On an invite-only event every type has `price_non_member = NULL`, so for a non-member lead all types were dropped, `buyableTypes` came back `[]`, and `components/public/BookingManager.tsx:104` gates the panel behind `topupEndpoint && buyableTypes && buyableTypes.length > 0`. The whole "Buy more tickets" panel vanished. **No error, no log, no empty state, HTTP 200** — the affordance simply ceased to exist for exactly the guests an invite-only event is built for.
 
-Contrast with PR #50: on the *charge* path the missing invite class hit the register route's explicit null guard and produced a loud `500 "Event pricing is misconfigured"`. On the *display* path there is no guard — a filter drops the row and the UI silently loses a feature. **The secondary rule above ("the display path and the action/charge path must agree on what missing means") is precisely what was violated**: the top-up route (`app/api/public/bookings/[token]/topup/route.ts:86`) and the sibling `convertTypes` projection twenty lines below in the same page file (line 138) both applied `price_non_member ?? invite_price`; only `buyableTypes` did not. The server was willing to sell; the page never offered. The user-visible signature was "I can change a ticket's type but I can't buy another one."
+Contrast with PR #50: on the *charge* path the missing invite class hit the register route's explicit null guard and produced a loud `500 "Event pricing is misconfigured"`. On the *display* path there is no guard — a filter drops the row and the UI silently loses a feature. **The secondary rule above ("the display path and the action/charge path must agree on what missing means") is precisely what was violated**: the top-up route (`app/api/public/bookings/[token]/topup/route.ts:88`) and the sibling `convertTypes` projection twenty lines below in the same page file (line 134) both applied `price_non_member ?? invite_price`; only `buyableTypes` did not. The server was willing to sell; the page never offered. The user-visible signature was "I can change a ticket's type but I can't buy another one."
 
 Three things let this ship, and each is a reusable warning:
 
@@ -124,7 +126,11 @@ const unit = registration.is_member ? t.price_member : (t.price_non_member ?? t.
 
 Accepted trade-off: where an invite type is zero-priced, an invited non-member can now add free tickets. This is correct by definition (`invite_price` *is* the guest's rate) and remains bounded — the top-up route enforces the event seat cap (`app/api/public/bookings/[token]/topup/route.ts`).
 
-**The prevention rule, sharpened by a second recurrence:** stop writing the branch. As of this writing, **six sites re-derive the rate → unit price**, and no shared resolver exists. Four hand-roll the identical coalesce — `buyableTypes` and `convertTypes` in the booking page, the top-up route, and the convert route (`app/api/public/bookings/[token]/convert/route.ts`) — while two more spell out a parallel three-way switch: the register route and the public event page (`app/(public)/public/events/[id]/page.tsx`). Every new consumer is a fresh chance to omit the fallback, and it has been omitted twice (#50, #68). Extract `unitPriceFor(ticketType, { isMember })` returning `isMember ? price_member : (price_non_member ?? invite_price)`, have all of them call it, and a seventh consumer cannot ship a subset of the logic.
+**The prevention rule, and what it cost to actually apply it: stop writing the branch.** Two recurrences (#50, #68) argued for a shared resolver; PR #84 shipped one — `lib/events/pricing.ts`. It deliberately keeps **two** functions rather than the single `unitPriceFor` first proposed here, because there are genuinely two rules and collapsing them would silently change prices: `priceForRateClass(t, rateClass)` for the register checkout, where the class is decided up front from session + visibility and each class reads exactly one column; and `resolvePrice(t, reg)` for top-up, convert and display, which only know `reg.is_member` and so coalesce `price_non_member ?? invite_price`. `isUsablePrice(unit)` is the third export — the strict guard every call site used to spell inline, so a null still fails loud instead of under-charging.
+
+Five app files now import it: the register route, the top-up route, the convert route, the booking page (both `buyableTypes` and `convertTypes`), and the ticket-holder page — the last of which shipped *after* the extraction and used the resolver rather than hand-rolling a seventh branch, which is the whole point.
+
+**One site still hand-rolls it:** `app/(public)/public/events/[id]/page.tsx:155-159` spells the three-way branch inline and does not import the module. It is correct today. It is also the only remaining place a recurrence can start, so it is the first thing to check when this trap next appears.
 
 Additionally, **a filter that can drop every row must not silently remove the affordance** — collapse-to-empty should render an empty state ("No additional tickets available") or log, so "the panel is gone" is distinguishable from "the panel was never wired up." A regression fixture pins it: an invite-only event with four types (`price_non_member = NULL`, `invite_price` set) must yield `buyableTypes.length === 4` for a non-member lead.
 
@@ -133,6 +139,12 @@ Additionally, **a filter that can drop every row must not silently remove the af
 This is a silent financial-correctness bug, not a crash. With `price_non_member` reused, every invited guest on a members-only event would have registered for CHF 0 — no error, no log, a real (free) confirmed registration. Bugs like this survive testing because the happy path "works"; only the convergence of four reviewers caught it before ship, while planning and the brainstorm both missed it. A dedicated column plus an explicit null guard converts the silent zero into a loud, visible misconfiguration (HTTP 500 "Event pricing is misconfigured").
 
 A related operational reason to add a *new* column rather than start populating an existing force-null one: the existing column's null state is load-bearing elsewhere (constraint, routes, UI). Repurposing it would mean unwinding all of that; a dedicated column leaves those invariants intact.
+
+### A nullable column that is NOT this trap (refund accounting, PR #105)
+
+`tickets.refund_amount_chf` is nullable, and `refundedAmountChf` (`lib/events/refunds.ts`) prefers it while deriving the seat price when it is NULL. That is this doc's *prescription*, not its trap: the column is **dedicated** rather than an existing one repurposed, the null is checked explicitly before any coercion, and NULL carries a documented meaning — "refunded before refund accounting existed" — with a documented remedy. The trap is an unowned null that arithmetic turns into a plausible zero; this is an owned null with a declared fallback.
+
+The refund path also sidesteps the price columns entirely: it reads the `event_registration_items.unit_amount_chf` **snapshot**, so repricing a ticket type cannot change what an old booking refunds. Worth stating because the question "isn't this the same trap?" is the obvious one to ask, and the answer turns on ownership of the null, not on its nullability.
 
 ## When to Apply
 
@@ -191,5 +203,6 @@ There is no null guard on a read path, so this failed **silently** (HTTP 200, no
 - [partial-unique-index-stripe-webhook-23505-deadlock-2026-05-21.md](../database-issues/partial-unique-index-stripe-webhook-23505-deadlock-2026-05-21.md) — the invite migration adds a partial unique index on `events.invite_code`; same indexing-hazard family for event tables.
 - [stripe-supabase-payment-flow-integration-issues.md](../integration-issues/stripe-supabase-payment-flow-integration-issues.md) — sibling "silent failure in the payment path" learning; `Number(null)=0 → free registration` is the same genre.
 - [guard-shared-content-as-entity-specific-2026-05-21.md](../design-patterns/guard-shared-content-as-entity-specific-2026-05-21.md) — shares the prevention rule that a stale in-code comment is an assumption, not a spec. PR #68 survived audits because a comment asserted the divergence was deliberate.
+- [a-comment-that-justifies-an-omission-is-load-bearing.md](../best-practices/a-comment-that-justifies-an-omission-is-load-bearing.md) — cites this doc as the precedent for distrusting a comment that declares a divergence deliberate; there the comment justified an *omission* rather than a divergence, which is harder to see because there is no code for a reviewer to look at.
 - Source PRs: **#32** (feature + the "dedicated `invite_price` rather than reusing `price_non_member`" decision and rationale), **#33** (e2e pricing-matrix coverage, including the `invite_price`-unset → "not open yet" branch), **#35** (moved `invite_price` to the per-type `event_ticket_types` model; the register/display snippets above reflect per-type resolution, and the events-table price constraint was dropped in `20260526133000`), **#50** (the same trap recurred in the booking top-up route `app/api/public/bookings/[token]/topup/route.ts` — the missed sibling consumer; fixed with a `price_non_member ?? invite_price` fallback), **#58** (convert-ticket-type; its plan named the `buyableTypes` gap and claimed U4 would fix it, but U4 fixed only `convertTypes`), **#68** (third recurrence — the `buyableTypes` display projection; silent panel disappearance for invited non-member leads).
 - **PR #67** (same file, same session as #68, different species of the same instinct): `BookingManager.tsx` suppressed a ticket's guest name whenever the ticket had been forwarded (`{!ticket.forwarded && ...}`), so a lead with 20 tickets saw 9 of them nameless and reported "not all my guests are showing" — the names were in the database the whole time. Also defended by a confident comment ("Once forwarded the ticket is handed over — no name/validity line here"). Two bugs in one file in one session, both a UI conditional hiding state the backend actually had, each rationalized in prose. When a page "loses" data or an affordance, suspect the projection before the store.

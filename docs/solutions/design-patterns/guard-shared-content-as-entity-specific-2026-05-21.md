@@ -30,7 +30,9 @@ related_components:
 
 ## Context
 
-A public door check-in feature (Next.js App Router + Supabase) shows attendees a bilingual (EN/FR) liability waiver before they enter an event. The waiver content lives in `lib/events/waiver.ts`, is rendered by `components/public/EventCheckInForm.tsx`, and each acceptance is recorded in `event_checkins` with `event_id`, a timestamp, and a content-derived `waiver_version`.
+A door check-in feature (Next.js App Router + Supabase) shows attendees a bilingual (EN/FR) liability waiver before they enter an event. The waiver content lives in `lib/events/waiver.ts` and is rendered by `components/events/WaiverText.tsx`, shown at the staffed door console (`components/door/ScanCheckIn.tsx`, `components/door/DoorConsole.tsx`). Each acceptance is stamped onto the attendee's own ticket row — `waiver_version`, `waiver_accepted_at`, `language`, `marketing_consent` (`lib/events/checkin.ts:88-95`).
+
+*(At the time of the incident this was a **public self-service kiosk** writing acceptances to `event_checkins`. The kiosk was retired and `event_checkins` is frozen; the analysis below is unaffected, since it turns on whether the content is entity-specific, not on where it is rendered or stored.)*
 
 What started as a one-line date bug turned into an over-built guard. Three things stacked up:
 
@@ -56,6 +58,8 @@ The final fix (PR #24) deleted the guard, generalized clause 1 to name no specif
 1. **When shared content *looks* entity/tenant-specific, verify product intent before gating it.** A document that happens to mention one entity's name is not proof it belongs to that entity. Confirm whether the content is meant to be shared, then prefer generalizing the content (remove the entity name) over adding a per-entity guard that restricts where it can be used.
 
 2. **A stale in-code comment is an assumption, not a spec.** `// EVENT-SPECIFIC: do not reuse` described someone's past intent — possibly never true, possibly outdated. Comments aren't requirements. Confirm against actual product intent (here, the waiver was generic all along) before building enforcement around them.
+
+   **The rule reads forward as well as backward, and this file proves it.** `lib/events/waiver.ts:8-11` still tells a reader that each acceptance "is tied to its `event_id` + timestamp in `event_checkins`" — a table that has not received one since the kiosk was retired; acceptances are stamped on the ticket row. A comment can go stale *after* you correctly acted on it, so a comment is never the end of an investigation. This is a recurring shape in this codebase rather than a one-off: see [`../best-practices/a-comment-that-justifies-an-omission-is-load-bearing.md`](../best-practices/a-comment-that-justifies-an-omission-is-load-bearing.md), where a comment justifying an *omission* cost a 2.4x-overstated revenue figure.
 
 3. **A guard that converts "wrong content" into "no access / 404" trades one failure for another.** Both are failures; pick the one the domain actually tolerates. Showing a slightly mis-titled waiver was recoverable; blocking every other event's entire check-in flow was not. Don't assume the louder failure (404) is the safer one.
 

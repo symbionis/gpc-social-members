@@ -48,7 +48,9 @@ bob   = Alice Smith / already=true      <-- Bob was told he is Alice
 named_tickets = 1                        <-- should be 2
 ```
 
-Three callers were exposed: self-registration via the party link, the door console's walk-up fill, and the **free**-checkout roster fill (`fillRegistrationRoster`, one `claim_ticket` per guest the booker named). The paid checkout path escaped only because it goes through `apply_pending_roster`, which does not dedupe at all — which is why paid group bookings on one email have all their tickets and the bug stayed hidden.
+Every path that named a slot was exposed — including the paid one. `apply_pending_roster` `PERFORM`s `public.claim_ticket` once per guest (`supabase/migrations/20260708130000_apply_pending_roster.sql:50-60`), so the paid checkout inherited the same guard rather than escaping it. *(An earlier revision of this doc, and the header of the fix migration `20260711140000_claim_ticket_identity_dedupe.sql:25-26`, both claimed the paid path escaped because `apply_pending_roster` "does not dedupe at all." That was wrong, and nothing in the repo supports the "paid group bookings kept all their tickets" explanation.)*
+
+As of 2026-08-11 two direct callers remain: the door console's walk-up fill (`app/api/public/door/[id]/save-attendee/route.ts:132`) and the free-checkout roster fill (`lib/events/roster.ts:115`), plus the SQL-internal call inside `apply_pending_roster`. Self-registration via the party link was retired (`claim_self_registration` dropped in `supabase/migrations/20260722150000_drop_self_reg_token.sql:8`).
 
 ## The fix
 
@@ -78,8 +80,17 @@ That is the better failure, and the reasoning generalises:
 
 **When a dedupe key is ambiguous, prefer the failure that is bounded and visible over the one that is silent and loses a person.**
 
+That table describes the *door and fill* paths. At **purchase** time there is now a third, better failure: the buyer is asked to distinguish the two guests. `lib/events/attendee-input.ts` rejects two seats carrying the same normalized name *and* email with a 400 — bounded, visible, and recoverable before any money moves.
+
+## Where the rule lives now
+
+Since top-ups had to name every seat (PR #111), the rule is enforced one layer **above** the RPC, at the API boundary. `lib/events/attendee-input.ts` is the single shared validator, called by both purchase paths — the public register route and the top-up route. It builds identity as `normalizeName(name).toLowerCase() + "|" + email` and says so in its own comment, naming `claim_ticket`'s guard as the reason for the key choice. A shared email is explicitly permitted (households book on one address); the same person named twice is not.
+
+This is the shape to copy: the RPC keeps its guard as the last line of defence, and the boundary that has the user's attention refuses the ambiguous input while it can still be corrected.
+
 ## What to watch for
 
 - Any dedupe or idempotency key built from contact details alone has this bug. Contact identifies a *mailbox*, not a *human*.
+- **An absent mailbox is a normal, designed state.** Comp guest lists routinely carry no email at all — the door captures it at admission — so a guard must not assume contact is *present*, let alone unique.
 - If you need a genuinely reliable replay guard for a per-person write, do not infer identity — carry an explicit idempotency key from the client, as `add_comp_guests` does with `comp_guest_batches`.
 - The SQL here is not covered by the test suite (vitest mocks Supabase entirely). Verify changes to `claim_ticket` with a rolled-back `DO` block — see `verify-security-definer-rpc-do-block-rollback.md`.

@@ -1,7 +1,7 @@
 ---
 title: "Race-safe slot-claim RPC: enforce a capacity cap at claim time"
 date: 2026-06-07
-last_updated: 2026-07-22
+last_updated: 2026-08-11
 category: design-patterns
 module: events
 problem_type: design_pattern
@@ -10,7 +10,7 @@ severity: high
 applies_when:
   - "Multiple unauthenticated actors race to claim limited slots against a shared capacity cap"
   - "A natural parent/owner row defines the cap and child rows consume it"
-  - "You want to avoid pre-provisioning placeholder rows for unclaimed capacity"
+  - "Claims must serialize against a cap, whether they insert or flip a pre-provisioned row"
   - "The cap is hierarchical — a group total and/or a per-subtype sub-cap"
   - "Capacity logic must live server-side because there is no trusted client (public link, no login)"
 tags:
@@ -31,6 +31,8 @@ related_components:
 # Race-safe slot-claim RPC: enforce a capacity cap at claim time
 
 > **Update (2026-07-22):** The concrete example below — the self-registration flow, the `claim_self_registration` RPC, and the `event_registrations.self_reg_token` column/index — has been **retired** (self-registration removed in U16 / PR #88; the RPC, column, and unique index dropped in R28 / PR #92). The `event_attendees` table it references was **renamed to `tickets`**. The **pattern is unchanged and still in force**: the surviving `claim_ticket` RPC (checkout roster-fill + door walk-up) enforces the same race-safe, `SELECT … FOR UPDATE`-locked, no-pre-provisioning capacity cap on `tickets`, and event capacity is now also computed in SQL by `seats_used` (`purchased − cancelled`). Read the `claim_self_registration` / `event_attendees` / `self_reg_token` snippets below as the historical form of a pattern that today lives in `claim_ticket`.
+>
+> **Update (2026-08-11):** One design premise below did **not** survive, and the Context section should be read as the reasoning of its time. U3 (`supabase/migrations/20260622180000_mint_registration_tickets.sql`) now mints one `issued`, credentialled ticket per purchased slot at confirmation — that is exactly the "pre-provisioning" the Context marks *Rejected* — and `claim_ticket` flips an `issued` row to `claimed` rather than inserting, falling back to INSERT only when no open row exists. Crucially, **the hazard the rejection was premised on never materialised**: the per-type cap counts `slot_status = 'claimed'` only, so pre-provisioned rows never entered the `purchased − claimed` subtraction. What generalises from this doc is the lock-and-count concurrency pattern; the insert-vs-update choice is not part of it.
 
 ## Context
 
@@ -91,10 +93,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS event_registrations_self_reg_token_uniq
   WHERE self_reg_token IS NOT NULL;
 ```
 
-**2. Count and compare under the lock — claim INSERTs, never updates a reserved
-row.** Because nothing is pre-provisioned, the cap check is a live `count(*)` of
+**2. Count and compare under the lock.** The cap check is a live `count(*)` of
 claimed attendees evaluated while the lock is held, immediately followed by the
-insert:
+write. (As written in 2026-06 that write was always an INSERT, because nothing was
+pre-provisioned; today `claim_ticket` flips a pre-minted `issued` row to `claimed`
+and only INSERTs as a fallback. The lock-and-count half is what matters — the cap
+counts `claimed` rows either way.)
 
 ```sql
 SELECT count(*) INTO v_count
@@ -113,8 +117,12 @@ The lead/purchaser is itself a `claimed` attendee (seeded at registration), so
 it counts toward the cap — N total people, lead included.
 
 **3. Idempotency for double-submits.** Before counting, the function returns an
-existing live attendee with the same contact (`already=true`) instead of
-inserting a duplicate — covers a double-tap or the lead re-using the link.
+existing live attendee with the same **name and** contact (`already=true`) instead
+of inserting a duplicate — covers a double-tap or the lead re-using the link.
+Contact alone was the original key, and it silently swallowed the second of two
+people sharing an email address; see
+[`../database-issues/contact-only-replay-guard-swallows-people-sharing-an-email.md`](../database-issues/contact-only-replay-guard-swallows-people-sharing-an-email.md)
+for why identity is name + contact, never contact alone.
 
 **4. Why `SECURITY DEFINER` + service_role-only.** `event_attendees` and
 `event_registrations` have RLS enabled **with no policies**, so anon/authenticated
@@ -177,6 +185,17 @@ Instead a nullable `released_at` is set, and every live-count / idempotency /
 matcher query gains `AND released_at IS NULL`. A freed slot reopens capacity
 without losing the record.
 
+> **Retired at the app layer (2026-08-11, PR #111).** `release_ticket` still
+> exists in the database, `service_role`-only, but **nothing in the app calls it**
+> — the roster's Remove button and `app/api/public/door/[id]/free-slot` were both
+> retired. Freeing a *paid* seat is now a Cancellation, so the seat and its money
+> are accounted for together; the only surviving release path is removing a comped
+> guest from a guest list (`remove_comp_guest`). The `released_at` tombstone
+> mechanics above are still exactly how that works — read this section as live
+> machinery for comped seats and as the shape of the pattern, not as a route you
+> can call. On why the RPC was kept rather than dropped, see
+> [`../best-practices/retire-a-live-flow-drop-the-write-path-keep-the-history.md`](../best-practices/retire-a-live-flow-drop-the-write-path-keep-the-history.md).
+
 ## Why This Matters
 
 Without the `FOR UPDATE` lock the count-then-insert is a TOCTOU race:
@@ -237,14 +256,16 @@ or a counted unique index.
 - **Count purchases from the basket, not from claimed rows.** With no
   pre-provisioned rows, `event_registration_items` is the only source of truth
   for what was bought; attendee rows only exist once claimed.
-- **Vestigial `unclaimed` scaffolding.** `event_attendees.slot_status` still
-  allows `'unclaimed'` (leftover from the rejected pre-provisioning model). The
-  shipped flow always inserts `'claimed'` directly, so the `unclaimed` branch is
-  currently dead — don't build on it without reviving the rejected model.
+- **Vestigial `unclaimed` scaffolding.** `tickets.slot_status` still allows
+  `'unclaimed'`, a legacy value predating per-ticket minting. The shipped flow
+  mints `'issued'` and flips it to `'claimed'`, so no live path ever writes
+  `'unclaimed'` — the branch is dead, and it is dead for a different reason than
+  this doc originally gave (it was described as leftover from the *rejected*
+  pre-provisioning model; pre-provisioning is what actually shipped).
 
 ## Examples
 
-**The claim flow.** `app/api/public/registrations/[token]/claim/route.ts` is a
+**The claim flow.** *(Historical — this route was removed with self-registration in PR #88; the surviving equivalent is `app/api/public/door/[id]/save-attendee/route.ts`, which maps `claim_ticket`'s statuses the same way.)* `app/api/public/registrations/[token]/claim/route.ts` was a
 thin caller: validate input (name required; email-or-phone required; waiver
 version sourced server-side, never trusted from the client; malformed
 `ticketTypeId` dropped to `null`), call the RPC, map its jsonb status to HTTP —

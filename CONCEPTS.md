@@ -30,15 +30,30 @@ Guests are name-only: contact details and waiver are collected at the door on ch
 ### Top-up
 Adding further Tickets to an existing confirmed Registration after booking — the "Buy more tickets" flow. A Top-up is priced at the Registration's original Rate Class and, when it costs money, runs its own checkout before the new Tickets are minted.
 
+Every seat a Top-up buys is named before payment, on the same terms as the original checkout — one name and one email per seat — so no purchase path can produce an unnamed Ticket. A Top-up is also its own payment: a Registration that has been topped up holds more than one charge, and any refund against it draws on the Registration's charges as a whole rather than assuming a single one.
+
 ### Conversion
 Changing one existing Ticket to a different Ticket Type on the same Registration — the "Change ticket type" flow — as opposed to a Top-up, which adds new Tickets. Priced at the Registration's original Rate Class.
 
 Upgrade-only: the target Ticket Type must cost the same or more, and the Lead pays the difference (applied immediately when the difference is zero, otherwise through its own checkout first). A Conversion preserves the Ticket's Credential, its Lead-held status, and its named person — it changes only the Ticket Type; the Registration's Ticket count is unchanged, and the Event's seat usage changes only when converting from a non-seat to a seat-consuming Type. Any Ticket Type may be converted to any other of equal or higher price — there is no restriction between categories of Type.
 
 ### Cancellation
-A holder's request to void one of their own Tickets from the manage link — final on the holder's side — that frees the Ticket's seat immediately and moves it toward a refund. A Cancellation carries its own status, separate from Slot Status: **requested** (voided, seat released, refund pending) then **refunded** (an admin has completed the refund in the payment provider).
+A holder's request to void one of their own Tickets from the manage link — final on the holder's side — that frees the Ticket's seat immediately and moves it toward a refund. A Cancellation carries its own status, separate from Slot Status: **requested** (voided, seat released, refund outcome undecided) then **refunded** (settled — an admin has sent the money back through the payment provider from the admin surface itself, and the amount returned is recorded against the Ticket).
 
-A cancelled Ticket keeps its row and its Credential but is void for every purpose. Its seat is subtracted from the Event's usage the instant cancellation is requested — so the place can be resold — and every admission path (the QR scan, a by-name check-in, the printed door sheet) refuses it, precisely so a freed-and-resold seat cannot admit two people. Cancellation is distinct from a staff *release* (see Slot Status), which tombstones a Ticket rather than recording a refundable request.
+A cancelled Ticket keeps its row and its Credential but is void for every purpose. Its seat is subtracted from the Event's usage the instant cancellation is requested — so the place can be resold — and no admission path will admit it: the QR scan and a by-name check-in both refuse it, and the door-facing lists omit it altogether, precisely so a freed-and-resold seat cannot admit two people. A Cancellation is the only way a **paid** seat is freed, which is what keeps every freed paid seat accountable for its money: a seat awaiting a refund still counts as revenue, because the club is still holding it, while a settled one does not. A comped seat can also be freed by removing that guest from a Guest List, where there is no money to account for.
+
+### Seat
+One unit of an Event's capacity. Most Ticket Types consume a Seat, but not all — a Type may be sold without taking a place, so an Event's Ticket count and its Seat count are not the same number.
+
+The authoritative figure is **live seats**: everything sold, minus everything cancelled. Every capacity decision reads that one figure — the cap warning, the waitlist conversion, the arrivals the door expects — rather than re-deriving a count from booked quantities, because a booking's stated quantity does not shrink when one of its Tickets is cancelled. A Seat awaiting a refund is already free to resell; the money is settled separately.
+
+### Charge Pool
+The set of payments backing one Registration, treated as a single pot. A Registration that has been topped up or upgraded holds more than one charge — the original checkout plus one per applied Top-up and priced Conversion — so a refund draws across the pool as a whole rather than assuming a single payment.
+
+Refunds are issued from the admin surface itself, through the payment provider, so the record is a byproduct of the action rather than a step someone must remember afterward. A refund that cannot be covered by the pool is refused rather than partially guessed at.
+
+### Snapshot Price
+The per-Ticket amount recorded on a Registration at the moment of purchase. Repricing a Ticket Type later never changes what an existing booking is worth — what a Seat refunds is what it was sold for, not what the same Type costs today.
 
 ### Ticket Credential
 The unguessable bearer token carried by each Ticket, rendered as a QR code and used as the entry token at the door. Holding the credential is what admits a guest; identity (name, waiver) is metadata attached around it. Designed so an NFC bracelet could later be paired to the same credential.
@@ -46,7 +61,7 @@ The unguessable bearer token carried by each Ticket, rendered as a QR code and u
 ### Slot Status
 The lifecycle state of a Ticket: **issued** (minted with a credential at purchase, no name yet), **claimed** (filled with a person's name and contact), or **unclaimed** (a legacy open slot predating per-ticket minting).
 
-A Ticket can also be *released* — freed by staff before arrival — which tombstones it (kept for audit, never deleted) so its old credential stops admitting anyone. A checked-in Ticket cannot be released.
+A Ticket can also be *released* — tombstoned rather than deleted, so the old credential stops admitting anyone while the identity and waiver record survives. Releasing is no longer how a **paid** seat is freed; that is a Cancellation, so the seat and its money are accounted for together. The remaining release path is removing a comped guest from a Guest List, which shrinks the party and returns the seat to the Event. A released row is never a live seat, and anything counting seats or money must exclude it.
 
 ### Booking Page
 The Lead's self-service page for a Registration, reached by a private manage link, where they name each Ticket, share Tickets with guests, see every QR, and buy more.
@@ -93,3 +108,14 @@ Attribution covers membership dues only — event ticket revenue is not attribut
 
 ### Direct (no originator)
 The named bucket for revenue from members with no Originator. Not an absence in the UI — it is reported as its own row so attributed and unattributed revenue always reconcile to the total.
+
+### Event Revenue
+What an Event actually collected: gross ticket sales minus settled refunds. **Net is the figure to report** — gross alone overstates what the club holds, and once did so by more than double for a single Event.
+
+A Seat awaiting a refund still counts, because the club is still holding the money; only a settled refund is subtracted. Pending refunds are surfaced as their own figure rather than folded into either side, so the amount about to leave is visible before it does. The club's own records mirror the payment provider, and the provider is the authority whenever the two disagree.
+
+## Flagged ambiguities
+
+- **"Expected"** means two different numbers depending on the surface: the admin reads it as live Seats (sold minus cancelled), while the door still totals booked quantities. The gap between them is reported rather than hidden, but the word alone is not precise enough to use unqualified.
+- **"Attendee"** is retired in favour of **Ticket** — see that entry.
+- **"Pre-registered"** was retired as a concept. Every Seat is named at purchase, so there is no separate un-named-but-expected population.

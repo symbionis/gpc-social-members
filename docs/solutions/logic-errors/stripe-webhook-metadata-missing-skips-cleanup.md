@@ -1,8 +1,13 @@
 ---
 title: Stripe webhook cleanup branch never executed due to unreliable metadata key
 date: 2026-03-30
-problem_type: conditional-branch-never-executed
-component: stripe-webhook-handler
+category: logic-errors
+module: payments
+problem_type: logic_error
+component: payments
+severity: high
+root_cause: logic_error
+resolution_type: code_fix
 symptoms:
   - old membership_cards rows remained with is_active = true after renewal payment
   - renewal_tokens rows remained with used = false after successful payment
@@ -63,6 +68,8 @@ if (isRenewal && newCardId) {
 
 ### After (fixed)
 
+*(As shipped, these two halves now live in different places: card deactivation moved into `activateMembership` (`app/api/webhooks/stripe/route.ts:57-64`) so the `payment_intent.succeeded` path gets it too, and the renewal-token mark stayed in the handler (`:521-527`). They are shown together here because the point is the pair of conditions, not their location.)*
+
 ```typescript
 const newCardId = newCards?.[0]?.id;
 
@@ -92,6 +99,23 @@ The fix replaces a fragile boolean flag check with unconditional, data-driven lo
 
 - **Old card deactivation** now always runs when a new card exists. This is a safe no-op for initial signups — there are no prior active cards, so the query updates zero rows without side effects.
 - **Renewal token marking** now runs only when `renewal_token_id` is present in metadata. The presence of the token ID is itself the signal that a renewal occurred. The condition and the required data are the same field — eliminating an entire class of synchronisation bug.
+
+### The rule held, then a newer branch broke it (events, U3/U6)
+
+The same handler now routes event checkouts, and its two newest branches sit twenty lines apart taking opposite approaches.
+
+The **conversion** branch gates on data — `const conversionId = session.metadata?.conversion_id;` (`app/api/webhooks/stripe/route.ts:271`) — and its comment states the rule outright: *"Data-driven on conversion_id presence (KTD3), not a boolean flag that can be set at creation and missing at delivery."*
+
+The **top-up** branch immediately above it does not:
+
+```typescript
+const topupId =
+  session.metadata?.topup === "true" ? session.metadata?.topup_id : undefined;
+```
+
+The string boolean is the outer gate, so a delivery carrying `topup_id` but not `topup` skips the branch entirely — and unlike the 2026-03 case the consequence is a **captured payment with no tickets minted**, not a stale card row. The writer sets both keys today (`app/api/public/bookings/[token]/topup/route.ts:206-207`), which is exactly the reassurance the original bug also had. `topup === "true"` proves nothing that `topup_id` presence does not already prove; drop it.
+
+**The flag can also outlive the branch it guarded.** `const isRenewal = session.metadata?.renewal === "true";` is still computed at `app/api/webhooks/stripe/route.ts:491` and read nowhere — a grep for `isRenewal` in that file returns exactly one line. Deleting a fragile condition is not the same as deleting the fragile value, and a leftover flag is an invitation for the next author to reintroduce the guard.
 
 ## Prevention Strategies
 
@@ -152,3 +176,5 @@ const fullSession = await stripe.checkout.sessions.retrieve(session.id, {
 ## Related
 
 - [`docs/solutions/build-errors/third-party-sdk-env-vars-at-module-load.md`](../build-errors/third-party-sdk-env-vars-at-module-load.md) — Stripe lazy initialisation pattern used in the same webhook route
+- [`docs/solutions/database-issues/partial-unique-index-stripe-webhook-23505-deadlock-2026-05-21.md`](../database-issues/partial-unique-index-stripe-webhook-23505-deadlock-2026-05-21.md) — same handler, a different unhandled post-payment failure mode (it already links here).
+- [`docs/solutions/best-practices/a-comment-that-justifies-an-omission-is-load-bearing.md`](../best-practices/a-comment-that-justifies-an-omission-is-load-bearing.md) — the general form: a prose assertion about another subsystem's behaviour that nothing executes.

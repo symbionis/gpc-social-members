@@ -2,7 +2,7 @@
 title: "Single-writer field ownership: a relocated field's PATCH route must be its only writer"
 date: 2026-05-22
 last_updated: 2026-05-26
-category: docs/solutions/architecture-patterns/
+category: architecture-patterns
 module: events
 problem_type: architecture_pattern
 component: service_object
@@ -48,7 +48,9 @@ A third instance (PR #35) surfaced a **second shape** of the same trap. When the
 
 ## Guidance
 
-**Single-writer ownership.** Once a field's editing moves to a dedicated partial-update endpoint, that endpoint must be the *only* writer. Remove the field **entirely** from the bulk writer — both the destructure and the `.update()`/`.insert()` object. Don't make it conditional; just delete it.
+**Single-writer ownership.** Once a field's editing moves to a dedicated partial-update endpoint, no **bulk / rebuild** writer may touch it again. Remove the field **entirely** from the bulk writer — both the destructure and the `.update()`/`.insert()` object. Don't make it conditional; just delete it.
+
+The name overstates the rule slightly, so state the real invariant: **the failure mode is not plurality of writers, it is a writer that reconstructs a record from a payload that no longer carries every field.** Additional *presence-gated partial* writers are fine — `app/api/agent/events/[id]/route.ts:238-249` writes `seat_cap` alongside the settings PATCH and is safe precisely because it gates on `"seat_cap" in body` and never rebuilds the row.
 
 **The dedicated PATCH applies only what the caller sent**, gated per-field with `"x" in body` so an absent key is never touched (distinct from a key explicitly set to `null`):
 
@@ -123,6 +125,14 @@ Both shapes share the same backstop: the bulk route carries an explicit *do-not-
 //                            / invite_price) → ticket-types route
 ```
 
+### Shape C — guarded state transition (two writers, both legitimate)
+
+A third shape that is **not** a violation and must not be "fixed" with the remedy above: two routes writing one column, where each write is a guarded transition whose `WHERE` re-asserts the expected prior state.
+
+`tickets.cancellation_status` has exactly this. The holder's cancel route moves `null → requested`, guarded by `.is("cancellation_status", null)` (`app/api/public/bookings/[token]/cancel/route.ts:117-126`); the admin refund route moves `requested → refunded`, guarded by `.eq("cancellation_status", "requested")` (`app/api/admin/events/[id]/tickets/[ticketId]/refund/route.ts:167-179`). Neither rebuilds the row, and the guard makes each transition idempotent and ordered.
+
+**Pick the remedy by shape:** delete the field for a *rebuild* writer, carry it through for a *shared form*, and use a guarded `WHERE` for a *state machine*. Applying the first remedy to the third case would break the state machine.
+
 ## Why This Matters
 
 This is a **silent data-loss** bug, which is the worst kind. There's no error, no rejected save, no log line. An admin carefully sets a 50-ticket cap or a custom reminder schedule on the dedicated tab. Later, someone fixes a typo in the event *title* through the drawer. The bulk update fires, `reminder_schedule` arrives as `undefined`, `?? []` turns it into an empty array, and the schedule is gone. Nothing tells anyone. The corruption is triggered by an edit to a completely unrelated field, so it's nearly impossible to correlate cause and effect after the fact.
@@ -153,6 +163,7 @@ Checklist on every such refactor:
 3. Leave a comment at the bulk writer pointing to the new owner.
 4. Verify by editing an *unrelated* field through the bulk path and confirming the relocated value survives. (This was the live regression check that caught the issue on the deployed PR.)
 5. **Shape B (shared client form):** if the field can't be removed because a second client surface round-trips the whole record through one route, load it and echo it through unchanged — sourced from the loaded row, never a default — and keep the owning surface as the only place that *edits* it.
+6. **First, check the field is a setting at all.** If it is a *staging slot* — written, consumed, and cleared, like `event_registrations.pending_roster` — single-writer ownership does not apply; reach for the atomic apply-and-clear pattern instead ([`../database-issues/pending-roster-non-atomic-fill-clear-replays-duplicate-guests.md`](../database-issues/pending-roster-non-atomic-fill-clear-replays-duplicate-guests.md)). If it is a *state machine*, use Shape C above.
 
 ## Examples
 
