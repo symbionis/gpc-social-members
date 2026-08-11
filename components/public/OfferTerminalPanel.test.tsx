@@ -47,3 +47,39 @@ describe("OfferTerminalPanel", () => {
     expect(container.querySelectorAll("a")).toHaveLength(0);
   });
 });
+
+// The one terminal outcome that can follow a SUCCESSFUL redemption. The free path redirects
+// back to the offer link with ?registered=1, by which time the registration exists — so the
+// gate resolves to already-registered and the reader, who has just registered, was told they
+// were "already registered" and sent looking for an email that had not arrived yet.
+describe("OfferTerminalPanel — just registered", () => {
+  it("congratulates rather than turning away when the registration was just made", () => {
+    render(
+      <OfferTerminalPanel
+        kind="already_registered"
+        eventTitle="Sunset Chukkers"
+        referenceCode="EV-RXMBGGFM"
+        justRegistered
+      />
+    );
+
+    expect(screen.getByText("You're registered")).toBeInTheDocument();
+    expect(screen.queryByText(/already have a registration/)).toBeNull();
+    expect(screen.getByText(/on its way/)).toBeInTheDocument();
+    // The reference still has to be there — it is what the club asks for.
+    expect(screen.getByText("EV-RXMBGGFM")).toBeInTheDocument();
+  });
+
+  it("keeps the you-already-have-one framing on a plain revisit", () => {
+    render(
+      <OfferTerminalPanel
+        kind="already_registered"
+        eventTitle="Sunset Chukkers"
+        referenceCode="EV-RXMBGGFM"
+      />
+    );
+
+    expect(screen.getByText(/already have a registration/)).toBeInTheDocument();
+    expect(screen.getByText(/Look for the manage-booking link/)).toBeInTheDocument();
+  });
+});

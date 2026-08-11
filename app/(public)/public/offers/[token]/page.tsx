@@ -186,12 +186,24 @@ export default async function OfferLandingPage({
   if (outcome.kind === "closed") return <OfferTerminalPanel kind="closed" />;
   if (outcome.kind === "members_only") return <OfferTerminalPanel kind="members_only" />;
   if (outcome.kind === "already_registered") {
+    // The one terminal outcome that can follow a SUCCESSFUL redemption: the free path
+    // redirects back here with ?registered=1, and by then the registration exists, so the
+    // gate correctly resolves to already-registered. Rendering the bare panel told someone
+    // who had just registered that they were "already registered" and sent them looking for
+    // an email they had not received yet — a success that reads as a rejection.
     return (
-      <OfferTerminalPanel
-        kind="already_registered"
-        eventTitle={event?.title}
-        referenceCode={outcome.referenceCode}
-      />
+      <div className="min-h-screen bg-cream">
+        <div className="h-16 bg-marine" />
+        <div className="mx-auto max-w-md px-5 py-8 sm:py-10">
+          {banner}
+          <OfferTerminalPanel
+            kind="already_registered"
+            eventTitle={event?.title}
+            referenceCode={outcome.referenceCode}
+            justRegistered={registered === "1"}
+          />
+        </div>
+      </div>
     );
   }
   if (outcome.kind === "seats_gone") {

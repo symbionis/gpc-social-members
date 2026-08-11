@@ -14,6 +14,10 @@ export type OfferTerminalKind =
 
 interface Props {
   kind: OfferTerminalKind;
+  /** True when this render immediately follows a successful checkout on this link. The
+   * outcome is still "already registered" — the registration now exists — but the reader
+   * just created it, so the panel must congratulate rather than turn them away. */
+  justRegistered?: boolean;
   /** Required for "already_registered" only. */
   eventTitle?: string;
   /** Required for "already_registered" only. Never the registration's manage_token
@@ -43,7 +47,7 @@ const COPY: Record<
     heading: "You're already registered",
     body: (props) => (
       <>
-        You already have a registration
+        {props.justRegistered ? "You have a registration" : "You already have a registration"}
         {props.eventTitle ? (
           <>
             {" "}
@@ -56,7 +60,10 @@ const COPY: Record<
             (reference <span className="font-mono font-semibold">{props.referenceCode}</span>)
           </>
         ) : null}
-        . Look for the manage-booking link in your confirmation email to view or change it.
+        .{" "}
+        {props.justRegistered
+          ? "A confirmation email is on its way — it carries the manage-booking link if you need to change anything."
+          : "Look for the manage-booking link in your confirmation email to view or change it."}
       </>
     ),
   },
@@ -74,9 +81,13 @@ const COPY: Record<
  */
 export default function OfferTerminalPanel(props: Props) {
   const { heading, body } = COPY[props.kind];
+  // Same outcome, opposite news: "already registered" is correct for a revisit and wrong for
+  // the redirect that lands here seconds after a successful checkout.
+  const shownHeading =
+    props.kind === "already_registered" && props.justRegistered ? "You're registered" : heading;
   return (
     <div className="rounded-2xl border border-border/60 bg-white p-8 text-center shadow-sm">
-      <h1 className="font-heading text-xl font-bold mb-2 text-marine">{heading}</h1>
+      <h1 className="font-heading text-xl font-bold mb-2 text-marine">{shownHeading}</h1>
       <p className="font-body text-sm text-marine/70">{body(props)}</p>
     </div>
   );

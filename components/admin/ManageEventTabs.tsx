@@ -165,6 +165,14 @@ export default function ManageEventTabs({
   // than showing an entry nobody can act on anymore.
   const visibleWaitlist = effectiveWaitlist.filter((w) => !w.redeemed);
 
+  // Seats an offer could actually be redeemed for right now. R4 deliberately allows offering
+  // to MORE entries than there are free seats — they race to pay, and that is the point. Zero
+  // free seats is the degenerate case R4 does not cover: every offer sent is dead on arrival,
+  // because the landing shows "these seats have gone" to everyone who opens it. The admin gets
+  // told before clicking rather than finding out from the invitee.
+  const seatsFree = hasSeatCap && seatCap !== null ? seatCap - total : null;
+  const eventIsFull = seatsFree !== null && seatsFree <= 0;
+
   // Offer / Resend (R1, R3, R4): mints or resends a token by entry id. The route
   // rejects an unofferable, redeemed, or closed-registration entry — surfaced
   // inline rather than guessed at client-side.
@@ -185,10 +193,13 @@ export default function ManageEventTabs({
       }
       patchOfferRow(entry.id, { submitting: false, error: null });
       applyOverride(entry.id, { offered: true, offer_sent_count: data.offer_sent_count });
+      const fullCaveat = eventIsFull
+        ? " The event is full, so they cannot check out until a seat frees up or you raise the cap."
+        : "";
       setNotice(
         data.email_sent === false
-          ? `Offer saved for ${entry.name} — the email failed to send, please notify them manually.`
-          : `Offer sent to ${entry.name}.`
+          ? `Offer saved for ${entry.name} — the email failed to send, please notify them manually.${fullCaveat}`
+          : `Offer sent to ${entry.name}.${fullCaveat}`
       );
       router.refresh();
     } catch {
@@ -400,6 +411,16 @@ export default function ManageEventTabs({
           <p className="text-sm font-body text-muted-foreground mb-3">
             {visibleWaitlist.length} on the waitlist
           </p>
+          {eventIsFull && visibleWaitlist.length > 0 && (
+            <p className="font-body text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+              <strong>
+                This event is full ({total} of {seatCap}
+                {overbooked ? " — overbooked" : ""}).
+              </strong>{" "}
+              An offer sent now cannot be redeemed: whoever opens the link is told the seats
+              have gone. Raise the cap in Settings, or wait for a cancellation, before offering.
+            </p>
+          )}
           {notice && (
             <p className="font-body text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 mb-3">
               {notice}
