@@ -15,7 +15,7 @@ import WaiverModal, { type WaiverAcceptance } from "@/components/events/WaiverMo
 // These drive the component directly, so the reuse case is reachable.
 
 const tick = /I have read and accept/i;
-const acceptBtn = /Accept & check in/i;
+const acceptBtn = "Accept";
 
 /** A host that keeps ONE modal instance mounted and swaps who it is for — the ScanCheckIn
  *  shape ("Scan next guest" never closes the modal), and the one no consumer test covers. */
@@ -56,7 +56,7 @@ describe("WaiverModal", () => {
     render(<WaiverModal open guestName="Ana Ruiz" onAccept={onAccept} onClose={() => {}} />);
     await user.click(screen.getByRole("button", { name: "FR" }));
     await user.click(screen.getByRole("checkbox", { name: /J'ai lu et j'accepte/i }));
-    await user.click(screen.getByRole("button", { name: /Accepter et enregistrer/i }));
+    await user.click(screen.getByRole("button", { name: "Accepter" }));
     expect(onAccept).toHaveBeenCalledWith({ language: "fr", marketingConsent: true });
     expect(Object.keys(onAccept.mock.calls[0][0])).toEqual(["language", "marketingConsent"]);
   });

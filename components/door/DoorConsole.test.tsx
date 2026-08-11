@@ -557,7 +557,7 @@ describe("Guest lists tab", () => {
     await user.click(screen.getByRole("button", { name: "Check in" }));
     const dialog = await screen.findByRole("dialog");
 
-    const accept = within(dialog).getByRole("button", { name: /Accept & check in/ });
+    const accept = within(dialog).getByRole("button", { name: "Accept" });
     expect(accept).toBeDisabled();
 
     fetchMock.mockClear();
@@ -580,7 +580,7 @@ describe("Guest lists tab", () => {
 
     fetchMock.mockClear();
     await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
-    await user.click(within(dialog).getByRole("button", { name: /Accept & check in/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Accept" }));
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     // The guest's own language and consent choices ride along, sourced from the modal so the
@@ -610,7 +610,7 @@ describe("Guest lists tab", () => {
     // Previously the body switched to French under English instructions.
     expect(within(dialog).getByText("Conditions et décharge")).toBeInTheDocument();
     expect(within(dialog).getByText(/J'ai lu et j'accepte/)).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: /Accepter et enregistrer/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Accepter" })).toBeInTheDocument();
   });
 
   // The one piece of modal state that must never persist: a tick left over from the previous
@@ -639,7 +639,7 @@ describe("Guest lists tab", () => {
     await user.click(second);
     dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("checkbox", { name: /I have read and accept/i })).not.toBeChecked();
-    expect(within(dialog).getByRole("button", { name: /Accept & check in/ })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Accept" })).toBeDisabled();
   });
 
   it("shows an already-arrived guest as arrived rather than offering check-in again", async () => {

@@ -55,7 +55,7 @@ describe("ScanCheckIn — the waiver is the shared modal", () => {
     const dialog = await scanIntoWaiver(user);
     const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
 
-    const accept = within(dialog).getByRole("button", { name: /Accept & check in/ });
+    const accept = within(dialog).getByRole("button", { name: "Accept" });
     expect(accept).toBeDisabled();
 
     fetchMock.mockClear();
@@ -70,7 +70,7 @@ describe("ScanCheckIn — the waiver is the shared modal", () => {
 
     fetchMock.mockClear();
     await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
-    await user.click(within(dialog).getByRole("button", { name: /Accept & check in/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Accept" }));
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body).toMatchObject({
@@ -92,7 +92,7 @@ describe("ScanCheckIn — the waiver is the shared modal", () => {
 
     fetchMock.mockClear();
     await user.click(within(dialog).getByRole("checkbox", { name: /J'ai lu et j'accepte/i }));
-    await user.click(within(dialog).getByRole("button", { name: /Accepter et enregistrer/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Accepter" }));
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
       language: "fr",

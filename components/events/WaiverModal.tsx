@@ -30,24 +30,30 @@ import type { WaiverLanguage } from "@/lib/events/waiver";
  * docs/solutions/design-patterns/slide-over-portal-escape-stacking-context.md.
  */
 
+// Surface-neutral on purpose. This copy said "Accept & check in" / "…to check in" when the
+// only callers were the two door paths, and it followed the component to the guest's ticket
+// page — where nothing is being checked in and the guest is signing days ahead. Naming the
+// action of ONE caller is the same mistake as the divergence this component exists to fix,
+// just in the other direction: shared presentation has to describe what it actually does,
+// which is record an acceptance. Callers own the wording of what follows it.
 const COPY: Record<
   WaiverLanguage,
   { title: string; intro: string; accept: string; comms: string; button: string; close: string }
 > = {
   en: {
     title: "Terms & waiver",
-    intro: "Please read and accept the waiver to check in.",
+    intro: "Please read and accept the waiver.",
     accept: "I have read and accept the waiver above.",
     comms: "I'd like to receive news and invitations from Geneva Polo Social Club.",
-    button: "Accept & check in",
+    button: "Accept",
     close: "Close",
   },
   fr: {
     title: "Conditions et décharge",
-    intro: "Merci de lire et d'accepter la décharge pour l'enregistrement.",
+    intro: "Merci de lire et d'accepter la décharge.",
     accept: "J'ai lu et j'accepte la décharge ci-dessus.",
     comms: "Je souhaite recevoir les actualités et invitations du Geneva Polo Social Club.",
-    button: "Accepter et enregistrer",
+    button: "Accepter",
     close: "Fermer",
   },
 };

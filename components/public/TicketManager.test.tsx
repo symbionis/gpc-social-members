@@ -154,7 +154,7 @@ describe("TicketManager — what a guest sees on a phone", () => {
 
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
-    await user.click(within(dialog).getByRole("button", { name: /Accept & check in/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Accept" }));
 
     const body = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
     expect(body.ticketId).toBe("t2");
