@@ -145,4 +145,38 @@ describe("applyTopupRoster", () => {
     mockedAdmin.mockReturnValue(adminWithRpc(() => ({ data: null, error: null })));
     await expect(applyTopupRoster("topup-1")).resolves.toBe("error");
   });
+
+  // The RPC clears the roster whether or not every guest was placed, so this log is the only
+  // surviving trace that someone paid for a seat nothing named.
+  it("logs the guests the apply could not name", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockedAdmin.mockReturnValue(
+      adminWithRpc(() => ({
+        data: {
+          status: "applied",
+          unclaimed: [{ name: "Ana Vidal", email: "ana@x.ch", result: { already: true } }],
+        },
+        error: null,
+      }))
+    );
+
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("applied");
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("UNNAMED"),
+      expect.objectContaining({
+        topupId: "topup-1",
+        unclaimed: expect.arrayContaining([expect.objectContaining({ name: "Ana Vidal" })]),
+      })
+    );
+  });
+
+  it("stays quiet when every guest was named", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockedAdmin.mockReturnValue(
+      adminWithRpc(() => ({ data: { status: "applied", unclaimed: [] }, error: null }))
+    );
+
+    await expect(applyTopupRoster("topup-1")).resolves.toBe("applied");
+    expect(spy).not.toHaveBeenCalled();
+  });
 });

@@ -21,6 +21,47 @@ export type AttendeeParseResult =
   | { ok: false; error: string };
 
 /**
+ * The key `claim_ticket` dedupes on: case-folded, whitespace-collapsed name plus lowercased
+ * contact. Two submissions with the same key collapse into ONE ticket at claim time — the
+ * second returns the first's ticket with `already: true` and claims no seat.
+ *
+ * Exported because the collapse is only visible where the comparison set is, and that differs
+ * per path: within one order (below), or against the seats a booking has already named
+ * (`collidesWithClaimed`). Both must mirror the SQL, so both use this.
+ */
+export function attendeeIdentity(name: string, email: string): string {
+  return `${normalizeName(name).toLowerCase()}|${email.trim().toLowerCase()}`;
+}
+
+/** A seat already named on a booking, as the collision check needs to see it. */
+export type ClaimedIdentity = { name: string | null; email: string | null };
+
+/**
+ * Find the first submitted guest who is already a named seat on this booking.
+ *
+ * `parseAttendeeInput` can only see one order at a time, so it catches the same person named
+ * twice *within* a top-up. It cannot see that the lead already holds a seat under that name
+ * and email — and a top-up is the one purchase path where prior claimed seats exist, because
+ * it adds to a booking that has already been through checkout. Left unchecked, that seat is
+ * paid for, minted, and permanently unnamed: `claim_ticket` reports success and consumes
+ * nothing.
+ */
+export function collidesWithClaimed(
+  attendees: RosterFillAttendee[],
+  claimed: ClaimedIdentity[],
+): { name: string } | null {
+  const taken = new Set(
+    claimed
+      .filter((c) => c.name && c.email)
+      .map((c) => attendeeIdentity(c.name as string, c.email as string)),
+  );
+  for (const a of attendees) {
+    if (taken.has(attendeeIdentity(a.name, a.email ?? ""))) return { name: a.name };
+  }
+  return null;
+}
+
+/**
  * Validate submitted attendees against how many names each ticket type still needs.
  *
  * `requiredPerType` is what the caller must be covered for — the purchased quantity of that
@@ -76,7 +117,7 @@ export function parseAttendeeInput(
       return { ok: false, error: "An attendee email is too long" };
     }
 
-    const identity = `${normalizeName(nm).toLowerCase()}|${e}`;
+    const identity = attendeeIdentity(nm, e);
     if (seenIdentities.has(identity)) {
       return {
         ok: false,

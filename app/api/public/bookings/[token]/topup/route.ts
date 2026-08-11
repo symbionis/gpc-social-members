@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { mintRegistrationTickets, applyTopupRoster } from "@/lib/events/roster";
-import { parseAttendeeInput } from "@/lib/events/attendee-input";
+import { parseAttendeeInput, collidesWithClaimed } from "@/lib/events/attendee-input";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
 import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
 
@@ -139,6 +139,33 @@ export async function POST(
     MAX_QTY,
   );
   if (!parsedAttendees.ok) return bad(parsedAttendees.error, 400);
+
+  // ...and the same person cannot be named onto a SECOND seat of a booking they already hold
+  // one on. parseAttendeeInput only sees this order; claim_ticket dedupes against every seat
+  // already named on the registration, so a lead topping up under their own name and email
+  // gets `already: true`, no seat claimed, and a charge for a permanently unnamed ticket.
+  // A top-up is the one purchase path where prior claimed seats exist, so this is the one
+  // place it can happen. Refuse before money moves, while the buyer can still fix it.
+  const { data: claimedRows, error: claimedErr } = await supabase
+    .from("tickets")
+    .select("name, email")
+    .eq("registration_id", reg.id as string)
+    .eq("slot_status", "claimed")
+    .is("released_at", null);
+  if (claimedErr) {
+    console.error("[booking-topup] could not read existing names — blocking top-up", {
+      registrationId: reg.id,
+      err: claimedErr,
+    });
+    return bad("Could not start the top-up", 500);
+  }
+  const clash = collidesWithClaimed(parsedAttendees.attendees, claimedRows ?? []);
+  if (clash) {
+    return bad(
+      `${clash.name} already has a ticket on this booking — give the new guest their own name and email`,
+      400,
+    );
+  }
 
   // Record the pending top-up (service-role bypasses RLS), carrying the names it bought.
   //

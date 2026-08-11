@@ -120,7 +120,18 @@ export async function applyTopupRoster(topupId: string): Promise<TopupRosterStat
     console.error("[roster] apply_topup_roster failed", { topupId, err: error });
     return "error";
   }
-  const status = (data as { status?: string } | null)?.status;
+  const payload = data as { status?: string; unclaimed?: unknown[] } | null;
+  const status = payload?.status;
+  // The RPC clears the staged roster whether or not every guest was placed, so this log is
+  // the only surviving record that someone paid for a seat nothing named. `already: true`
+  // is in here too: that guest matched a seat already named on the booking, so no new seat
+  // was consumed and one stays open. Recoverable by hand from the booking page.
+  if (Array.isArray(payload?.unclaimed) && payload.unclaimed.length > 0) {
+    console.error("[roster] top-up seats left UNNAMED — needs manual naming", {
+      topupId,
+      unclaimed: payload.unclaimed,
+    });
+  }
   if (status === "applied" || status === "no_roster" || status === "not_found") {
     return status;
   }

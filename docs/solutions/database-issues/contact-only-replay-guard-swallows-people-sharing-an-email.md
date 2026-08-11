@@ -88,9 +88,14 @@ Since top-ups had to name every seat (PR #111), the rule is enforced one layer *
 
 This is the shape to copy: the RPC keeps its guard as the last line of defence, and the boundary that has the user's attention refuses the ambiguous input while it can still be corrected.
 
+**The comparison set is the whole problem, and it differs per path.** `parseAttendeeInput` can only see one order at a time, so it catches the same person named twice *within* a purchase. It cannot see that the booking already has a seat under that name and email — and a **top-up is the one purchase path where prior claimed seats exist**, because it adds to a booking that has already been through checkout. A lead topping up under their own name and email therefore passed every check, paid, and got `already: true` from `claim_ticket`: no seat claimed, one seat left permanently unnamed. `collidesWithClaimed` closes that by checking the submitted guests against the seats already named, before money moves.
+
+Two lessons generalise. **A dedupe key is only as good as the set it is compared against** — the same key is correct within an order and incomplete across a booking. And **the guard that returns "success, already done" is the dangerous one**: a rejection is visible, but an idempotent-looking success consumes nothing and reports nothing.
+
 ## What to watch for
 
 - Any dedupe or idempotency key built from contact details alone has this bug. Contact identifies a *mailbox*, not a *human*.
 - **An absent mailbox is a normal, designed state.** Comp guest lists routinely carry no email at all — the door captures it at admission — so a guard must not assume contact is *present*, let alone unique.
 - If you need a genuinely reliable replay guard for a per-person write, do not infer identity — carry an explicit idempotency key from the client, as `add_comp_guests` does with `comp_guest_batches`.
 - The SQL here is not covered by the test suite (vitest mocks Supabase entirely). Verify changes to `claim_ticket` with a rolled-back `DO` block — see `verify-security-definer-rpc-do-block-rollback.md`.
+- **A caller that discards this RPC's return value re-hides the bug.** `already: true` is reported, not raised — so the roster-apply functions, which looped `PERFORM claim_ticket(...)` and ignored every result, turned a swallowed guest back into silence and then cleared the staged names in the same transaction, deleting the evidence. They now collect the guests they could not place, return them to the caller where the signature allows it, and `RAISE WARNING` regardless. Reporting an outcome nobody reads is the same as not reporting it.

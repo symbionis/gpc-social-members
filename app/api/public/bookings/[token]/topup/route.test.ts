@@ -35,6 +35,8 @@ function adminClient(opts: {
   price?: number | null;
   seatCap?: number | null;
   countsAsSeat?: boolean;
+  /** Seats already named on the booking, as claim_ticket's dedupe would see them. */
+  claimed?: { name: string | null; email: string | null }[];
 }) {
   return {
     from: (table: string) => {
@@ -42,6 +44,7 @@ function adminClient(opts: {
       c.select = () => c;
       c.eq = () => c;
       c.in = () => c;
+      c.is = () => c;
       c.limit = () => c;
       // The names ride on the top-up row itself, not on the registration's shared slot —
       // that is what stops a redelivery of the original checkout from consuming them.
@@ -71,6 +74,8 @@ function adminClient(opts: {
         return { data: null, error: null };
       };
       (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) => {
+        // Seats already named on this booking — what claim_ticket would dedupe against.
+        if (table === "tickets") return resolve({ data: opts.claimed ?? [], error: null });
         if (table === "event_ticket_types")
           return resolve({
             data: [{ id: TYPE, title: "Adult", price_member: opts.price ?? 25, price_non_member: 40, archived_at: null, counts_as_seat: opts.countsAsSeat ?? false }],
@@ -184,6 +189,46 @@ describe("mandatory naming on top-ups", () => {
       attendees: [{ ticket_type_id: TYPE, name: "Ana Vidal", email: "not-an-email" }],
     });
     expect(res.status).toBe(400);
+  });
+
+  // parseAttendeeInput only sees ONE order. claim_ticket dedupes against every seat already
+  // named on the booking — so a lead topping up under their own name and email got
+  // `already: true`, no seat claimed, and a charge for a permanently unnamed ticket. A
+  // top-up is the only purchase path where prior claimed seats exist.
+  it("refuses a guest who already holds a seat on this booking", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ claimed: [{ name: "Ana Vidal", email: "ana@x.com" }] })
+    );
+    const res = await post({
+      items: [{ ticketTypeId: TYPE, quantity: 1 }],
+      attendees: [{ ticket_type_id: TYPE, name: "Ana Vidal", email: "ana@x.com" }],
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/already has a ticket on this booking/i);
+  });
+
+  it("matches the existing seat the way claim_ticket does — case and spacing folded", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ claimed: [{ name: "Ana  Vidal", email: "Ana@X.com" }] })
+    );
+    const res = await post({
+      items: [{ ticketTypeId: TYPE, quantity: 1 }],
+      attendees: [{ ticket_type_id: TYPE, name: "ana vidal", email: "ana@x.com" }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  // A shared address is legitimate (households book on one email) — only the same PERSON
+  // twice is refused.
+  it("allows a different guest on an email already used by another seat", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ claimed: [{ name: "Ana Vidal", email: "shared@x.com" }] })
+    );
+    const res = await post({
+      items: [{ ticketTypeId: TYPE, quantity: 1 }],
+      attendees: [{ ticket_type_id: TYPE, name: "Ben Torres", email: "shared@x.com" }],
+    });
+    expect(res.status).toBe(200);
   });
 
   it("refuses the same person named twice", async () => {
