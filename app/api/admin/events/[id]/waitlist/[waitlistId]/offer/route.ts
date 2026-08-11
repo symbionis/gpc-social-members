@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { assertAdmin, bad } from "@/lib/events/guest-list-auth";
-import { deriveWaitlistOfferability, isWaitlistEntryRedeemed } from "@/lib/events/waitlist-offer";
+import {
+  deriveWaitlistOfferability,
+  fetchLiveRegistrationsForRedemption,
+  isWaitlistEntryRedeemed,
+} from "@/lib/events/waitlist-offer";
 import { generateSelfRegToken } from "@/lib/events/registration";
 import { sendWaitlistOffer } from "@/lib/email/event-waitlist-offer";
 import type { createAdminClient } from "@/lib/supabase/admin";
@@ -33,11 +37,10 @@ async function checkRedeemed(
   eventId: string,
   entry: { id: string; email: string }
 ): Promise<{ redeemed: boolean } | { error: string; status: number }> {
-  const { data: liveRegs, error: regErr } = await adminClient
-    .from("event_registrations")
-    .select("waitlist_entry_id, email")
-    .eq("event_id", eventId)
-    .in("status", ["paid", "free"]);
+  const { data: liveRegs, error: regErr } = await fetchLiveRegistrationsForRedemption(
+    adminClient,
+    eventId
+  );
   if (regErr) {
     console.error("[waitlist-offer] registration lookup failed", { eventId, entryId: entry.id, err: regErr });
     return { error: "Service temporarily unavailable", status: 503 };
@@ -56,18 +59,16 @@ export async function POST(
   const { adminClient, adminId } = auth;
   const { id: eventId, waitlistId } = await params;
 
-  const { data: entry, error: entryErr } = await loadEntry(adminClient, eventId, waitlistId);
+  // Independent of each other — both need only eventId/waitlistId, already in hand.
+  const [{ data: entry, error: entryErr }, { data: event, error: eventErr }] = await Promise.all([
+    loadEntry(adminClient, eventId, waitlistId),
+    adminClient.from("events").select("id, registration_enabled").eq("id", eventId).maybeSingle(),
+  ]);
   if (entryErr) {
     console.error("[waitlist-offer] entry lookup failed", { eventId, waitlistId, err: entryErr });
     return bad("Service temporarily unavailable", 503);
   }
   if (!entry) return bad("Waitlist entry not found", 404);
-
-  const { data: event, error: eventErr } = await adminClient
-    .from("events")
-    .select("id, registration_enabled")
-    .eq("id", eventId)
-    .maybeSingle();
   if (eventErr) {
     console.error("[waitlist-offer] event lookup failed", { eventId, err: eventErr });
     return bad("Service temporarily unavailable", 503);

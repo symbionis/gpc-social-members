@@ -39,27 +39,20 @@ export default async function ManageEventPage({
 
   if (!event) notFound();
 
-  // Active ticket types — the Settings tab edits per-type guest (invite) prices.
-  const { data: rawTicketTypes, error: ticketTypesError } = await supabase
+  // Every ticket type for the event, archived included — the waitlist offerability check
+  // (U2) needs to show the requested type's title even when it has since been archived,
+  // per R14's "no silent fallback" rule: a flagged row must name the type it asked for,
+  // not hide it. `ticketTypes` (active, sort_order) is a filtered/sorted view of the same
+  // result rather than a second round trip to the same table.
+  const { data: rawAllTicketTypes, error: ticketTypesError } = await supabase
     .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat")
+    .select("id, title, price_member, price_non_member, invite_price, counts_as_seat, archived_at, sort_order")
     .eq("event_id", id)
-    .is("archived_at", null)
     .order("sort_order", { ascending: true });
   if (ticketTypesError) failLoad("ticket types", ticketTypesError);
-  const ticketTypes = rawTicketTypes ?? [];
-
-  // ALL ticket types, archived included — the waitlist offerability check (U2) needs to
-  // show the requested type's title even when it has since been archived, per R14's "no
-  // silent fallback" rule: a flagged row must name the type it asked for, not hide it.
-  const { data: rawAllTicketTypes, error: allTicketTypesError } = await supabase
-    .from("event_ticket_types")
-    .select("id, title, archived_at, counts_as_seat")
-    .eq("event_id", id);
-  if (allTicketTypesError) failLoad("ticket types (all)", allTicketTypesError);
-  const ticketTypeById = new Map(
-    (rawAllTicketTypes ?? []).map((tt) => [tt.id as string, tt])
-  );
+  const allTicketTypes = rawAllTicketTypes ?? [];
+  const ticketTypes = allTicketTypes.filter((tt) => tt.archived_at === null);
+  const ticketTypeById = new Map(allTicketTypes.map((tt) => [tt.id as string, tt]));
 
   const { data: registrations, error: registrationsError } = await supabase
     .from("event_registrations")

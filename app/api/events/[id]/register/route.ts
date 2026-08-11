@@ -18,7 +18,7 @@ import {
 } from "@/lib/events/roster";
 import { isFullName } from "@/lib/names";
 import { parseAttendeeInput, EMAIL_RE } from "@/lib/events/attendee-input";
-import { isWaitlistEntryRedeemed } from "@/lib/events/waitlist-offer";
+import { fetchLiveRegistrationsForRedemption, isWaitlistEntryRedeemed } from "@/lib/events/waitlist-offer";
 
 const MAX_TICKETS = 20;
 // Bounds for the nominative roster fields — this endpoint is unauthenticated, so
@@ -142,11 +142,10 @@ export async function POST(
 
     // KTD3: redeemed once the linked registration (or, for a pre-link legacy
     // entry, a live registration sharing its email — R12) reaches paid or free.
-    const { data: liveRegs, error: liveRegsErr } = await supabase
-      .from("event_registrations")
-      .select("waitlist_entry_id, email")
-      .eq("event_id", eventId)
-      .in("status", ["paid", "free"]);
+    const { data: liveRegs, error: liveRegsErr } = await fetchLiveRegistrationsForRedemption(
+      supabase,
+      eventId
+    );
     if (liveRegsErr) {
       console.error("[event-register] offer redemption check failed", { eventId, err: liveRegsErr });
       return bad("Could not verify this offer link", 500);

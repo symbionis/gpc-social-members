@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { assertAdmin, bad } from "@/lib/events/guest-list-auth";
-import { isWaitlistEntryRedeemed } from "@/lib/events/waitlist-offer";
+import { fetchLiveRegistrationsForRedemption, isWaitlistEntryRedeemed } from "@/lib/events/waitlist-offer";
 
 // Admin repair of a single waitlist entry (F4 of
 // docs/plans/2026-08-11-001-feat-waitlist-paid-offer-flow-plan.md, U2): correct a
@@ -76,11 +76,10 @@ export async function PATCH(
   // R12/KTD3: an email correction is only safe before redemption — changing it after
   // would detach the entry from the registration it already produced.
   if (emailProvided) {
-    const { data: liveRegs, error: regErr } = await adminClient
-      .from("event_registrations")
-      .select("waitlist_entry_id, email")
-      .eq("event_id", eventId)
-      .in("status", ["paid", "free"]);
+    const { data: liveRegs, error: regErr } = await fetchLiveRegistrationsForRedemption(
+      adminClient,
+      eventId
+    );
     if (regErr) {
       console.error("[waitlist-repair] registration lookup failed", { eventId, waitlistId, err: regErr });
       return bad("Service temporarily unavailable", 503);

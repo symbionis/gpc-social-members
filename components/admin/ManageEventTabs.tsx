@@ -82,6 +82,22 @@ interface Props {
   cancellations: CancellationRow[];
 }
 
+type RowState = { submitting: boolean; error: string | null };
+
+/** Per-entry submitting/error state for one action (Offer, Withdraw, or Repair) on the
+ * waitlist table, keyed by entry id. Each action gets its own instance so submitting one
+ * doesn't disable the others on the same row. */
+function useRowState() {
+  const [rows, setRows] = useState<Record<string, RowState>>({});
+  function get(id: string): RowState {
+    return rows[id] ?? { submitting: false, error: null };
+  }
+  function patch(id: string, next: Partial<RowState>) {
+    setRows((s) => ({ ...s, [id]: { ...get(id), ...next } }));
+  }
+  return [get, patch] as const;
+}
+
 export default function ManageEventTabs({
   eventId,
   attendees,
@@ -132,15 +148,7 @@ export default function ManageEventTabs({
   // Offer / Resend (R1, R3, R4): mints or resends a token by entry id. The route
   // rejects an unofferable, redeemed, or closed-registration entry — surfaced
   // inline rather than guessed at client-side.
-  const [offerRows, setOfferRows] = useState<
-    Record<string, { submitting: boolean; error: string | null }>
-  >({});
-  function offerRow(id: string) {
-    return offerRows[id] ?? { submitting: false, error: null };
-  }
-  function patchOfferRow(id: string, patch: Partial<{ submitting: boolean; error: string | null }>) {
-    setOfferRows((s) => ({ ...s, [id]: { ...offerRow(id), ...patch } }));
-  }
+  const [offerRow, patchOfferRow] = useRowState();
 
   async function sendOffer(entry: Waitlist) {
     if (!entry.offerable || offerRow(entry.id).submitting) return;
@@ -170,15 +178,7 @@ export default function ManageEventTabs({
 
   // Withdraw (R5a / AE10): clears the token; the entry returns to queued and its
   // old link stops resolving.
-  const [withdrawRows, setWithdrawRows] = useState<
-    Record<string, { submitting: boolean; error: string | null }>
-  >({});
-  function withdrawRow(id: string) {
-    return withdrawRows[id] ?? { submitting: false, error: null };
-  }
-  function patchWithdrawRow(id: string, patch: Partial<{ submitting: boolean; error: string | null }>) {
-    setWithdrawRows((s) => ({ ...s, [id]: { ...withdrawRow(id), ...patch } }));
-  }
+  const [withdrawRow, patchWithdrawRow] = useRowState();
 
   async function withdrawOffer(entry: Waitlist) {
     if (withdrawRow(entry.id).submitting) return;
@@ -210,15 +210,7 @@ export default function ManageEventTabs({
   const [repairDraft, setRepairDraft] = useState<
     Record<string, { ticketTypeId: string; quantity: number }>
   >({});
-  const [repairRows, setRepairRows] = useState<
-    Record<string, { submitting: boolean; error: string | null }>
-  >({});
-  function repairRow(id: string) {
-    return repairRows[id] ?? { submitting: false, error: null };
-  }
-  function patchRepairRow(id: string, patch: Partial<{ submitting: boolean; error: string | null }>) {
-    setRepairRows((s) => ({ ...s, [id]: { ...repairRow(id), ...patch } }));
-  }
+  const [repairRow, patchRepairRow] = useRowState();
   function draftFor(entry: Waitlist) {
     return (
       repairDraft[entry.id] ?? {

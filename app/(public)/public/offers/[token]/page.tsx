@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
+import { fetchLiveRegistrationsForRedemption, isWaitlistEntryRedeemed } from "@/lib/events/waitlist-offer";
 import { resolveOfferLandingOutcome } from "@/lib/events/offer-landing";
 import OfferTerminalPanel from "@/components/public/OfferTerminalPanel";
 import EventRegistrationForm, { type TicketTypeOption } from "@/components/public/EventRegistrationForm";
@@ -24,13 +25,40 @@ export default async function OfferLandingPage({
   const { registered, cancelled } = await searchParams;
   const supabase = createAdminClient();
 
+  // Session awareness is independent of the token — resolve it alongside the entry
+  // lookup rather than after. Any failure here degrades to signed-out rendering — a
+  // landing that can't check the session must not silently grant a member rate.
+  async function resolveSession(): Promise<{ isLoggedIn: boolean; isActiveMember: boolean }> {
+    try {
+      const sessionClient = await createClient();
+      const {
+        data: { user },
+      } = await sessionClient.auth.getUser();
+      if (!user?.id) return { isLoggedIn: false, isActiveMember: false };
+      const { data: memberRow } = await supabase
+        .from("members")
+        .select("id")
+        .eq("auth_user_id", user.id)
+        .eq("status", "active")
+        .limit(1)
+        .maybeSingle();
+      return { isLoggedIn: true, isActiveMember: Boolean(memberRow) };
+    } catch (err) {
+      console.error("[public/offers/[token]] session lookup failed", err);
+      return { isLoggedIn: false, isActiveMember: false };
+    }
+  }
+
   // KTD4: event_waitlist has RLS with no policies — resolve server-side only.
-  const { data: entryRow } = await supabase
-    .from("event_waitlist")
-    .select("id, email, name, quantity, ticket_type_id, event_id")
-    .eq("offer_token", token)
-    .limit(1)
-    .maybeSingle();
+  const [{ data: entryRow }, { isLoggedIn, isActiveMember }] = await Promise.all([
+    supabase
+      .from("event_waitlist")
+      .select("id, email, name, quantity, ticket_type_id, event_id")
+      .eq("offer_token", token)
+      .limit(1)
+      .maybeSingle(),
+    resolveSession(),
+  ]);
 
   const entry = entryRow
     ? { id: entryRow.id, email: entryRow.email, quantity: entryRow.quantity }
@@ -53,60 +81,39 @@ export default async function OfferLandingPage({
       }
     : null;
 
-  // Session awareness. Any failure here degrades to signed-out rendering — a
-  // landing that can't check the session must not silently grant a member rate.
-  let isLoggedIn = false;
-  let isActiveMember = false;
-  try {
-    const sessionClient = await createClient();
-    const {
-      data: { user },
-    } = await sessionClient.auth.getUser();
-    if (user?.id) {
-      isLoggedIn = true;
-      const { data: memberRow } = await supabase
-        .from("members")
-        .select("id")
-        .eq("auth_user_id", user.id)
-        .eq("status", "active")
-        .limit(1)
-        .maybeSingle();
-      if (memberRow) isActiveMember = true;
-    }
-  } catch (err) {
-    console.error("[public/offers/[token]] session lookup failed", err);
-  }
-
   // R12: redeemed via the linked registration OR (legacy fallback) any live
   // paid/free registration sharing the entry's email — the same lookup the
   // register route runs before its capacity check, so a second waitlist entry
   // for an already-registered person can't reach checkout only to fail at submit.
-  let redeemedRegistration: { reference_code: string } | null = null;
-  if (entry && event) {
-    const { data: liveRegs } = await supabase
-      .from("event_registrations")
-      .select("waitlist_entry_id, email, reference_code")
-      .eq("event_id", event.id)
-      .in("status", ["paid", "free"]);
+  // Independent of the capacity check below, so both run concurrently.
+  async function resolveRedemption(): Promise<{ reference_code: string } | null> {
+    if (!entry || !event) return null;
+    const { data: liveRegs } = await fetchLiveRegistrationsForRedemption(supabase, event.id);
+    if (!isWaitlistEntryRedeemed(entry, liveRegs ?? [])) return null;
     const emailLower = entry.email.trim().toLowerCase();
     const match = (liveRegs ?? []).find(
       (r) => r.waitlist_entry_id === entry.id || r.email.trim().toLowerCase() === emailLower
     );
-    if (match) redeemedRegistration = { reference_code: match.reference_code };
+    return match ? { reference_code: match.reference_code } : null;
   }
 
   // Capacity: only seat-consuming registrations count against the cap (mirrors
   // getSeatsUsed's own accounting). null seat_cap means uncapped.
-  let seatsFree: number | null = null;
-  if (event && event.seat_cap !== null && event.seat_cap !== undefined) {
+  async function resolveSeatsFree(): Promise<number | null> {
+    if (!event || event.seat_cap === null || event.seat_cap === undefined) return null;
     try {
       const seatsUsed = await getSeatsUsed(supabase, event.id);
-      seatsFree = event.seat_cap - seatsUsed;
+      return event.seat_cap - seatsUsed;
     } catch (err) {
       console.error("[public/offers/[token]] seat usage lookup failed", err);
-      seatsFree = 0; // fail closed: never show a checkout form we can't back
+      return 0; // fail closed: never show a checkout form we can't back
     }
   }
+
+  const [redeemedRegistration, seatsFree] = await Promise.all([
+    resolveRedemption(),
+    resolveSeatsFree(),
+  ]);
 
   const loginUrl = `/login?next=${encodeURIComponent(`/public/offers/${token}`)}`;
 

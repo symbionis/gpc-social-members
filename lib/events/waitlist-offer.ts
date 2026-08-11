@@ -1,4 +1,4 @@
-// Pure derivation helpers for the waitlist paid-offer flow (U2 of
+// Derivation helpers for the waitlist paid-offer flow (U2 of
 // docs/plans/2026-08-11-001-feat-waitlist-paid-offer-flow-plan.md).
 //
 // Kept out of app/api/admin/events/[id]/waitlist/[waitlistId]/route.ts and out of the
@@ -6,6 +6,9 @@
 // by both: a Next.js App Router route file may export only its HTTP handlers (see
 // lib/events/guest-list-auth.ts's header comment for why), and the attendees page is a
 // server component the repo does not unit-test directly.
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/database";
 
 /** The joined ticket type fields an offerability check needs, or null when the entry's
  * `ticket_type_id` is null or no longer resolves (a dangling reference). */
@@ -89,4 +92,25 @@ export function isWaitlistEntryRedeemed(
       r.waitlist_entry_id === entry.id ||
       r.email.trim().toLowerCase() === emailLower
   );
+}
+
+/**
+ * Every live (paid/free) registration for an event, scoped for the redemption check above.
+ * The single query behind isWaitlistEntryRedeemed at all four call sites (the admin repair
+ * route, the admin offer route, the register route, and the public offer landing) — kept
+ * here so the query shape can't drift from what the predicate expects.
+ */
+export async function fetchLiveRegistrationsForRedemption(
+  supabase: SupabaseClient<Database>,
+  eventId: string
+): Promise<{
+  data: (LiveRegistrationForRedemption & { reference_code: string })[] | null;
+  error: { message: string } | null;
+}> {
+  const { data, error } = await supabase
+    .from("event_registrations")
+    .select("waitlist_entry_id, email, reference_code")
+    .eq("event_id", eventId)
+    .in("status", ["paid", "free"]);
+  return { data, error };
 }
