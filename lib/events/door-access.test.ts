@@ -394,3 +394,54 @@ describe("buildDoorRoster", () => {
     expect(comp!.slots.map((s) => s.name)).toEqual(["Comp One", "Comp Two"]);
   });
 });
+
+/**
+ * Cancelled seats: the console, the printed sheet (lib/events/door-roster.ts) and the admin
+ * roster all answer "who is arriving", so they must show the same people. Check-in rejects a
+ * cancelled ticket at the scan, so any seat left on the console is one the door cannot admit.
+ */
+describe("buildDoorRoster — cancelled seats", () => {
+  const cancelledFixture = () => ({
+    event_registrations: [
+      { id: "reg-1", event_id: EVENT, reference_code: "GPC-0001", name: "Alice Lead", quantity: 2, status: "paid" },
+      { id: "reg-refunded", event_id: EVENT, reference_code: "GPC-0009", name: "Nadia Refunded", quantity: 1, status: "paid" },
+    ],
+    tickets: [
+      ticket({ id: "t-alice", name: "Alice Lead", email: "alice@example.com", is_lead: true }),
+      ticket({ id: "t-gone", name: "Bob Cancelled", email: "bob@example.com", cancellation_status: "refunded" }),
+      ticket({ id: "t-refunded", registration_id: "reg-refunded", name: "Nadia Refunded", is_lead: true, cancellation_status: "refunded" }),
+    ],
+    event_ticket_types: ticketTypes,
+  });
+
+  it("does not count a cancelled seat as expected", async () => {
+    mockedCreateAdminClient.mockReturnValue(rosterClient(cancelledFixture()));
+    const roster = await buildDoorRoster(EVENT);
+
+    // 2 bought + 1 bought, 2 cancelled → 1 person can actually walk in.
+    expect(roster.expected).toBe(1);
+    expect(roster.notArrived.map((r) => r.name)).toEqual(["Alice Lead"]);
+    expect(roster.outstanding).toBe(roster.notArrived.length);
+    // The whole point of `unaccounted`: cancelled seats must not land in it either.
+    expect(roster.unaccounted).toBe(0);
+  });
+
+  it("reports a party's size net of its cancelled seats", async () => {
+    mockedCreateAdminClient.mockReturnValue(rosterClient(cancelledFixture()));
+    const { parties } = await buildDoorRoster(EVENT);
+    const party = parties.find((p) => p.registrationId === "reg-1")!;
+
+    // Bought 2, one cancelled: the door must not be told a second guest is still coming,
+    // nor offered a slot to fill that no longer exists.
+    expect(party).toMatchObject({ quantity: 1, claimedCount: 1, remaining: 0, complete: true });
+    expect(party.slots.map((s) => s.name)).toEqual(["Alice Lead"]);
+  });
+
+  it("drops a party whose every seat was cancelled", async () => {
+    mockedCreateAdminClient.mockReturnValue(rosterClient(cancelledFixture()));
+    const { parties, arrivals } = await buildDoorRoster(EVENT);
+
+    expect(parties.some((p) => p.registrationId === "reg-refunded")).toBe(false);
+    expect(arrivals.some((a) => a.name === "Nadia Refunded")).toBe(false);
+  });
+});
