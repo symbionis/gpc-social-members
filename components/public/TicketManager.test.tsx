@@ -12,6 +12,7 @@ const ticket = (over: Partial<ManageTicket> = {}): ManageTicket => ({
   id: "t1",
   name: "Sophie Berger",
   email: "sophie.berger@example.com",
+  phone: "",
   typeId: "tt-1",
   typeTitle: "Clubhouse Dinner",
   checkedIn: false,
@@ -288,6 +289,46 @@ describe("TicketManager — what a guest sees on a phone", () => {
     expect(warning).toHaveTextContent(/save again to retry/i);
     // The form stays open so the retry is right there.
     expect(screen.getByPlaceholderText("Email")).toBeInTheDocument();
+  });
+
+  // R4: a holder can add or change a phone number on any ticket they control. R8: phone is
+  // never required, so it must be sent whether it's set or blank. Normalises through
+  // libphonenumber-js via the shared PhoneInput control (KTD7), same as every other phone
+  // entry point in this repo — so the national-number field, not a raw placeholder.
+  it("sends a saved phone number in the fill request", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    renderManager([ticket()]);
+
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
+    const phoneField = screen.getByPlaceholderText("79 123 45 67");
+    await user.type(phoneField, "791234567");
+
+    fetchMock.mockClear();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+      phone: "+41791234567",
+    });
+  });
+
+  // Phone is never required to complete a purchase (R8) — clearing it must still save.
+  it("clears a phone number and saves without one", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    renderManager([ticket({ phone: "+41791234567" })]);
+
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
+    const phoneField = screen.getByPlaceholderText("79 123 45 67");
+    await user.clear(phoneField);
+
+    fetchMock.mockClear();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(fetchMock).toHaveBeenCalled();
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+      phone: "",
+    });
   });
 
   it("shows the waiver pill and drops the control once genuinely signed", async () => {

@@ -79,6 +79,7 @@ export default async function TicketManagePage({
     id: t.id,
     name: t.name,
     email: t.email,
+    phone: t.phone,
     typeId: t.typeId,
     typeTitle: t.typeTitle,
     checkedIn: t.checkedIn,

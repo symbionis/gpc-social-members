@@ -170,4 +170,40 @@ describe("resolveHousehold", () => {
     const hh = await resolveHousehold("tok");
     expect(hh!.tickets[0].waiverSigned).toBe(false);
   });
+
+  // U1: a holder can add/change a phone on the manage page. resolveHousehold has to carry
+  // the stored phone through so the page can show and edit it.
+  it("returns the stored phone on each ticket", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        self: { id: "T1", event_id: "E1", registration_id: "R1", email: "house@x.com" },
+        event: EVENT,
+        reg: { id: "R1", status: "paid", reference_code: "ABC" },
+        siblings: [
+          { id: "T1", name: "Alice", email: "house@x.com", ticket_type_id: "TT1", slot_status: "claimed", credential_token: "c1", checked_in_at: null, created_at: "2026-01-01T00:00:00Z", phone_e164: "+41791234567" },
+        ],
+        types: TYPES,
+      })
+    );
+    const hh = await resolveHousehold("tok");
+    expect(hh!.tickets[0].phone).toBe("+41791234567");
+  });
+
+  // A ticket with no phone stored must resolve to an empty string, not undefined — the page
+  // binds this straight into a controlled input.
+  it("resolves a ticket with no phone stored to an empty value", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        self: { id: "T1", event_id: "E1", registration_id: "R1", email: "house@x.com" },
+        event: EVENT,
+        reg: { id: "R1", status: "paid", reference_code: "ABC" },
+        siblings: [
+          { id: "T1", name: "Alice", email: "house@x.com", ticket_type_id: "TT1", slot_status: "claimed", credential_token: "c1", checked_in_at: null, created_at: "2026-01-01T00:00:00Z" },
+        ],
+        types: TYPES,
+      })
+    );
+    const hh = await resolveHousehold("tok");
+    expect(hh!.tickets[0].phone).toBe("");
+  });
 });

@@ -15,6 +15,7 @@ export interface HouseholdTicket {
   id: string;
   name: string;
   email: string;
+  phone: string;
   typeId: string;
   typeTitle: string;
   status: string; // 'issued' | 'claimed'
@@ -66,7 +67,7 @@ const LIVE_SLOTS = ["issued", "claimed"];
  * that governs a door belongs in one place, not in a copy per surface.
  */
 const HOUSEHOLD_TICKET_COLUMNS =
-  "id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status, waiver_accepted_at";
+  "id, name, email, phone_e164, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status, waiver_accepted_at";
 
 /**
  * Resolve the household behind a per-ticket manage_token. Returns null when the token
@@ -141,6 +142,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
         id: r.id as string,
         name: (r.name as string | null) ?? "",
         email: (r.email as string | null) ?? "",
+        phone: (r.phone_e164 as string | null) ?? "",
         typeId: typeId ?? "",
         typeTitle: typeId ? typeTitleById.get(typeId) ?? "" : "",
         status: r.slot_status as string,
