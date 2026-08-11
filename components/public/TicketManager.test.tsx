@@ -164,4 +164,47 @@ describe("TicketManager — what a guest sees on a phone", () => {
       within(cardOf("Sophie Berger")).getByRole("button", { name: "Sign the waiver" })
     ).toBeInTheDocument();
   });
+
+  // A 200 that is not this route's JSON — a captive portal's login page, a proxy error page, a
+  // service worker's cached reply — is what a guest on venue wifi actually hits. res.ok alone
+  // cannot tell it from a real acceptance, and claiming success here is unrecoverable in the
+  // UI: the pill replaces the Sign button, so there is no way back to it without a reload.
+  it.each([
+    ["a body that is not JSON", { ok: true, json: async () => { throw new SyntaxError("no"); } }],
+    ["a 200 whose body says ok:false", { ok: true, json: async () => ({ ok: false, error: "Nope" }) }],
+  ])("does not claim a signature on %s", async (_label, response) => {
+    const user = userEvent.setup();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(response);
+    renderManager([ticket()]);
+
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Sign the waiver" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
+    await user.click(within(dialog).getByRole("button", { name: "Accept" }));
+
+    // The modal stays open with the failure shown, so the guest can retry rather than walking
+    // away believing they are done.
+    expect(await within(dialog).findByText(/could not record your acceptance|nope/i)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    // Still offered, and no "Waiver signed" pill.
+    const card = cardOf("Sophie Berger");
+    expect(within(card).getByRole("button", { name: "Sign the waiver" })).toBeInTheDocument();
+    expect(within(card).queryByText("Waiver signed")).toBeNull();
+    errorSpy.mockRestore();
+  });
+
+  it("shows the waiver pill and drops the control once genuinely signed", async () => {
+    const user = userEvent.setup();
+    renderManager([ticket()]);
+    const card = cardOf("Sophie Berger");
+    await user.click(within(card).getByRole("button", { name: "Sign the waiver" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("checkbox", { name: /I have read and accept/i }));
+    await user.click(within(dialog).getByRole("button", { name: "Accept" }));
+
+    expect(within(cardOf("Sophie Berger")).getByText("Waiver signed")).toBeInTheDocument();
+    expect(within(cardOf("Sophie Berger")).queryByRole("button", { name: "Sign the waiver" })).toBeNull();
+  });
 });

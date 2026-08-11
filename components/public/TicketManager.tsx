@@ -578,9 +578,22 @@ function WaiverControl({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticketId: ticket.id, language, marketingConsent }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error || "Could not record your acceptance.");
+      // Parse failures are their own outcome, not an empty success. A 200 carrying something
+      // other than this route's JSON — a captive portal's login page, a proxy's error page, a
+      // service worker's cached reply — is exactly what a guest on venue wifi hits, and
+      // `res.ok` alone cannot tell it from a real acceptance.
+      let data: { ok?: boolean; error?: string } | null = null;
+      try {
+        data = await res.json();
+      } catch (err) {
+        console.error("[tickets/waiver] response was not JSON", { status: res.status, err });
+      }
+      // Both conditions, like the edit/convert/cancel controls above. Reporting a signature
+      // that was never recorded is worse here than in any of them: the pill replaces the Sign
+      // button for the rest of the session, so the guest has no way back to it and arrives at
+      // the gate expecting to be waved through.
+      if (!res.ok || !data?.ok) {
+        setError(data?.error || "Could not record your acceptance.");
         return;
       }
       setOpen(false);

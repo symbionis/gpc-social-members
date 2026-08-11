@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import WaiverText from "@/components/events/WaiverText";
 import type { WaiverLanguage } from "@/lib/events/waiver";
@@ -87,6 +87,11 @@ export default function WaiverModal({
   // guest objects. Not an oversight — do not "fix" it to opt-in without asking.
   const [marketingConsent, setMarketingConsent] = useState(true);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  // Generated, not a literal: three surfaces render this, and a hardcoded id would collide
+  // if two were ever mounted at once — pointing aria-labelledby at the wrong heading. The old
+  // literal was "door-waiver-heading", which had also gone stale for a non-door caller.
+  const headingId = useId();
 
   // Reset every time it opens, AND whenever the person changes while it stays open. Without
   // this the affirmation carries: the clerk checks in one guest, opens the next, and the box
@@ -110,19 +115,65 @@ export default function WaiverModal({
 
   // Escape closes, and the page behind must not scroll under the overlay — on a phone that is
   // how a "modal" ends up showing the roster sliding around beneath the waiver.
+  //
+  // Tab is trapped inside the dialog, and focus goes back where it came from on close.
+  // `aria-modal="true"` DECLARES that everything outside is inert; without a trap that was
+  // false, and a declaration assistive tech acts on but the DOM does not honour is worse than
+  // saying nothing. A keyboard or screen-reader user could tab straight out of an unaccepted
+  // waiver and operate the card underneath — edit a name, cancel a seat — with the overlay
+  // still up. On a dialog whose whole job is capturing a legal acceptance, the way out has to
+  // be Accept or Close, not the Tab key.
+  // Focus and scroll are keyed on `open` ALONE, deliberately. Callers pass `onClose` as an
+  // inline arrow (DoorConsole: `() => setNeedsWaiver(false)`), so it is a new function on every
+  // parent render. With it in the deps this effect tears down and re-runs on renders where
+  // nothing opened or closed — which, now that cleanup restores focus, would bounce focus out
+  // of the dialog and back onto the close button mid-read. Splitting the two effects is what
+  // keeps "runs when the dialog opens" from meaning "runs whenever the parent re-renders".
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
+    // Captured before we steal it, so it can be handed back.
+    const previouslyFocused = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     closeRef.current?.focus();
     return () => {
-      document.removeEventListener("keydown", onKey);
       document.body.style.overflow = previousOverflow;
+      // Only if it is still in the document — the roster row that opened this can be gone by
+      // the time it closes (a check-in re-renders the list).
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
     };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      const dialog = dialogRef.current;
+      if (e.key !== "Tab" || !dialog) return;
+      // Queried per keystroke, not cached: the language toggle re-renders and the error line
+      // appears and disappears, so a list captured on open goes stale.
+      const focusable = dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      // Wrap at both ends. Reads document.activeElement rather than e.target so focus that has
+      // already escaped the dialog is pulled back in rather than left outside.
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !dialog.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !dialog.contains(active))) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
   if (!open || typeof document === "undefined") return null;
@@ -131,15 +182,16 @@ export default function WaiverModal({
 
   return createPortal(
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
-      aria-labelledby="door-waiver-heading"
+      aria-labelledby={headingId}
       className="fixed inset-0 z-50 flex flex-col bg-white"
     >
       <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
         <div className="min-w-0">
           <h2
-            id="door-waiver-heading"
+            id={headingId}
             className="font-heading text-lg font-bold leading-tight text-marine"
           >
             {t.title}

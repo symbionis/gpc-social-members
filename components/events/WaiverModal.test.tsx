@@ -110,6 +110,84 @@ describe("WaiverModal", () => {
     expect(screen.getByText("Terms & waiver")).toBeInTheDocument();
   });
 
+  // aria-modal="true" tells assistive tech everything outside is inert. Without a trap that is
+  // a claim the DOM does not honour, and a keyboard user can tab out of an unaccepted waiver
+  // onto the controls behind it — edit a name, cancel a seat — with the overlay still up.
+  it("keeps Tab inside the dialog, forwards and backwards", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <button>behind the overlay</button>
+        <WaiverModal open guestName="Ana Ruiz" onAccept={() => {}} onClose={() => {}} />
+      </>
+    );
+    const dialog = screen.getByRole("dialog");
+    const outside = screen.getByRole("button", { name: "behind the overlay" });
+
+    // Forward from the last control wraps to the first, rather than leaving the dialog.
+    for (let i = 0; i < 12; i++) {
+      await user.tab();
+      expect(dialog.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement).not.toBe(outside);
+    }
+    // And backwards from the first.
+    for (let i = 0; i < 12; i++) {
+      await user.tab({ shift: true });
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    }
+  });
+
+  // Closed via the dialog's OWN ✕, so the element being unmounted is the one holding focus.
+  // Without restoration, focus falls to <body> and a keyboard user restarts from the top of
+  // the page. Closing via the outside trigger would prove nothing — clicking it focuses it
+  // anyway, so the test would pass with restoration deleted.
+  it("moves focus into the dialog on open and back to the trigger on close", async () => {
+    const user = userEvent.setup();
+    function Host() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>open the waiver</button>
+          <WaiverModal
+            open={open}
+            guestName="Ana Ruiz"
+            onAccept={() => {}}
+            onClose={() => setOpen(false)}
+          />
+        </>
+      );
+    }
+    render(<Host />);
+    const trigger = screen.getByRole("button", { name: "open the waiver" });
+    await user.click(trigger);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  // The heading id is generated. Two instances mounted at once used to share a literal id, so
+  // aria-labelledby on one could resolve to the other's heading.
+  it("labels each dialog by its own heading", () => {
+    render(
+      <>
+        <WaiverModal open guestName="Ana Ruiz" onAccept={() => {}} onClose={() => {}} />
+        <WaiverModal open guestName="Ben Torres" onAccept={() => {}} onClose={() => {}} />
+      </>
+    );
+    const ids = screen.getAllByRole("dialog").map((d) => d.getAttribute("aria-labelledby"));
+    expect(ids[0]).toBeTruthy();
+    expect(ids[0]).not.toBe(ids[1]);
+    for (const d of screen.getAllByRole("dialog")) {
+      const id = d.getAttribute("aria-labelledby")!;
+      expect(d.querySelector(`#${CSS.escape(id)}`)).not.toBeNull();
+    }
+  });
+
   it("renders nothing when closed", () => {
     render(
       <WaiverModal open={false} guestName="Ana Ruiz" onAccept={() => {}} onClose={() => {}} />
