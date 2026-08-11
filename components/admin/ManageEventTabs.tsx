@@ -424,8 +424,13 @@ export default function ManageEventTabs({
                             {entry.quantity ? ` × ${entry.quantity}` : ""}
                             {!entry.offerable && (
                               <>
+                                {/* One calm line on the list, not the technical reason. The
+                                    specifics (archived type, non-seat type, legacy row) matter
+                                    to whoever repairs the entry, so they live in the Fix panel
+                                    below — four different error sentences competing for a
+                                    volunteer's attention only made the list harder to scan. */}
                                 <p id={reasonId} className="text-xs text-amber-800 mt-0.5">
-                                  {entry.offerable_reason}
+                                  Needs updating before it can be offered
                                 </p>
                                 <button
                                   type="button"
@@ -492,7 +497,12 @@ export default function ManageEventTabs({
                         </tr>
                         {isOpen && (
                           <tr className="border-t border-border/60 bg-cream/30">
-                            <td colSpan={6} className="px-4 py-3">
+                            <td colSpan={5} className="px-4 py-3">
+                              {entry.offerable_reason && (
+                                <p className="text-xs text-amber-800 mb-2">
+                                  {entry.offerable_reason}
+                                </p>
+                              )}
                               <div className="flex flex-wrap items-end gap-2">
                                 <label className="text-xs text-muted-foreground">
                                   Ticket type

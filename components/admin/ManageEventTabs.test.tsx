@@ -166,9 +166,11 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
     expect(offerBtn).toHaveAttribute("aria-disabled", "true");
     const describedBy = offerBtn.getAttribute("aria-describedby");
     expect(describedBy).toBeTruthy();
+    // The row carries one calm line; the technical reason belongs to whoever repairs it.
     expect(document.getElementById(describedBy!)).toHaveTextContent(
-      "No ticket type is set for this entry"
+      "Needs updating before it can be offered"
     );
+    expect(screen.queryByText("No ticket type is set for this entry")).toBeNull();
 
     // aria-disabled keeps the control focusable rather than removed from the tab order.
     expect(offerBtn).not.toBeDisabled();
@@ -176,6 +178,28 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
     // Clicking a flagged row's Offer control must not fire the request.
     await user.click(offerBtn);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  // Simplifying the row must not lose the diagnosis — it moves to where the repair happens.
+  it("shows the specific reason once the row's Fix panel is opened", async () => {
+    const user = userEvent.setup();
+    renderTabs({
+      waitlist: [
+        waitlistEntry({
+          ticket_type_id: null,
+          ticket_type_title: null,
+          offerable: false,
+          offerable_reason: "No ticket type is set for this entry",
+        }),
+      ],
+    });
+    await openWaitlistTab(user);
+
+    expect(screen.queryByText("No ticket type is set for this entry")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Fix" }));
+    expect(
+      screen.getByText("No ticket type is set for this entry")
+    ).toBeInTheDocument();
   });
 
   it("repairing a flagged row re-renders it as offerable with Offer enabled, without a page reload", async () => {

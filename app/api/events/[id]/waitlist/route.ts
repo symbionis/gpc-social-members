@@ -106,13 +106,18 @@ export async function POST(
     return bad("Event still has availability");
   }
 
-  // Validate the chosen ticket type belongs to this event and is active.
+  // Validate the chosen ticket type belongs to this event, is active, and consumes a
+  // seat. The seat check is the point of the waitlist: a type that takes no seat can
+  // never be offered one (deriveWaitlistOfferability rejects it), so accepting the
+  // signup would queue someone behind a seat that will never be freed for them, and
+  // leave an entry an admin can only ever repair or delete.
   const { data: ticketType } = await supabase
     .from("event_ticket_types")
     .select("id")
     .eq("id", ticketTypeId)
     .eq("event_id", eventId)
     .is("archived_at", null)
+    .eq("counts_as_seat", true)
     .maybeSingle();
   if (!ticketType) {
     return bad("That ticket type is no longer available — please refresh and try again.");
