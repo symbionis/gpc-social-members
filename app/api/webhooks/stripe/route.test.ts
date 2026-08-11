@@ -24,6 +24,7 @@ import {
   applyPendingRoster,
   applyTopupRoster,
 } from "@/lib/events/roster";
+import type { TopupRosterStatus } from "@/lib/events/roster";
 
 const mockedStripe = vi.mocked(getStripe);
 const mockedAdmin = vi.mocked(createAdminClient);
@@ -332,22 +333,47 @@ describe("stripe webhook — top-up branch", () => {
     expect(mockedApply).not.toHaveBeenCalled();
   });
 
-  it("falls back to the registration slot only for a pre-migration top-up", async () => {
-    mockedApplyTopup.mockResolvedValue("legacy_roster");
-    currentEvent = makeEvent({ event_registration_id: REG, topup_id: TOPUP });
-    await post();
-    expect(mockedApplyTopup).toHaveBeenCalledWith(TOPUP);
-    expect(mockedApply).toHaveBeenCalledWith(REG);
-  });
+  // The transition shim that fell back to the registration slot is retired, so this is now
+  // unconditional: a top-up must NEVER reach event_registrations.pending_roster, whatever the
+  // apply reports. A second producer on that column is the whole defect 20260811064034 fixed.
+  //
+  // `error` is covered by its own two cases below (it alone also drives a 500), so it is
+  // excluded here rather than folded in with a status-conditional expectation.
+  const NON_ERROR_STATUSES = ["applied", "no_roster", "not_found"] as const;
 
-  // An ordinary redelivery — roster already applied and cleared — must NOT re-run the
-  // registration-level apply. Conflating the two is what coupled the paths back together.
-  it("does not fall back on an ordinary redelivery", async () => {
-    mockedApplyTopup.mockResolvedValue("no_roster");
+  // Add a member to TopupRosterStatus and this stops compiling until the new status is either
+  // listed above or given its own case. Without it the table is a hand-maintained copy of the
+  // union and a new status silently goes unexercised against the invariant.
+  type UncoveredStatus = Exclude<TopupRosterStatus, "error" | (typeof NON_ERROR_STATUSES)[number]>;
+  const _everyStatusCovered: [UncoveredStatus] extends [never] ? true : never = true;
+  void _everyStatusCovered;
+
+  it.each(NON_ERROR_STATUSES)(
+    "never touches the registration's roster slot (status: %s)",
+    async (status) => {
+      mockedApplyTopup.mockResolvedValue(status);
+      currentEvent = makeEvent({ event_registration_id: REG, topup_id: TOPUP });
+      await post();
+      expect(mockedApplyTopup).toHaveBeenCalledWith(TOPUP);
+      expect(mockedApply).not.toHaveBeenCalled();
+    }
+  );
+
+  // `not_found` is documented as unreachable, so the loud log IS the branch — reaching it
+  // means apply_registration_topup's 'not_found' exit was bypassed and that invariant broke.
+  // Without this the log can be deleted and nothing fails. It must also stay a 200: a retry
+  // cannot conjure a vanished row, so 500-ing here would retry forever.
+  it("logs loudly but still acks when the top-up row vanished before the roster apply", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockedApplyTopup.mockResolvedValue("not_found");
     currentEvent = makeEvent({ event_registration_id: REG, topup_id: TOPUP });
     const res = await post();
     expect(res.status).toBe(200);
-    expect(mockedApply).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("top-up row vanished"),
+      expect.objectContaining({ topupId: TOPUP, eventRegistrationId: REG })
+    );
+    errorSpy.mockRestore();
   });
 
   // Seats must exist before they can be named. Swap these two and every claim no-ops

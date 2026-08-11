@@ -96,18 +96,17 @@ export async function applyPendingRoster(registrationId: string): Promise<void> 
 /**
  * What apply_topup_roster reports back.
  *
- * `legacy_roster` and `no_roster` are both "nothing staged on the top-up row", split because
- * only the first warrants falling back to the registration-level slot: it means the top-up
- * predates per-top-up rosters. `no_roster` is the ordinary redelivery answer — already
- * applied and cleared — and needs no fallback at all. `error` is this helper's own signal,
- * never a value the RPC returns.
+ * `no_roster` means nothing was staged on the top-up row — the ordinary redelivery answer,
+ * already applied and cleared. `error` is this helper's own signal, never a value the RPC
+ * returns, and it is the one a caller MUST act on: it means the apply rolled back with the
+ * names still staged, so the work is unfinished.
+ *
+ * There was briefly a `legacy_roster` member here, distinguishing top-ups that predated
+ * per-top-up rosters so the webhook could fall back to the registration-level slot for them.
+ * That shim is retired. The RPC still reports `legacy` for the same distinction; nothing
+ * consumes it, and it is left in place rather than spending a migration on cosmetics.
  */
-export type TopupRosterStatus =
-  | "applied"
-  | "legacy_roster"
-  | "no_roster"
-  | "not_found"
-  | "error";
+export type TopupRosterStatus = "applied" | "no_roster" | "not_found" | "error";
 
 /**
  * Apply ONE top-up's staged guest names atomically.
@@ -117,9 +116,10 @@ export type TopupRosterStatus =
  * ORIGINAL checkout from consuming a top-up's names, and keeps two concurrent top-ups on
  * one booking from overwriting each other.
  *
- * Returns a status rather than throwing, because the caller has two decisions to make: only
- * `legacy_roster` warrants falling back to the registration-level slot, and only `error`
- * warrants asking Stripe to retry.
+ * Returns a status rather than throwing because the caller has a decision to make: `error`
+ * warrants asking Stripe to retry. Do NOT collapse this to `void` now that the legacy
+ * fallback is gone — that return value is the only thing standing between a failed apply and
+ * a 200 that strands the names in a column nothing else reads.
  *
  * A failure is logged, not thrown — the payment has already succeeded, so throwing past a
  * captured charge helps nobody. The roster stays staged on failure, which is what makes a
@@ -136,9 +136,7 @@ export async function applyTopupRoster(topupId: string): Promise<TopupRosterStat
     console.error("[roster] apply_topup_roster failed", { topupId, err: error });
     return "error";
   }
-  const payload = data as
-    | { status?: string; legacy?: boolean; unclaimed?: unknown[] }
-    | null;
+  const payload = data as { status?: string; unclaimed?: unknown[] } | null;
   const status = payload?.status;
   // The RPC clears the staged roster whether or not every guest was placed, so this log is
   // the only surviving record that someone paid for a seat nothing named. `already: true`
@@ -150,10 +148,7 @@ export async function applyTopupRoster(topupId: string): Promise<TopupRosterStat
       unclaimed: payload.unclaimed,
     });
   }
-  if (status === "no_roster") {
-    return payload?.legacy === true ? "legacy_roster" : "no_roster";
-  }
-  if (status === "applied" || status === "not_found") {
+  if (status === "applied" || status === "no_roster" || status === "not_found") {
     return status;
   }
   console.error("[roster] apply_topup_roster returned an unrecognised status", {

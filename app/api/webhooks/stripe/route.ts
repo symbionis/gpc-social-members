@@ -258,20 +258,12 @@ export async function POST(request: NextRequest) {
           // the slot in one transaction, so a redelivery is a no-op rather than a double-apply.
           // The names hang off the top-up rather than the registration precisely so that a
           // redelivery of the booking's ORIGINAL checkout cannot consume them first.
+          // A top-up NEVER touches event_registrations.pending_roster. That column belongs to
+          // the original checkout alone; a second producer on it is what let a redelivery
+          // consume a top-up's names (20260811064034). There was a transition shim here that
+          // fell back to it for top-ups staged before per-top-up rosters existed — retired
+          // once the last such row was provably out of flight.
           const rosterStatus = await applyTopupRoster(topupId);
-          if (rosterStatus === "legacy_roster") {
-            // ONLY for a top-up created before per-top-up rosters existed, which staged its
-            // names on the registration instead. An ordinary redelivery returns `no_roster`
-            // and lands nowhere near here — the RPC tells the two apart from created_at, so
-            // this branch is provably dead once no such row can still be in flight rather
-            // than merely believed to be harmless.
-            //
-            // DELETE AFTER 2026-08-18 (24h Checkout Session expiry + ~3d Stripe retry
-            // window). Verify first — expect 0:
-            //   select count(*) from event_registration_topups
-            //    where created_at < '2026-08-11 06:40:34+00' and status = 'pending';
-            await applyPendingRoster(eventRegistrationId);
-          }
           // Send an updated confirmation (carries manage_url + every ticket's QR, now
           // including the new ones) so the lead can name/forward them. Best-effort.
           //
