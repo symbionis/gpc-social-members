@@ -113,13 +113,16 @@ export async function POST(
   const nextCount = (entry.offer_sent_count ?? 0) + 1;
   const offeredAt = new Date().toISOString();
 
+  // The token and timestamp must be persisted BEFORE the send — sendWaitlistOffer
+  // reads the token back from the row, and a failed send must not lose them (the
+  // admin resends from the same state). The COUNT is deliberately not written here:
+  // see below.
   const { error: updateErr } = await adminClient
     .from("event_waitlist")
     .update({
       offer_token: token,
       offered_at: offeredAt,
       offered_by: adminId,
-      offer_sent_count: nextCount,
     })
     .eq("id", waitlistId)
     .eq("event_id", eventId);
@@ -128,8 +131,6 @@ export async function POST(
     return bad("Could not update waitlist entry", 500);
   }
 
-  // Send after the offer state is persisted — a failed send must not lose the
-  // token/timestamp already saved (the admin can Resend from the same state).
   let emailSent = false;
   try {
     const result = await sendWaitlistOffer(waitlistId);
@@ -138,10 +139,31 @@ export async function POST(
     console.error("[waitlist-offer] email send threw", { waitlistId, err });
   }
 
+  // Count DELIVERED offers, not attempted ones. Incrementing before the send made a
+  // row read "Offered ×2" for someone who had received nothing, and the admin's
+  // failure notice is component state that one refresh wipes — so nothing durable
+  // recorded that the person was never actually told. Leaving the count at 0 while
+  // `offered_at` is set is what makes an undelivered offer visible on reload.
+  let sentCount = entry.offer_sent_count ?? 0;
+  if (emailSent) {
+    const { error: countErr } = await adminClient
+      .from("event_waitlist")
+      .update({ offer_sent_count: nextCount })
+      .eq("id", waitlistId)
+      .eq("event_id", eventId);
+    if (countErr) {
+      // The offer really was delivered; only the tally is behind. Log rather than
+      // fail the request, which would tell the admin to resend an email that landed.
+      console.error("[waitlist-offer] send count update failed", { eventId, waitlistId, err: countErr });
+    } else {
+      sentCount = nextCount;
+    }
+  }
+
   return NextResponse.json({
     success: true,
     email_sent: emailSent,
-    offer_sent_count: nextCount,
+    offer_sent_count: sentCount,
     offered_at: offeredAt,
   });
 }

@@ -21,10 +21,14 @@ function firstNameFrom(fullName: string): string {
 }
 
 /**
- * Send (or resend) the offer email for a waitlist entry. Pure function
- * callable from the admin offer route. Never throws — returns
- * { success, error } so the caller can decide how to surface a failure
- * without losing the offer state already persisted on the entry.
+ * Send (or resend) the offer email for a waitlist entry.
+ *
+ * Returns { success, error } rather than throwing on any EXPECTED failure —
+ * a missing entry, a missing token, a misconfigured app URL, a Postmark
+ * rejection — so the caller can surface it without losing the offer state
+ * already persisted on the entry. It is not a no-throw guarantee: it reads
+ * from Supabase, and createAdminClient() throws outright when its env is
+ * unset, which is why the caller still wraps this in a try/catch.
  *
  * The entry must already carry an `offer_token` (minted by the caller before
  * calling this) — sending without one would ship a link to nowhere.

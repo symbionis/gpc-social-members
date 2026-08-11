@@ -90,7 +90,9 @@ export async function PATCH(
       return bad("Service temporarily unavailable", 503);
     }
     if (redeeming) {
-      return bad("This entry is already redeemed and its email can no longer be changed");
+      return bad(
+        "This email already has a registration for this event, so it can no longer be changed"
+      );
     }
   }
 

@@ -248,6 +248,11 @@ describe("POST offer/resend", () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.email_sent).toBe(false);
+    // The count tracks DELIVERED offers. Bumping it on a failed send made a row read
+    // "Offered ×2" for someone who received nothing, and the admin's failure notice is
+    // component state that a refresh wipes. Staying at 0 while offered_at is set is
+    // what makes an undelivered offer visible on reload.
+    expect(json.offer_sent_count).toBe(0);
   });
 
   it("offering three entries against two free seats succeeds with no warning (R4)", async () => {

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   deriveWaitlistOfferability,
   isWaitlistEntryRedeemed,
+  emailAlreadyRegistered,
   findRedeemingRegistration,
 } from "@/lib/events/waitlist-offer";
 
@@ -16,6 +17,35 @@ describe("deriveWaitlistOfferability", () => {
     });
     expect(result.offerable).toBe(true);
     expect(result.reason).toBeNull();
+  });
+
+  // R12: visible but unofferable. Offering would walk the person into the register
+  // route's duplicate-email 409.
+  it("is unofferable when the email already holds a registration", () => {
+    const result = deriveWaitlistOfferability({
+      ticket_type_id: "tt-1",
+      quantity: 3,
+      ticketType: liveType,
+      emailAlreadyRegistered: true,
+    });
+    expect(result.offerable).toBe(false);
+    expect(result.reason).toBe(
+      "This email already has a registration for this event"
+    );
+  });
+
+  // Reported first: fixing the ticket type would not make this entry offerable, so
+  // naming the type problem would send the admin off to repair the wrong thing.
+  it("reports the existing registration ahead of a broken ticket type", () => {
+    const result = deriveWaitlistOfferability({
+      ticket_type_id: null,
+      quantity: 3,
+      ticketType: null,
+      emailAlreadyRegistered: true,
+    });
+    expect(result.reason).toBe(
+      "This email already has a registration for this event"
+    );
   });
 
   it("flags a null ticket type, naming the missing type", () => {
@@ -83,35 +113,52 @@ describe("deriveWaitlistOfferability", () => {
 
 describe("isWaitlistEntryRedeemed", () => {
   it("is redeemed when a live registration links back via waitlist_entry_id", () => {
-    const redeemed = isWaitlistEntryRedeemed(
-      { id: "wl-1", email: "a@x.com" },
-      [{ waitlist_entry_id: "wl-1", email: "someone-else@x.com" }]
-    );
+    const redeemed = isWaitlistEntryRedeemed({ id: "wl-1" }, [
+      { waitlist_entry_id: "wl-1", email: "someone-else@x.com" },
+    ]);
     expect(redeemed).toBe(true);
   });
 
-  it("falls back to an email match for a legacy entry with no link", () => {
-    const redeemed = isWaitlistEntryRedeemed(
-      { id: "wl-1", email: "A@X.com" },
-      [{ waitlist_entry_id: null, email: "a@x.com" }]
-    );
-    expect(redeemed).toBe(true);
-  });
-
-  it("is not redeemed when neither the link nor the email matches", () => {
-    const redeemed = isWaitlistEntryRedeemed(
-      { id: "wl-1", email: "a@x.com" },
-      [{ waitlist_entry_id: "wl-2", email: "b@x.com" }]
-    );
+  // R12 decision (2026-08-11): a bare email match is NOT redemption. Folding it in
+  // made the entry vanish from the admin waitlist, which reads as data loss. It now
+  // surfaces via emailAlreadyRegistered as an unofferable reason instead.
+  it("an email match with no link is NOT redemption", () => {
+    const redeemed = isWaitlistEntryRedeemed({ id: "wl-1" }, [
+      { waitlist_entry_id: null, email: "a@x.com" },
+    ]);
     expect(redeemed).toBe(false);
   });
 
-  it("a registration linked to a different entry does not redeem this one, even if unrelated", () => {
-    const redeemed = isWaitlistEntryRedeemed(
-      { id: "wl-1", email: "unique@x.com" },
-      [{ waitlist_entry_id: "wl-9", email: "different@x.com" }]
-    );
+  it("is not redeemed when no registration links to it", () => {
+    const redeemed = isWaitlistEntryRedeemed({ id: "wl-1" }, [
+      { waitlist_entry_id: "wl-2", email: "b@x.com" },
+    ]);
     expect(redeemed).toBe(false);
+  });
+
+  it("a registration linked to a different entry does not redeem this one", () => {
+    const redeemed = isWaitlistEntryRedeemed({ id: "wl-1" }, [
+      { waitlist_entry_id: "wl-9", email: "different@x.com" },
+    ]);
+    expect(redeemed).toBe(false);
+  });
+});
+
+describe("emailAlreadyRegistered", () => {
+  it("matches a live registration on email, ignoring case and surrounding space", () => {
+    expect(
+      emailAlreadyRegistered({ email: "  A@X.com " }, [
+        { waitlist_entry_id: null, email: "a@x.com" },
+      ])
+    ).toBe(true);
+  });
+
+  it("is false when no live registration shares the email", () => {
+    expect(
+      emailAlreadyRegistered({ email: "a@x.com" }, [
+        { waitlist_entry_id: "wl-9", email: "b@x.com" },
+      ])
+    ).toBe(false);
   });
 });
 

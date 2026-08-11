@@ -153,7 +153,7 @@ export async function POST(
       return bad("Could not verify this offer link", 500);
     }
     if (redeeming) {
-      return bad("This offer has already been redeemed", 400);
+      return bad("This offer has already been used, or this email is already registered", 400);
     }
 
     // A repaired-but-never-fixed legacy entry could in principle carry a null

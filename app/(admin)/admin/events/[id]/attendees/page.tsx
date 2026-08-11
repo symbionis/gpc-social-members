@@ -9,7 +9,11 @@ import { ticketRefundValueChf, type RefundRegistration } from "@/lib/events/refu
 import { mergePaymentIntentIds } from "@/lib/events/refund-pool";
 import type { CancellationRow } from "@/components/admin/CancellationsPanel";
 import { stripeTestModeFromKey } from "@/lib/stripe/dashboard";
-import { deriveWaitlistOfferability, isWaitlistEntryRedeemed } from "@/lib/events/waitlist-offer";
+import {
+  deriveWaitlistOfferability,
+  isWaitlistEntryRedeemed,
+  emailAlreadyRegistered,
+} from "@/lib/events/waitlist-offer";
 
 export default async function ManageEventPage({
   params,
@@ -54,15 +58,35 @@ export default async function ManageEventPage({
   const ticketTypes = allTicketTypes.filter((tt) => tt.archived_at === null);
   const ticketTypeById = new Map(allTicketTypes.map((tt) => [tt.id as string, tt]));
 
-  const { data: registrations, error: registrationsError } = await supabase
-    .from("event_registrations")
-    .select(
-      "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, manage_token, ticket_email_sent_at, stripe_payment_intent_id, is_guest_list, created_at, waitlist_entry_id"
-    )
-    .eq("event_id", id)
-    .in("status", ["paid", "free"])
-    .order("created_at", { ascending: false });
-  if (registrationsError) failLoad("registrations", registrationsError);
+  // Paged explicitly. Supabase returns at most 1000 rows and reports NO error when it
+  // truncates, so a single unbounded select would quietly drop attendees past the
+  // thousandth on a large event — and, because this same set derives waitlist
+  // redemption below, would also make a redeemed entry read as still-offerable.
+  // Same rule as lib/events/seat-usage.ts: never count or match off a truncated read.
+  const REG_PAGE = 1000;
+  const fetchRegistrationsPage = (page: number) =>
+    supabase
+      .from("event_registrations")
+      .select(
+        "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, manage_token, ticket_email_sent_at, stripe_payment_intent_id, is_guest_list, created_at, waitlist_entry_id"
+      )
+      .eq("event_id", id)
+      .in("status", ["paid", "free"])
+      .order("created_at", { ascending: false })
+      .range(page * REG_PAGE, page * REG_PAGE + REG_PAGE - 1);
+
+  type RegistrationRow = NonNullable<
+    Awaited<ReturnType<typeof fetchRegistrationsPage>>["data"]
+  >[number];
+
+  const registrations: RegistrationRow[] = [];
+  for (let page = 0; ; page++) {
+    const { data: pageRows, error: registrationsError } =
+      await fetchRegistrationsPage(page);
+    if (registrationsError) failLoad("registrations", registrationsError);
+    registrations.push(...(pageRows ?? []));
+    if (!pageRows || pageRows.length < REG_PAGE) break;
+  }
 
   // Per-ticket-type breakdown for each party, keyed by registration. The lead row
   // of a party carries the tickets purchased for it; guest rows show none.
@@ -387,7 +411,8 @@ export default async function ManageEventPage({
   // admin surface needs what each entry actually asked for (requested type + quantity) and
   // its offer state to decide whether it can be offered — not just name/email/created_at.
   // `offer_token` is deliberately NOT selected: it is a live emailed secret and must never
-  // reach the browser (U4 adds a derived `offered` boolean instead when it wires the UI).
+  // reach the browser — this payload is serialised into the RSC stream on every admin
+  // visit. A derived `offered` boolean is exposed instead (built below).
   const { data: rawWaitlist, error: waitlistError } = hasSeatCap
     ? await supabase
         .from("event_waitlist")
@@ -410,15 +435,21 @@ export default async function ManageEventPage({
     const ticketType = entry.ticket_type_id
       ? ticketTypeById.get(entry.ticket_type_id) ?? null
       : null;
+    // R12: redemption is the entry's OWN linked registration. A bare email match is a
+    // separate, weaker signal — it keeps the row visible but blocks the Offer button
+    // with a reason, rather than hiding the entry as though it had been redeemed.
+    const redeemed = isWaitlistEntryRedeemed(
+      { id: entry.id },
+      liveRegistrationsForRedemption
+    );
     const offerability = deriveWaitlistOfferability({
       ticket_type_id: entry.ticket_type_id,
       quantity: entry.quantity,
       ticketType,
+      emailAlreadyRegistered:
+        !redeemed &&
+        emailAlreadyRegistered({ email: entry.email }, liveRegistrationsForRedemption),
     });
-    const redeemed = isWaitlistEntryRedeemed(
-      { id: entry.id, email: entry.email },
-      liveRegistrationsForRedemption
-    );
     return {
       id: entry.id,
       name: entry.name,

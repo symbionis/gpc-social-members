@@ -1,6 +1,6 @@
 // U5 of docs/plans/2026-08-11-001-feat-waitlist-paid-offer-flow-plan.md.
 //
-// Pure decision logic for the offer landing's six-outcome gate (the "Offer landing
+// Pure decision logic for the offer landing's gate (the "Offer landing
 // gate" flowchart in the plan's High-Level Technical Design). Kept out of
 // app/(public)/public/offers/[token]/page.tsx — a server component the repo does
 // not unit-test directly (see lib/events/waitlist-offer.ts's header comment for the
@@ -57,8 +57,8 @@ export type OfferLandingOutcome =
   | { kind: "checkout"; redeemableQuantity: number };
 
 /**
- * Resolves one of the flowchart's six outcomes, in the order the flowchart states
- * them: token → event open → membership → redeemed → seats free → checkout.
+ * Resolves one outcome — six pre-checkout ones plus checkout itself — in the order
+ * the flowchart states them: token → event open → membership → redeemed → seats free → checkout.
  */
 export function resolveOfferLandingOutcome(
   input: ResolveOfferLandingInput
