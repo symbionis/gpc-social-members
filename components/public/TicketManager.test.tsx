@@ -24,7 +24,11 @@ const ticket = (over: Partial<ManageTicket> = {}): ManageTicket => ({
 
 function renderManager(
   tickets: ManageTicket[],
-  extra: { topupEndpoint?: string; buyableTypes?: { id: string; title: string; priceLabel: string }[] } = {}
+  extra: {
+    topupEndpoint?: string;
+    buyableTypes?: { id: string; title: string; priceLabel: string }[];
+    receiptUrl?: string | null;
+  } = {}
 ) {
   return render(
     <TicketManager
@@ -41,6 +45,7 @@ function renderManager(
       convertTypes={[]}
       topupEndpoint={extra.topupEndpoint}
       buyableTypes={extra.buyableTypes}
+      receiptUrl={extra.receiptUrl}
     />
   );
 }
@@ -437,5 +442,26 @@ describe("TicketManager — buy more tickets (U2)", () => {
 
     // @ts-expect-error jsdom navigation stub
     window.location = originalLocation;
+  });
+});
+
+// U6/R22/AE10: the receipt link's visibility is decided entirely by the caller passing
+// `receiptUrl` (or not) — the caller gates that on tickets.is_lead, the same flag the
+// receipt route itself checks server-side. TicketManager just renders what it's given.
+describe("TicketManager — receipt link (U6)", () => {
+  it("shows a receipt link when receiptUrl is provided (the payer's own token)", () => {
+    renderManager([ticket()], { receiptUrl: "/public/tickets/tok/receipt" });
+    const link = screen.getByRole("link", { name: /view receipt/i });
+    expect(link).toHaveAttribute("href", "/public/tickets/tok/receipt");
+  });
+
+  it("shows no receipt link when receiptUrl is absent — a non-payer household member's token", () => {
+    renderManager([ticket()], {});
+    expect(screen.queryByRole("link", { name: /view receipt/i })).toBeNull();
+  });
+
+  it("shows no receipt link when receiptUrl is explicitly null", () => {
+    renderManager([ticket()], { receiptUrl: null });
+    expect(screen.queryByRole("link", { name: /view receipt/i })).toBeNull();
   });
 });

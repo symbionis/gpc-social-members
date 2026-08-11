@@ -128,6 +128,13 @@ export default async function TicketManagePage({
         .filter((t) => t.priceLabel !== "—")
     : [];
 
+  // Receipt link (U6, R22/AE10): shown only when the ticket THIS token opened is the
+  // payer's own (tickets.is_lead) — the same flag the receipt route itself gates on, so
+  // visibility here and actual access always agree. A household member's own token never
+  // carries isLead, so they see no link at all.
+  const self = household.tickets.find((t) => t.isSelf);
+  const receiptUrl = self?.isLead ? `/public/tickets/${token}/receipt` : null;
+
   return shell(
     <TicketManager
       eventTitle={household.event.title}
@@ -150,6 +157,7 @@ export default async function TicketManagePage({
       convertTypes={convertTypes}
       topupEndpoint={`/api/public/bookings/${token}/topup`}
       buyableTypes={buyableTypes}
+      receiptUrl={receiptUrl}
     />
   );
 }

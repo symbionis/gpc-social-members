@@ -55,6 +55,10 @@ interface Props {
   topupEndpoint?: string;
   /** Ticket types the holder can buy more of (with a display price label). */
   buyableTypes?: { id: string; title: string; priceLabel: string }[];
+  /** Receipt page link (U6, R22/AE10) — passed only when this token is the payer's own
+   *  (tickets.is_lead), the same gate the receipt route itself checks. null/absent hides the
+   *  link entirely, so a non-payer household member sees no trace of it. */
+  receiptUrl?: string | null;
 }
 
 export default function TicketManager({
@@ -71,6 +75,7 @@ export default function TicketManager({
   convertTypes,
   topupEndpoint,
   buyableTypes,
+  receiptUrl,
 }: Props) {
   const [tickets, setTickets] = useState<ManageTicket[]>(initialTickets);
   const many = tickets.length > 1;
@@ -100,7 +105,7 @@ export default function TicketManager({
         </p>
       </div>
 
-      {(referenceCode || calendarUrl) && (
+      {(referenceCode || calendarUrl || receiptUrl) && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-white px-4 py-3.5 text-base font-body">
           {referenceCode ? (
             <span className="text-marine/80">
@@ -109,16 +114,26 @@ export default function TicketManager({
           ) : (
             <span />
           )}
-          {calendarUrl && (
-            <a
-              href={calendarUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-body font-semibold text-marine underline underline-offset-2"
-            >
-              Add to calendar
-            </a>
-          )}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {receiptUrl && (
+              <a
+                href={receiptUrl}
+                className="font-body font-semibold text-marine underline underline-offset-2"
+              >
+                View receipt
+              </a>
+            )}
+            {calendarUrl && (
+              <a
+                href={calendarUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-body font-semibold text-marine underline underline-offset-2"
+              >
+                Add to calendar
+              </a>
+            )}
+          </div>
         </div>
       )}
 
