@@ -388,6 +388,17 @@ export default async function ManageEventPage({
         })),
     }));
 
+  // The comped share of the attendee count. Derived from the same `guestLists` the tab uses,
+  // so the two surfaces cannot disagree, but re-filtered for cancellation: `claimedRoster`
+  // keeps cancelled rows (the Refunds tab needs them), and a comped seat that was cancelled is
+  // not standing. Counting it here would make the guest-list figure contradict Live seats.
+  const cancelledTicketIds = new Set(cancelledTickets.map((t) => t.id));
+  const guestListSeats = guestLists.reduce(
+    (acc, list) => acc + list.people.filter((p) => !cancelledTicketIds.has(p.ticketId)).length,
+    0
+  );
+  const guestListCount = guestLists.length;
+
   // Seats SOLD across every paid/free booking — what was bought, cancellations included.
   const sold = (registrations ?? []).reduce((acc, a) => acc + a.quantity, 0);
   // Seats still standing. `seats_used` is the authoritative figure: it subtracts cancelled
@@ -514,6 +525,8 @@ export default async function ManageEventPage({
         total={liveSeats}
         sold={sold}
         cancelledSeats={cancelledSeats}
+        guestListSeats={guestListSeats}
+        guestListCount={guestListCount}
         seatCap={seatCap}
         overbooked={overbooked}
         baseUrl={baseUrl}
