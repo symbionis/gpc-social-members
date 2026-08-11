@@ -397,6 +397,130 @@ describe("R13 — contact capture at check-in", () => {
   });
 });
 
+describe("U7 — the door asks a comp guest for an email", () => {
+  // AE4: a ticket with no email is prompted at check-in, even when it already carries
+  // a phone — email is specifically what the follow-up needs (R7).
+  it("opens contact fields and prompts for an email when a phone-only slot is checked in", () => {
+    const comp = party({
+      leadName: "Cardis Sponsor",
+      slots: [
+        slot({ attendeeId: "c2", name: "Marta Lopez", email: "", phone: "+41790000009", isLead: false }),
+      ],
+    });
+    renderConsole({ parties: [comp] });
+    expect(screen.getByDisplayValue("Marta Lopez")).toBeEnabled();
+    expect(screen.getByPlaceholderText("Email")).toBeEnabled();
+    expect(screen.getByText(/No email on file/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit details" })).not.toBeInTheDocument();
+  });
+
+  it("does not prompt a slot that already has an email, even with no phone", () => {
+    const comp = party({
+      leadName: "Cardis Sponsor",
+      slots: [
+        slot({ attendeeId: "c2", name: "Marta Lopez", email: "marta@x.ch", phone: "", isLead: false }),
+      ],
+    });
+    renderConsole({ parties: [comp] });
+    expect(screen.getByDisplayValue("Marta Lopez")).toBeDisabled();
+    expect(screen.queryByText(/No email on file/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit details" })).toBeInTheDocument();
+  });
+
+  it("lets a guest who declines an email be dismissed with Cancel, and still checked in", async () => {
+    const user = userEvent.setup();
+    const comp = party({
+      leadName: "Cardis Sponsor",
+      slots: [
+        slot({ attendeeId: "c2", name: "Marta Lopez", email: "", phone: "", isLead: false }),
+      ],
+    });
+    renderConsole({ parties: [comp] });
+
+    // The declining guest's row must offer a dismiss control even with no contact.
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel).toBeEnabled();
+    await user.click(cancel);
+
+    // Admission is unconditional on the form — the top-level Check in button is
+    // present and usable regardless of whether an email was ever supplied.
+    const checkIn = screen.getByRole("button", { name: "Check in" });
+    expect(checkIn).toBeEnabled();
+    await user.click(checkIn);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/check-in"),
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("a phone-only guest still saves through the client (declining email doesn't block save)", async () => {
+    const user = userEvent.setup();
+    const comp = party({
+      leadName: "Cardis Sponsor",
+      // Phone already on file, no email: prompted (per R7) but must still be
+      // saveable on phone alone — tightening save would refuse this ordinary case.
+      slots: [
+        slot({ attendeeId: "c2", name: "Marta Lopez", email: "", phone: "+41790000009", isLead: false }),
+      ],
+    });
+    renderConsole({ parties: [comp] });
+
+    const nameInput = screen.getByDisplayValue("Marta Lopez");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Marta L. Lopez");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/save-attendee"),
+      expect.objectContaining({
+        body: expect.not.stringContaining('"email"'),
+      })
+    );
+  });
+
+  it("normalises and saves an email typed at the door", async () => {
+    const user = userEvent.setup();
+    const comp = party({
+      leadName: "Cardis Sponsor",
+      slots: [
+        slot({ attendeeId: "c2", name: "Marta Lopez", email: "", phone: "+41790000009", isLead: false }),
+      ],
+    });
+    renderConsole({ parties: [comp] });
+
+    const emailInput = screen.getByPlaceholderText("Email");
+    await user.type(emailInput, "  Marta@X.CH  ");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/save-attendee"),
+      expect.objectContaining({
+        body: expect.stringContaining('"email":"Marta@X.CH"'),
+      })
+    );
+  });
+
+  it("prompts identically in the Guest lists tab and the Attendees tab", async () => {
+    const user = userEvent.setup();
+    const noEmailSlot = slot({ attendeeId: "c2", name: "Marta Lopez", email: "", phone: "", isLead: false });
+    const comp = party({ leadName: "Cardis Sponsor", isGuestList: true, slots: [noEmailSlot] });
+    const attendeeParty = party({
+      registrationId: "reg-attendee",
+      leadName: "Walk-up Wendy",
+      slots: [slot({ attendeeId: "w1", name: "Wendy Fell", email: "", phone: "", isLead: true })],
+    });
+
+    renderConsole({ parties: [comp, attendeeParty] });
+    // Attendees tab shows every party, including guest-list ones (R12) — both
+    // no-email slots are prompted identically there.
+    expect(screen.getAllByText(/No email on file/i)).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+    const panel = screen.getByTestId("door-guest-lists");
+    expect(within(panel).getByText(/No email on file/i)).toBeInTheDocument();
+  });
+});
+
 describe("Guest lists tab", () => {
   const cardis = () =>
     party({

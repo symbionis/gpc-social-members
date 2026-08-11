@@ -569,11 +569,12 @@ function SlotRow({
   const [error, setError] = useState<string | null>(null);
 
   const isOpen = slot.attendeeId === null;
-  // R13. A claimed guest holding neither email nor phone would otherwise be admitted
-  // with no contact at all unless the volunteer thought to tap "Edit details" first.
-  // Open its fields so contact is captured as part of the check-in, not behind an
-  // extra tap.
-  const needsContact = !isOpen && !slot.email && !slot.phone;
+  // R7/U7. A claimed guest with no email would otherwise be admitted with nothing to
+  // send a follow-up to, unless the volunteer thought to tap "Edit details" first.
+  // Open its fields so an email can be captured as part of the check-in, not behind
+  // an extra tap. Phone alone still satisfies *save* (below) — this only controls
+  // whether the row starts open, since email is specifically what the follow-up needs.
+  const needsContact = !isOpen && !slot.email;
   // New open slots are editable immediately; claimed (live) rows start locked, unless
   // they are missing the contact we came here to capture.
   const [editing, setEditing] = useState(isOpen || needsContact);
@@ -772,7 +773,8 @@ function SlotRow({
 
       {needsContact && (
         <p className="mt-2 font-body text-sm text-amber-700">
-          No contact on file — take an email or phone as you check them in.
+          No email on file — ask for one as you check them in. They can still be
+          checked in without it.
         </p>
       )}
 
@@ -814,9 +816,12 @@ function SlotRow({
               {saving ? "Saving…" : isOpen ? "Save guest" : "Save changes"}
             </button>
           )}
-          {/* No Cancel on a contactless claimed slot: re-locking it is exactly the
-              state R13 exists to prevent. */}
-          {!isOpen && !needsContact && (
+          {/* Cancel is offered even on a contactless claimed slot (R7/U7): a guest who
+              declines to give an email must still be dismissible and checked in via the
+              "Check in" button above, which never depends on this form. Withholding
+              Cancel here would strand a declining guest in an open, unsavable row at
+              the front of a queue. */}
+          {!isOpen && (
             <button
               type="button"
               onClick={() => {
