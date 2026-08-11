@@ -219,8 +219,8 @@ describe("POST /api/public/bookings/[token]/convert", () => {
     expect(args.success_url).not.toContain("/public/bookings/");
   });
 
-  // A comp guest list keeps rendering BookingManager at the booking page (unchanged, U3 does
-  // not touch this path) — its lead-flow redirect must stay on /public/bookings.
+  // A comp guest list keeps rendering CompGuestListManager at the booking page (unchanged,
+  // U3 does not touch this path) — its lead-flow redirect must stay on /public/bookings.
   it("keeps a comp guest list's paid upgrade redirect on the booking page", async () => {
     const create = vi.fn().mockResolvedValue({ url: "https://stripe.test/cs" });
     mockedStripe.mockReturnValue({ checkout: { sessions: { create } } } as never);

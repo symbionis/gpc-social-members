@@ -58,8 +58,8 @@ export async function POST(
   let householdEmail: string | null = null;
   let selfTicketId: string | null = null; // set in the holder flow (the token's own ticket)
   // Set for the lead flow (below) once we know whether it's a comp guest list: a comp list
-  // still renders BookingManager at the booking page (U3/KTD2 — unchanged), so its redirect
-  // stays there; an ordinary booking's booking page is now redirect-only, so landing there
+  // still renders CompGuestListManager at the booking page (U3/KTD2 — unchanged), so its
+  // redirect stays there; an ordinary booking's booking page is now redirect-only, so landing there
   // after a paid Stripe upgrade would just bounce again — send it straight to the converted
   // ticket's own manage page instead, resolved once the ticket row is loaded below.
   let redirectBase: string;

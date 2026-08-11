@@ -11,7 +11,7 @@ import EventRegistrationForm, { type TicketTypeOption } from "@/components/publi
 // KTD4/KTD5: the token is a long-lived emailed secret. Never let it ride out in a
 // Referer header — the event description on other public pages renders arbitrary
 // outbound links, so this mirrors the manage_token precedent in
-// app/(checkin)/public/bookings/[token]/page.tsx.
+// app/(checkin)/public/bookings/[token]/page.tsx and app/(checkin)/public/tickets/[token]/page.tsx.
 export const metadata: Metadata = { referrer: "no-referrer" };
 
 export default async function OfferLandingPage({
