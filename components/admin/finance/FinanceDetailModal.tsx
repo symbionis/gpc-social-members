@@ -12,7 +12,10 @@ interface Props {
 
 // Drill-down modal for a tier or month row: lists the underlying membership
 // payments and a net total that reconciles with the clicked row. Overlay/panel
-// styling mirrors the existing modal convention (WaiverConsentModal).
+// styling follows the app's modal convention — a full-width sheet anchored to the
+// bottom on mobile, a centred rounded dialog from `sm` up, over a marine scrim.
+// Stated rather than pointing at whichever component happened to do it first: that
+// pointer outlived the component it named.
 export default function FinanceDetailModal({ title, rows, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
