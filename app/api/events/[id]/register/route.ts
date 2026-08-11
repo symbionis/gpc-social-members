@@ -199,9 +199,11 @@ export async function POST(
 
   // Members-only events require an authenticated active member or a valid invite
   // code (re-validated server-side; the page gate is cosmetic). The code relaxes
-  // ONLY this block — it never confers pricing.
+  // ONLY this block — it never confers pricing. R11/KTD7: an offer token confers no
+  // membership, so it must not also unlock the invite-code carve-out — an offer
+  // redemption on a members-only event requires an active member session, full stop.
   const isMembersOnly = event.visibility === "members_only";
-  const hasValidInvite = isValidInviteCode(event.invite_code, code);
+  const hasValidInvite = !offerEntry && isValidInviteCode(event.invite_code, code);
   if (isMembersOnly && !isMember && !hasValidInvite) {
     return bad("This event is for members only", 403);
   }
@@ -392,6 +394,23 @@ export async function POST(
         waitlistEntryId: offerEntry.id,
         err: waitlistLinkErr,
       });
+      // A pending registration (the paid path) is invisible to the paid/free duplicate
+      // guard and to isWaitlistEntryRedeemed, so it stays safely retryable on its own.
+      // A free registration is already terminal — left in place, it would make every
+      // retry read as "already registered"/"already redeemed" with no ticket ever
+      // minted. Delete it (cascades to its line items) so the offer stays usable.
+      if (isFree) {
+        const { error: rollbackErr } = await supabase
+          .from("event_registrations")
+          .delete()
+          .eq("id", registrationId);
+        if (rollbackErr) {
+          console.error("[event-register] free-registration rollback after link failure also failed", {
+            registrationId,
+            err: rollbackErr,
+          });
+        }
+      }
       return bad("Could not confirm your offer. Please try again.", 500);
     }
   }

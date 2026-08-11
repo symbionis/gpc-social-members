@@ -59,6 +59,8 @@ type Cfg = {
   liveRegsLookupError?: boolean;
   capturedWaitlistLinkUpdate?: Record<string, unknown>;
   waitlistLinkUpdateError?: boolean;
+  capturedRegistrationDelete?: string;
+  registrationDeleteError?: boolean;
 };
 
 function adminClient(cfg: Cfg) {
@@ -126,6 +128,15 @@ function adminClient(cfg: Cfg) {
             return { error: null };
           };
           return upd;
+        };
+        c.delete = () => {
+          const del: Record<string, unknown> = {};
+          del.eq = async (_col: string, id: string) => {
+            cfg.capturedRegistrationDelete = id;
+            if (cfg.registrationDeleteError) return { error: { message: "rollback delete failed" } };
+            return { error: null };
+          };
+          return del;
         };
         return c;
       }
@@ -780,12 +791,31 @@ describe("offer redemption (U6)", () => {
     expect(mockedSendEmail).not.toHaveBeenCalled();
   });
 
+  it("a failure writing waitlist_entry_id on the free path deletes the orphaned free registration so the offer stays retryable", async () => {
+    const cfg: Cfg = { event: offerEvent, ticketTypes: [freeType], waitlistEntry: entryQty2, waitlistLinkUpdateError: true };
+    await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(cfg.capturedRegistrationDelete).toBe("reg-1");
+  });
+
+  it("a failure writing waitlist_entry_id on the paid path does NOT delete the registration (a pending row is already retryable)", async () => {
+    const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2, waitlistLinkUpdateError: true };
+    const res = await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(500);
+    expect(cfg.capturedRegistrationDelete).toBeUndefined();
+  });
+
   it("the Stripe success and cancel URLs carry the offer token", async () => {
     const cfg: Cfg = { event: offerEvent, ticketTypes: [dinner], waitlistEntry: entryQty2 };
     await offerPost(cfg, { items: [{ ticket_type_id: "t1", quantity: 1 }] });
     const args = stripeCreate.mock.calls[0][0];
     expect(args.success_url).toContain(`/public/offers/${OFFER_TOKEN}`);
     expect(args.cancel_url).toContain(`/public/offers/${OFFER_TOKEN}`);
+  });
+
+  it("R11/KTD7: an offer redemption on a members-only event cannot use the event's invite code to bypass active membership", async () => {
+    const cfg: Cfg = { event: membersOnlyEvent, ticketTypes: [dinner], waitlistEntry: entryQty2, memberRow: null };
+    const res = await offerPost(cfg, { code: INVITE, items: [{ ticket_type_id: "t1", quantity: 1 }] });
+    expect(res.status).toBe(403);
   });
 
   it("a request with no offer_token behaves exactly as today (email not pinned, own event page URLs)", async () => {

@@ -45,7 +45,24 @@ export default function PostHogProvider({
       autocapture: true,
       capture_exceptions: true,
       before_send: (event) => {
-        if (event && event.event === "$exception") {
+        if (!event) return event;
+        // U5/KTD4: redact the offer token from EVERY captured event, not just the
+        // manual $pageview call below — autocapture (clicks, form submits) and
+        // $exception events stamp $current_url/$pathname from window.location
+        // independently of that call, and would otherwise ship the live token.
+        if (typeof event.properties?.$current_url === "string") {
+          try {
+            const url = new URL(event.properties.$current_url);
+            url.pathname = redactPathForAnalytics(url.pathname);
+            event.properties.$current_url = url.toString();
+          } catch {
+            /* malformed $current_url — leave as-is rather than throw in an analytics hook */
+          }
+        }
+        if (typeof event.properties?.$pathname === "string") {
+          event.properties.$pathname = redactPathForAnalytics(event.properties.$pathname);
+        }
+        if (event.event === "$exception") {
           const list = event.properties?.$exception_list as
             | Array<{ value?: string; type?: string }>
             | undefined;

@@ -64,12 +64,16 @@ export async function PATCH(
 
   // The ticket type must belong to THIS event and be live — the same IDOR + archive
   // guard as the ticket-types route.
-  const { data: ticketType } = await adminClient
+  const { data: ticketType, error: ttErr } = await adminClient
     .from("event_ticket_types")
     .select("id, archived_at")
     .eq("id", ticketTypeId)
     .eq("event_id", eventId)
     .maybeSingle();
+  if (ttErr) {
+    console.error("[waitlist-repair] ticket type lookup failed", { eventId, waitlistId, err: ttErr });
+    return bad("Service temporarily unavailable", 503);
+  }
   if (!ticketType) return bad("Ticket type not found for this event");
   if (ticketType.archived_at) return bad("That ticket type has been archived");
 

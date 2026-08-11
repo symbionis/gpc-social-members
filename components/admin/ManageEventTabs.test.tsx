@@ -130,6 +130,20 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
     expect(within(row).getByRole("button", { name: "Withdraw" })).toBeInTheDocument();
   });
 
+  it("a failed offer shows the error inline and reverts the button to Offer", async () => {
+    global.fetch = failFetch({ error: "Could not send the offer." });
+    const user = userEvent.setup();
+    renderTabs({ waitlist: [waitlistEntry()] });
+    await openWaitlistTab(user);
+
+    const row = screen.getByText("Astrid Ferrari").closest("tr")!;
+    await user.click(within(row).getByRole("button", { name: "Offer" }));
+
+    expect(await within(row).findByText("Could not send the offer.")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Offer" })).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Withdraw" })).not.toBeInTheDocument();
+  });
+
   it("a disabled Offer control on a flagged row is described by its reason", async () => {
     const user = userEvent.setup();
     renderTabs({
@@ -233,6 +247,21 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
     );
     expect(await screen.findByRole("button", { name: "Offer" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Withdraw" })).not.toBeInTheDocument();
+  });
+
+  it("a failed withdraw shows the error inline and keeps the offered state", async () => {
+    global.fetch = failFetch({ error: "This entry is already registered and its offer can no longer be withdrawn" });
+    const user = userEvent.setup();
+    renderTabs({ waitlist: [waitlistEntry({ offered: true, offer_sent_count: 2 })] });
+    await openWaitlistTab(user);
+
+    await user.click(screen.getByRole("button", { name: "Withdraw" }));
+
+    expect(
+      await screen.findByText("This entry is already registered and its offer can no longer be withdrawn")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Withdraw" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Offer" })).not.toBeInTheDocument();
   });
 
   it("does not render a quantity input, a Register free action, or an over-cap confirmation", async () => {
