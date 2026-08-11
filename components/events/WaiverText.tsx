@@ -2,10 +2,14 @@ import { getWaiver, type WaiverLanguage } from "@/lib/events/waiver";
 
 // Renders the bilingual liability waiver text (title / intro / numbered clauses) in a
 // scrollable box. Pure (no hooks), so it is safe inside client or server components.
-// Shared by the self-registration form and the door check-in flows (scan + lost-QR)
-// so the exact same text — and therefore the same WAIVER_VERSION — is shown wherever
-// a guest accepts it. `textSize` / `maxHeightClass` let the door use larger, outdoor-
-// readable text and a taller box than the compact self-reg box.
+//
+// Its one consumer is components/events/WaiverModal.tsx, which is the single presentation
+// of the waiver everywhere it is accepted. Rendering this component is therefore NOT on its
+// own enough to make two surfaces equivalent: the same text under different chrome, or
+// behind a different acceptance gesture, still produces records that claim the same
+// WAIVER_VERSION while meaning different things. `textSize` / `maxHeightClass` exist for
+// layout only. If you are about to render this from somewhere new, render WaiverModal
+// instead — see docs/solutions/architecture-patterns/a-content-hash-attests-to-the-text-not-the-presentation.md.
 export default function WaiverText({
   lang,
   textSize = "text-sm",

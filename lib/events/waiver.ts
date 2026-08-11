@@ -8,15 +8,24 @@
 // See docs/plans/2026-05-20-001-feat-event-door-checkin-plan.md (U3) and
 // docs/waiver-gpc-event.md for the full rendered text.
 //
-// GENERIC attendance terms: the same text is shown at every event's door
-// check-in. It names no specific event on purpose — the check-in page header
-// already shows which event and date the visit is for, and each acceptance is
-// tied to its event_id + timestamp in event_checkins. Keep the clauses
-// event-neutral so this stays valid for any event.
+// GENERIC attendance terms: the same text is shown wherever a guest accepts — the door
+// console, the QR scan, and the guest's own ticket page, all through the one WaiverModal.
+// It names no specific event on purpose: each surface already shows which event the visit
+// is for, and each acceptance is stamped onto the guest's own ticket row (waiver_version,
+// waiver_accepted_at, language, marketing_consent — see lib/events/checkin.ts). Keep the
+// clauses event-neutral so this stays valid for any event.
 //
 // WAIVER_VERSION is DERIVED from a hash of the content below, not hand-maintained,
 // so editing any clause necessarily changes the version recorded against each
 // acceptance — the audit can never silently point a stale version at changed text.
+//
+// Read that guarantee narrowly: it covers the TEXT and nothing else. The hash sees the
+// clauses, not the chrome around them, not which language the instructions were in, and
+// not what gesture counted as consent. Two surfaces once rendered this same text with
+// different chrome and different acceptance gestures, and every row they wrote carried an
+// identical version. That is why there is exactly one presentation component —
+// components/events/WaiverModal.tsx — and why a second one is a defect rather than a
+// convenience. See docs/solutions/architecture-patterns/a-content-hash-attests-to-the-text-not-the-presentation.md.
 // The hash is a small pure-JS FNV-1a so this module is isomorphic (the client
 // component renders the text; the server records the version), with no node:crypto.
 
