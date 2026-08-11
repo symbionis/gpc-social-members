@@ -5,12 +5,14 @@ category: logic-errors
 module: events
 problem_type: logic_error
 component: service_object
+last_updated: 2026-08-11
 symptoms:
   - "Admin overview reported 10 tickets sold when only 7 had been paid for; 3 comp guest-list seats counted as sold"
   - "Printed door sheet rendered 12 lines for 10 admissible people, padding cancelled seats back as blank \"to fill in\" rows"
   - "A booking refunded in full still printed as an arrivable party and rendered a card at the door console"
   - "Door console showed \"1 / 2 named\" with a slot no ticket row could satisfy"
   - "expected counted 12 against a 10-person roster; the surplus landed in unaccounted, the field meant to flag genuine data problems"
+  - "After the first fix, a cancelled LEAD with a live guest was still rebuilt from the purchaser and printed as an admissible line"
 root_cause: logic_error
 resolution_type: code_fix
 severity: high
@@ -74,6 +76,20 @@ party card; and `expected` counted 12 against a 10-person roster. The surplus la
 signal that a party's rows and its quantity genuinely disagree. Ordinary refunds were
 now setting off the alarm that exists to catch real data corruption.
 
+**4. The first fix had the same bug one branch over.** Found by review, after the three
+above were "fixed". The printed sheet's early-bail only covered a *fully* cancelled party
+(`quantity === 0 && live.length === 0`). When the **lead** cancels and a guest is still
+coming, the lead's row is partitioned out, so `leadTicket` is null and control falls into
+the same reconstruct-from-purchaser branch — rebuilding the refunded buyer as a named,
+tickable, `isLead` line. Two printed lines for one remaining seat, one of them a person who
+had been refunded. The door console got this case right (its slots come only from ticket
+rows), so the two surfaces had silently diverged again, which is the thing the shared rule
+was extracted to prevent.
+
+The shared helper was complicit: it reduced cancelled rows to a *count*, discarding which
+row was cancelled — so the sheet could not tell "lead cancelled" from "lead never minted".
+It now returns the cancelled rows as well.
+
 ## What Didn't Work
 
 **Filtering in SQL.** All three surfaces already did this. It is necessary and
@@ -108,10 +124,15 @@ surfaces — the admin roster, the printed sheet and the door console import it
   *not* a negation of `claimed`: the DB check constraint still permits a legacy
   `unclaimed` value, and on a surface that governs admission an unrecognised status must
   fall off the roster rather than onto it as an anonymous tickable line.
-- `partitionByCancellation` — returns `{ live, cancelledByRegistration }`.
-- `seatsForRegistration` — `Math.max(0, (quantity ?? 0) - cancelled)`, floored because a
-  booking with more cancellations than seats is broken data and a negative would
-  propagate into padding and headcounts.
+- `partitionByCancellation` — returns `{ live, cancelled, cancelledByRegistration }`. The
+  cancelled ROWS are kept, not just the tally: symptom 4 above is what happens when a
+  surface can only ask "how many were cancelled" and needs to ask "was the lead one of
+  them".
+- `admissibleTicketsForRegistration` — `Math.max(0, (quantity ?? 0) - cancelled)`, floored
+  because a booking with more cancellations than tickets is broken data and a negative
+  would propagate into padding and headcounts. Named for tickets, not seats: both sides of
+  that subtraction count ticket rows, and `registration.quantity` includes types that mint
+  a ticket without consuming a seat.
 
 Two load-bearing design decisions inside it:
 
@@ -121,11 +142,15 @@ function exists to prevent. That is why the split happens in code rather than in
 query.
 
 **An absent `cancellation_status` counts as live.** These surfaces govern door admission,
-so a projection that forgets to select the column must fail toward showing a real
-ticket-holder, never toward silently emptying a door roster.
+so an unreadable value must fail toward showing a real ticket-holder, never toward
+silently emptying a door roster. The field is nonetheless declared *required*, so a
+projection that forgets to select it fails to compile rather than failing open at a door —
+the runtime coalesce is belt-and-braces for rows that arrive untyped. Note the deliberate
+asymmetry: an unknown non-null status fails closed, a missing one fails open.
 
 Each surface then uses the rule in its own shape. The sheet pads with
-`seatsForRegistration` instead of the raw quantity and bails early on a fully cancelled
+`admissibleTicketsForRegistration` instead of the raw quantity, refuses to rebuild a lead
+whose own ticket was cancelled, and bails early on a fully cancelled
 booking — `if (quantity === 0 && live.length === 0) continue;` — which is what stops the
 purchaser-reconstruction branch from resurrecting a refunded party. The console filters
 parties the same way and sums `expected` off the same helper. The admin page counts
@@ -168,6 +193,32 @@ was the rule extracted. That refactor touched no existing test expectation — i
 `lib/events/ticket-admissibility.test.ts` and changed only source — so every door test
 passed unchanged afterwards, which is what makes "behaviour-preserving" a claim rather
 than a hope.
+
+**"There are tests" and "the tests would catch this" are different claims — mutation
+testing is what separates them.** A review of the fixes reverted each one and re-ran the
+suite. The two door surfaces were genuinely pinned (seven mutations, all caught). The admin
+overview was not: reverting the comps-into-paid bucketing, the seat-item counting, or the
+cancelled-row filter each restored the original bug with the **entire suite still green**.
+Its component test asserted the split *rendered* correctly; nothing asserted it was
+*computed* correctly. The remedy was to move the derivation out of the server component —
+which the repo does not unit-test — into a plain function (`lib/events/booked-tickets.ts`)
+and test it there. If a surface cannot be tested where it lives, that is an argument for
+moving the logic, not for trusting it.
+
+**Two derivations of one population must share a fallback condition, not just a filter.**
+Extracting the split surfaced a second divergence: the page fell back to
+`registration.quantity` whenever no *seat-consuming* item was found, while `seats_used`
+falls back only when a booking has **no items at all**. A merch-only booking therefore
+counted its full quantity as seats in one derivation and zero in the other — and because
+the overview shows `booked − active` as cancellations, the difference rendered as a refund
+that never happened.
+
+**Name the unit, not the intent.** The shared helper was called `seatsForRegistration` while
+counting *tickets* (`registration.quantity` includes types that mint a ticket without taking
+a seat). Both sides of its subtraction were tickets, so it was correct — but a reviewer
+reasonably read it as a seats-vs-tickets unit mismatch and flagged it as a bug. Shipping the
+wrong noun inside the very fix for a wrong-noun bug invites the next one; it is now
+`admissibleTicketsForRegistration`.
 
 **Write mocks that honour query filters.** A related near-miss in the same session: the
 offer-token lookup's `.eq("event_id", eventId)` IDOR guard could be deleted with the
