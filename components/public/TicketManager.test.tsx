@@ -12,7 +12,6 @@ const ticket = (over: Partial<ManageTicket> = {}): ManageTicket => ({
   id: "t1",
   name: "Sophie Berger",
   email: "sophie.berger@example.com",
-  phone: "",
   typeId: "tt-1",
   typeTitle: "Clubhouse Dinner",
   checkedIn: false,
@@ -22,7 +21,10 @@ const ticket = (over: Partial<ManageTicket> = {}): ManageTicket => ({
   ...over,
 });
 
-function renderManager(tickets: ManageTicket[]) {
+function renderManager(
+  tickets: ManageTicket[],
+  extra: { topupEndpoint?: string; buyableTypes?: { id: string; title: string; priceLabel: string }[] } = {}
+) {
   return render(
     <TicketManager
       eventTitle="Summer Asado"
@@ -36,6 +38,8 @@ function renderManager(tickets: ManageTicket[]) {
       cancelEndpoint="/cancel"
       waiverEndpoint="/waiver"
       convertTypes={[]}
+      topupEndpoint={extra.topupEndpoint}
+      buyableTypes={extra.buyableTypes}
     />
   );
 }
@@ -291,46 +295,6 @@ describe("TicketManager — what a guest sees on a phone", () => {
     expect(screen.getByPlaceholderText("Email")).toBeInTheDocument();
   });
 
-  // R4: a holder can add or change a phone number on any ticket they control. R8: phone is
-  // never required, so it must be sent whether it's set or blank. Normalises through
-  // libphonenumber-js via the shared PhoneInput control (KTD7), same as every other phone
-  // entry point in this repo — so the national-number field, not a raw placeholder.
-  it("sends a saved phone number in the fill request", async () => {
-    const user = userEvent.setup();
-    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
-    renderManager([ticket()]);
-
-    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
-    const phoneField = screen.getByPlaceholderText("79 123 45 67");
-    await user.type(phoneField, "791234567");
-
-    fetchMock.mockClear();
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
-      phone: "+41791234567",
-    });
-  });
-
-  // Phone is never required to complete a purchase (R8) — clearing it must still save.
-  it("clears a phone number and saves without one", async () => {
-    const user = userEvent.setup();
-    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
-    renderManager([ticket({ phone: "+41791234567" })]);
-
-    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
-    const phoneField = screen.getByPlaceholderText("79 123 45 67");
-    await user.clear(phoneField);
-
-    fetchMock.mockClear();
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    expect(fetchMock).toHaveBeenCalled();
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
-      phone: "",
-    });
-  });
-
   it("shows the waiver pill and drops the control once genuinely signed", async () => {
     const user = userEvent.setup();
     renderManager([ticket()]);
@@ -342,5 +306,95 @@ describe("TicketManager — what a guest sees on a phone", () => {
 
     expect(within(cardOf("Sophie Berger")).getByText("Waiver signed")).toBeInTheDocument();
     expect(within(cardOf("Sophie Berger")).queryByRole("button", { name: "Sign the waiver" })).toBeNull();
+  });
+});
+
+// U2: any holder can buy more seats onto the booking from their own manage page.
+describe("TicketManager — buy more tickets (U2)", () => {
+  const types = [{ id: "tt-1", title: "Clubhouse Dinner", priceLabel: "CHF 40" }];
+
+  it("does not render when there is nothing to buy", () => {
+    renderManager([ticket()]);
+    expect(screen.queryByRole("button", { name: /Buy more tickets/i })).toBeNull();
+  });
+
+  it("does not render when a topupEndpoint is given but no buyable types are", () => {
+    renderManager([ticket()], { topupEndpoint: "/topup", buyableTypes: [] });
+    expect(screen.queryByRole("button", { name: /Buy more tickets/i })).toBeNull();
+  });
+
+  // R3: present, but secondary — a closed floating action below the tickets, not competing
+  // with them.
+  it("renders as a closed floating action below the tickets themselves", () => {
+    renderManager([ticket()], { topupEndpoint: "/topup", buyableTypes: types });
+    const toggle = screen.getByRole("button", { name: /Buy more tickets/i });
+    expect(toggle).toBeInTheDocument();
+    // Nothing else from the panel (quantity controls, guest fields) is visible until opened.
+    expect(screen.queryByLabelText(/Add one Clubhouse Dinner/i)).toBeNull();
+    // It sits after the ticket list in the document, not above it.
+    const ticketsList = cardOf("Sophie Berger").closest("ul") as HTMLElement;
+    expect(
+      ticketsList.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  // R20: never call this a "top-up" in guest-facing copy, even though it posts to the
+  // top-up route under the hood.
+  it("never uses the word 'top-up' anywhere in its copy", async () => {
+    const user = userEvent.setup();
+    renderManager([ticket()], { topupEndpoint: "/topup", buyableTypes: types });
+    await user.click(screen.getByRole("button", { name: /Buy more tickets/i }));
+    expect(document.body.textContent).not.toMatch(/top[\s-]?up/i);
+  });
+
+  it("requires a name and email for every seat before it can be bought", async () => {
+    const user = userEvent.setup();
+    renderManager([ticket()], { topupEndpoint: "/topup", buyableTypes: types });
+    await user.click(screen.getByRole("button", { name: /Buy more tickets/i }));
+    await user.click(screen.getByRole("button", { name: "Add one Clubhouse Dinner" }));
+
+    const buyButton = screen.getByRole("button", { name: /Buy 1 ticket/i });
+    expect(buyButton).toBeDisabled();
+
+    await user.type(screen.getByPlaceholderText("First and last name"), "New Guest");
+    expect(buyButton).toBeDisabled();
+
+    await user.type(screen.getByPlaceholderText("Email"), "new.guest@example.com");
+    expect(buyButton).toBeEnabled();
+  });
+
+  it("posts the selected items and named guests, then follows the checkout redirect", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, checkoutUrl: "https://stripe.test/session" }),
+    });
+    const originalLocation = window.location;
+    // @ts-expect-error jsdom navigation stub
+    delete window.location;
+    // @ts-expect-error jsdom navigation stub
+    window.location = { ...originalLocation, href: "" };
+
+    renderManager([ticket()], { topupEndpoint: "/topup", buyableTypes: types });
+    await user.click(screen.getByRole("button", { name: /Buy more tickets/i }));
+    await user.click(screen.getByRole("button", { name: "Add one Clubhouse Dinner" }));
+    await user.type(screen.getByPlaceholderText("First and last name"), "New Guest");
+    await user.type(screen.getByPlaceholderText("Email"), "new.guest@example.com");
+    await user.click(screen.getByRole("button", { name: /Buy 1 ticket/i }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/topup",
+      expect.objectContaining({ method: "POST" })
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body).toMatchObject({
+      items: [{ ticketTypeId: "tt-1", quantity: 1 }],
+      attendees: [{ ticket_type_id: "tt-1", name: "New Guest", email: "new.guest@example.com" }],
+    });
+    expect(window.location.href).toBe("https://stripe.test/session");
+
+    // @ts-expect-error jsdom navigation stub
+    window.location = originalLocation;
   });
 });

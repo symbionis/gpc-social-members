@@ -6,7 +6,7 @@ import { googleCalendarUrl } from "@/lib/events/calendar";
 import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
 import type { ConvertType } from "@/lib/events/convert-eligibility";
 import TicketManager, { type ManageTicket } from "@/components/public/TicketManager";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatCurrency } from "@/lib/format";
 
 // Don't leak the secret manage_token to outbound links / analytics via Referer.
 export const metadata: Metadata = { referrer: "no-referrer" };
@@ -79,7 +79,6 @@ export default async function TicketManagePage({
     id: t.id,
     name: t.name,
     email: t.email,
-    phone: t.phone,
     typeId: t.typeId,
     typeTitle: t.typeTitle,
     checkedIn: t.checkedIn,
@@ -103,6 +102,31 @@ export default async function TicketManagePage({
     })
     .filter((t): t is ConvertType => isUsablePrice(t.price));
 
+  // Buy-more targets (U2): active types priced at the household's rate, same invite fallback
+  // as convertTypes above. Only offered once there's a booking to add seats onto — a
+  // standalone ticket (no registration) has none, and `referenceCode` is the signal for
+  // that here: event_registrations.reference_code is NOT NULL, so it is only ever null for
+  // the standalone (no-registration) household branch in resolveHousehold.
+  const buyableTypes = household.referenceCode
+    ? (typeRows ?? [])
+        .filter((t) => !t.archived_at)
+        .map((t) => {
+          const unit = resolvePrice(t, { is_member: household.isMember });
+          const amount = unit === null ? null : Number(unit);
+          return {
+            id: t.id as string,
+            title: (t.title as string | null) ?? "Ticket",
+            priceLabel:
+              amount === null || !Number.isFinite(amount)
+                ? "—"
+                : amount === 0
+                  ? "Free"
+                  : formatCurrency(amount),
+          };
+        })
+        .filter((t) => t.priceLabel !== "—")
+    : [];
+
   return shell(
     <TicketManager
       eventTitle={household.event.title}
@@ -123,6 +147,8 @@ export default async function TicketManagePage({
       cancelEndpoint={`/api/public/bookings/${token}/cancel`}
       waiverEndpoint={`/api/public/bookings/${token}/waiver`}
       convertTypes={convertTypes}
+      topupEndpoint={`/api/public/bookings/${token}/topup`}
+      buyableTypes={buyableTypes}
     />
   );
 }

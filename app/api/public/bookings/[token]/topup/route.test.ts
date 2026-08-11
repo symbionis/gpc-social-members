@@ -293,3 +293,209 @@ describe("mandatory naming on top-ups", () => {
     });
   });
 });
+
+// U2: buy-more from the holder (ticket manage) page widens auth to accept a per-ticket
+// manage_token, mirroring the cancel route's dual-token model. This mock is filter-aware
+// (unlike `adminClient` above) so it can tell a registration-token lookup apart from a
+// ticket-token lookup, and tell one registration apart from another — the thing that
+// matters for the "different booking" security property.
+function dualTokenAdmin(opts: {
+  /** event_registrations rows keyed by their OWN manage_token. */
+  regsByToken?: Record<string, Record<string, unknown>>;
+  /** event_registrations rows keyed by id — how a ticket token's owning booking is found. */
+  regsById?: Record<string, Record<string, unknown>>;
+  /** tickets rows keyed by their OWN manage_token. */
+  ticketsByToken?: Record<string, Record<string, unknown> | null>;
+  price?: number;
+}) {
+  return {
+    from: (table: string) => {
+      let cols = "";
+      const filters: Record<string, unknown> = {};
+      const c: Record<string, unknown> = {};
+      c.select = (s: string) => {
+        cols = s;
+        return c;
+      };
+      c.eq = (k: string, v: unknown) => {
+        filters[k] = v;
+        return c;
+      };
+      c.in = () => c;
+      c.is = () => c;
+      c.limit = () => c;
+      c.insert = (payload: Record<string, unknown>) => {
+        if (table === "event_registration_topups") {
+          lastTopupInsert = payload;
+        }
+        return c;
+      };
+      c.maybeSingle = async () => {
+        if (table === "event_registrations") {
+          if ("manage_token" in filters) {
+            return { data: (opts.regsByToken ?? {})[filters.manage_token as string] ?? null, error: null };
+          }
+          if ("id" in filters) {
+            return { data: (opts.regsById ?? {})[filters.id as string] ?? null, error: null };
+          }
+        }
+        if (table === "tickets" && cols.includes("registration_id")) {
+          return { data: (opts.ticketsByToken ?? {})[filters.manage_token as string] ?? null, error: null };
+        }
+        if (table === "events") return { data: { seat_cap: null }, error: null };
+        if (table === "event_registration_topups") return { data: { id: "topup-1" }, error: null };
+        return { data: null, error: null };
+      };
+      (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) => {
+        // Claimed-name dedupe read — none pre-existing in these scenarios.
+        if (table === "tickets") return resolve({ data: [], error: null });
+        if (table === "event_ticket_types")
+          return resolve({
+            data: [
+              {
+                id: TYPE,
+                title: "Adult",
+                price_member: opts.price ?? 25,
+                price_non_member: 40,
+                archived_at: null,
+                counts_as_seat: false,
+              },
+            ],
+            error: null,
+          });
+        return resolve({ data: [], error: null });
+      };
+      return c;
+    },
+    rpc: async () => ({ data: { status: "applied", added: 1 }, error: null }),
+  } as unknown as ReturnType<typeof createAdminClient>;
+}
+
+let lastTopupInsert: Record<string, unknown> | null = null;
+
+const REG_A = { id: "reg-A", event_id: "evt", is_member: true, status: "paid", email: "a@x.com" };
+const REG_B = { id: "reg-B", event_id: "evt", is_member: true, status: "paid", email: "b@x.com" };
+
+describe("dual-token auth (U2 — buy-more from the ticket manage page)", () => {
+  beforeEach(() => {
+    lastTopupInsert = null;
+  });
+
+  it("accepts a per-ticket manage token and lands the purchase on THAT ticket's booking", async () => {
+    mockedAdmin.mockReturnValue(
+      dualTokenAdmin({
+        regsByToken: {}, // "tkt-of-A" is not a registration token
+        regsById: { "reg-A": REG_A },
+        ticketsByToken: { "tkt-of-A": { id: "t1", registration_id: "reg-A" } },
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "tkt-of-A");
+    expect(res.status).toBe(200);
+    expect(lastTopupInsert).toMatchObject({ registration_id: "reg-A" });
+  });
+
+  it("still accepts a registration manage token so old booking-page links do not regress", async () => {
+    mockedAdmin.mockReturnValue(
+      dualTokenAdmin({
+        regsByToken: { "reg-tok-A": REG_A },
+        regsById: {},
+        ticketsByToken: {},
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "reg-tok-A");
+    expect(res.status).toBe(200);
+    expect(lastTopupInsert).toMatchObject({ registration_id: "reg-A" });
+  });
+
+  // The load-bearing security property: a ticket token that belongs to booking B must
+  // never let a purchase land on booking A, even though A exists in the same lookup space
+  // (e.g. another registration the caller has no relationship to). The route can only ever
+  // resolve the ONE registration the ticket's own registration_id points to.
+  it("a ticket token for booking B never lands the purchase on booking A", async () => {
+    mockedAdmin.mockReturnValue(
+      dualTokenAdmin({
+        regsByToken: {},
+        regsById: { "reg-A": REG_A, "reg-B": REG_B },
+        ticketsByToken: { "tkt-of-B": { id: "t2", registration_id: "reg-B" } },
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "tkt-of-B");
+    expect(res.status).toBe(200);
+    expect(lastTopupInsert).toMatchObject({ registration_id: "reg-B" });
+    expect(lastTopupInsert).not.toMatchObject({ registration_id: "reg-A" });
+  });
+
+  // A ticket token that matches no live ticket at all (unknown / rotated / released) is
+  // refused outright — there is no booking to resolve, paid or otherwise.
+  it("refuses a token that matches neither a registration nor a live ticket", async () => {
+    mockedAdmin.mockReturnValue(dualTokenAdmin({ regsByToken: {}, regsById: {}, ticketsByToken: {} }));
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "unknown-tok");
+    expect(res.status).toBe(404);
+  });
+
+  // A ticket that has no registration (a standalone door walk-up) has no booking to buy
+  // more onto.
+  it("refuses a ticket token whose ticket has no registration", async () => {
+    mockedAdmin.mockReturnValue(
+      dualTokenAdmin({
+        regsByToken: {},
+        regsById: {},
+        ticketsByToken: { "solo-tkt": { id: "t3", registration_id: null } },
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "solo-tkt");
+    expect(res.status).toBe(404);
+  });
+
+  it("a seat submitted without an email is refused before any Stripe session is created", async () => {
+    mockedAdmin.mockReturnValue(
+      dualTokenAdmin({
+        regsByToken: {},
+        regsById: { "reg-A": REG_A },
+        ticketsByToken: { "tkt-of-A": { id: "t1", registration_id: "reg-A" } },
+      })
+    );
+    const res = await post(
+      { items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: [{ ticket_type_id: TYPE, name: "Ana Vidal", email: "" }] },
+      "tkt-of-A"
+    );
+    expect(res.status).toBe(400);
+    expect(sessionCreate).not.toHaveBeenCalled();
+  });
+
+  it("sends the success and cancel return URLs to the ticket page for a ticket token", async () => {
+    mockedAdmin.mockReturnValue(
+      dualTokenAdmin({
+        regsByToken: {},
+        regsById: { "reg-A": REG_A },
+        ticketsByToken: { "tkt-of-A": { id: "t1", registration_id: "reg-A" } },
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "tkt-of-A");
+    expect(res.status).toBe(200);
+    expect(sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success_url: expect.stringContaining("/public/tickets/tkt-of-A"),
+        cancel_url: expect.stringContaining("/public/tickets/tkt-of-A"),
+      })
+    );
+  });
+
+  it("sends the success and cancel return URLs to the booking page for a registration token", async () => {
+    mockedAdmin.mockReturnValue(
+      dualTokenAdmin({
+        regsByToken: { "reg-tok-A": REG_A },
+        regsById: {},
+        ticketsByToken: {},
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "reg-tok-A");
+    expect(res.status).toBe(200);
+    expect(sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success_url: expect.stringContaining("/public/bookings/reg-tok-A"),
+        cancel_url: expect.stringContaining("/public/bookings/reg-tok-A"),
+      })
+    );
+  });
+});
