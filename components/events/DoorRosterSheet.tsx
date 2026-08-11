@@ -20,7 +20,7 @@ function formatDate(iso: string | null): string {
 }
 
 /**
- * The printed door sheet: every ticket sold, one line each, in a single flat A→Z list
+ * The printed door sheet: every admissible ticket, one line each, in a single flat A→Z list
  * by surname across the whole event — leads and named guests intermixed, so staff can
  * find any named person by their own surname. Each row is self-sufficient (name, ticket
  * type, contact, ref, and a "guest of X" / "lead" label), because a guest now sorts away
@@ -29,7 +29,7 @@ function formatDate(iso: string | null): string {
  * rule to write the name on. Those unnamed lines have no surname to sort on, so they
  * trail at the end under a "To fill in" divider.
  *
- * The same rows, in the same order, back the CSV export (lib/events/door-roster).
+ * Rows come from lib/events/door-roster, which is this sheet's only consumer.
  */
 export default function DoorRosterSheet({ event, rows, typeTotals }: Props) {
   const totalTickets = rows.length;

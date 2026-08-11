@@ -421,7 +421,9 @@ describe("buildDoorRoster — cancelled seats", () => {
     // 2 bought + 1 bought, 2 cancelled → 1 person can actually walk in.
     expect(roster.expected).toBe(1);
     expect(roster.notArrived.map((r) => r.name)).toEqual(["Alice Lead"]);
-    expect(roster.outstanding).toBe(roster.notArrived.length);
+    // `outstanding === notArrived.length` holds by construction, so asserting it proves
+    // nothing; this pins the claim the field actually makes.
+    expect(roster.outstanding).toBe(roster.expected - roster.arrived);
     // The whole point of `unaccounted`: cancelled seats must not land in it either.
     expect(roster.unaccounted).toBe(0);
   });

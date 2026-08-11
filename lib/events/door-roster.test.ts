@@ -171,6 +171,36 @@ describe("buildDoorRoster — cancelled seats", () => {
     expect(rosterTypeTotals(rows)).toEqual([{ title: "Dinner", qty: 1 }]);
   });
 
+  // The early-bail only covered a FULLY cancelled party. When the lead cancels and a guest
+  // is still coming, the lead's row is partitioned out, so the reconstruct-from-purchaser
+  // branch rebuilt the refunded person as a named, tickable, isLead line — two lines for one
+  // remaining seat, one of them someone who had been refunded.
+  it("does not rebuild a cancelled lead from the purchaser when a guest is still coming", async () => {
+    const tables = fixture();
+    tables.tickets = [
+      ticket({ id: "tk-lead", is_lead: true, name: "Yannick Favre", cancellation_status: "refunded" }),
+      ticket({ id: "tk-guest", name: "Chloe Favre", email: "chloe@example.com" }),
+    ];
+    const { rows } = await build(tables);
+
+    expect(rows.some((r) => r.first === "Yannick")).toBe(false);
+    expect(rows.filter((r) => r.bookingRef === "GPC-0001")).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ first: "Chloe", named: true });
+    // The party size still has to be visible somewhere once the lead line is gone.
+    expect(rows[0].tickets).toBe("1");
+  });
+
+  // The reconstruct branch must still fire for its real case: a legacy party that never had
+  // ticket rows at all. Cancelling is not the same as never minting.
+  it("still rebuilds a lead that was never minted", async () => {
+    const tables = fixture();
+    tables.tickets = [];
+    tables.event_registrations = tables.event_registrations.filter((r) => r.id === "reg-paid");
+    const { rows } = await build(tables);
+
+    expect(rows.some((r) => r.first === "Yannick" && r.isLead)).toBe(true);
+  });
+
   // The padding itself is legitimate: a booking whose ticket rows were never minted still
   // has to print its seats, or staff arrive with a short sheet.
   it("still pads a booking whose tickets were never minted", async () => {

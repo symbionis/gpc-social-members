@@ -67,13 +67,17 @@ interface Props {
   total: number;
   /** Every ticket booked, cancellations included: paid + free + guest list. Display only. */
   booked: number;
+  /** True when the authoritative active count could not be read, so booked/cancelled cannot
+   * be reconciled and the breakdown must not be shown as fact. */
+  figuresDegraded: boolean;
   /** Tickets paid for, cancellations included — the money figure. */
   paidTickets: number;
   /** Tickets on free bookings that are not a guest list. */
   freeTickets: number;
   /** Tickets given back, so booked and active visibly reconcile. */
   cancelledSeats: number;
-  /** Comp tickets across every guest list — the comped share of the attendee count. */
+  /** Comp tickets across every guest list, cancellations included — so it is on the same
+   * basis as `booked`, not the (cancelled-excluding) attendee roster. */
   guestListSeats: number;
   /** How many sponsors hold a list. */
   guestListCount: number;
@@ -119,6 +123,7 @@ export default function ManageEventTabs({
   hasSeatCap,
   total,
   booked,
+  figuresDegraded,
   paidTickets,
   freeTickets,
   cancelledSeats,
@@ -269,6 +274,10 @@ export default function ManageEventTabs({
         quantity: draft.quantity,
         offerable: true,
         offerable_reason: null,
+        // Clear this too, or the optimistic row lands in offerable+repairable — a pair
+        // deriveWaitlistOfferability never produces. Harmless while every consumer checks
+        // `offerable` first; a trap for the one that eventually doesn't.
+        offerable_repairable: false,
       });
       patchRepairRow(entry.id, { submitting: false, error: null });
       setRepairOpen((s) => ({ ...s, [entry.id]: false }));
@@ -337,6 +346,7 @@ export default function ManageEventTabs({
               <EventRosterSummary
                 total={total}
                 booked={booked}
+                figuresDegraded={figuresDegraded}
                 paidTickets={paidTickets}
                 freeTickets={freeTickets}
                 cancelledSeats={cancelledSeats}

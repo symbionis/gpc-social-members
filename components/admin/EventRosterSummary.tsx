@@ -36,9 +36,12 @@ interface Props {
   booked: number;
   /** Tickets PAID FOR, cancellations included — the money figure. */
   paidTickets: number;
+  /** True when the active count could not be read, so the figures cannot be reconciled. */
+  figuresDegraded?: boolean;
   /** Tickets on free bookings that are not a guest list (a free event, or a zero-priced type). */
   freeTickets: number;
-  /** Tickets given back. Shown so booked and active visibly reconcile instead of contradicting. */
+  /** Tickets given back — DERIVED as `booked − active`, not counted, so it absorbs any
+   * disagreement between those two figures. Shown so booked and active visibly reconcile. */
   cancelledSeats: number;
   /** Comp tickets across every guest list, cancellations included. */
   guestListSeats: number;
@@ -96,6 +99,7 @@ function Panel({
 export default function EventRosterSummary({
   total,
   booked,
+  figuresDegraded = false,
   paidTickets,
   freeTickets,
   cancelledSeats,
@@ -109,7 +113,9 @@ export default function EventRosterSummary({
   // Worth showing only when booked says something active does not: a cancellation happened,
   // or the tickets came from more than one place (paid, free, a guest list).
   const categories = [paidTickets, freeTickets, guestListSeats].filter((n) => n > 0);
-  const showBreakdown = cancelledSeats > 0 || categories.length > 1;
+  // Never claim a reconciliation we could not compute: with the active count unavailable,
+  // `cancelled` collapses to 0 and the panels would read as a clean, fully-reconciled event.
+  const showBreakdown = !figuresDegraded && (cancelledSeats > 0 || categories.length > 1);
 
   const capacitySub = hasSeatCap
     ? overbooked

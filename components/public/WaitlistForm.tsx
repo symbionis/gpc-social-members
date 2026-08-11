@@ -11,7 +11,6 @@ interface Props {
   defaultEmail?: string;
 }
 
-
 export default function WaitlistForm({
   eventId,
   ticketTypes,

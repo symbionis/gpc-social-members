@@ -71,6 +71,8 @@ The lifecycle state of a Ticket: **issued** (minted with a credential at purchas
 
 A Ticket can also be *released* — tombstoned rather than deleted, so the old credential stops admitting anyone while the identity and waiver record survives. Releasing is no longer how a **paid** seat is freed; that is a Cancellation, so the seat and its money are accounted for together. The remaining release path is removing a comped guest from a Guest List, which shrinks the party and returns the seat to the Event. A released row is never a live seat, and anything counting seats or money must exclude it.
 
+Door **roster** surfaces — the lists staff read from — admit **issued** and **claimed** and nothing else. The rule is an allowlist rather than "not unclaimed": a status these surfaces do not recognise must fall off the roster, never onto it as an anonymous line someone could tick off at the door. The QR scan is gated differently, on the Ticket's own Credential and Cancellation rather than on Slot Status.
+
 ### Booking Page
 The Lead's self-service page for a Registration, reached by a private manage link, where they name each Ticket, share Tickets with guests, see every QR, and buy more.
 

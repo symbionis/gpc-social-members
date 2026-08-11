@@ -124,6 +124,7 @@ describe("ManageEventTabs — Guest list replaces Import", () => {
         registrationEnabled
         cancellations={[]}
       booked={0}
+      figuresDegraded={false}
       paidTickets={0}
       freeTickets={0}
       cancelledSeats={0}

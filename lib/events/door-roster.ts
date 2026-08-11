@@ -2,7 +2,7 @@ import type { createAdminClient } from "@/lib/supabase/admin";
 import {
   ADMISSIBLE_SLOT_STATUSES,
   partitionByCancellation,
-  seatsForRegistration,
+  admissibleTicketsForRegistration,
 } from "@/lib/events/ticket-admissibility";
 
 // The door roster: every ticket sold for an event, as one row each, in a single flat
@@ -171,8 +171,21 @@ export async function buildDoorRoster(
   // to `registration.quantity`, and that quantity still counts cancelled seats. Filtering
   // in SQL alone put them straight back on the sheet as blank "to fill in" lines — and
   // re-materialised a fully refunded booking as a reconstructed lead row.
-  const { live: tickets, cancelledByRegistration } = partitionByCancellation(
-    (ticketData || []) as unknown as TicketRow[]
+  const {
+    live: tickets,
+    cancelled: cancelledTickets,
+    cancelledByRegistration,
+  } = partitionByCancellation((ticketData || []) as unknown as TicketRow[]);
+
+  // Bookings whose LEAD ticket was cancelled. The reconstruct-from-purchaser branch below
+  // exists for a legacy party that never had ticket rows; without this it also fires when the
+  // lead simply cancelled, rebuilding the refunded person from the registration as a named,
+  // tickable line while their guest is still coming. That printed two lines for one seat, one
+  // of them a person who had been refunded.
+  const cancelledLeadRegistrations = new Set(
+    cancelledTickets
+      .filter((t) => t.is_lead && t.registration_id)
+      .map((t) => t.registration_id as string)
   );
 
   const { data: typeRows, error: typeRowsError } = await adminClient
@@ -304,12 +317,14 @@ export async function buildDoorRoster(
     const bookingRef = reg.reference_code ?? "";
     // Seats this booking can still bring through the door: what it bought, less what has
     // been cancelled. Using the raw quantity padded refunded seats back onto the sheet.
-    const quantity = seatsForRegistration(reg, cancelledByRegistration);
+    const quantity = admissibleTicketsForRegistration(reg, cancelledByRegistration);
     const live = liveByReg.get(reg.id) ?? [];
     // Nothing left standing — a fully cancelled booking. Emit no rows at all: without this
     // the lead is rebuilt from the purchaser below and a refunded party prints as arrivable.
     if (quantity === 0 && live.length === 0) continue;
     const leadTicket = live.find((t) => t.is_lead && isClaimed(t)) ?? null;
+    // Cancelled, not missing: do not rebuild this lead from the purchaser.
+    const leadWasCancelled = cancelledLeadRegistrations.has(reg.id);
 
     // Who the guests are a `guest of`: the claimed lead when there is one, else the
     // purchaser on the registration. So this is never a dangling "guest of ", even on
@@ -335,13 +350,15 @@ export async function buildDoorRoster(
     }
     const nextType = () => typePool.shift() ?? "";
 
-    let leadRow: RosterRow;
+    // Null when the lead's own ticket was cancelled: the party still has live guests to
+    // print, but the person who bought it is not coming and must not be given a line.
+    let leadRow: RosterRow | null = null;
     if (leadTicket) {
       leadRow = {
         ...rowFromTicket(leadTicket, bookingRef, "lead"),
         tickets: String(quantity),
       };
-    } else {
+    } else if (!leadWasCancelled) {
       // No claimed lead ticket. Rebuild the lead from the purchaser: a legacy party,
       // minted before ticket rows existed, still knows who bought it — so the party is
       // never anonymous or unsortable. waiver/arrived stay blank: there is no ticket
@@ -378,7 +395,7 @@ export async function buildDoorRoster(
     // lead when there is one; a reconstructed lead occupies one of the party's lines
     // too. A party whose live rows exceed its quantity pads by zero and is never
     // truncated — losing a real ticket is worse than an over-long party block.
-    const emitted = live.length + (leadTicket ? 0 : 1);
+    const emitted = live.length + (leadRow && !leadTicket ? 1 : 0);
     const padCount = Math.max(0, quantity - emitted);
     const padded: RosterRow[] = Array.from({ length: padCount }, () => ({
       bookingRef,
@@ -409,7 +426,13 @@ export async function buildDoorRoster(
       });
     }
 
-    rows.push(leadRow, ...namedGuests, ...unnamedGuests, ...padded);
+    // With a cancelled lead there is no lead row, so the party size rides on its first
+    // remaining line — otherwise the booking prints with no indication of how many it holds.
+    const partyRows = [...namedGuests, ...unnamedGuests, ...padded];
+    if (!leadRow && partyRows.length > 0) {
+      partyRows[0] = { ...partyRows[0], tickets: String(quantity) };
+    }
+    rows.push(...(leadRow ? [leadRow] : []), ...partyRows);
   }
 
   // Ops/bulk-imported tickets belong to no registration. Each files under its own

@@ -26,6 +26,12 @@ type Cfg = {
   registrations?: Row[];
   /** Existing waitlist rows, matched on email by the one-entry-per-person guard. */
   waitlistEntries?: Row[];
+  /** Force a query error, so the fail-closed branches are reachable from a test at all. */
+  ticketTypeError?: boolean;
+  registrationsError?: boolean;
+  waitlistLookupError?: boolean;
+  /** Simulate the unique index catching a concurrent duplicate the pre-check raced past. */
+  insertDuplicate?: boolean;
   captured?: Row;
 };
 
@@ -65,7 +71,10 @@ function adminClient(cfg: Cfg) {
           rows = rows.filter((r) => (r[col] ?? null) === val);
           return c;
         };
-        c.maybeSingle = async () => ({ data: rows[0] ?? null, error: null });
+        c.maybeSingle = async () =>
+          cfg.ticketTypeError
+            ? { data: null, error: { message: "ticket type lookup failed" } }
+            : { data: rows[0] ?? null, error: null };
         return c;
       }
       if (table === "event_registrations") {
@@ -82,7 +91,12 @@ function adminClient(cfg: Cfg) {
         c.limit = () => c;
         (c as { then: unknown }).then = (
           resolve: (r: { data: unknown; error: unknown }) => unknown
-        ) => resolve({ data: rows, error: null });
+        ) =>
+          resolve(
+            cfg.registrationsError
+              ? { data: null, error: { message: "registration lookup failed" } }
+              : { data: rows, error: null }
+          );
         return c;
       }
       if (table === "event_waitlist") {
@@ -95,8 +109,14 @@ function adminClient(cfg: Cfg) {
         c.limit = () => c;
         (c as { then: unknown }).then = (
           resolve: (r: { data: unknown; error: unknown }) => unknown
-        ) => resolve({ data: rows, error: null });
+        ) =>
+          resolve(
+            cfg.waitlistLookupError
+              ? { data: null, error: { message: "waitlist lookup failed" } }
+              : { data: rows, error: null }
+          );
         c.insert = async (payload: Row) => {
+          if (cfg.insertDuplicate) return { error: { code: "23505", message: "duplicate key" } };
           cfg.captured = payload;
           return { error: null };
         };
@@ -343,5 +363,61 @@ describe("POST /api/events/[id]/waitlist — one entry per email", () => {
       ticket_type_id: "tt-dinner",
     });
     expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * Each guard below fails CLOSED: on a query error the signup is refused rather than accepted,
+ * because proceeding would create exactly the entry the guard exists to prevent and nothing
+ * downstream could tell it apart from an ordinary signup. Without these tests all three
+ * branches were deletable with the suite green.
+ */
+describe("POST /api/events/[id]/waitlist — fails closed on query errors", () => {
+  it("refuses when the ticket-type lookup fails, and does not blame the ticket type", async () => {
+    const cfg: Cfg = { ticketTypes: [seatType], ticketTypeError: true };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+
+    const res = await post({ ...VALID, ticket_type_id: "tt-dinner" });
+
+    expect(res.status).toBe(500);
+    // Telling someone their type is unavailable when the lookup merely failed sends them to
+    // refresh, see it still offered, and give up.
+    expect(await res.json()).toMatchObject({ error: "Could not verify availability" });
+    expect(cfg.captured).toBeUndefined();
+  });
+
+  it("refuses when the already-registered lookup fails", async () => {
+    const cfg: Cfg = { ticketTypes: [seatType], registrationsError: true };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+
+    const res = await post({ ...VALID, ticket_type_id: "tt-dinner" });
+
+    expect(res.status).toBe(500);
+    expect(cfg.captured).toBeUndefined();
+  });
+
+  it("refuses when the duplicate-entry lookup fails", async () => {
+    const cfg: Cfg = { ticketTypes: [seatType], waitlistLookupError: true };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+
+    const res = await post({ ...VALID, ticket_type_id: "tt-dinner" });
+
+    expect(res.status).toBe(500);
+    expect(cfg.captured).toBeUndefined();
+  });
+
+  // The race the unique index exists to catch: two submissions in flight, both past the
+  // pre-check. The index rejects the second, and the user must see the readable message
+  // rather than a generic failure.
+  it("turns a concurrent duplicate into the same readable message", async () => {
+    const cfg: Cfg = { ticketTypes: [seatType], insertDuplicate: true };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+
+    const res = await post({ ...VALID, ticket_type_id: "tt-dinner" });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "You are already on the waitlist for this event",
+    });
   });
 });

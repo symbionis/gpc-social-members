@@ -7,7 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   ADMISSIBLE_SLOT_STATUSES,
   partitionByCancellation,
-  seatsForRegistration,
+  admissibleTicketsForRegistration,
 } from "@/lib/events/ticket-admissibility";
 
 export interface DoorEvent {
@@ -103,7 +103,8 @@ export interface DoorRoster {
    */
   outstanding: number;
   /**
-   * expected − arrived − outstanding: seats sold with NO ticket row in either feed. Zero for
+   * expected − arrived − outstanding: live seats (quantity less cancellations) with NO
+   * ticket row in either feed. Zero for
    * a healthy event. Non-zero means some party's rows and its quantity disagree, and those
    * people cannot be found or checked in from the console.
    *
@@ -219,15 +220,23 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
   const { live: attendees, cancelledByRegistration } =
     partitionByCancellation(allAttendees);
   const seatsFor = (reg: { id: string; quantity: number | null }) =>
-    seatsForRegistration(reg, cancelledByRegistration);
+    admissibleTicketsForRegistration(reg, cancelledByRegistration);
 
   // Active ticket types → titles + sort order for empty slots.
-  const { data: ttRows } = await supabase
+  const { data: ttRows, error: ttErr } = await supabase
     .from("event_ticket_types")
     .select("id, title, sort_order")
     .eq("event_id", eventId)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
+  // Throw rather than degrade, exactly as readAllRows does above: on failure every slot would
+  // render with a blank ticket type, so door staff get a console with no bracelet on any line
+  // and no sign anything is wrong.
+  if (ttErr) {
+    throw new Error(`buildDoorRoster: could not load ticket types: ${ttErr.message}`, {
+      cause: ttErr,
+    });
+  }
   const ticketTitleById = new Map<string, string>();
   const ticketSortById = new Map<string, number>();
   for (const t of ttRows ?? []) {
@@ -261,7 +270,16 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
   const parties: DoorParty[] = registrations
     // A booking whose every seat was cancelled has nothing left to admit. Without this it
     // still rendered a party card at the door — a refunded guest listed as expected.
-    .filter((reg) => seatsFor(reg) > 0 || (claimedByReg.get(reg.id)?.length ?? 0) > 0)
+    // Keyed on ANY live row, not just claimed ones. An over-cancelled booking that still
+    // holds an issued ticket has someone the scan would admit; dropping the party made that
+    // person unfindable on the console and, because `expected` went to 0 too, invisible in
+    // `unaccounted` as well. The sheet keeps such a party, and the two must agree.
+    .filter(
+      (reg) =>
+        seatsFor(reg) > 0 ||
+        (claimedByReg.get(reg.id)?.length ?? 0) > 0 ||
+        (issuedByReg.get(reg.id)?.length ?? 0) > 0
+    )
     .map((reg) => {
     const claimed = (claimedByReg.get(reg.id) ?? []).slice().sort((a, b) => {
       if (a.is_lead !== b.is_lead) return a.is_lead ? -1 : 1; // lead first

@@ -117,7 +117,7 @@ export async function POST(
   // never be offered one (deriveWaitlistOfferability rejects it), so accepting the
   // signup would queue someone behind a seat that will never be freed for them, and
   // leave an entry an admin can only ever repair or delete.
-  const { data: ticketType } = await supabase
+  const { data: ticketType, error: ticketTypeErr } = await supabase
     .from("event_ticket_types")
     .select("id")
     .eq("id", ticketTypeId)
@@ -125,6 +125,13 @@ export async function POST(
     .is("archived_at", null)
     .eq("counts_as_seat", true)
     .maybeSingle();
+  if (ticketTypeErr) {
+    // Not the same as "no such type": telling someone their ticket type is unavailable when
+    // the lookup simply failed sends them to refresh, see it still offered, and give up —
+    // with nothing logged anywhere. Match the two guards below and fail loudly.
+    console.error("[event-waitlist] ticket type lookup failed", { eventId, ticketTypeId, err: ticketTypeErr });
+    return bad("Could not verify availability", 500);
+  }
   if (!ticketType) {
     return bad("That ticket type is no longer available — please refresh and try again.");
   }
@@ -154,8 +161,8 @@ export async function POST(
 
   // One entry per email per event. A second entry cannot be offered anything the first
   // cannot, and two rows for one person is exactly the clutter an admin then has to
-  // reconcile by hand. The partial unique index is the race-safe backstop; this is the
-  // readable error.
+  // reconcile by hand. The unique index on (event_id, lower(trim(email))) is the race-safe
+  // backstop; this is the readable error.
   const { data: existingEntry, error: existingErr } = await supabase
     .from("event_waitlist")
     .select("id")
