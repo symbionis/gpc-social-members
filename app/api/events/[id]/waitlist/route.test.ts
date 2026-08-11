@@ -24,6 +24,8 @@ type Cfg = {
   ticketTypes: Row[];
   /** Live registrations for the event, matched on email by the already-registered guard. */
   registrations?: Row[];
+  /** Existing waitlist rows, matched on email by the one-entry-per-person guard. */
+  waitlistEntries?: Row[];
   captured?: Row;
 };
 
@@ -84,6 +86,16 @@ function adminClient(cfg: Cfg) {
         return c;
       }
       if (table === "event_waitlist") {
+        let rows = (cfg.waitlistEntries ?? []).slice();
+        c.select = () => c;
+        c.eq = (col: string, val: unknown) => {
+          rows = rows.filter((r) => r[col] === val);
+          return c;
+        };
+        c.limit = () => c;
+        (c as { then: unknown }).then = (
+          resolve: (r: { data: unknown; error: unknown }) => unknown
+        ) => resolve({ data: rows, error: null });
         c.insert = async (payload: Row) => {
           cfg.captured = payload;
           return { error: null };
@@ -121,7 +133,8 @@ const archivedType: Row = {
   counts_as_seat: true,
 };
 
-const VALID = { name: "Sophie Lambert", email: "sophie@example.com", quantity: 2 };
+// No quantity: the waitlist is one ticket per person, so the field is absent in practice.
+const VALID = { name: "Sophie Lambert", email: "sophie@example.com" };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -139,7 +152,7 @@ describe("POST /api/events/[id]/waitlist — ticket type", () => {
     const res = await post({ ...VALID, ticket_type_id: "tt-dinner" });
 
     expect(res.status).toBe(200);
-    expect(cfg.captured).toMatchObject({ ticket_type_id: "tt-dinner", quantity: 2 });
+    expect(cfg.captured).toMatchObject({ ticket_type_id: "tt-dinner", quantity: 1 });
   });
 
   // The waitlist exists to queue people for a SEAT. A type that consumes none can never be
@@ -247,5 +260,88 @@ describe("POST /api/events/[id]/waitlist — already registered", () => {
 
     const res = await post({ ...VALID, ticket_type_id: "tt-dinner" });
     expect(res.status).toBe(200);
+  });
+});
+
+describe("POST /api/events/[id]/waitlist — one ticket per person", () => {
+  // A request for several seats carries no name or email for the extra people, so redeeming
+  // it would mint unnamed tickets — the thing every other purchase path was changed to stop.
+  it("stores a quantity of 1 when none is sent", async () => {
+    const cfg: Cfg = { ticketTypes: [seatType] };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+
+    const res = await post({
+      name: VALID.name,
+      email: VALID.email,
+      ticket_type_id: "tt-dinner",
+    });
+
+    expect(res.status).toBe(200);
+    expect(cfg.captured).toMatchObject({ quantity: 1 });
+  });
+
+  // A stale cached form is refused rather than silently reduced to 1 — the person asked for
+  // two seats and should be told they cannot have them, not quietly given one.
+  it.each([2, 5, 10])("refuses a request for %s tickets", async (quantity) => {
+    const cfg: Cfg = { ticketTypes: [seatType] };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+
+    const res = await post({ ...VALID, quantity, ticket_type_id: "tt-dinner" });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "The waitlist is one ticket per person — please refresh and try again.",
+    });
+    expect(cfg.captured).toBeUndefined();
+  });
+});
+
+describe("POST /api/events/[id]/waitlist — one entry per email", () => {
+  it("rejects a second signup with the same email", async () => {
+    const cfg: Cfg = {
+      ticketTypes: [seatType],
+      waitlistEntries: [
+        { id: "wl-1", event_id: EVENT_ID, email: "sophie@example.com" },
+      ],
+    };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+
+    const res = await post({ ...VALID, ticket_type_id: "tt-dinner" });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "You are already on the waitlist for this event",
+    });
+    expect(cfg.captured).toBeUndefined();
+  });
+
+  it("allows the same email on a different event", async () => {
+    const cfg: Cfg = {
+      ticketTypes: [seatType],
+      waitlistEntries: [
+        { id: "wl-1", event_id: "evt-OTHER", email: "sophie@example.com" },
+      ],
+    };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+
+    const res = await post({ ...VALID, ticket_type_id: "tt-dinner" });
+    expect(res.status).toBe(200);
+  });
+
+  it("matches the email case-insensitively, as it is stored", async () => {
+    const cfg: Cfg = {
+      ticketTypes: [seatType],
+      waitlistEntries: [
+        { id: "wl-1", event_id: EVENT_ID, email: "sophie@example.com" },
+      ],
+    };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+
+    const res = await post({
+      ...VALID,
+      email: "  SOPHIE@Example.com ",
+      ticket_type_id: "tt-dinner",
+    });
+    expect(res.status).toBe(400);
   });
 });

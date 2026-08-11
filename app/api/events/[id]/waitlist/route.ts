@@ -27,16 +27,22 @@ export async function POST(
     typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const ticketTypeId =
     typeof body.ticket_type_id === "string" ? body.ticket_type_id : "";
+  // One ticket per person (R6). A waitlist request for several seats carries no name or
+  // email for the extra people, so redeeming it would mint unnamed tickets — the exact
+  // thing every other purchase path was changed to prevent. An absent quantity means 1;
+  // anything else is a stale client, and is refused rather than silently reduced.
   const quantity =
-    typeof body.quantity === "number"
-      ? body.quantity
-      : Number.parseInt(String(body.quantity ?? ""), 10);
+    body.quantity === undefined || body.quantity === null
+      ? 1
+      : typeof body.quantity === "number"
+        ? body.quantity
+        : Number.parseInt(String(body.quantity), 10);
 
   if (!name) return bad("name is required");
   if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
   if (!ticketTypeId) return bad("Please choose a ticket type");
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
-    return bad("quantity must be an integer between 1 and 10");
+  if (quantity !== 1) {
+    return bad("The waitlist is one ticket per person — please refresh and try again.");
   }
 
   const supabase = createAdminClient();
@@ -146,6 +152,24 @@ export async function POST(
     return bad("You already have a registration for this event");
   }
 
+  // One entry per email per event. A second entry cannot be offered anything the first
+  // cannot, and two rows for one person is exactly the clutter an admin then has to
+  // reconcile by hand. The partial unique index is the race-safe backstop; this is the
+  // readable error.
+  const { data: existingEntry, error: existingErr } = await supabase
+    .from("event_waitlist")
+    .select("id")
+    .eq("event_id", eventId)
+    .eq("email", email)
+    .limit(1);
+  if (existingErr) {
+    console.error("[event-waitlist] duplicate lookup failed", { eventId, err: existingErr });
+    return bad("Could not verify availability", 500);
+  }
+  if (existingEntry && existingEntry.length > 0) {
+    return bad("You are already on the waitlist for this event");
+  }
+
   const { error: insertErr } = await supabase
     .from("event_waitlist")
     .insert({
@@ -157,6 +181,10 @@ export async function POST(
     });
 
   if (insertErr) {
+    // 23505 = the unique index caught a concurrent duplicate the check above raced past.
+    if ((insertErr as { code?: string }).code === "23505") {
+      return bad("You are already on the waitlist for this event");
+    }
     console.error("[event-waitlist] insert failed", {
       eventId,
       email,
