@@ -60,6 +60,7 @@ function waitlistEntry(over: Partial<WaitlistEntry> = {}): WaitlistEntry {
     offer_sent_count: 0,
     offerable: true,
     offerable_reason: null,
+    offerable_repairable: false,
     redeemed: false,
     ...over,
   };
@@ -157,6 +158,7 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
           ticket_type_title: null,
           offerable: false,
           offerable_reason: "No ticket type is set for this entry",
+          offerable_repairable: true,
         }),
       ],
     });
@@ -180,6 +182,26 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  // "Already registered" is not repairable: no edit to the ticket type or quantity makes the
+  // entry offerable, so offering a Fix would send an admin into a form that cannot help.
+  it("states the reason and offers no Fix when the entry cannot be repaired", async () => {
+    const user = userEvent.setup();
+    renderTabs({
+      waitlist: [
+        waitlistEntry({
+          offerable: false,
+          offerable_reason: "Already registered for this event",
+          offerable_repairable: false,
+        }),
+      ],
+    });
+    await openWaitlistTab(user);
+
+    expect(screen.getByText("Already registered for this event")).toBeInTheDocument();
+    expect(screen.queryByText("Needs updating before it can be offered")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Fix" })).toBeNull();
+  });
+
   // Simplifying the row must not lose the diagnosis — it moves to where the repair happens.
   it("shows the specific reason once the row's Fix panel is opened", async () => {
     const user = userEvent.setup();
@@ -190,6 +212,7 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
           ticket_type_title: null,
           offerable: false,
           offerable_reason: "No ticket type is set for this entry",
+          offerable_repairable: true,
         }),
       ],
     });
@@ -215,6 +238,7 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
           ticket_type_title: null,
           offerable: false,
           offerable_reason: "No ticket type is set for this entry",
+          offerable_repairable: true,
         }),
       ],
     });
@@ -248,6 +272,7 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
           ticket_type_title: null,
           offerable: false,
           offerable_reason: "No ticket type is set for this entry",
+          offerable_repairable: true,
         }),
       ],
     });

@@ -32,6 +32,13 @@ export interface WaitlistOfferabilityInput {
 
 export interface WaitlistOfferabilityResult {
   offerable: boolean;
+  /**
+   * Whether an admin can DO anything about it. A dangling, archived or non-seat ticket type
+   * and a bad quantity are all repairable on the row. "Already registered" is not: there is
+   * no edit that makes the entry offerable, so the admin list must not offer a Fix that
+   * cannot fix it.
+   */
+  repairable: boolean;
   /** Human-readable reason the entry cannot be offered, naming the ticket type where
    * relevant. Null when offerable. */
   reason: string | null;
@@ -52,24 +59,27 @@ export function deriveWaitlistOfferability(
   if (entry.emailAlreadyRegistered) {
     return {
       offerable: false,
-      reason: "This email already has a registration for this event",
+      repairable: false,
+      reason: "Already registered for this event",
     };
   }
   if (!entry.ticket_type_id) {
-    return { offerable: false, reason: "No ticket type is set for this entry" };
+    return { offerable: false, repairable: true, reason: "No ticket type is set for this entry" };
   }
   if (!entry.ticketType) {
-    return { offerable: false, reason: "The requested ticket type no longer exists" };
+    return { offerable: false, repairable: true, reason: "The requested ticket type no longer exists" };
   }
   if (entry.ticketType.archived_at) {
     return {
       offerable: false,
+      repairable: true,
       reason: `"${entry.ticketType.title}" has been archived`,
     };
   }
   if (!entry.ticketType.counts_as_seat) {
     return {
       offerable: false,
+      repairable: true,
       reason: `"${entry.ticketType.title}" does not count toward capacity`,
     };
   }
@@ -80,9 +90,9 @@ export function deriveWaitlistOfferability(
     entry.quantity < 1 ||
     entry.quantity > 10
   ) {
-    return { offerable: false, reason: "Quantity must be between 1 and 10" };
+    return { offerable: false, repairable: true, reason: "Quantity must be between 1 and 10" };
   }
-  return { offerable: true, reason: null };
+  return { offerable: true, repairable: false, reason: null };
 }
 
 export interface LiveRegistrationForRedemption {

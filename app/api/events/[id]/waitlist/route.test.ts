@@ -22,6 +22,8 @@ type Row = Record<string, unknown>;
 
 type Cfg = {
   ticketTypes: Row[];
+  /** Live registrations for the event, matched on email by the already-registered guard. */
+  registrations?: Row[];
   captured?: Row;
 };
 
@@ -62,6 +64,23 @@ function adminClient(cfg: Cfg) {
           return c;
         };
         c.maybeSingle = async () => ({ data: rows[0] ?? null, error: null });
+        return c;
+      }
+      if (table === "event_registrations") {
+        let rows = (cfg.registrations ?? []).slice();
+        c.select = () => c;
+        c.eq = (col: string, val: unknown) => {
+          rows = rows.filter((r) => r[col] === val);
+          return c;
+        };
+        c.in = (col: string, vals: unknown[]) => {
+          rows = rows.filter((r) => vals.includes(r[col] as never));
+          return c;
+        };
+        c.limit = () => c;
+        (c as { then: unknown }).then = (
+          resolve: (r: { data: unknown; error: unknown }) => unknown
+        ) => resolve({ data: rows, error: null });
         return c;
       }
       if (table === "event_waitlist") {
@@ -179,5 +198,54 @@ describe("POST /api/events/[id]/waitlist — quantity", () => {
 
     expect(res.status).toBe(400);
     expect(cfg.captured).toBeUndefined();
+  });
+});
+
+describe("POST /api/events/[id]/waitlist — already registered", () => {
+  // The state that used to reach the admin waitlist as an unofferable row nobody could
+  // repair: the register route's duplicate-email guard would reject the redemption anyway.
+  it("rejects someone who already holds a seat", async () => {
+    const cfg: Cfg = {
+      ticketTypes: [seatType],
+      registrations: [
+        { id: "reg-1", event_id: EVENT_ID, email: "sophie@example.com", status: "paid" },
+      ],
+    };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+
+    const res = await post({ ...VALID, ticket_type_id: "tt-dinner" });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "You already have a registration for this event",
+    });
+    expect(cfg.captured).toBeUndefined();
+  });
+
+  it("ignores a registration for a different event", async () => {
+    const cfg: Cfg = {
+      ticketTypes: [seatType],
+      registrations: [
+        { id: "reg-1", event_id: "evt-OTHER", email: "sophie@example.com", status: "paid" },
+      ],
+    };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+
+    const res = await post({ ...VALID, ticket_type_id: "tt-dinner" });
+    expect(res.status).toBe(200);
+  });
+
+  // A pending checkout is not a seat — it may never be paid, so it must not block the queue.
+  it("ignores a pending registration", async () => {
+    const cfg: Cfg = {
+      ticketTypes: [seatType],
+      registrations: [
+        { id: "reg-1", event_id: EVENT_ID, email: "sophie@example.com", status: "pending" },
+      ],
+    };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+
+    const res = await post({ ...VALID, ticket_type_id: "tt-dinner" });
+    expect(res.status).toBe(200);
   });
 });

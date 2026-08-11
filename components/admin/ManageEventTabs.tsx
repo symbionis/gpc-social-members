@@ -39,6 +39,9 @@ interface Waitlist {
   offerable: boolean;
   /** Human-readable reason, present only when offerable is false. */
   offerable_reason: string | null;
+  /** Whether editing the row can make it offerable. False for "already registered", where
+   * no edit helps — the row must not offer a Fix that cannot fix it. */
+  offerable_repairable: boolean;
   /** KTD3/R12: the entry's linked (or, for legacy rows, email-matched) registration has
    * reached paid/free. A redeemed entry is filtered out of the visible waitlist below. */
   redeemed: boolean;
@@ -424,21 +427,26 @@ export default function ManageEventTabs({
                             {entry.quantity ? ` × ${entry.quantity}` : ""}
                             {!entry.offerable && (
                               <>
-                                {/* One calm line on the list, not the technical reason. The
-                                    specifics (archived type, non-seat type, legacy row) matter
-                                    to whoever repairs the entry, so they live in the Fix panel
-                                    below — four different error sentences competing for a
-                                    volunteer's attention only made the list harder to scan. */}
+                                {/* Repairable rows get one calm line and a Fix; the technical
+                                    specifics wait in the panel, for whoever does the repair.
+                                    An entry whose owner already holds a seat is NOT repairable
+                                    — no edit makes it offerable — so it states the fact and
+                                    offers no action, rather than sending an admin into a form
+                                    that cannot help. */}
                                 <p id={reasonId} className="text-xs text-amber-800 mt-0.5">
-                                  Needs updating before it can be offered
+                                  {entry.offerable_repairable
+                                    ? "Needs updating before it can be offered"
+                                    : entry.offerable_reason}
                                 </p>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleRepair(entry.id)}
-                                  className="text-xs text-marine underline mt-0.5 cursor-pointer"
-                                >
-                                  {isOpen ? "Cancel" : "Fix"}
-                                </button>
+                                {entry.offerable_repairable && (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleRepair(entry.id)}
+                                    className="text-xs text-marine underline mt-0.5 cursor-pointer"
+                                  >
+                                    {isOpen ? "Cancel" : "Fix"}
+                                  </button>
+                                )}
                               </>
                             )}
                           </td>

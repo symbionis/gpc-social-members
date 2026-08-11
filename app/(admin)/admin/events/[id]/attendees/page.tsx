@@ -502,6 +502,7 @@ export default async function ManageEventPage({
       offer_sent_count: entry.offer_sent_count,
       offerable: offerability.offerable,
       offerable_reason: offerability.reason,
+      offerable_repairable: offerability.repairable,
       redeemed,
     };
   });

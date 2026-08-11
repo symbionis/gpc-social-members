@@ -123,6 +123,29 @@ export async function POST(
     return bad("That ticket type is no longer available — please refresh and try again.");
   }
 
+  // Already holding a seat? Then there is nothing to queue for. The register route's
+  // duplicate-email guard would reject the redemption anyway (R12), so the entry could
+  // only ever sit in the admin waitlist unofferable, with no repair that helps.
+  //
+  // This does not make that state unreachable — someone can join the waitlist and buy a
+  // seat afterwards — but it removes the case the club will actually hit.
+  const { data: liveReg, error: liveRegErr } = await supabase
+    .from("event_registrations")
+    .select("id")
+    .eq("event_id", eventId)
+    .eq("email", email)
+    .in("status", ["paid", "free"])
+    .limit(1);
+  if (liveRegErr) {
+    // Fail closed: proceeding would create exactly the unofferable entry this check exists
+    // to prevent, and nothing downstream would flag it as an error rather than a signup.
+    console.error("[event-waitlist] registration lookup failed", { eventId, err: liveRegErr });
+    return bad("Could not verify availability", 500);
+  }
+  if (liveReg && liveReg.length > 0) {
+    return bad("You already have a registration for this event");
+  }
+
   const { error: insertErr } = await supabase
     .from("event_waitlist")
     .insert({
