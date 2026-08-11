@@ -16,6 +16,10 @@ export default function LoginForm() {
   const errorParam = searchParams.get("error");
   const message = searchParams.get("message");
   const paymentSuccess = searchParams.get("payment") === "success";
+  // U5: carries a signed-out offer holder back to the offer landing after
+  // sign-in. Validated server-side in verifyOtpCode (safeOfferReturnPath) —
+  // this is just a pass-through of an untrusted query param.
+  const next = searchParams.get("next");
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   // The code we've already sent to the server, so a re-render can't submit the
   // same six digits twice. Cleared whenever the code stops being complete.
@@ -41,7 +45,7 @@ export default function LoginForm() {
     setLoading(true);
     setError(null);
 
-    const result = await verifyOtpCode(email, fullCode, "member");
+    const result = await verifyOtpCode(email, fullCode, "member", next);
     setLoading(false);
 
     if (result.error) {
@@ -68,7 +72,7 @@ export default function LoginForm() {
       }
       router.push(result.redirect);
     }
-  }, [email, router]);
+  }, [email, next, router]);
 
   // Auto-submit is driven off settled state rather than off whichever handler
   // happened to receive the last digit, so typing, pasting and OS autofill all

@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { captureServerEvent } from "@/lib/analytics/server";
+import { safeOfferReturnPath } from "@/lib/auth/offer-return-path";
 import type { Database } from "@/types/database";
 
 export async function signOut() {
@@ -53,7 +54,8 @@ export async function sendOtpCode(email: string) {
 export async function verifyOtpCode(
   email: string,
   token: string,
-  portal: "member" | "admin"
+  portal: "member" | "admin",
+  next?: string | null
 ) {
   const supabase = await createClient();
   const { error } = await supabase.auth.verifyOtp({
@@ -108,8 +110,13 @@ export async function verifyOtpCode(
 
   // Route based on portal
   if (portal === "member") {
-    if (member)
-      return { error: null, redirect: "/dashboard", identity: recordLogin("member", null, member.id) };
+    if (member) {
+      // R11/KTD7: a signed-out offer holder returns to the offer landing they
+      // came from instead of /dashboard. Only a validated same-origin path
+      // under /public/offers/ is ever honoured — see offer-return-path.ts.
+      const dest = safeOfferReturnPath(next) ?? "/dashboard";
+      return { error: null, redirect: dest, identity: recordLogin("member", null, member.id) };
+    }
     if (adminUser)
       return { error: null, redirect: "/admin/dashboard", identity: recordLogin("admin", adminUser.role, null) };
     await supabase.auth.signOut();

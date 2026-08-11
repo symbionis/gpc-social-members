@@ -3,6 +3,7 @@
 import { useEffect, Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
+import { redactPathForAnalytics } from "@/lib/analytics/redact-path";
 
 /**
  * Initializes PostHog and tracks pageviews on App Router navigation.
@@ -86,9 +87,11 @@ function PageviewTracker() {
     if (!(window as { __ph_initialized?: boolean }).__ph_initialized) return;
     if (!pathname) return;
 
+    // U5/KTD4: an offer path carries a long-lived emailed secret in its last
+    // segment — never ship the live token to PostHog.
     const url =
       window.location.origin +
-      pathname +
+      redactPathForAnalytics(pathname) +
       (searchParams && searchParams.toString()
         ? `?${searchParams.toString()}`
         : "");
