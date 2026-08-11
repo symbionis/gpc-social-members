@@ -21,7 +21,17 @@ No notification was sent to approval committee members when a new membership app
 
 ## Solution
 
-In the `submitApplication` server action, after inserting the new member and sending the applicant confirmation, query all `admin_users` where `is_approval_committee = true OR role = 'super_admin'` and send each a `new-application-pending` Postmark template email in parallel.
+Query all `admin_users` where `is_approval_committee = true OR role = 'super_admin'` and send each a `new-application-pending` Postmark template email in parallel.
+
+**Updated 2026-08-11 — there are now three trigger points, not one.** This doc originally described a single send inside `submitApplication`, which is now the minority path:
+
+| Trigger | Where | When |
+|---|---|---|
+| Free / honorary tier | `app/(public)/apply/[invite_code]/actions.ts` (`sendHonoraryEmails`, reached via the `isFree` branch) | at submit — there is no payment to wait for |
+| Paid tiers | `app/api/webhooks/stripe/route.ts` (`notifyCommittee`) | on `payment_intent.amount_capturable_updated` |
+| Escalating reminders | `lib/cron/committee-reminders.ts` | on a schedule, reusing the same alias |
+
+The move for paid tiers was deliberate: the committee should only see applications that already carry a confirmed payment hold, so an abandoned checkout never reaches them. That decision is recorded in `docs/plans/2026-04-09-001-feat-stripe-payment-capture-plan.md` — the same plan this doc is cited by, which is why the drift went unnoticed.
 
 ### Implementation (`app/(public)/apply/[invite_code]/actions.ts`)
 
@@ -63,6 +73,8 @@ if (committee && committee.length > 0) {
 ```
 
 ### Template model variables
+
+Four more were added when the reminder cron began reusing this alias, and all three call sites now pass them: `is_reminder`, `is_urgent`, `days_remaining`, `hours_remaining`. Note the truthiness trap — do not gate a block on `days_remaining`, because **zero is truthy** in Mustachio and the block would render on the day the count reaches 0. See [postmark-mustachio-conditional-syntax.md](./postmark-mustachio-conditional-syntax.md).
 
 | Variable | Type | Description |
 |----------|------|-------------|

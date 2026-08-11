@@ -77,18 +77,31 @@ The block renders when `originator_note` is non-null, non-empty, and non-false. 
 
 Mustachio scope blocks evaluate as follows:
 
+**Verified empirically 2026-08-11** against Postmark's own `POST /templates/validate`, rendering a probe subject with each value. This table is the canonical one — a sibling doc restated it and the two disagreed for four months.
+
 | Server passes | `{{#key}}` block |
 |--------------|-----------------|
+| key absent | Skipped ✓ |
 | `null` | Skipped ✓ |
-| `undefined` / key absent | Skipped ✓ |
-| `""` (empty string) | **Renders** ✗ |
-| `false` | **Renders** ✗ (see related doc) |
+| `""` (empty string) | Skipped ✓ |
+| `false` (boolean) | Skipped ✓ |
+| `[]` (empty array) | Skipped ✓ |
+| `true` | Renders ✓ |
 | Any non-empty string | Renders ✓ |
+| **`0` (zero)** | **Renders** ⚠ |
+| **`" "` (whitespace only)** | **Renders** ⚠ |
+| **`"false"` (the string)** | **Renders** ⚠ |
+
+The two traps are at the bottom. **Zero is truthy**, so never gate a block on a count or quantity — `{{#days_remaining}}` renders on the day it hits 0, which is exactly the day the copy usually needs to change. Gate on an explicit boolean the server computes instead. And a whitespace-only string is truthy, so trim before deciding whether a value is absent.
+
+An earlier version of this table claimed `""` and `false` were truthy. Both are falsy; that error is what made the sibling docs disagree.
 
 Always pass `null` (not `""`) for absent optional template values:
 
 ```ts
-// Wrong — empty string causes the block to render
+// Still wrong, though not for the reason once given here: "" is falsy, so the block is
+// skipped — but an empty string also renders as empty wherever the value is interpolated,
+// and null states the intent. Prefer null for an absent optional value.
 originator_note: data.originatorNote || "",
 
 // Correct — null causes the block to be skipped

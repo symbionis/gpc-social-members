@@ -27,6 +27,8 @@ tags:
 
 # Stripe Elements + Supabase Payment Flow: Silent Failures and Config Mismatches
 
+**Scope:** the Elements + manual-capture path, which is still how the membership application and its payment retry work. Renewals, event registration and booking top-ups/conversions use **hosted Checkout Sessions** instead, where the `payment_method_types` matching problem below does not arise. The Supabase silent-write and Postmark key-mismatch lessons apply to both.
+
 ## Problem
 
 During the first implementation of Stripe Elements (Payment Element with manual capture) in the GPC Social Members app, four distinct integration issues surfaced. All share a theme: **configuration mismatches across integration boundaries** that fail silently or with opaque errors.
@@ -120,7 +122,7 @@ Each issue is a boundary mismatch:
 ## Prevention
 
 - **Stripe:** When using Elements with `paymentMethodTypes`, grep all `paymentIntents.create` calls to verify they include matching `payment_method_types`. Consider a shared constant.
-- **Supabase:** Always destructure `{ data, error }` from every Supabase query. Add a lint rule or wrapper that enforces this pattern. Note: 18 `.insert()` calls exist in the codebase — not all check errors.
+- **Supabase:** Always destructure `{ data, error }` from every Supabase query. Add a lint rule or wrapper that enforces this pattern. Note: **36** `.insert()` calls now exist in the codebase (18 when this was written) and some still discard the error — `app/api/renew/checkout/route.ts`, `app/api/webhooks/stripe/route.ts` and `lib/cron/job-registry.ts` each `await supabase.from(…).insert({…})` without destructuring. The warning has aged in the wrong direction.
 - **Postmark:** Define a TypeScript type per template model. Keep a comment in the code listing expected template variables. Send a test email before deploying.
 - **CSP + third-party iframes:** Test all third-party embeds (Stripe, Google Maps) when adding CSP headers. Do not attempt to control cross-origin iframe resources via parent CSP.
 

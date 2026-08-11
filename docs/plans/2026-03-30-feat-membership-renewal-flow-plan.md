@@ -424,5 +424,5 @@ Add "Email Templates" link for super_admin:
 - Free activation: `app/api/admin/members/activate-free/route.ts`
 - Card generation: `lib/utils/card.ts`
 - Postmark template gotcha: `docs/solutions/integration-issues/postmark-mustachio-dot-notation-in-block-scope.md`
-- Railway origin gotcha: `docs/solutions/integration-issues/railway-nextjs-auth-redirect-internal-origin.md`
+- Railway origin gotcha: `docs/solutions/integration-issues/railway-nextjs-supabase-env-and-url-config.md` (Fix 3)
 - Lazy singleton pattern: `docs/solutions/build-errors/third-party-sdk-env-vars-at-module-load.md`
