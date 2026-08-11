@@ -212,7 +212,62 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
     await openWaitlistTab(user);
 
     expect(screen.getByText(/This event is full/)).toBeInTheDocument();
-    expect(screen.getByText(/cannot be redeemed/)).toBeInTheDocument();
+    expect(screen.getByText(/could not be redeemed/)).toBeInTheDocument();
+  });
+
+  // The banner explains; the disabled button enforces. An offer at zero free seats is dead on
+  // arrival, so the button does not accept the click at all.
+  it("disables Offer while the event is full", async () => {
+    const user = userEvent.setup();
+    renderTabs({ hasSeatCap: true, seatCap: 10, total: 10, waitlist: [waitlistEntry()] });
+    await openWaitlistTab(user);
+
+    const offer = screen.getByRole("button", { name: "Offer" });
+    expect(offer).toHaveAttribute("aria-disabled", "true");
+    // The reason is the banner, not a per-row note — the button points at it.
+    expect(offer).toHaveAttribute("aria-describedby", "waitlist-full-notice");
+
+    await user.click(offer);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  // Resend is the same send down the same route, so a full event holds it shut too.
+  it("disables Resend on an already-offered entry while the event is full", async () => {
+    const user = userEvent.setup();
+    renderTabs({
+      hasSeatCap: true,
+      seatCap: 10,
+      total: 10,
+      waitlist: [waitlistEntry({ offered: true, offer_sent_count: 1 })],
+    });
+    await openWaitlistTab(user);
+
+    await user.click(screen.getByRole("button", { name: "Resend" }));
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  // Blocking new offers must not trap the ones already sent — Withdraw is the way back out.
+  it("leaves Withdraw usable while the event is full", async () => {
+    global.fetch = okFetch();
+    const user = userEvent.setup();
+    renderTabs({
+      hasSeatCap: true,
+      seatCap: 10,
+      total: 10,
+      waitlist: [waitlistEntry({ offered: true, offer_sent_count: 1 })],
+    });
+    await openWaitlistTab(user);
+
+    await user.click(screen.getByRole("button", { name: "Withdraw" }));
+    expect(await screen.findByText(/Offer withdrawn/)).toBeInTheDocument();
+  });
+
+  it("keeps Offer live while a seat remains", async () => {
+    const user = userEvent.setup();
+    renderTabs({ hasSeatCap: true, seatCap: 10, total: 9, waitlist: [waitlistEntry()] });
+    await openWaitlistTab(user);
+
+    expect(screen.getByRole("button", { name: "Offer" })).toHaveAttribute("aria-disabled", "false");
   });
 
   it("says nothing about capacity while seats remain", async () => {
@@ -241,18 +296,17 @@ describe("ManageEventTabs — Waitlist tab: Offer / Resend", () => {
     expect(screen.queryByText(/This event is full/)).toBeNull();
   });
 
-  // The banner is preventive; this is the confirmation the admin actually reads afterwards.
-  it("repeats the caveat in the post-offer notice", async () => {
+  // The post-offer notice used to carry a full-event caveat. It cannot fire anymore — an offer
+  // at zero free seats never reaches the send — so the confirmation is plain again.
+  it("confirms a send without a capacity caveat", async () => {
+    global.fetch = okFetch({ success: true, email_sent: true, offer_sent_count: 1 });
     const user = userEvent.setup();
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true, email_sent: true, offer_sent_count: 1 }),
-    });
-    renderTabs({ hasSeatCap: true, seatCap: 10, total: 10, waitlist: [waitlistEntry()] });
+    renderTabs({ hasSeatCap: true, seatCap: 10, total: 9, waitlist: [waitlistEntry()] });
     await openWaitlistTab(user);
     await user.click(screen.getByRole("button", { name: "Offer" }));
 
-    expect(await screen.findByText(/cannot check out until a seat frees up/)).toBeInTheDocument();
+    expect(await screen.findByText(/Offer sent to/)).toBeInTheDocument();
+    expect(screen.queryByText(/cannot check out until a seat frees up/)).toBeNull();
   });
 
   // Simplifying the row must not lose the diagnosis — it moves to where the repair happens.

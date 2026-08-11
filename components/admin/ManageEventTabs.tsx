@@ -97,6 +97,10 @@ interface Props {
   cancellations: CancellationRow[];
 }
 
+/** The full-event banner doubles as the explanation for every Offer button it disables,
+ * so the buttons point at it with aria-describedby rather than repeating the reason. */
+const FULL_NOTICE_ID = "waitlist-full-notice";
+
 type RowState = { submitting: boolean; error: string | null };
 
 /** Per-entry submitting/error state for one action (Offer, Withdraw, or Repair) on the
@@ -168,8 +172,8 @@ export default function ManageEventTabs({
   // Seats an offer could actually be redeemed for right now. R4 deliberately allows offering
   // to MORE entries than there are free seats — they race to pay, and that is the point. Zero
   // free seats is the degenerate case R4 does not cover: every offer sent is dead on arrival,
-  // because the landing shows "these seats have gone" to everyone who opens it. The admin gets
-  // told before clicking rather than finding out from the invitee.
+  // because the landing shows "these seats have gone" to everyone who opens it. So Offer and
+  // Resend are held shut at zero, rather than sending mail nobody can act on.
   const seatsFree = hasSeatCap && seatCap !== null ? seatCap - total : null;
   const eventIsFull = seatsFree !== null && seatsFree <= 0;
 
@@ -179,7 +183,7 @@ export default function ManageEventTabs({
   const [offerRow, patchOfferRow] = useRowState();
 
   async function sendOffer(entry: Waitlist) {
-    if (!entry.offerable || offerRow(entry.id).submitting) return;
+    if (!entry.offerable || eventIsFull || offerRow(entry.id).submitting) return;
     patchOfferRow(entry.id, { submitting: true, error: null });
     setNotice(null);
     try {
@@ -193,13 +197,12 @@ export default function ManageEventTabs({
       }
       patchOfferRow(entry.id, { submitting: false, error: null });
       applyOverride(entry.id, { offered: true, offer_sent_count: data.offer_sent_count });
-      const fullCaveat = eventIsFull
-        ? " The event is full, so they cannot check out until a seat frees up or you raise the cap."
-        : "";
+      // No full-event caveat here anymore: the guard above returns before a send can happen
+      // at zero free seats, so the only offers that reach this line had a seat to aim at.
       setNotice(
         data.email_sent === false
-          ? `Offer saved for ${entry.name} — the email failed to send, please notify them manually.${fullCaveat}`
-          : `Offer sent to ${entry.name}.${fullCaveat}`
+          ? `Offer saved for ${entry.name} — the email failed to send, please notify them manually.`
+          : `Offer sent to ${entry.name}.`
       );
       router.refresh();
     } catch {
@@ -412,13 +415,17 @@ export default function ManageEventTabs({
             {visibleWaitlist.length} on the waitlist
           </p>
           {eventIsFull && visibleWaitlist.length > 0 && (
-            <p className="font-body text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+            <p
+              id={FULL_NOTICE_ID}
+              className="font-body text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3"
+            >
               <strong>
                 This event is full ({total} of {seatCap}
-                {overbooked ? " — overbooked" : ""}).
+                {overbooked ? " — overbooked" : ""}), so offers are paused.
               </strong>{" "}
-              An offer sent now cannot be redeemed: whoever opens the link is told the seats
-              have gone. Raise the cap in Settings, or wait for a cancellation, before offering.
+              An offer sent now could not be redeemed: whoever opened the link would be told the
+              seats have gone. Raise the cap in Settings, or wait for a cancellation, and the
+              Offer buttons come back on their own.
             </p>
           )}
           {notice && (
@@ -448,6 +455,10 @@ export default function ManageEventTabs({
                     const reasonId = `waitlist-reason-${entry.id}`;
                     const draft = draftFor(entry);
                     const isOpen = Boolean(repairOpen[entry.id]);
+                    // Two independent reasons Offer can be shut: this entry cannot be offered
+                    // to at all, or the event has no seat for anyone. Withdraw stays live
+                    // either way — a full event must not trap offers already out.
+                    const offerBlocked = !entry.offerable || eventIsFull;
                     return (
                       <Fragment key={entry.id}>
                         <tr className="border-t border-border/60 align-top">
@@ -489,10 +500,16 @@ export default function ManageEventTabs({
                               <button
                                 type="button"
                                 onClick={() => sendOffer(entry)}
-                                aria-disabled={!entry.offerable || or.submitting}
-                                aria-describedby={!entry.offerable ? reasonId : undefined}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-body font-medium transition-colors cursor-pointer ${
+                                aria-disabled={offerBlocked || or.submitting}
+                                aria-describedby={
                                   !entry.offerable
+                                    ? reasonId
+                                    : eventIsFull
+                                      ? FULL_NOTICE_ID
+                                      : undefined
+                                }
+                                className={`px-3 py-1.5 rounded-lg text-xs font-body font-medium transition-colors cursor-pointer ${
+                                  offerBlocked
                                     ? "bg-border/40 text-muted-foreground cursor-not-allowed"
                                     : "bg-marine text-white hover:bg-marine-light disabled:opacity-50"
                                 }`}
