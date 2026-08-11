@@ -43,13 +43,32 @@ describe("getWaiver", () => {
       expect(text).not.toMatch(/Open Doors|Portes Ouvertes/i);
     }
   );
+
+  // The source document ships clause 6 with two `[contact email/address]`
+  // placeholders. They carry the signer's only route to object to image use or
+  // to make a data request, so a placeholder reaching production would leave
+  // those rights unexercisable.
+  it.each<WaiverLanguage>(["fr", "en"])(
+    "leaves no unfilled placeholder in the %s waiver",
+    (lang) => {
+      const w = getWaiver(lang);
+      const text = [w.title, w.intro, ...w.clauses.flatMap((c) => [
+        c.heading,
+        ...c.paragraphs,
+        ...(c.bullets ?? []),
+        c.closing ?? "",
+      ])].join(" ");
+      expect(text).not.toMatch(/\[[^\]]*\]/);
+      expect(text).toContain("info@genevapolo.com");
+    }
+  );
 });
 
 describe("WAIVER_VERSION", () => {
   it("is a non-empty, content-derived string", () => {
     expect(typeof WAIVER_VERSION).toBe("string");
     expect(WAIVER_VERSION.length).toBeGreaterThan(0);
-    expect(WAIVER_VERSION.startsWith("open-doors-2026-")).toBe(true);
+    expect(WAIVER_VERSION.startsWith("gpc-terms-2026-")).toBe(true);
   });
 
   it("changes when any waiver body text changes", () => {
