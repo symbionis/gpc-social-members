@@ -151,14 +151,28 @@ export async function buildDoorRoster(
     .eq("event_id", eventId)
     .in("slot_status", ["issued", "claimed"])
     .is("released_at", null)
-    // Cancelled seats are excluded, not struck through: the door sheet and the admin roster
-    // answer the same question — who is arriving — and must show the same people. A cancelled
-    // seat is also rejected at the scan (lib/events/checkin.ts), so listing it only invited
-    // someone to tick a line that cannot be admitted.
-    .is("cancellation_status", null)
     .order("created_at", { ascending: true });
   if (ticketsError) return fail("tickets", ticketsError);
-  const tickets = (ticketData || []) as unknown as TicketRow[];
+
+  // Cancelled seats are excluded, not struck through: the door sheet and the admin roster
+  // answer the same question — who is arriving — and must show the same people. A cancelled
+  // seat is also rejected at the scan (lib/events/checkin.ts), so listing it only invited
+  // someone to tick a line that cannot be admitted.
+  //
+  // Split here rather than in the query because the party loop below pads each booking up
+  // to `registration.quantity`, and that quantity still counts cancelled seats. Filtering
+  // in SQL alone put them straight back on the sheet as blank "to fill in" lines — and
+  // re-materialised a fully refunded booking as a reconstructed lead row.
+  const allTickets = (ticketData || []) as unknown as TicketRow[];
+  const tickets = allTickets.filter((t) => t.cancellation_status === null);
+  const cancelledByReg = new Map<string, number>();
+  for (const t of allTickets) {
+    if (t.cancellation_status === null || !t.registration_id) continue;
+    cancelledByReg.set(
+      t.registration_id,
+      (cancelledByReg.get(t.registration_id) ?? 0) + 1
+    );
+  }
 
   const { data: typeRows, error: typeRowsError } = await adminClient
     .from("event_ticket_types")
@@ -287,8 +301,13 @@ export async function buildDoorRoster(
 
   for (const reg of regs) {
     const bookingRef = reg.reference_code ?? "";
-    const quantity = reg.quantity ?? 0;
+    // Seats this booking can still bring through the door: what it bought, less what has
+    // been cancelled. Using the raw quantity padded refunded seats back onto the sheet.
+    const quantity = Math.max(0, (reg.quantity ?? 0) - (cancelledByReg.get(reg.id) ?? 0));
     const live = liveByReg.get(reg.id) ?? [];
+    // Nothing left standing — a fully cancelled booking. Emit no rows at all: without this
+    // the lead is rebuilt from the purchaser below and a refunded party prints as arrivable.
+    if (quantity === 0 && live.length === 0) continue;
     const leadTicket = live.find((t) => t.is_lead && isClaimed(t)) ?? null;
 
     // Who the guests are a `guest of`: the claimed lead when there is one, else the
