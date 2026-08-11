@@ -43,6 +43,9 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The phase the in-flight request was launched from — where a failure returns to, and what
+  // keeps the waiver modal mounted while its own submit is in flight.
+  const [submittedFrom, setSubmittedFrom] = useState<Phase>("scan");
 
   // Reset to a fresh scan (keeps the modal open — used by "Scan next guest").
   const resetFields = useCallback(() => {
@@ -65,8 +68,17 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
     resetFields();
   }, [resetFields]);
 
+  // `from` is the phase this attempt was launched in, and a failure lands back there.
+  //
+  // It used to fall back to `extra.name ? "needs_name" : "scan"`, which sent a failed WAIVER
+  // submit to the scanner — and on a scanned, already-named ticket `name` is "", so even the
+  // guest-details case missed. Dropping out of the waiver discards what the guest just did:
+  // the modal unmounts, its state resets, and they have to read and tick the whole thing
+  // again while the queue waits. Landing back on needs_waiver keeps the acceptance on screen
+  // with the error inside the modal, so "try again" is one tap.
   const submit = useCallback(
-    async (raw: string, extra: Record<string, unknown> = {}) => {
+    async (raw: string, extra: Record<string, unknown> = {}, from: Phase = "scan") => {
+      setSubmittedFrom(from);
       setPhase("busy");
       setError(null);
       try {
@@ -78,24 +90,53 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
           // door console's save/check-in timeouts).
           signal: AbortSignal.timeout(10000),
         });
-        const data = (await res.json()) as CheckinResult & { error?: string };
-        if (!res.ok && data.error) {
-          setError(data.error);
-          setPhase(extra.name ? "needs_name" : "scan");
+
+        // Parsed defensively: a 500 from the framework or a 502 from a proxy can carry JSON
+        // with no `error` key, or no JSON at all.
+        let data: (CheckinResult & { error?: string }) | null = null;
+        try {
+          data = (await res.json()) as CheckinResult & { error?: string };
+        } catch (err) {
+          console.error("[door/scan] response was not JSON", { status: res.status, err });
+        }
+
+        // `!res.ok` alone. This was `!res.ok && data.error`, so a non-ok response without an
+        // `error` key skipped this branch entirely, fell through to setResult(), and landed on
+        // the result screen — where ResultCard's fallback reads "Ticket not recognised". The
+        // operator was told the guest's QR was bad when it was the server that failed.
+        if (!res.ok) {
+          setError(data?.error || "Something went wrong. Try again.");
+          setPhase(from);
           return;
         }
-        setResult(data);
-        if (data.status === "needs_name") setPhase("needs_name");
-        else if (data.status === "needs_waiver") setPhase("needs_waiver");
-        else {
+
+        if (data?.status === "needs_name") {
+          setResult(data);
+          setPhase("needs_name");
+          return;
+        }
+        if (data?.status === "needs_waiver") {
+          setResult(data);
+          setPhase("needs_waiver");
+          return;
+        }
+        // Only a real outcome reaches the result screen. An unknown status is the server
+        // saying something this screen cannot read, which must not be shown to an operator as
+        // a verdict about the guest's ticket.
+        if (data?.status === "checked_in" || data?.status === "already" || data?.status === "not_recognised") {
+          setResult(data);
           setPhase("result");
           // A scan is a check-in: pull the roster and the arrivals counts forward now
           // rather than leaving them stale until the console's 20s poll fires.
           if (data.status === "checked_in") router.refresh();
+          return;
         }
+        console.error("[door/scan] unrecognised status from the route", { status: data?.status });
+        setError("Something went wrong. Try again, or find the guest by name in the roster.");
+        setPhase(from);
       } catch {
         setError("Could not reach the server. Try again.");
-        setPhase("scan");
+        setPhase(from);
       }
     },
     [eventId, router]
@@ -220,11 +261,15 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
                       type="button"
                       disabled={!canContinue}
                       onClick={() =>
-                        submit(token, {
-                          name: name.trim(),
-                          email: email.trim(),
-                          phone: phone ?? "",
-                        })
+                        submit(
+                          token,
+                          {
+                            name: name.trim(),
+                            email: email.trim(),
+                            phone: phone ?? "",
+                          },
+                          "needs_name"
+                        )
                       }
                       className={primaryBtn}
                     >
@@ -241,21 +286,32 @@ export default function ScanCheckIn({ eventId }: { eventId: string }) {
                   path raises the same one. Two presentations of a legal document agreed on the
                   text but had already diverged on the chrome and the acceptance gesture, and the
                   recorded WAIVER_VERSION cannot tell them apart. */}
+              {/* Stays mounted across its OWN submit. `open={phase === "needs_waiver"}` alone
+                  unmounted it the instant submit set "busy" — so `busy` could never be true,
+                  the guest got no in-flight feedback, and a failure discarded their acceptance
+                  along with the component's state. */}
               <WaiverModal
-                open={phase === "needs_waiver"}
+                open={
+                  phase === "needs_waiver" ||
+                  (phase === "busy" && submittedFrom === "needs_waiver")
+                }
                 guestName={result?.name ?? name.trim()}
-                busy={false}
+                busy={phase === "busy"}
                 error={error}
                 onClose={closeScanner}
                 onAccept={({ language, marketingConsent }) =>
-                  submit(token, {
-                    name: name.trim(),
-                    email: email.trim(),
-                    phone: phone ?? "",
-                    waiverAccepted: true,
-                    language,
-                    marketingConsent,
-                  })
+                  submit(
+                    token,
+                    {
+                      name: name.trim(),
+                      email: email.trim(),
+                      phone: phone ?? "",
+                      waiverAccepted: true,
+                      language,
+                      marketingConsent,
+                    },
+                    "needs_waiver"
+                  )
                 }
               />
 
