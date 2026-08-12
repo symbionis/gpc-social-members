@@ -344,9 +344,36 @@ describe("R12 — comp guests are findable in the Attendees tab", () => {
     });
     renderConsole({ parties: [comp, party()] });
     await user.type(search(), "marta");
+    // The row carries its buyer explicitly labelled, so an unlabelled name never reads as a
+    // second guest, plus the booking reference.
     expect(screen.getByText("Cardis Sponsor")).toBeInTheDocument();
+    expect(screen.getByText(/Booked by/)).toBeInTheDocument();
     expect(screen.queryByText("Ana Vidal")).not.toBeInTheDocument();
     expect(screen.getByDisplayValue("Marta Lopez")).toBeInTheDocument();
+  });
+
+  // "I'm on Yazeed's booking" has to keep working even though the buyer's name is no longer
+  // printed on the row — dropping it from the DISPLAY must not drop it from the INDEX.
+  it("still finds a guest by the buyer's name, though it is not shown", async () => {
+    const user = userEvent.setup();
+    const comp = party({
+      registrationId: "reg-comp",
+      referenceCode: "GPC-COMP",
+      leadName: "Cardis Sponsor",
+      quantity: 2,
+      claimedCount: 2,
+      remaining: 0,
+      slots: [
+        slot({ attendeeId: "c1", name: "Cardis Sponsor", isLead: true }),
+        slot({ attendeeId: "c2", name: "Marta Lopez", email: "", phone: "", isLead: false }),
+      ],
+    });
+    renderConsole({ parties: [comp, party()] });
+    await user.type(search(), "cardis");
+    // Marta is reachable via her buyer's name...
+    expect(screen.getByDisplayValue("Marta Lopez")).toBeInTheDocument();
+    // ...while an unrelated party stays filtered out.
+    expect(screen.queryByDisplayValue("Ana Vidal")).toBeNull();
   });
 });
 

@@ -294,9 +294,14 @@ export default function DoorConsole({
                       know which party a guest belongs to once they have found them, but they
                       find them by their own name. A comp list says so here, because its open
                       seats belong to the sponsor and must not be filled at the door. */}
+                  {/* Labelled, because an unlabelled name at the top of a row full of names
+                      reads as another guest. "Booked by" says what it is in two words, so the
+                      heading below is unambiguously the person at the desk. Kept small and
+                      grey: it is context for when it is needed (a guest who only knows whose
+                      booking they are on), never something to scan. */}
                   <div className="mb-2 flex items-baseline justify-between gap-3">
                     <p className="min-w-0 truncate font-body text-xs text-marine/50">
-                      <span>{party.leadName || "—"}</span>
+                      Booked by <span className="text-marine/70">{party.leadName || "—"}</span>
                       {party.referenceCode && (
                         <span className="font-mono"> · {party.referenceCode}</span>
                       )}
