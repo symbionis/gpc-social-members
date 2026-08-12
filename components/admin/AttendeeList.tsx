@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { formatDateTime } from "@/lib/format";
+import { formatCurrency, formatDateTime } from "@/lib/format";
 import { bySurname, surnameKey } from "@/lib/events/roster-sort";
 
 /**
@@ -42,6 +42,13 @@ export interface Attendee {
   createdAt: string;
   /** A comped seat on a sponsor's guest list. */
   isComp: boolean;
+  /**
+   * What this seat cost, in CHF — the same valuation the refund button quotes, so the roster
+   * and the refund cannot disagree about one seat. 0 for a comp and for any ticket on a free
+   * booking, which is why a zero renders as nothing rather than as "CHF 0.00": the pill beside
+   * the name already says why no money was taken.
+   */
+  priceChf: number;
   /**
    * How this seat was obtained, which the roster shows because "did they pay?" is a question
    * the door and the organiser both ask and neither could answer from here before:
@@ -276,10 +283,11 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
   );
 }
 
+// Only the two states worth a pill. A `free` seat gets none: on a free event that was every
+// row, so the pill marked nothing and only added noise. What a seat cost is now answered by the
+// price under its ticket type, which says more than a pill could — and says nothing at all when
+// there was no money, which is the correct amount to say.
 function PaymentPill({ state }: { state: Attendee["paymentState"] }) {
-  // Emerald for money in, neutral for the two that brought none — the distinction the
-  // organiser is scanning for. Comp and free are kept apart because they mean different
-  // things: a sponsor gave the seat away, versus it never had a price.
   if (state === "paid") {
     return (
       <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-50 text-emerald-700">
@@ -287,16 +295,17 @@ function PaymentPill({ state }: { state: Attendee["paymentState"] }) {
       </span>
     );
   }
+  // A sponsor gave this seat away. Named for what the door and the organiser call these people
+  // rather than for the accounting mechanic — "Comp" is a billing word on a roster read by
+  // staff looking for a guest.
   if (state === "comp") {
     return (
       <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-50 text-amber-800">
-        Comp
+        Special Guest
       </span>
     );
   }
-  return (
-    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-100 text-gray-600">Free</span>
-  );
+  return null;
 }
 
 function TicketRow({
@@ -379,6 +388,14 @@ function TicketRow({
             <span className="text-xs text-marine">{ticket.ticketTypeTitle}</span>
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
+          )}
+          {/* What the seat cost, under its type. Suppressed at zero rather than shown as
+              "CHF 0.00": a comp and a free booking both land there, and both already say so
+              beside the name. */}
+          {ticket.priceChf > 0 && (
+            <span className="block text-[11px] text-muted-foreground tabular-nums">
+              {formatCurrency(ticket.priceChf, { decimals: 2 })}
+            </span>
           )}
         </td>
         <td className="px-4 py-3">

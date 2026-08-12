@@ -243,10 +243,23 @@ export default async function ManageEventPage({
       checkedIn: a.checked_in_at !== null,
       arrivedAt: a.checked_in_at,
       createdAt: a.created_at,
-      // A comped seat on a sponsor's guest list. Drives the Comp pill; the Guest list tab is
-      // where such a seat is removed (remove_comp_guest), which shrinks the party rather than
-      // reopening the seat publicly.
+      // A comped seat on a sponsor's guest list. Drives the Special Guest pill; the Guest list
+      // tab is where such a seat is removed (remove_comp_guest), which shrinks the party rather
+      // than reopening the seat publicly.
       isComp: Boolean(a.is_comp),
+      // What this seat cost, shown under its ticket type. The SAME valuation the refund button
+      // uses (lib/events/refunds.ts), deliberately: the roster and the refund must never quote
+      // different prices for one seat. Returns 0 for a comp and for any ticket on a `free`
+      // booking, and falls back to the booking average when a repriced top-up makes the seat's
+      // own line ambiguous — so this is what the seat is WORTH, not a lookup of the type's
+      // current list price, which may have changed since checkout.
+      priceChf: a.registration_id
+        ? ticketRefundValueChf(
+            a,
+            regForRefundById.get(a.registration_id) ?? null,
+            (ticketItemRows ?? []) as TicketItemRow[]
+          )
+        : 0,
       // A comped seat first (a sponsor gave it away even on a paid booking), then the
       // booking's own status. `free` covers a free event and an admin-comped conversion alike:
       // both took no money, which is what the pill is answering.
