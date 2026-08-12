@@ -92,6 +92,16 @@ export default function TicketManager({
         {eventLocation && (
           <p className="mt-0.5 font-body text-sm text-marine/70">{eventLocation}</p>
         )}
+        {calendarUrl && (
+          <a
+            href={calendarUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-block font-body text-sm font-semibold text-marine underline underline-offset-2"
+          >
+            Add to calendar
+          </a>
+        )}
       </header>
 
       <div className="rounded-2xl border border-marine/20 bg-marine/5 p-5">
@@ -106,7 +116,7 @@ export default function TicketManager({
         </p>
       </div>
 
-      {(referenceCode || calendarUrl || receiptUrl) && (
+      {(referenceCode || receiptUrl) && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-white px-4 py-3.5 text-base font-body">
           {referenceCode ? (
             <span className="text-marine/80">
@@ -115,26 +125,14 @@ export default function TicketManager({
           ) : (
             <span />
           )}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            {receiptUrl && (
-              <a
-                href={receiptUrl}
-                className="font-body font-semibold text-marine underline underline-offset-2"
-              >
-                View receipt
-              </a>
-            )}
-            {calendarUrl && (
-              <a
-                href={calendarUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-body font-semibold text-marine underline underline-offset-2"
-              >
-                Add to calendar
-              </a>
-            )}
-          </div>
+          {receiptUrl && (
+            <a
+              href={receiptUrl}
+              className="font-body font-semibold text-marine underline underline-offset-2"
+            >
+              View receipt
+            </a>
+          )}
         </div>
       )}
 
