@@ -703,53 +703,55 @@ function SlotRow({
         isOpen ? "border-dashed border-marine/30 bg-cream/30" : "border-border bg-white"
       }`}
     >
-      <div className="flex items-start justify-between gap-2 mb-2">
+      <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0 flex-1">
-          {/* The NAME leads, at heading size. Staff are matching a row to the person in front
-              of them, and they are given a name, never a ticket type — which on this event
-              runs to "Entrance + Traditional Asado Buffet (Argentine Style BBQ)" and, set as
-              the heading, buried every guest under the same words. The type still matters at
-              the door (it decides what they are entitled to) so it stays, one line down. */}
+          {/* The two things door staff are chasing, in order: WHO is in front of them, and
+              WHAT they are entitled to. The name leads at heading size; the type sits under it
+              at a size meant to be read across a desk, not squinted at — it was xs, which on a
+              long type ("Entrance + Traditional Asado Buffet") was unreadable at arm's length.
+              No "lead" pill: that concept is retired, and at a door it never meant anything
+              anyway — who paid is not who is standing there. */}
           <p className="font-heading text-xl font-bold leading-tight text-marine break-words">
             {slot.name || (
               <span className="font-body text-base font-normal text-marine/50">Open seat</span>
             )}
           </p>
-          <span className="mt-1 flex items-center gap-2 min-w-0 flex-wrap">
-            {slot.ticketTypeTitle && (
-              <span className="font-body text-xs text-marine/60">{slot.ticketTypeTitle}</span>
-            )}
-            {slot.isLead && (
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-marine/10 text-marine">
-                lead
-              </span>
-            )}
-            {/* "Arrived" (green) means this ticket has been scanned/checked in by the
-                door clerk — never just pre-registered. A filled-but-not-scanned slot
-                shows a muted "Not arrived" so pre-registration isn't mistaken for it. */}
-            {slot.checkedIn ? (
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-emerald-100 text-emerald-800">
-                arrived{slot.arrivedAt ? ` · ${formatDateTime(slot.arrivedAt)}` : ""}
-              </span>
-            ) : (
-              !isOpen && (
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-cream text-marine/50">
-                  not arrived
-                </span>
-              )
-            )}
-          </span>
+          {slot.ticketTypeTitle && (
+            <p className="mt-0.5 font-body text-sm font-semibold text-marine/75 break-words">
+              {slot.ticketTypeTitle}
+            </p>
+          )}
         </div>
-        {!slot.checkedIn && !isOpen && (
-          <button
-            type="button"
-            onClick={() => checkInAdult()}
-            disabled={checkingIn}
-            className="shrink-0 px-3 py-1 rounded-lg border border-marine text-marine text-xs font-body font-semibold hover:bg-marine hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {checkingIn ? "…" : "Check in"}
-          </button>
-        )}
+
+        {/* Arrival state and the action on it, stacked top-right: the status is the answer to
+            "have I already done this one?", so it belongs beside the button that does it
+            rather than trailing the type it has nothing to do with. */}
+        <div className="shrink-0 flex flex-col items-end gap-1.5">
+          {/* "Arrived" (green) means this ticket has been scanned/checked in by the
+              door clerk — never just pre-registered. A filled-but-not-scanned slot
+              shows a muted "Not arrived" so pre-registration isn't mistaken for it. */}
+          {slot.checkedIn ? (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-emerald-100 text-emerald-800 whitespace-nowrap">
+              arrived{slot.arrivedAt ? ` · ${formatDateTime(slot.arrivedAt)}` : ""}
+            </span>
+          ) : (
+            !isOpen && (
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-cream text-marine/50 whitespace-nowrap">
+                not arrived
+              </span>
+            )
+          )}
+          {!slot.checkedIn && !isOpen && (
+            <button
+              type="button"
+              onClick={() => checkInAdult()}
+              disabled={checkingIn}
+              className="px-3 py-1 rounded-lg border border-marine text-marine text-xs font-body font-semibold hover:bg-marine hover:text-white transition-colors disabled:opacity-50 cursor-pointer whitespace-nowrap"
+            >
+              {checkingIn ? "…" : "Check in"}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-2">
