@@ -500,7 +500,7 @@ export async function POST(request: NextRequest) {
         if (!alreadyPaid) {
           await sendEventRegistrationConfirmation(existing.id).catch((err) =>
             console.error(
-              "[webhook] event-registration-confirmed email failed",
+              "[webhook] event-receipt email failed",
               err
             )
           );

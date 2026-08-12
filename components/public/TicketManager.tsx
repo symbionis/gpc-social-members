@@ -265,7 +265,10 @@ function TicketCard({
 
           {cancelled && (
             <p className="mt-2 font-body text-sm text-red-700">
-              This ticket has been cancelled. A refund will follow from the organiser.
+              {/* No refund promise: this page cannot tell whether one is owed. A free or comped
+                  seat has nothing to refund, and even on a paid one the amount and timing are an
+                  admin's decision from the Refunds tab, not something to commit to here. */}
+              This ticket has been cancelled and its place released.
             </p>
           )}
         </div>
