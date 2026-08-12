@@ -862,3 +862,52 @@ describe("Guest lists tab", () => {
     expect(screen.queryByText("Walk-up Wendy")).toBeNull();
   });
 });
+
+// The row is read by someone matching it to a person standing in front of them. They are
+// given a name, never a ticket type — and on a real event the type runs to
+// "Entrance + Traditional Asado Buffet (Argentine Style BBQ)", which as the heading buried
+// every guest under identical words.
+describe("the registered row leads with the guest's name", () => {
+  const longType = "Entrance + Traditional Asado Buffet (Argentine Style BBQ)";
+
+  it("renders the name as text, not only inside the edit field", () => {
+    renderConsole({
+      parties: [
+        party({
+          slots: [slot({ attendeeId: "a1", name: "Marta Lopez", ticketTypeTitle: longType })],
+        }),
+      ],
+    });
+    // As TEXT — the heading. The input carries it as a value, which getByText never matches,
+    // so this passes only while the name is actually displayed.
+    expect(screen.getByText("Marta Lopez")).toBeInTheDocument();
+    // Still editable underneath.
+    expect(screen.getByDisplayValue("Marta Lopez")).toBeInTheDocument();
+  });
+
+  it("still shows the ticket type — it decides what they are entitled to", () => {
+    renderConsole({
+      parties: [
+        party({
+          slots: [slot({ attendeeId: "a1", name: "Marta Lopez", ticketTypeTitle: longType })],
+        }),
+      ],
+    });
+    expect(screen.getByText(longType)).toBeInTheDocument();
+  });
+
+  it("labels an unnamed slot as an open seat rather than showing a blank heading", () => {
+    renderConsole({
+      parties: [
+        party({
+          quantity: 1,
+          claimedCount: 0,
+          remaining: 1,
+          complete: false,
+          slots: [slot({ attendeeId: null, name: "", email: "", phone: "", isLead: false })],
+        }),
+      ],
+    });
+    expect(screen.getByText("Open seat")).toBeInTheDocument();
+  });
+});

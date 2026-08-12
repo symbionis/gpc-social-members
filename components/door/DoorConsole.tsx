@@ -296,9 +296,9 @@ export default function DoorConsole({
                       seats belong to the sponsor and must not be filled at the door. */}
                   <div className="mb-2 flex items-baseline justify-between gap-3">
                     <p className="min-w-0 truncate font-body text-xs text-marine/50">
-                      <span>{party.leadName || "\u2014"}</span>
+                      <span>{party.leadName || "—"}</span>
                       {party.referenceCode && (
-                        <span className="font-mono"> \u00b7 {party.referenceCode}</span>
+                        <span className="font-mono"> · {party.referenceCode}</span>
                       )}
                     </p>
                     {party.isGuestList && (
@@ -310,17 +310,17 @@ export default function DoorConsole({
 
                   {/* Open-seat guidance now sits ON the seat rather than as a party footnote:
                       it is a warning about the row the volunteer is looking at, and a comp
-                      party's open seat belongs to the sponsor \u2014 filling it at the door gives
+                      party's open seat belongs to the sponsor — filling it at the door gives
                       one of their seats away. */}
                   {!slot.attendeeId &&
                     (party.isGuestList ? (
                       <p className="mb-2 font-body text-sm text-amber-700">
-                        Comped seats \u2014 this one belongs to the sponsor. Check with the welcome
+                        Comped seats — this one belongs to the sponsor. Check with the welcome
                         desk before filling it.
                       </p>
                     ) : (
                       <p className="mb-2 font-body text-sm text-amber-700">
-                        Open seat, still to name \u2014 fill the details below or use the welcome
+                        Open seat, still to name — fill the details below or use the welcome
                         desk.
                       </p>
                     ))}
@@ -698,33 +698,43 @@ function SlotRow({
         isOpen ? "border-dashed border-marine/30 bg-cream/30" : "border-border bg-white"
       }`}
     >
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <span className="flex items-center gap-2 min-w-0 flex-wrap">
-          {slot.ticketTypeTitle && (
-            <span className="font-body text-base font-semibold text-marine">
-              {slot.ticketTypeTitle}
-            </span>
-          )}
-          {slot.isLead && (
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-marine/10 text-marine">
-              lead
-            </span>
-          )}
-          {/* "Arrived" (green) means this ticket has been scanned/checked in by the
-              door clerk — never just pre-registered. A filled-but-not-scanned slot
-              shows a muted "Not arrived" so pre-registration isn't mistaken for it. */}
-          {slot.checkedIn ? (
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-emerald-100 text-emerald-800">
-              arrived{slot.arrivedAt ? ` · ${formatDateTime(slot.arrivedAt)}` : ""}
-            </span>
-          ) : (
-            !isOpen && (
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-cream text-marine/50">
-                not arrived
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="min-w-0 flex-1">
+          {/* The NAME leads, at heading size. Staff are matching a row to the person in front
+              of them, and they are given a name, never a ticket type — which on this event
+              runs to "Entrance + Traditional Asado Buffet (Argentine Style BBQ)" and, set as
+              the heading, buried every guest under the same words. The type still matters at
+              the door (it decides what they are entitled to) so it stays, one line down. */}
+          <p className="font-heading text-xl font-bold leading-tight text-marine break-words">
+            {slot.name || (
+              <span className="font-body text-base font-normal text-marine/50">Open seat</span>
+            )}
+          </p>
+          <span className="mt-1 flex items-center gap-2 min-w-0 flex-wrap">
+            {slot.ticketTypeTitle && (
+              <span className="font-body text-xs text-marine/60">{slot.ticketTypeTitle}</span>
+            )}
+            {slot.isLead && (
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-marine/10 text-marine">
+                lead
               </span>
-            )
-          )}
-        </span>
+            )}
+            {/* "Arrived" (green) means this ticket has been scanned/checked in by the
+                door clerk — never just pre-registered. A filled-but-not-scanned slot
+                shows a muted "Not arrived" so pre-registration isn't mistaken for it. */}
+            {slot.checkedIn ? (
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-emerald-100 text-emerald-800">
+                arrived{slot.arrivedAt ? ` · ${formatDateTime(slot.arrivedAt)}` : ""}
+              </span>
+            ) : (
+              !isOpen && (
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-cream text-marine/50">
+                  not arrived
+                </span>
+              )
+            )}
+          </span>
+        </div>
         {!slot.checkedIn && !isOpen && (
           <button
             type="button"
