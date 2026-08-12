@@ -47,10 +47,14 @@ export interface SendCancellationNoticesResult {
 
 /**
  * Send the holder confirmation and, when applicable, the payer notice for one cancelled
- * ticket. Always attempts the holder email. Sends the distinct payer email only when the
- * payer's address differs from the holder's (R17) AND the booking actually took payment —
- * a comp ticket, or any ticket on a `free` registration, has no refund to promise, so
- * there is nothing for the payer notice to say.
+ * ticket. Always attempts the holder email. Sends the distinct payer email whenever the
+ * payer's address differs from the holder's (R17).
+ *
+ * No payment gate: U5 originally skipped free and comp bookings because the payer notice
+ * promised a refund, and there is none to promise on a seat that cost nothing. That line was
+ * since dropped from the template — it now says only that a seat the payer arranged has been
+ * released, which is equally true and equally worth knowing whether or not money changed
+ * hands. Gating on payment would suppress an email that no longer claims anything about it.
  *
  * Never throws: every expected failure (missing rows, a Postmark rejection) is logged and
  * folded into the returned `false`s so the caller's cancellation is never put at risk.
@@ -138,13 +142,13 @@ export async function sendCancellationNotices(
     });
   }
 
-  // R17: same address ⇒ the holder confirmation already told them. KTD6 scope: skip the
-  // payer notice for a comp ticket or a free booking — there is no refund to promise.
+  // R17: same address ⇒ the holder confirmation already told them, so one email, not two.
+  // That is the only reason to withhold the payer notice — see the payment-gate note in this
+  // function's doc comment for why free and comp bookings are no longer excluded.
   const sameAddress = payerEmail !== "" && normalize(payerEmail) === normalize(holderEmail);
-  const hasPayment = ticket.is_comp !== true && registration.status !== "free";
 
   let payerSent = false;
-  if (payerEmail && !sameAddress && hasPayment) {
+  if (payerEmail && !sameAddress) {
     const result = await sendEmail({
       to: payerEmail,
       templateAlias: PAYER_TEMPLATE_ALIAS,

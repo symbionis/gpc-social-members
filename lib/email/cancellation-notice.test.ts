@@ -94,19 +94,24 @@ describe("sendCancellationNotices", () => {
     expect(res.payerSent).toBe(false);
   });
 
-  it("a free booking produces the holder confirmation and no payer notice", async () => {
+  // No payment gate. U5 first skipped the payer notice on free and comp bookings because the
+  // template promised a refund, which a seat costing nothing never earns. That line is gone —
+  // the email now only reports that a seat the payer arranged was released, which is as true
+  // of a free seat as a paid one. Both cases notify the payer like any other booking.
+  it("a free booking still notifies the payer — the notice no longer promises a refund", async () => {
     mockedAdmin.mockReturnValue(adminClient({ reg: { ...REG, status: "free" } }));
     const res = await sendCancellationNotices(TICKET_ID);
-    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(mockedSend).toHaveBeenCalledTimes(2);
     expect(mockedSend.mock.calls[0][0]).toMatchObject({ templateAlias: "event-cancellation-holder" });
-    expect(res).toEqual({ holderSent: true, payerSent: false });
+    expect(mockedSend.mock.calls[1][0]).toMatchObject({ templateAlias: "event-cancellation-payer" });
+    expect(res).toEqual({ holderSent: true, payerSent: true });
   });
 
-  it("a comp ticket produces the holder confirmation and no payer notice", async () => {
+  it("a comp ticket still notifies the payer", async () => {
     mockedAdmin.mockReturnValue(adminClient({ ticket: { ...TICKET, is_comp: true } }));
     const res = await sendCancellationNotices(TICKET_ID);
-    expect(mockedSend).toHaveBeenCalledTimes(1);
-    expect(res).toEqual({ holderSent: true, payerSent: false });
+    expect(mockedSend).toHaveBeenCalledTimes(2);
+    expect(res).toEqual({ holderSent: true, payerSent: true });
   });
 
   it("a failing holder send is logged and does not throw, and the payer send is still attempted", async () => {
