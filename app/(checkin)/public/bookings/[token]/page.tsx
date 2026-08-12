@@ -4,7 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import CompGuestListManager, { type CompGuestTicket } from "@/components/public/CompGuestListManager";
 import { credentialUrl } from "@/lib/events/credential";
 import { resolvePayerTicket, type PayerCandidateTicket } from "@/lib/events/booking-redirect";
-import { formatDate } from "@/lib/format";
+import { resolvePrice } from "@/lib/events/pricing";
+import { formatDate, formatCurrency } from "@/lib/format";
 
 // Don't leak the secret manage_token to outbound links / analytics via Referer.
 export const metadata: Metadata = { referrer: "no-referrer" };
@@ -135,7 +136,7 @@ export default async function BookingPage({
 
   const { data: typeRows } = await supabase
     .from("event_ticket_types")
-    .select("id, title, sort_order")
+    .select("id, title, sort_order, price_member, price_non_member, invite_price, archived_at")
     .eq("event_id", registration.event_id);
   const titleById = new Map<string, string>();
   const sortById = new Map<string, number>();
@@ -143,6 +144,27 @@ export default async function BookingPage({
     titleById.set(t.id as string, (t.title as string | null) ?? "");
     sortById.set(t.id as string, (t.sort_order as number | null) ?? 0);
   }
+
+  // Buy-more targets for the sponsor's own paid seats (KTD2): active types priced at the
+  // booking's rate, with the same invite_price fallback the top-up route applies.
+  const buyableTypes = (typeRows ?? [])
+    .filter((t) => !t.archived_at)
+    .sort((a, b) => ((a.sort_order as number) ?? 0) - ((b.sort_order as number) ?? 0))
+    .map((t) => {
+      const unit = resolvePrice(t, registration);
+      const amount = unit === null ? null : Number(unit);
+      return {
+        id: t.id as string,
+        title: (t.title as string | null) ?? "Ticket",
+        priceLabel:
+          amount === null || !Number.isFinite(amount)
+            ? "—"
+            : amount === 0
+              ? "Free"
+              : formatCurrency(amount),
+      };
+    })
+    .filter((t) => t.priceLabel !== "—");
 
   const tickets: CompGuestTicket[] = (ticketRows ?? [])
     .slice()
@@ -177,6 +199,8 @@ export default async function BookingPage({
       quantity={(registration.quantity as number) ?? tickets.length}
       tickets={tickets}
       fillEndpoint={`/api/public/bookings/${token}/fill`}
+      topupEndpoint={`/api/public/bookings/${token}/topup`}
+      buyableTypes={buyableTypes}
     />
   );
 }

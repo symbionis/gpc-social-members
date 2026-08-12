@@ -2,15 +2,17 @@
 
 import { useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import BuyMorePanel from "@/components/public/BuyMorePanel";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Comp guest-list view (U8, extracted from the retired BookingManager). The one surviving
 // surface for a comp GUEST LIST registration (event_registrations.is_guest_list) — a
 // sponsor names their contactless comp guests and sees each guest's QR, plus their own
-// paid seat(s) if the booking has any. Everything else BookingManager used to render
-// (buy-more, phone correction, ticket-type conversion) belonged to ordinary registrations,
-// which now manage themselves from the payer's ticket page (U3) — so it isn't here.
+// paid seat(s) if the booking has any, and can buy more paid seats onto their comp list
+// (KTD2: sponsors buying paid seats is part of why this page survives). Phone correction and
+// ticket-type conversion belonged to ordinary registrations, which now manage themselves from
+// the payer's ticket page (U3) — so those aren't here.
 
 export interface CompGuestTicket {
   id: string;
@@ -35,6 +37,11 @@ interface Props {
   tickets: CompGuestTicket[];
   /** Endpoint that names a ticket by id ({ ticketId, name, email, phone, marketingConsent }). */
   fillEndpoint: string;
+  /** When set, show the "buy more tickets" panel posting to this endpoint (KTD2 — the
+   *  sponsor's own paid seats onto their comp list). */
+  topupEndpoint?: string;
+  /** Ticket types the sponsor can buy more of (with a display price label). */
+  buyableTypes?: { id: string; title: string; priceLabel: string }[];
 }
 
 export default function CompGuestListManager({
@@ -44,6 +51,8 @@ export default function CompGuestListManager({
   quantity,
   tickets: initialTickets,
   fillEndpoint,
+  topupEndpoint,
+  buyableTypes,
 }: Props) {
   const [tickets, setTickets] = useState<CompGuestTicket[]>(initialTickets);
   const namedCount = useMemo(
@@ -85,6 +94,10 @@ export default function CompGuestListManager({
           <TicketCard key={t.id} fillEndpoint={fillEndpoint} index={i + 1} ticket={t} onSaved={onSaved} />
         ))}
       </ul>
+
+      {topupEndpoint && buyableTypes && buyableTypes.length > 0 && (
+        <BuyMorePanel endpoint={topupEndpoint} types={buyableTypes} />
+      )}
     </div>
   );
 }
