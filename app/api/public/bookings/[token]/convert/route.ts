@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
 import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
+import { resolvePayerTicket, type PayerCandidateTicket } from "@/lib/events/booking-redirect";
 
 // Convert-ticket-type from the lead booking page. A lead changes ONE of their tickets
 // to a same-or-higher priced ticket type, paying the difference. Mirrors the top-up
@@ -114,13 +115,28 @@ export async function POST(
     .limit(1)
     .maybeSingle();
   if (!ticket || !ticket.ticket_type_id) return bad("This ticket can’t be changed", 409);
-  // Lead flow on an ordinary (non-comp) booking: redirect to the converted ticket's OWN
-  // manage page rather than the now-redirect-only booking page. Fall back to the booking
-  // page if the ticket somehow has no manage_token yet — it still resolves the redirect
-  // itself (U3), just with one extra hop.
+  // Lead flow on an ordinary (non-comp) booking: redirect to the PAYER's own manage page,
+  // not the converted ticket's — the lead flow has no household restriction on which ticket
+  // it may change (below), so the ticket just converted may belong to a different holder
+  // entirely. Landing the person who just paid on someone else's manage page would be wrong;
+  // resolve the payer's own live ticket the same way the U3 booking-page redirect does, and
+  // fall back to the booking page (which itself resolves the redirect) when none is found.
   if (redirectToOwnTicketPage) {
-    const ownToken = ticket.manage_token as string | null;
-    if (ownToken) redirectBase = `/public/tickets/${ownToken}`;
+    const { data: payerTicketRows } = await supabase
+      .from("tickets")
+      .select("id, email, manage_token, is_lead, created_at")
+      .eq("registration_id", reg.id as string)
+      .in("slot_status", ["issued", "claimed"])
+      .is("released_at", null);
+    const candidates: PayerCandidateTicket[] = (payerTicketRows ?? []).map((t) => ({
+      id: t.id as string,
+      email: (t.email as string | null) ?? null,
+      manageToken: (t.manage_token as string | null) ?? null,
+      isLead: Boolean(t.is_lead),
+      createdAt: String(t.created_at),
+    }));
+    const payerTicket = resolvePayerTicket((reg.email as string | null) ?? null, candidates);
+    if (payerTicket) redirectBase = `/public/tickets/${payerTicket.manageToken}`;
   }
   // A household member can only change tickets on their own email (what the manage page
   // shows them). Mirror lib/events/household.ts: a blank self-email household is SOLO — it
