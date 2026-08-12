@@ -9,7 +9,6 @@ CANCELLED
 {{/event_time}}{{#event_location}}{{.}}
 {{/event_location}}{{#reference_code}}Reference: {{.}}
 {{/reference_code}}
-A refund for that seat will follow to your original payment method — you don't need to do anything to start it.
 
 Questions? Just reply to this email.
 
