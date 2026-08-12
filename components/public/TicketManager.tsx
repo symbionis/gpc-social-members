@@ -225,6 +225,9 @@ function TicketCard({
           {ticket.email && (
             <p className="truncate font-body text-sm text-marine/70">{ticket.email}</p>
           )}
+          {ticket.phone && (
+            <p className="truncate font-body text-sm text-marine/70">{ticket.phone}</p>
+          )}
           <p className="mt-1 font-body text-sm text-marine/80">{ticket.typeTitle || "Ticket"}</p>
 
           {/* The primary action sits with the ticket it applies to, not adrift below the QR.
@@ -311,6 +314,7 @@ function EditControl({
   const [name, setName] = useState(ticket.name);
   const [email, setEmail] = useState(ticket.email);
   const [phone, setPhone] = useState(ticket.phone);
+  const [phoneInvalid, setPhoneInvalid] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Set once the guest has been told what changing the address does, so the next tap saves.
@@ -321,6 +325,11 @@ function EditControl({
   const submit = async () => {
     if (!name.trim()) return setError("Enter a name.");
     if (!EMAIL_RE.test(email.trim())) return setError("Enter a valid email.");
+    // phone collapses to the same "" whether the field was left blank or the user typed
+    // something that doesn't parse — phoneInvalid is the only way to tell those apart, so
+    // without this check an invalid number would silently save as blank (R8 covers blank,
+    // not garbage).
+    if (phoneInvalid) return setError("Enter a valid phone number, or leave it blank.");
     // Changing the address hands the seat to a different person, and that is not obvious from
     // a form that also fixes typos. Three things happen at once, none of them undoable from
     // this page: the ticket leaves this household (siblings are matched on shared email, so it
@@ -379,7 +388,7 @@ function EditControl({
         onClick={() => setOpen(true)}
         className="font-body text-sm font-semibold text-marine underline underline-offset-2 hover:text-marine-light cursor-pointer"
       >
-        Edit name / email
+        Edit holder details
       </button>
     );
   }
@@ -406,7 +415,12 @@ function EditControl({
         placeholder="Email"
         className="w-full rounded-lg border border-border/70 px-3 py-2 text-base font-body text-marine"
       />
-      <PhoneInput id="ticket-phone" defaultValue={ticket.phone || null} onChange={(v) => setPhone(v ?? "")} />
+      <PhoneInput
+        id="ticket-phone"
+        defaultValue={ticket.phone || null}
+        onChange={(v) => setPhone(v ?? "")}
+        onValidityChange={setPhoneInvalid}
+      />
       {error && <p className="text-sm font-body text-red-600">{error}</p>}
       {/* Consequences before the tap that causes them, not a toast afterwards — none of this
           is undoable from this page once the ticket leaves the household. */}
@@ -453,6 +467,8 @@ function EditControl({
             setEmail(ticket.email);
             setName(ticket.name);
             setPhone(ticket.phone);
+            setPhoneInvalid(false);
+            setError(null);
           }}
           className="rounded-lg border border-border/70 px-4 py-2.5 text-base font-body text-marine"
         >

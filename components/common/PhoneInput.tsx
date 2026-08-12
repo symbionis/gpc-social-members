@@ -16,6 +16,11 @@ interface PhoneInputProps {
   defaultValue?: string | null;
   /** Called with the E.164 string, or null when empty/invalid. */
   onChange?: (e164: string | null) => void;
+  /** Called whenever the "invalid" state changes — true when the field has been touched and
+   *  carries digits that don't resolve to a valid number. `onChange` alone can't distinguish
+   *  this from "left blank": both resolve to a null e164, so a caller that gates submission
+   *  on the value alone would silently save an invalid entry as if it were empty. */
+  onValidityChange?: (invalid: boolean) => void;
   id?: string;
   required?: boolean;
   /** Larger control for kiosk / field use (bigger text + touch targets). */
@@ -47,6 +52,7 @@ export default function PhoneInput({
   name,
   defaultValue,
   onChange,
+  onValidityChange,
   id = "phone",
   required = false,
   large = false,
@@ -73,6 +79,13 @@ export default function PhoneInput({
     // onChange identity is not stable across renders in callers; depend on the value.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [e164]);
+
+  // Separately notify on invalid state — onChange alone can't tell a caller "the user typed
+  // something that doesn't parse" apart from "the field is empty" (both give a null e164).
+  useEffect(() => {
+    onValidityChange?.(invalid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invalid]);
 
   // Close the country dropdown on outside click.
   useEffect(() => {

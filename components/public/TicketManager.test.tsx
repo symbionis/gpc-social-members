@@ -116,7 +116,7 @@ describe("TicketManager — what a guest sees on a phone", () => {
     renderManager([ticket()]);
     const card = cardOf("Sophie Berger");
     const cancel = within(card).getByRole("button", { name: "Cancel ticket" });
-    const edit = within(card).getByRole("button", { name: "Edit name / email" });
+    const edit = within(card).getByRole("button", { name: "Edit holder details" });
 
     const row = cancel.parentElement as HTMLElement;
     expect(row.className).toContain("justify-between");
@@ -136,7 +136,7 @@ describe("TicketManager — what a guest sees on a phone", () => {
       within(card).getByRole("button", { name: "Sign the waiver" }).className
     ).toContain("rounded-full");
     expect(
-      within(card).getByRole("button", { name: "Edit name / email" }).className
+      within(card).getByRole("button", { name: "Edit holder details" }).className
     ).not.toContain("rounded-full");
   });
 
@@ -153,7 +153,7 @@ describe("TicketManager — what a guest sees on a phone", () => {
     expect(within(card).getByText("Cancelled")).toBeInTheDocument();
     expect(within(card).queryByRole("button", { name: "Sign the waiver" })).toBeNull();
     expect(within(card).queryByRole("button", { name: "Cancel ticket" })).toBeNull();
-    expect(within(card).queryByRole("button", { name: "Edit name / email" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Edit holder details" })).toBeNull();
   });
 
   it("signs one ticket without touching its household siblings", async () => {
@@ -214,7 +214,7 @@ describe("TicketManager — what a guest sees on a phone", () => {
     const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
     renderManager([ticket({ waiverSigned: true })]);
 
-    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit holder details" }));
     const emailField = screen.getByPlaceholderText("Email");
     await user.clear(emailField);
     await user.type(emailField, "someone.else@example.com");
@@ -241,7 +241,7 @@ describe("TicketManager — what a guest sees on a phone", () => {
     const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
     renderManager([ticket()]);
 
-    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit holder details" }));
     const nameField = screen.getByPlaceholderText("Full name");
     await user.clear(nameField);
     await user.type(nameField, "Sophie Berger-Roux");
@@ -262,7 +262,7 @@ describe("TicketManager — what a guest sees on a phone", () => {
     const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
     renderManager([ticket()]);
 
-    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit holder details" }));
     const emailField = screen.getByPlaceholderText("Email");
     await user.clear(emailField);
     await user.type(emailField, "first@example.com");
@@ -285,7 +285,7 @@ describe("TicketManager — what a guest sees on a phone", () => {
       json: async () => ({ ok: true, emailChanged: true, qrEmailSent: false }),
     });
 
-    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit holder details" }));
     const emailField = screen.getByPlaceholderText("Email");
     await user.clear(emailField);
     await user.type(emailField, "unreachable@example.com");
@@ -310,7 +310,7 @@ describe("TicketManager — what a guest sees on a phone", () => {
     const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
     renderManager([ticket()]);
 
-    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit holder details" }));
     const phoneField = screen.getByPlaceholderText("79 123 45 67");
     await user.type(phoneField, "791234567");
 
@@ -328,7 +328,7 @@ describe("TicketManager — what a guest sees on a phone", () => {
     const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
     renderManager([ticket({ phone: "+41791234567" })]);
 
-    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit name / email" }));
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit holder details" }));
     const phoneField = screen.getByPlaceholderText("79 123 45 67");
     await user.clear(phoneField);
 
@@ -339,6 +339,35 @@ describe("TicketManager — what a guest sees on a phone", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
       phone: "",
     });
+  });
+
+  // Regression: PhoneInput resolves an unparseable number to a null e164 the same as an
+  // empty field, so onChange alone can't tell "invalid" apart from "blank" — without the
+  // onValidityChange gate, Save would silently discard the invalid digits and close the
+  // panel as if it had saved successfully.
+  it("blocks saving an invalid phone number instead of silently discarding it", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    renderManager([ticket()]);
+
+    await user.click(within(cardOf("Sophie Berger")).getByRole("button", { name: "Edit holder details" }));
+    const phoneField = screen.getByPlaceholderText("79 123 45 67");
+    await user.type(phoneField, "1");
+    await user.tab();
+
+    fetchMock.mockClear();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText("Enter a valid phone number, or leave it blank.")).toBeInTheDocument();
+    // The edit panel stays open with the field visible, not closed and emptied.
+    expect(screen.getByPlaceholderText("79 123 45 67")).toBeInTheDocument();
+  });
+
+  it("shows a saved phone number below the email on the ticket card", async () => {
+    renderManager([ticket({ phone: "+41791234567" })]);
+    const card = cardOf("Sophie Berger");
+    expect(within(card).getByText("+41791234567")).toBeInTheDocument();
   });
 
   it("shows the waiver pill and drops the control once genuinely signed", async () => {
