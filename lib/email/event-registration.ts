@@ -1,7 +1,13 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
 import { sendHouseholdTicketEmails } from "@/lib/email/household-tickets";
-import { buildReceiptLines, subtractReceiptItems, type ReceiptItemRow } from "@/lib/events/receipt-lines";
+import {
+  buildReceiptLines,
+  subtractReceiptItems,
+  toReceiptItemRow,
+  type RawReceiptItem,
+  type ReceiptItemRow,
+} from "@/lib/events/receipt-lines";
 
 // The PAYER's receipt (U4 — split from the old combined confirmation). Carries what was paid
 // — itemised lines, paid date, reference code, charge reference — and NOTHING that manages a
@@ -34,25 +40,6 @@ function priceLabel(chf: number): string {
   return chf === 0 ? "Free" : `CHF ${chf.toFixed(2)}`;
 }
 
-interface RawItem {
-  ticket_type_id: string | null;
-  title_snapshot: string;
-  quantity: number;
-  unit_amount_chf: number;
-  line_total_chf: number;
-}
-
-function toRow(item: RawItem, fallbackTypeId: string): ReceiptItemRow {
-  return {
-    // Legacy/itemless rows can lack a type id; fall back to the title so same-titled
-    // legacy rows still aggregate together rather than each standing alone.
-    ticketTypeId: item.ticket_type_id ?? `${fallbackTypeId}:${item.title_snapshot}`,
-    title: item.title_snapshot,
-    quantity: item.quantity,
-    unitAmountChf: Number(item.unit_amount_chf),
-    lineTotalChf: Number(item.line_total_chf),
-  };
-}
 
 /**
  * Which payment this receipt is for (U4). Omitted = the ORIGINAL checkout payment. The
@@ -134,9 +121,9 @@ export async function sendEventRegistrationConfirmation(
       console.error("[event-registration-email] topups lookup failed", { registrationId, err: topupsErr });
     }
 
-    const allRows: ReceiptItemRow[] = (items ?? []).map((i) => toRow(i as RawItem, "orig"));
+    const allRows: ReceiptItemRow[] = (items ?? []).map((i) => toReceiptItemRow(i as RawReceiptItem, "orig"));
     const contributed: ReceiptItemRow[][] = (topups ?? []).map((t) =>
-      ((t.items as RawItem[] | null) ?? []).map((i) => toRow(i, "orig"))
+      ((t.items as RawReceiptItem[] | null) ?? []).map((i) => toReceiptItemRow(i, "orig"))
     );
     scopedItems = allRows.length > 0 ? subtractReceiptItems(allRows, contributed) : [];
 
@@ -167,7 +154,7 @@ export async function sendEventRegistrationConfirmation(
       console.error("[event-registration-email] topup not found", { topupId: opts.payingRow.id, err: topupErr });
       return { success: false, error: topupErr || "topup not found" };
     }
-    scopedItems = ((topup.items as RawItem[] | null) ?? []).map((i) => toRow(i, opts.payingRow!.id));
+    scopedItems = ((topup.items as RawReceiptItem[] | null) ?? []).map((i) => toReceiptItemRow(i, opts.payingRow!.id));
     totalChf = Number(scopedItems.reduce((s, r) => s + r.lineTotalChf, 0).toFixed(2));
     paidAtIso = (topup.applied_at as string | null) ?? paidAtIso;
     chargeReference = (topup.stripe_payment_intent_id as string | null) ?? null;
@@ -239,29 +226,41 @@ export async function sendEventRegistrationConfirmation(
     return result;
   }
 
-  // Record the successful send so the admin "not yet notified" filter + bulk resend can skip
-  // this row and double-sends are avoided. Stamp ONLY on success — a failed send must leave
-  // the row in the not-yet-notified set so it stays eligible for retry. Best-effort: a stamp
-  // failure doesn't undo a delivered email, so log and continue.
-  const { error: stampErr } = await supabase
-    .from("event_registrations")
-    .update({ ticket_email_sent_at: new Date().toISOString() })
-    .eq("id", registrationId);
-  if (stampErr) {
-    console.error("[event-registration-email] failed to stamp ticket_email_sent_at", {
-      registrationId,
-      err: stampErr,
-    });
+  // The ticket email carries QRs — every holder's, INCLUDING the payer's own (U4: the payer
+  // no longer gets their QR via this receipt). Idempotent per ticket (qr_email_sent_at), so a
+  // re-fired Stripe webhook or an admin resend won't double-send.
+  let householdDelivered = true;
+  try {
+    const householdResult = await sendHouseholdTicketEmails(registrationId);
+    householdDelivered = householdResult.sent >= householdResult.groups;
+    if (!householdDelivered) {
+      console.error("[event-registration-email] grouped ticket send partially failed", {
+        registrationId,
+        ...householdResult,
+      });
+    }
+  } catch (err) {
+    householdDelivered = false;
+    console.error("[event-registration-email] grouped ticket send failed", { registrationId, err });
   }
 
-  // The ticket email carries QRs — every holder's, INCLUDING the payer's own (U4: the payer
-  // no longer gets their QR via this receipt). Best-effort and idempotent per ticket
-  // (qr_email_sent_at), so a re-fired Stripe webhook or an admin resend won't double-send. A
-  // failure here never affects the receipt already sent or the registration.
-  try {
-    await sendHouseholdTicketEmails(registrationId);
-  } catch (err) {
-    console.error("[event-registration-email] grouped ticket send failed", { registrationId, err });
+  // Record the successful send so the admin "not yet notified" filter + bulk resend can skip
+  // this row and double-sends are avoided. `ticket_email_sent_at` means the TICKET (QR)
+  // delivery, not the receipt above — stamp only once the household ticket send actually
+  // succeeded, so a receipt-sent-but-QR-failed registration stays in the retry-eligible set
+  // instead of silently falling out of it. Best-effort: a stamp failure doesn't undo a
+  // delivered email, so log and continue.
+  if (householdDelivered) {
+    const { error: stampErr } = await supabase
+      .from("event_registrations")
+      .update({ ticket_email_sent_at: new Date().toISOString() })
+      .eq("id", registrationId);
+    if (stampErr) {
+      console.error("[event-registration-email] failed to stamp ticket_email_sent_at", {
+        registrationId,
+        err: stampErr,
+      });
+    }
   }
 
   return result;

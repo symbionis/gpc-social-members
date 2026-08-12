@@ -32,6 +32,29 @@ function priceLabel(chf: number): string {
   return chf === 0 ? "Free" : `CHF ${chf.toFixed(2)}`;
 }
 
+/** Shape of a raw `event_registration_items`/topup `items` row, as read by both the receipt
+ *  email (U4) and the receipt page (U6) — kept here so both share one mapping. */
+export interface RawReceiptItem {
+  ticket_type_id: string | null;
+  title_snapshot: string;
+  quantity: number;
+  unit_amount_chf: number | string;
+  line_total_chf: number | string;
+}
+
+/** Map a raw item row into a ReceiptItemRow. Legacy/itemless rows can lack a type id; fall
+ *  back to a key derived from the title so same-titled legacy rows still aggregate together
+ *  rather than each standing alone. */
+export function toReceiptItemRow(item: RawReceiptItem, fallbackKey: string): ReceiptItemRow {
+  return {
+    ticketTypeId: item.ticket_type_id ?? `${fallbackKey}:${item.title_snapshot}`,
+    title: item.title_snapshot,
+    quantity: item.quantity,
+    unitAmountChf: Number(item.unit_amount_chf),
+    lineTotalChf: Number(item.line_total_chf),
+  };
+}
+
 /** Format item rows into displayable receipt lines (no scoping — callers pass already-scoped rows). */
 export function buildReceiptLines(items: ReceiptItemRow[]): ReceiptLine[] {
   return items.map((item) => ({

@@ -1,5 +1,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buildReceiptLines, subtractReceiptItems, type ReceiptItemRow, type ReceiptLine } from "@/lib/events/receipt-lines";
+import {
+  buildReceiptLines,
+  subtractReceiptItems,
+  toReceiptItemRow,
+  type RawReceiptItem,
+  type ReceiptItemRow,
+  type ReceiptLine,
+} from "@/lib/events/receipt-lines";
 import { refundedAmountChf, type RefundItemLine } from "@/lib/events/refunds";
 
 // The payer's full purchase history (U6, R22-R25). A manage_token opens a single ticket's
@@ -18,26 +25,6 @@ import { refundedAmountChf, type RefundItemLine } from "@/lib/events/refunds";
 // trim + lowercase.
 function normalize(email: string | null | undefined): string {
   return (email ?? "").trim().toLowerCase();
-}
-
-interface RawItem {
-  ticket_type_id: string | null;
-  title_snapshot: string;
-  quantity: number;
-  unit_amount_chf: number;
-  line_total_chf: number;
-}
-
-function toRow(item: RawItem, fallbackKey: string): ReceiptItemRow {
-  return {
-    // Legacy/itemless rows can lack a type id; fall back to a key derived from the title so
-    // same-titled legacy rows still aggregate together rather than each standing alone.
-    ticketTypeId: item.ticket_type_id ?? `${fallbackKey}:${item.title_snapshot}`,
-    title: item.title_snapshot,
-    quantity: item.quantity,
-    unitAmountChf: Number(item.unit_amount_chf),
-    lineTotalChf: Number(item.line_total_chf),
-  };
 }
 
 export interface ReceiptPayment {
@@ -141,14 +128,14 @@ async function buildPayments(
     console.error("[purchase-history] topups lookup failed", { registrationId: registration.id, err: topupsErr });
   }
 
-  const allRows: ReceiptItemRow[] = (items ?? []).map((i) => toRow(i as RawItem, "orig"));
+  const allRows: ReceiptItemRow[] = (items ?? []).map((i) => toReceiptItemRow(i as RawReceiptItem, "orig"));
   const appliedTopups = (topups ?? []) as {
     id: string;
-    items: RawItem[] | null;
+    items: RawReceiptItem[] | null;
     applied_at: string | null;
     stripe_payment_intent_id: string | null;
   }[];
-  const contributed: ReceiptItemRow[][] = appliedTopups.map((t) => (t.items ?? []).map((i) => toRow(i, "orig")));
+  const contributed: ReceiptItemRow[][] = appliedTopups.map((t) => (t.items ?? []).map((i) => toReceiptItemRow(i, "orig")));
 
   let originalItems = allRows.length > 0 ? subtractReceiptItems(allRows, contributed) : [];
   let originalTotal: number;
@@ -175,8 +162,8 @@ async function buildPayments(
 
   const refundLines: RefundItemLine[] = (items ?? []).map((i) => ({
     registration_id: registration.id,
-    ticket_type_id: (i as RawItem).ticket_type_id,
-    unit_amount_chf: (i as RawItem).unit_amount_chf,
+    ticket_type_id: (i as RawReceiptItem).ticket_type_id,
+    unit_amount_chf: (i as RawReceiptItem).unit_amount_chf,
   }));
   const refundedChf = await refundedForBooking(supabase, registration.id, registration, refundLines);
 
@@ -193,7 +180,7 @@ async function buildPayments(
   ];
 
   for (const topup of appliedTopups) {
-    const rows = (topup.items ?? []).map((i) => toRow(i, topup.id));
+    const rows = (topup.items ?? []).map((i) => toReceiptItemRow(i, topup.id));
     const total = Number(rows.reduce((s, r) => s + r.lineTotalChf, 0).toFixed(2));
     payments.push({
       id: topup.id,

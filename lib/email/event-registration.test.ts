@@ -281,6 +281,30 @@ describe("sendEventRegistrationConfirmation — payer still gets their ticket vi
     mockedAdmin.mockReturnValue(adminClient({ registration: baseReg, event: baseEvent, items: [] }));
     await expect(sendEventRegistrationConfirmation("reg-1")).resolves.toBeDefined();
   });
+
+  // Regression: ticket_email_sent_at means the TICKET (QR) was delivered, not the receipt.
+  // The receipt can succeed while the grouped ticket send fails or only partially succeeds —
+  // that registration must stay in the admin's "not yet notified" / bulk-resend set.
+  it("does not stamp ticket_email_sent_at when the grouped ticket send fails", async () => {
+    mockedHousehold.mockRejectedValueOnce(new Error("postmark down"));
+    const updateCalls: Record<string, unknown>[] = [];
+    mockedAdmin.mockReturnValue(
+      adminClient({ registration: baseReg, event: baseEvent, items: [], updateCalls })
+    );
+    const res = await sendEventRegistrationConfirmation("reg-1");
+    expect(res.success).toBe(true); // the receipt itself still sent fine
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it("does not stamp ticket_email_sent_at when the grouped send only partially succeeds", async () => {
+    mockedHousehold.mockResolvedValueOnce({ groups: 2, sent: 1 });
+    const updateCalls: Record<string, unknown>[] = [];
+    mockedAdmin.mockReturnValue(
+      adminClient({ registration: baseReg, event: baseEvent, items: [], updateCalls })
+    );
+    await sendEventRegistrationConfirmation("reg-1");
+    expect(updateCalls).toHaveLength(0);
+  });
 });
 
 describe("sendEventRegistrationConfirmation — resend flag + send stamp", () => {
