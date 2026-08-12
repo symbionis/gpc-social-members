@@ -15,6 +15,7 @@ export interface HouseholdTicket {
   id: string;
   name: string;
   email: string;
+  phone: string;
   typeId: string;
   typeTitle: string;
   status: string; // 'issued' | 'claimed'
@@ -25,6 +26,14 @@ export interface HouseholdTicket {
   credentialUrl: string;
   /** True for the ticket whose manage_token opened this page. */
   isSelf: boolean;
+  /**
+   * True for the ticket seeded as the booking's purchaser (tickets.is_lead) — the payer,
+   * regardless of which household ticket's token opened this page. Drives the receipt link's
+   * visibility (U6, R22/AE10): only the payer's own token should ever show it, and this flag —
+   * unlike the registration's email, which any holder can rewrite on their own ticket via R1 —
+   * cannot be forged by a non-payer editing their address.
+   */
+  isLead: boolean;
   /**
    * Whether this ticket's holder has already accepted the waiver. The door skips its waiver
    * step for a signed ticket (lib/events/checkin.ts never re-stamps), so accepting here is
@@ -66,7 +75,7 @@ const LIVE_SLOTS = ["issued", "claimed"];
  * that governs a door belongs in one place, not in a copy per surface.
  */
 const HOUSEHOLD_TICKET_COLUMNS =
-  "id, name, email, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status, waiver_accepted_at";
+  "id, name, email, phone_e164, ticket_type_id, slot_status, credential_token, checked_in_at, created_at, cancellation_status, waiver_accepted_at, is_lead";
 
 /**
  * Resolve the household behind a per-ticket manage_token. Returns null when the token
@@ -141,6 +150,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
         id: r.id as string,
         name: (r.name as string | null) ?? "",
         email: (r.email as string | null) ?? "",
+        phone: (r.phone_e164 as string | null) ?? "",
         typeId: typeId ?? "",
         typeTitle: typeId ? typeTitleById.get(typeId) ?? "" : "",
         status: r.slot_status as string,
@@ -148,6 +158,7 @@ export async function resolveHousehold(token: string): Promise<Household | null>
         cancellationStatus: (r.cancellation_status as TicketCancellationStatus | null) ?? null,
         credentialUrl: credentialUrl((r.credential_token as string | null) ?? ""),
         isSelf: r.id === self.id,
+        isLead: Boolean(r.is_lead),
         // Boolean(), not `!== null`: rows arrive untyped, so a missing column is `undefined`,
         // and `undefined !== null` is TRUE — every ticket would claim to be signed and the
         // Sign control would vanish for guests who signed nothing. On a legal acceptance the

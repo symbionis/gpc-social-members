@@ -15,7 +15,10 @@ type Row = Record<string, unknown> | null;
 // Table-aware mock. maybeSingle resolves the looked-up row per table; the edit path
 // awaits the update builder via `then`. The fill path delegates to the claim_ticket
 // RPC — `rpc` returns opts.claim.
-function adminClient(opts: { existing?: Row; reg?: Row; claim?: Record<string, unknown> }) {
+function adminClient(
+  opts: { existing?: Row; reg?: Row; claim?: Record<string, unknown> },
+  onUpdate?: (payload: Record<string, unknown>) => void
+) {
   return {
     from: (table: string) => {
       const c: Record<string, unknown> = {};
@@ -24,7 +27,10 @@ function adminClient(opts: { existing?: Row; reg?: Row; claim?: Record<string, u
       c.is = () => c;
       c.in = () => c;
       c.limit = () => c;
-      c.update = () => c;
+      c.update = (payload: Record<string, unknown>) => {
+        onUpdate?.(payload);
+        return c;
+      };
       c.maybeSingle = async () => {
         if (table === "tickets") return { data: opts.existing ?? null, error: null };
         if (table === "event_registrations") return { data: opts.reg ?? null, error: null };
@@ -94,6 +100,30 @@ describe("POST /api/public/door/[id]/save-attendee", () => {
     );
     const res = await post({ attendeeId: UID, name: "Guest Corrected" });
     expect(res.status).toBe(200);
+  });
+
+  // U7: the door prompts a no-email ticket for one, but a guest who gives a phone
+  // instead of an email must still save — tightening this would refuse an ordinary
+  // phone-only walk-up alongside a declining comp guest.
+  it("edits an existing slot with phone only, no email (U7 — door prompts but does not require email)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ existing: { id: UID, checked_in_at: null } })
+    );
+    const res = await post({ attendeeId: UID, name: "Marta Lopez", phone: "+41791234567" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, created: false });
+  });
+
+  it("normalises email casing/whitespace before storing it against the ticket", async () => {
+    let captured: Record<string, unknown> | undefined;
+    mockedAdmin.mockReturnValue(
+      adminClient({ existing: { id: UID, checked_in_at: null } }, (payload) => {
+        captured = payload;
+      })
+    );
+    const res = await post({ attendeeId: UID, name: "Marta Lopez", email: "  Marta@X.CH  " });
+    expect(res.status).toBe(200);
+    expect(captured).toMatchObject({ email: "marta@x.ch" });
   });
 
   it("fills an open adult slot by flipping an issued ticket (claim_ticket → claimed)", async () => {

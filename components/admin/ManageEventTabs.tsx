@@ -18,7 +18,7 @@ import EventMessaging, {
 import { formatDateTime } from "@/lib/format";
 import type { ReminderEntry } from "@/lib/events/reminder-schedule";
 
-type Tab = "roster" | "checkin" | "guestlist" | "refunds" | "messaging" | "waitlist" | "settings";
+type Tab = "overview" | "roster" | "checkin" | "guestlist" | "refunds" | "messaging" | "waitlist" | "settings";
 
 interface Waitlist {
   id: string;
@@ -146,7 +146,9 @@ export default function ManageEventTabs({
   guestLists,
   cancellations,
 }: Props) {
-  const [tab, setTab] = useState<Tab>("roster");
+  // Overview leads: the summary figures are what an organiser opens the page to read, and
+  // keeping them off Attendees leaves that tab as just the roster it is named for.
+  const [tab, setTab] = useState<Tab>("overview");
   const pendingCancellations = cancellations.filter((c) => c.status === "requested").length;
   const router = useRouter();
 
@@ -312,6 +314,9 @@ export default function ManageEventTabs({
   return (
     <div>
       <div className="flex border-b border-border mb-6">
+        <button type="button" className={tabClass(tab === "overview")} onClick={() => setTab("overview")}>
+          Overview
+        </button>
         <button type="button" className={tabClass(tab === "roster")} onClick={() => setTab("roster")}>
           Attendees{attendees.length > 0 ? ` (${attendees.length})` : ""}
         </button>
@@ -353,36 +358,38 @@ export default function ManageEventTabs({
         </button>
       </div>
 
+      {tab === "overview" && (
+        <EventRosterSummary
+          total={total}
+          booked={booked}
+          figuresDegraded={figuresDegraded}
+          paidTickets={paidTickets}
+          freeTickets={freeTickets}
+          cancelledSeats={cancelledSeats}
+          guestListSeats={guestListSeats}
+          guestListCount={guestListCount}
+          hasSeatCap={hasSeatCap}
+          seatCap={seatCap}
+          overbooked={overbooked}
+          ticketTypeSummary={ticketTypeSummary}
+        />
+      )}
+
       {tab === "roster" && (
         <div className="space-y-10">
           <div>
-            <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
-              <EventRosterSummary
-                total={total}
-                booked={booked}
-                figuresDegraded={figuresDegraded}
-                paidTickets={paidTickets}
-                freeTickets={freeTickets}
-                cancelledSeats={cancelledSeats}
-                guestListSeats={guestListSeats}
-                guestListCount={guestListCount}
-                hasSeatCap={hasSeatCap}
-                seatCap={seatCap}
-                overbooked={overbooked}
-                ticketTypeSummary={ticketTypeSummary}
-              />
-              <div className="shrink-0 flex gap-2">
-                {/* The paper sheet staff tick off at the door: same rows as the CSV,
-                    laid out to be scanned by surname rather than pivoted in Excel. */}
-                <a
-                  href={`/print/door-roster/${eventId}`}
-                  target="_blank"
-                  rel="noopener"
-                  className="px-4 py-2 border border-marine text-marine rounded-lg text-sm font-body font-medium hover:bg-marine/5 transition-colors"
-                >
-                  Print door sheet
-                </a>
-              </div>
+            <div className="flex justify-end mb-5">
+              {/* The paper sheet staff tick off at the door: same rows as the CSV,
+                  laid out to be scanned by surname rather than pivoted in Excel. Stays with
+                  Attendees rather than Overview — it prints this tab's roster. */}
+              <a
+                href={`/print/door-roster/${eventId}`}
+                target="_blank"
+                rel="noopener"
+                className="px-4 py-2 border border-marine text-marine rounded-lg text-sm font-body font-medium hover:bg-marine/5 transition-colors"
+              >
+                Print door sheet
+              </a>
             </div>
             <AttendeeList
               attendees={attendees}

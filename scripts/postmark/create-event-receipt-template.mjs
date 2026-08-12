@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Upsert the "event-registration-confirmed" Postmark template (the buyer's booking
-// confirmation / itemised receipt, U13). The app never creates templates at runtime, so
-// this must be run by someone with the server token to create it — or to push body changes.
+// Upsert the "event-receipt" Postmark template (the payer's receipt — itemised lines, paid
+// date, reference code, charge reference; NO QR, NO manage link — U4). The app never creates
+// templates at runtime, so this must be run by someone with the server token to create it —
+// or to push body/subject changes.
 //
-//   POSTMARK_SERVER_TOKEN=xxxxxxxx node scripts/postmark/create-event-registration-confirmed-template.mjs
+//   POSTMARK_SERVER_TOKEN=xxxxxxxx node scripts/postmark/create-event-receipt-template.mjs
 //
 // Idempotent: creates the alias if missing, otherwise edits the existing template in place.
-// Body is read from docs/email-templates/event-registration-confirmed.{html,txt}.
+// Body is read from docs/email-templates/event-receipt.{html,txt}.
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -20,16 +21,17 @@ if (!token) {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const templatesDir = join(here, "..", "..", "docs", "email-templates");
-const htmlBody = readFileSync(join(templatesDir, "event-registration-confirmed.html"), "utf8");
-const textBody = readFileSync(join(templatesDir, "event-registration-confirmed.txt"), "utf8");
+const htmlBody = readFileSync(join(templatesDir, "event-receipt.html"), "utf8");
+const textBody = readFileSync(join(templatesDir, "event-receipt.txt"), "utf8");
 
 const payload = {
-  Name: "Event Registration",
-  Alias: "event-registration-confirmed",
-  Subject: "Geneva Polo Social Club - Event Registration",
+  Name: "Event Receipt",
+  Alias: "event-receipt",
+  Subject: "Your receipt for {{event_title}}",
   HtmlBody: htmlBody,
   TextBody: textBody,
   TemplateType: "Standard",
+  // Same layout chrome as the other event emails.
   LayoutTemplate: "main-polo-club",
 };
 

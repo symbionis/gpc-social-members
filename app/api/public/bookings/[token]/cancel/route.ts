@@ -1,11 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendCancellationNotices } from "@/lib/email/cancellation-notice";
 
 // Holder-requested ticket cancellation (U14). From the manage page a holder may request
 // cancellation of any ticket at their address. The request is FINAL on the holder side
 // (R22) and frees the seat IMMEDIATELY — seats_used subtracts cancelled seat-counting
 // tickets (KTD6), so nothing else has to run here. An admin then issues the refund from the
 // event's Refunds tab, which sends the money back through Stripe and records it.
+//
+// After the seat is freed, sendCancellationNotices (U5) tells the holder it's cancelled and
+// tells the payer — who may not be the same person — that a refund will follow. That send is
+// best-effort (KTD6): the seat release above already happened and is the only load-bearing
+// effect here, so a mail failure never turns into a failed cancellation response.
 //
 // Auth mirrors the convert route's dual-token model: the path token is EITHER the booking's
 // registration manage_token (the lead) OR a per-ticket manage_token (a household member,
@@ -134,6 +140,11 @@ export async function POST(
     // an error (the holder's intent, cancel, is either done or moot).
     return NextResponse.json({ ok: true, alreadyCancelled: true });
   }
+
+  // Best-effort — never let a mail failure surface as a failed cancellation (KTD6).
+  await sendCancellationNotices(ticketId).catch((err) =>
+    console.error("[booking-cancel] cancellation notice failed", { ticketId, err })
+  );
 
   return NextResponse.json({ ok: true });
 }

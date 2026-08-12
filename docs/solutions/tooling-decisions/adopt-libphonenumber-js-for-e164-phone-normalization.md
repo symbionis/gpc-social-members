@@ -23,11 +23,12 @@ tags:
 
 ## Context
 
-The event door check-in matches an arrival to a pre-claimed roster **by phone** (and email). The matcher in `lib/events/checkin.ts` (`matchContact`) does an exact-equality lookup on the stored E.164 string:
+The event door check-in matches an arrival to a pre-claimed roster **by phone** (and email), using an exact-equality lookup on the stored E.164 string. That match has since moved out of TypeScript and into the claim / check-in Postgres RPCs, but the comparison is unchanged:
 
-```ts
-// lib/events/checkin.ts
-.eq("phone_e164", phone)   // phone is expected already in E.164
+```sql
+-- supabase/migrations/20260721150000_stop_writing_is_child.sql
+AND ((v_email IS NOT NULL AND lower(email) = v_email)
+  OR (v_phone IS NOT NULL AND phone_e164 = v_phone))
 ```
 
 Exact equality means the *write path* and the *match path* must produce byte-identical E.164 for the same human number. If they diverge, a correctly-registered guest silently fails to match and is turned away at the door ("not registered — please see the welcome desk").
@@ -75,14 +76,36 @@ export function parseE164(stored: string | null | undefined): PhoneParts | null 
 Design points:
 
 - **Country is an explicit, required input** — `toE164(national, country)`. The library applies the correct per-country trunk-zero rule; the caller never decides whether to strip a `0`.
-- **Invalid / too-short returns `null`**, not a malformed string. Callers gate on it (`PhoneInput` shows "Enter a valid phone number for …" and submits empty).
-- **One module, every entry point.** `components/common/PhoneInput.tsx` is the single capture control (country combobox + national field, emits E.164 via a hidden input / `onChange`). It is adopted at the member profile, the public application form, event registration, and the door check-in. The door matcher compares against that same E.164. Writers and matcher physically cannot diverge because they share `lib/phone.ts`.
+- **Invalid / too-short returns `null`**, not a malformed string. `PhoneInput` renders "Enter a valid phone number for …" beside the field.
+
+  **But returning `null` is only safe when the caller surfaces it — see the caveat below.** `toE164` returns the same `null` for "invalid" and for "left blank", and a caller that gates on the value alone cannot tell those apart. That is why `PhoneInput` also exposes `onValidityChange(invalid: boolean)` as a channel separate from `onChange`; its own source states the reason (`components/common/PhoneInput.tsx`):
+
+  ```ts
+  /** … `onChange` alone can't distinguish this from "left blank": both resolve to a
+   *  null e164, so a caller that gates submission on the value alone would silently
+   *  save an invalid entry as if it were empty. */
+  onValidityChange?: (invalid: boolean) => void;
+  ```
+
+  Consumers must gate on that signal, not on the value: `TicketManager` holds `phoneInvalid` state and refuses to submit with "Enter a valid phone number, or leave it blank."
+- **One module, every entry point.** `components/common/PhoneInput.tsx` is the single capture control (country combobox + national field, emits E.164 via a hidden input / `onChange`). It is adopted at the member profile, the public application form, event registration, the holder ticket page, and the door check-in. The door matcher compares against that same E.164. Writers and matcher physically cannot diverge because they share `lib/phone.ts`.
 
 ## Why This Matters
 
 The failure mode is **silent and customer-facing**: no error, no log, no crash — just a real guest, correctly registered, told at the door they aren't on the list. It only affects countries with a kept trunk zero (Italy), so it survives testing done with Swiss/French numbers. The only signal is in-person friction the engineering team never sees.
 
 It also illustrates the deeper trap: a normalization function that lives in two places (or is re-implemented per form) **will** drift. Centralizing on one shared module turns "keep N call sites consistent" into "there is only one call site." (The check-in code does the same for email via the shared `normalizeEmail`.)
+
+### Caveat: a null return is only as good as the caller that surfaces it
+
+Returning `null` for bad input is the right call here, but it is not self-evidently safe, and this doc originally overstated it. `null` carries two meanings — "unparseable" (a bug or a user error) and "genuinely absent" (fine) — and any caller that tests the value alone collapses them.
+
+The pattern has since misfired twice in this codebase, in both directions:
+
+- **Silently saving an invalid entry.** `PhoneInput` displayed its validation message, but `TicketManager.submit()` gated on the E.164 value, which was `null` for both "typed garbage" and "left blank" — so it saved the blank and closed the panel. Fixed by adding the separate `onValidityChange` channel.
+- **Silently rendering nothing.** A different helper returned `null` on a parse failure into a `{value && …}` render gate, and the feature simply never appeared — no error, no log. See [Add-to-calendar link silently absent](../logic-errors/add-to-calendar-link-missing-when-postgres-time-parsed-as-hh-mm.md).
+
+So the rule is narrower than "invalid input returns null, callers gate on it": **return `null` only where the caller has a way to distinguish and surface the error case.** Where it does not — a render conditional, a truthiness check, a bare value gate — either give the error its own channel (as `onValidityChange` does), return a discriminated result rather than a bare nullable, or log at the point the two meanings diverge. A nullable feeding a truthiness check fails closed, and failing closed is invisible.
 
 ## When to Apply
 
@@ -131,3 +154,4 @@ it("keeps the internal leading zero for Italian numbers", () => {
 
 - `docs/solutions/conventions/jsonb-filter-singular-to-plural-evolution.md` — same shape of principle (normalize at one IO boundary, in one place per surface).
 - `docs/solutions/design-patterns/draft-row-claim-and-transition-2026-05-06.md` — same event check-in / roster subsystem, different concern.
+- `docs/solutions/logic-errors/add-to-calendar-link-missing-when-postgres-time-parsed-as-hh-mm.md` — the counter-case for the nullable-return design point above: hand-rolled normalization of an externally-shaped string, failing into an invisible `null`.

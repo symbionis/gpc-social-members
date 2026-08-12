@@ -6,11 +6,18 @@ import { parseAttendeeInput, collidesWithClaimed } from "@/lib/events/attendee-i
 import { getSeatsUsed } from "@/lib/events/seat-usage";
 import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
 
-// Buy-more top-up from the lead booking page (U6). Adds tickets UNDER the existing
+// Buy-more top-up (U6, widened by U2 for the holder page). Adds tickets UNDER the existing
 // registration (the one-reg-per-email index blocks a second one). We record a pending
-// top-up with priced items, then send the lead to Stripe with a distinct `topup`
+// top-up with priced items, then send the buyer to Stripe with a distinct `topup`
 // metadata discriminator + topup_id; the webhook applies it idempotently BEFORE its
 // paid short-circuit. A free top-up (zero total) is applied immediately, no checkout.
+//
+// Auth mirrors the cancel route's dual-token model: the path token is EITHER the booking's
+// registration manage_token (the lead) OR a per-ticket manage_token (a household member).
+// A ticket token resolves to its OWN registration via that ticket's registration_id — the
+// purchase always lands on that one booking, never a different one, because there is no
+// other input (body carries only items/attendees, never a booking id) that could steer it
+// elsewhere.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_QTY = 50;
@@ -49,13 +56,43 @@ export async function POST(
 
   const supabase = createAdminClient();
 
-  const { data: reg } = await supabase
+  // Dual-token resolution (mirrors cancel): registration manage_token ⇒ the booking
+  // directly; per-ticket manage_token ⇒ the booking THAT TICKET belongs to, resolved via
+  // its own registration_id — never any other registration.
+  interface RegRow {
+    id: string;
+    event_id: string;
+    is_member: boolean;
+    status: string;
+    email: string | null;
+  }
+  let reg: RegRow;
+  const { data: regByToken } = await supabase
     .from("event_registrations")
     .select("id, event_id, is_member, status, email")
     .eq("manage_token", token)
     .limit(1)
     .maybeSingle();
-  if (!reg) return bad("Booking not found", 404);
+  if (regByToken) {
+    reg = regByToken as RegRow;
+  } else {
+    const { data: self } = await supabase
+      .from("tickets")
+      .select("id, registration_id")
+      .eq("manage_token", token)
+      .is("released_at", null)
+      .limit(1)
+      .maybeSingle();
+    if (!self || !self.registration_id) return bad("Booking not found", 404);
+    const { data: r } = await supabase
+      .from("event_registrations")
+      .select("id, event_id, is_member, status, email")
+      .eq("id", self.registration_id as string)
+      .limit(1)
+      .maybeSingle();
+    if (!r) return bad("Booking not found", 404);
+    reg = r as RegRow;
+  }
   if (reg.status !== "paid" && reg.status !== "free") {
     return bad("This booking isn’t confirmed yet", 409);
   }
@@ -202,7 +239,11 @@ export async function POST(
   const topupId = topup.id as string;
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const successUrl = `${appUrl}/public/bookings/${token}?topup=1`;
+  // Send the buyer back to whichever manage page they bought from: the lead's registration
+  // token returns to the booking page, a household member's ticket token returns to the
+  // ticket page — `token` is the same path segment either way.
+  const returnSegment = regByToken ? "bookings" : "tickets";
+  const successUrl = `${appUrl}/public/${returnSegment}/${token}?topup=1`;
 
   // Free top-up: apply immediately and mint — no checkout.
   if (total === 0) {
@@ -261,7 +302,7 @@ export async function POST(
         topup_id: topupId,
       },
       success_url: successUrl,
-      cancel_url: `${appUrl}/public/bookings/${token}?topup=cancelled`,
+      cancel_url: `${appUrl}/public/${returnSegment}/${token}?topup=cancelled`,
     });
   } catch (err) {
     console.error("[booking-topup] Stripe session create failed", { topupId, err });

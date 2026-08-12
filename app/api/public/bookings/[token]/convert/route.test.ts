@@ -33,6 +33,11 @@ interface Opts {
   toArchived?: string | null;
   seatCap?: number | null;
   rpcStatus?: string;
+  /** Live tickets on the registration, for the lead-flow redirect's payer resolution
+   *  (resolvePayerTicket). Defaults to a single ticket matching the registration's own email
+   *  with the same manage_token as `ticket`, so the redirect lands on the same page most
+   *  tests already expect unless a test explicitly wants a different payer ticket. */
+  payerTicketRows?: Record<string, unknown>[];
 }
 
 function adminClient(opts: Opts) {
@@ -79,6 +84,29 @@ function adminClient(opts: Opts) {
       };
       (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) => {
         if (table === "event_ticket_types") return resolve({ data: [fromType, toType], error: null });
+        if (table === "tickets") {
+          const reg =
+            "reg" in opts
+              ? opts.reg
+              : { id: "reg", event_id: "evt", is_member: opts.isMember ?? true, status: opts.status ?? "paid", email: "l@x.com" };
+          const ticket =
+            "ticket" in opts
+              ? opts.ticket
+              : { id: TICKET, ticket_type_id: FROM, slot_status: "issued", checked_in_at: null, released_at: null, batch_token: null };
+          const defaultRows =
+            reg && ticket
+              ? [
+                  {
+                    id: (ticket as { id?: string }).id ?? TICKET,
+                    email: (reg as { email?: string | null }).email ?? null,
+                    manage_token: (ticket as { manage_token?: string | null }).manage_token ?? "tkn-own",
+                    is_lead: true,
+                    created_at: "2020-01-01T00:00:00Z",
+                  },
+                ]
+              : [];
+          return resolve({ data: opts.payerTicketRows ?? defaultRows, error: null });
+        }
         return resolve({ data: [], error: null });
       };
       return c;
@@ -190,6 +218,102 @@ describe("POST /api/public/bookings/[token]/convert", () => {
   it("rejects converting to the same type", async () => {
     const res = await post({ ticketId: TICKET, toTicketTypeId: FROM });
     expect(res.status).toBe(400);
+  });
+
+  // U3 (docs/plans/2026-08-11-002-feat-consolidate-ticket-surfaces-plan.md): the booking
+  // page is now redirect-only for ordinary bookings, so a paid upgrade from the lead flow
+  // must land on the converted ticket's OWN manage page, not bounce through /public/bookings.
+  it("redirects a paid upgrade on an ORDINARY booking to the ticket's own manage page", async () => {
+    const create = vi.fn().mockResolvedValue({ url: "https://stripe.test/cs" });
+    mockedStripe.mockReturnValue({ checkout: { sessions: { create } } } as never);
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: { id: "reg", event_id: "evt", is_member: true, status: "paid", email: "l@x.com", is_guest_list: false },
+        ticket: {
+          id: TICKET,
+          ticket_type_id: FROM,
+          slot_status: "issued",
+          checked_in_at: null,
+          released_at: null,
+          manage_token: "tkn-own",
+        },
+      })
+    );
+    const res = await post({ ticketId: TICKET, toTicketTypeId: TO });
+    expect(res.status).toBe(200);
+    const args = create.mock.calls[0][0];
+    expect(args.success_url).toContain("/public/tickets/tkn-own");
+    expect(args.cancel_url).toContain("/public/tickets/tkn-own");
+    expect(args.success_url).not.toContain("/public/bookings/");
+  });
+
+  // Regression: the lead flow has no household-email restriction on which ticket it may
+  // convert, so a lead converting a HOUSEHOLD MEMBER'S ticket (not their own) must still
+  // land the person who just paid on THEIR OWN manage page — not the converted ticket's,
+  // which belongs to someone else's household.
+  it("redirects a lead's upgrade of a household member's ticket to the PAYER's own page, not the converted ticket's", async () => {
+    const create = vi.fn().mockResolvedValue({ url: "https://stripe.test/cs" });
+    mockedStripe.mockReturnValue({ checkout: { sessions: { create } } } as never);
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: { id: "reg", event_id: "evt", is_member: true, status: "paid", email: "payer@x.com", is_guest_list: false },
+        ticket: {
+          id: TICKET,
+          ticket_type_id: FROM,
+          slot_status: "issued",
+          checked_in_at: null,
+          released_at: null,
+          manage_token: "tkn-other-holder",
+        },
+        payerTicketRows: [
+          {
+            id: TICKET,
+            email: "someone-else@x.com",
+            manage_token: "tkn-other-holder",
+            is_lead: false,
+            created_at: "2020-01-02T00:00:00Z",
+          },
+          {
+            id: "t-payer",
+            email: "payer@x.com",
+            manage_token: "tkn-payer-own",
+            is_lead: true,
+            created_at: "2020-01-01T00:00:00Z",
+          },
+        ],
+      })
+    );
+    const res = await post({ ticketId: TICKET, toTicketTypeId: TO });
+    expect(res.status).toBe(200);
+    const args = create.mock.calls[0][0];
+    expect(args.success_url).toContain("/public/tickets/tkn-payer-own");
+    expect(args.cancel_url).toContain("/public/tickets/tkn-payer-own");
+    expect(args.success_url).not.toContain("tkn-other-holder");
+  });
+
+  // A comp guest list keeps rendering CompGuestListManager at the booking page (unchanged,
+  // U3 does not touch this path) — its lead-flow redirect must stay on /public/bookings.
+  it("keeps a comp guest list's paid upgrade redirect on the booking page", async () => {
+    const create = vi.fn().mockResolvedValue({ url: "https://stripe.test/cs" });
+    mockedStripe.mockReturnValue({ checkout: { sessions: { create } } } as never);
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: { id: "reg", event_id: "evt", is_member: true, status: "paid", email: "l@x.com", is_guest_list: true },
+        ticket: {
+          id: TICKET,
+          ticket_type_id: FROM,
+          slot_status: "issued",
+          checked_in_at: null,
+          released_at: null,
+          manage_token: "tkn-own",
+        },
+      })
+    );
+    const res = await post({ ticketId: TICKET, toTicketTypeId: TO });
+    expect(res.status).toBe(200);
+    const args = create.mock.calls[0][0];
+    expect(args.success_url).toContain("/public/bookings/mtok");
+    expect(args.cancel_url).toContain("/public/bookings/mtok");
   });
 });
 

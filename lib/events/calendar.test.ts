@@ -17,6 +17,18 @@ describe("googleCalendarUrl", () => {
     expect(url).toContain("location=GPC+Grounds");
   });
 
+  it("accepts the HH:MM:SS shape Postgres time columns actually return", () => {
+    const url = googleCalendarUrl({
+      title: "Pilates & Polo",
+      startDate: "2026-08-10",
+      startTime: "18:30:00",
+      endDate: null,
+      location: null,
+      description: null,
+    });
+    expect(url).toContain("dates=20260810T183000%2F20260810T203000");
+  });
+
   it("builds an all-day event spanning to the next day when there is no start_time", () => {
     const url = googleCalendarUrl({
       title: "Match Day",

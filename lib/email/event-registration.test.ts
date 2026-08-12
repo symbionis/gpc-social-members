@@ -13,15 +13,31 @@ const mockedAdmin = vi.mocked(createAdminClient);
 const mockedSend = vi.mocked(sendEmail);
 const mockedHousehold = vi.mocked(sendHouseholdTicketEmails);
 
-type Item = { title_snapshot: string; quantity: number; unit_amount_chf: number; line_total_chf: number };
+type Item = {
+  ticket_type_id?: string | null;
+  title_snapshot: string;
+  quantity: number;
+  unit_amount_chf: number;
+  line_total_chf: number;
+};
+type Topup = { id: string; items: Item[]; applied_at?: string | null; stripe_payment_intent_id?: string | null };
+type Conversion = {
+  id: string;
+  delta_chf: number;
+  applied_at?: string | null;
+  stripe_payment_intent_id?: string | null;
+  from_type_id: string;
+  to_type_id: string;
+};
 
 function adminClient(opts: {
   registration: Record<string, unknown>;
   event: Record<string, unknown>;
   items: Item[] | null;
-  tickets?: { credential_token: string | null; name: string | null; is_lead?: boolean }[];
-  /** Rows returned for the guest QR fan-out query (is_lead=false), distinct from `tickets` (the lead-QR query). */
-  guestTickets?: { id: string; email?: string | null; qr_email_sent_at?: string | null }[];
+  appliedTopups?: Topup[];
+  topupById?: Topup;
+  conversionById?: Conversion;
+  ticketTypes?: { id: string; title: string }[];
   /** Records each event_registrations.update({...}) payload (the success stamp). */
   updateCalls?: Record<string, unknown>[];
   /** Forces the stamp update to fail, to test best-effort logging. */
@@ -38,19 +54,34 @@ function adminClient(opts: {
           resolve({ data: opts.items, error: null });
         return c;
       }
-      if (table === "tickets") {
+      if (table === "event_registration_topups") {
         const c: Record<string, unknown> = {};
-        let filteringByLead = false;
+        let single = false;
         c.select = () => c;
-        c.eq = (col: string, val: unknown) => {
-          if (col === "is_lead") filteringByLead = val === false;
+        c.eq = (col: string) => {
+          if (col === "id") single = true;
           return c;
         };
-        c.in = () => c;
-        c.is = () => c;
-        c.order = () => c;
+        c.limit = () => c;
+        c.maybeSingle = async () => ({ data: opts.topupById ?? null, error: null });
         (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
-          resolve({ data: (filteringByLead ? opts.guestTickets : opts.tickets) ?? [], error: null });
+          single ? resolve({ data: null, error: null }) : resolve({ data: opts.appliedTopups ?? [], error: null });
+        return c;
+      }
+      if (table === "event_ticket_type_conversions") {
+        const c: Record<string, unknown> = {};
+        c.select = () => c;
+        c.eq = () => c;
+        c.limit = () => c;
+        c.maybeSingle = async () => ({ data: opts.conversionById ?? null, error: null });
+        return c;
+      }
+      if (table === "event_ticket_types") {
+        const c: Record<string, unknown> = {};
+        c.select = () => c;
+        c.in = () => c;
+        (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
+          resolve({ data: opts.ticketTypes ?? [], error: null });
         return c;
       }
       const c: Record<string, unknown> = {};
@@ -80,6 +111,8 @@ const baseReg = {
   reference_code: "EV-ABCD1234",
   status: "paid",
   event_id: "evt-1",
+  paid_at: "2026-06-01T10:00:00Z",
+  stripe_payment_intent_id: "pi_original",
 };
 const baseEvent = { id: "evt-1", title: "Polo Brunch", start_date: "2026-06-15", start_time: "12:00:00", location: "GPC", visibility: "public" };
 
@@ -93,39 +126,41 @@ beforeEach(() => {
   mockedHousehold.mockResolvedValue({ groups: 0, sent: 0 });
 });
 
-describe("sendEventRegistrationConfirmation — ticket_lines breakdown", () => {
+describe("sendEventRegistrationConfirmation — receipt lines (U4, original payment)", () => {
   it("builds one line per item with title, quantity and a CHF/Free label", async () => {
     mockedAdmin.mockReturnValue(
       adminClient({
         registration: baseReg,
         event: baseEvent,
         items: [
-          { title_snapshot: "Standard", quantity: 2, unit_amount_chf: 80, line_total_chf: 160 },
-          { title_snapshot: "Kids", quantity: 2, unit_amount_chf: 40, line_total_chf: 80 },
-          { title_snapshot: "Welcome drink", quantity: 1, unit_amount_chf: 0, line_total_chf: 0 },
+          { ticket_type_id: "t-std", title_snapshot: "Standard", quantity: 2, unit_amount_chf: 80, line_total_chf: 160 },
+          { ticket_type_id: "t-kids", title_snapshot: "Kids", quantity: 2, unit_amount_chf: 40, line_total_chf: 80 },
+          { ticket_type_id: "t-drink", title_snapshot: "Welcome drink", quantity: 1, unit_amount_chf: 0, line_total_chf: 0 },
         ],
       })
     );
     await sendEventRegistrationConfirmation("reg-1");
     const model = lastModel();
-    // Covers R12: itemised receipt — per-line unit price + line total + total + reference.
-    expect(model.ticket_lines).toEqual([
-      { title: "Standard", quantity: 2, unit_label: "CHF 80.00", line_label: "CHF 160.00" },
-      { title: "Kids", quantity: 2, unit_label: "CHF 40.00", line_label: "CHF 80.00" },
-      { title: "Welcome drink", quantity: 1, unit_label: "Free", line_label: "Free" },
+    // Covers R13/R15: itemised receipt — per-line unit price + line total + total + reference.
+    expect(model.receipt_lines).toEqual([
+      { title: "Standard", quantity: 2, unitLabel: "CHF 80.00", lineLabel: "CHF 160.00" },
+      { title: "Kids", quantity: 2, unitLabel: "CHF 40.00", lineLabel: "CHF 80.00" },
+      { title: "Welcome drink", quantity: 1, unitLabel: "Free", lineLabel: "Free" },
     ]);
     expect(model.amount_label).toBe("CHF 240.00");
     expect(model.reference_code).toBe(baseReg.reference_code);
+    expect(model.charge_reference).toBe("pi_original");
+    expect(model.paid_date_label).toBeTruthy();
   });
 
-  it("falls back to a single synthesized line (no unit price) when the registration has no items", async () => {
+  it("falls back to a single synthesized line when the registration has no items", async () => {
     mockedAdmin.mockReturnValue(
       adminClient({ registration: baseReg, event: baseEvent, items: [] })
     );
     await sendEventRegistrationConfirmation("reg-1");
     const model = lastModel();
-    expect(model.ticket_lines).toEqual([
-      { title: "Registration", quantity: 4, unit_label: null, line_label: "CHF 240.00" },
+    expect(model.receipt_lines).toEqual([
+      { title: "Registration", quantity: 4, unitLabel: "CHF 60.00", lineLabel: "CHF 240.00" },
     ]);
   });
 
@@ -134,66 +169,110 @@ describe("sendEventRegistrationConfirmation — ticket_lines breakdown", () => {
       adminClient({
         registration: { ...baseReg, total_amount_chf: 0, status: "free" },
         event: baseEvent,
-        items: [{ title_snapshot: "Standard", quantity: 2, unit_amount_chf: 0, line_total_chf: 0 }],
+        items: [{ ticket_type_id: "t-std", title_snapshot: "Standard", quantity: 2, unit_amount_chf: 0, line_total_chf: 0 }],
       })
     );
     await sendEventRegistrationConfirmation("reg-1");
     const model = lastModel();
     expect(model.is_free).toBe(true);
     expect(model.amount_label).toBe("Free");
-    expect((model.ticket_lines as { line_label: string }[])[0].line_label).toBe("Free");
+    expect((model.receipt_lines as { lineLabel: string }[])[0].lineLabel).toBe("Free");
   });
-});
 
-describe("sendEventRegistrationConfirmation — booking link + lead QR (FEAT-41)", () => {
-  it("includes manage_url and ONLY the lead's own QR (the code they show at the door)", async () => {
-    // The DB query filters is_lead=true, so the row set is the lead's ticket only;
-    // guests' QRs are reached via the booking page (manage_url), not the email.
+  it("subtracts an applied buy-more's contribution so the original receipt isn't inflated (KTD3)", async () => {
     mockedAdmin.mockReturnValue(
       adminClient({
-        registration: { ...baseReg, manage_token: "mtok-xyz" },
+        registration: baseReg,
         event: baseEvent,
-        items: [],
-        tickets: [{ credential_token: "credAAA", name: "Jean", is_lead: true }],
+        items: [{ ticket_type_id: "t-std", title_snapshot: "Standard", quantity: 6, unit_amount_chf: 80, line_total_chf: 480 }],
+        appliedTopups: [
+          { id: "top-1", items: [{ ticket_type_id: "t-std", title_snapshot: "Standard", quantity: 2, unit_amount_chf: 80, line_total_chf: 160 }] },
+        ],
       })
     );
     await sendEventRegistrationConfirmation("reg-1");
     const model = lastModel();
-    expect(model.manage_url).toBe("http://localhost:3000/public/bookings/mtok-xyz");
-    expect(model.tickets).toEqual([
-      { label: "Your ticket", name: "Jean", qr_url: "http://localhost:3000/api/qr/credAAA" },
+    expect(model.receipt_lines).toEqual([
+      { title: "Standard", quantity: 4, unitLabel: "CHF 80.00", lineLabel: "CHF 320.00" },
     ]);
-  });
-
-  it("drops a lead ticket with no credential token (QR still reachable via manage_url)", async () => {
-    mockedAdmin.mockReturnValue(
-      adminClient({
-        registration: { ...baseReg, manage_token: "mtok-xyz" },
-        event: baseEvent,
-        items: [],
-        tickets: [{ credential_token: null, name: "Jean", is_lead: true }],
-      })
-    );
-    await sendEventRegistrationConfirmation("reg-1");
-    expect(lastModel().tickets).toEqual([]);
-  });
-
-  it("manage_url is null (never empty) when the registration has no token", async () => {
-    mockedAdmin.mockReturnValue(
-      adminClient({ registration: baseReg, event: baseEvent, items: [], tickets: [] })
-    );
-    await sendEventRegistrationConfirmation("reg-1");
-    expect(lastModel().manage_url).toBeNull();
-    expect(lastModel().tickets).toEqual([]);
+    expect(model.amount_label).toBe("CHF 320.00");
   });
 });
 
-describe("sendEventRegistrationConfirmation — grouped guest delivery (U12)", () => {
-  it("delegates guest QR delivery to the grouped household send", async () => {
+describe("sendEventRegistrationConfirmation — receipt carries no management link or QR (Covers AE9/R15)", () => {
+  it("the template model has no manage_url and no qr_url anywhere", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ registration: baseReg, event: baseEvent, items: [] })
+    );
+    await sendEventRegistrationConfirmation("reg-1");
+    const model = lastModel();
+    expect(model.manage_url).toBeUndefined();
+    expect(model.tickets).toBeUndefined();
+    expect(JSON.stringify(model)).not.toMatch(/qr_url/);
+  });
+});
+
+describe("sendEventRegistrationConfirmation — paying-row identifier (U4)", () => {
+  it("a topup receipt renders ONLY that topup's own contributed lines, not the whole booking", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        registration: baseReg,
+        event: baseEvent,
+        items: [{ ticket_type_id: "t-std", title_snapshot: "Standard", quantity: 6, unit_amount_chf: 80, line_total_chf: 480 }],
+        topupById: {
+          id: "top-1",
+          items: [{ ticket_type_id: "t-std", title_snapshot: "Standard", quantity: 2, unit_amount_chf: 80, line_total_chf: 160 }],
+          applied_at: "2026-07-01T10:00:00Z",
+          stripe_payment_intent_id: "pi_topup",
+        },
+      })
+    );
+    await sendEventRegistrationConfirmation("reg-1", { payingRow: { type: "topup", id: "top-1" } });
+    const model = lastModel();
+    expect(model.receipt_lines).toEqual([
+      { title: "Standard", quantity: 2, unitLabel: "CHF 80.00", lineLabel: "CHF 160.00" },
+    ]);
+    expect(model.amount_label).toBe("CHF 160.00");
+    expect(model.charge_reference).toBe("pi_topup");
+  });
+
+  it("a conversion receipt renders a single upgrade-delta line, not the item-lines table", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        registration: baseReg,
+        event: baseEvent,
+        items: [{ ticket_type_id: "t-vip", title_snapshot: "VIP", quantity: 1, unit_amount_chf: 150, line_total_chf: 150 }],
+        conversionById: {
+          id: "conv-1",
+          delta_chf: 70,
+          applied_at: "2026-07-05T10:00:00Z",
+          stripe_payment_intent_id: "pi_conv",
+          from_type_id: "t-std",
+          to_type_id: "t-vip",
+        },
+        ticketTypes: [
+          { id: "t-std", title: "Standard" },
+          { id: "t-vip", title: "VIP" },
+        ],
+      })
+    );
+    await sendEventRegistrationConfirmation("reg-1", { payingRow: { type: "conversion", id: "conv-1" } });
+    const model = lastModel();
+    expect(model.receipt_lines).toEqual([
+      { title: "Upgrade: Standard → VIP", quantity: 1, unitLabel: "CHF 70.00", lineLabel: "CHF 70.00" },
+    ]);
+    expect(model.amount_label).toBe("CHF 70.00");
+    expect(model.charge_reference).toBe("pi_conv");
+  });
+});
+
+describe("sendEventRegistrationConfirmation — payer still gets their ticket via the ticket-email path (U4)", () => {
+  it("delegates ALL ticket/QR delivery (payer included) to the grouped household send", async () => {
     mockedAdmin.mockReturnValue(adminClient({ registration: baseReg, event: baseEvent, items: [] }));
     await sendEventRegistrationConfirmation("reg-1");
-    // Per-guest fan-out is retired; grouping + idempotency live in sendHouseholdTicketEmails
-    // (covered in household-tickets.test.ts). Here we only assert the delegation.
+    // household-tickets.ts now includes the payer's own ticket (is_lead filter dropped there);
+    // this test only asserts the delegation happens — the inclusion itself is covered in
+    // household-tickets.test.ts.
     expect(mockedHousehold).toHaveBeenCalledWith("reg-1");
   });
 
@@ -202,9 +281,33 @@ describe("sendEventRegistrationConfirmation — grouped guest delivery (U12)", (
     mockedAdmin.mockReturnValue(adminClient({ registration: baseReg, event: baseEvent, items: [] }));
     await expect(sendEventRegistrationConfirmation("reg-1")).resolves.toBeDefined();
   });
+
+  // Regression: ticket_email_sent_at means the TICKET (QR) was delivered, not the receipt.
+  // The receipt can succeed while the grouped ticket send fails or only partially succeeds —
+  // that registration must stay in the admin's "not yet notified" / bulk-resend set.
+  it("does not stamp ticket_email_sent_at when the grouped ticket send fails", async () => {
+    mockedHousehold.mockRejectedValueOnce(new Error("postmark down"));
+    const updateCalls: Record<string, unknown>[] = [];
+    mockedAdmin.mockReturnValue(
+      adminClient({ registration: baseReg, event: baseEvent, items: [], updateCalls })
+    );
+    const res = await sendEventRegistrationConfirmation("reg-1");
+    expect(res.success).toBe(true); // the receipt itself still sent fine
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it("does not stamp ticket_email_sent_at when the grouped send only partially succeeds", async () => {
+    mockedHousehold.mockResolvedValueOnce({ groups: 2, sent: 1 });
+    const updateCalls: Record<string, unknown>[] = [];
+    mockedAdmin.mockReturnValue(
+      adminClient({ registration: baseReg, event: baseEvent, items: [], updateCalls })
+    );
+    await sendEventRegistrationConfirmation("reg-1");
+    expect(updateCalls).toHaveLength(0);
+  });
 });
 
-describe("sendEventRegistrationConfirmation — resend flag + send stamp (U2)", () => {
+describe("sendEventRegistrationConfirmation — resend flag + send stamp", () => {
   it("defaults resend to false and stamps ticket_email_sent_at on success", async () => {
     const updateCalls: Record<string, unknown>[] = [];
     mockedAdmin.mockReturnValue(

@@ -271,9 +271,9 @@ export async function POST(request: NextRequest) {
           // 'already' on replay, so this block is skipped on a retry — 500-ing first would
           // mean the buyer never receives it at all.
           if (topupStatus === "applied") {
-            await sendEventRegistrationConfirmation(eventRegistrationId).catch((err) =>
-              console.error("[webhook] top-up confirmation email failed", err)
-            );
+            await sendEventRegistrationConfirmation(eventRegistrationId, {
+              payingRow: { type: "topup", id: topupId },
+            }).catch((err) => console.error("[webhook] top-up confirmation email failed", err));
           }
           if (rosterStatus === "error") {
             // 500 for retry, matching apply_registration_topup above. The roster transaction
@@ -369,9 +369,9 @@ export async function POST(request: NextRequest) {
           // Applied: re-send the confirmation (updated type/price, same QRs) so the lead
           // has the current booking. 'already' (replay) skips the email. Best-effort.
           if (convStatus === "applied") {
-            await sendEventRegistrationConfirmation(eventRegistrationId).catch((err) =>
-              console.error("[webhook] conversion confirmation email failed", err)
-            );
+            await sendEventRegistrationConfirmation(eventRegistrationId, {
+              payingRow: { type: "conversion", id: conversionId },
+            }).catch((err) => console.error("[webhook] conversion confirmation email failed", err));
           }
           return NextResponse.json({ received: true, conversion: convStatus });
         }
@@ -500,7 +500,7 @@ export async function POST(request: NextRequest) {
         if (!alreadyPaid) {
           await sendEventRegistrationConfirmation(existing.id).catch((err) =>
             console.error(
-              "[webhook] event-registration-confirmed email failed",
+              "[webhook] event-receipt email failed",
               err
             )
           );

@@ -1,0 +1,15 @@
+A seat you booked has been released.
+
+{{#payer_name}}Hi {{.}} — {{/payer_name}}{{^payer_name}}Hi — {{/payer_name}}{{#holder_name}}{{.}}'s{{/holder_name}}{{^holder_name}}a{{/holder_name}} ticket for {{event_title}} that you booked has been cancelled and the seat has already been released.
+
+CANCELLED
+{{event_title}}
+{{#event_date_label}}{{.}}
+{{/event_date_label}}{{#event_time}}Was due to start at {{.}}
+{{/event_time}}{{#event_location}}{{.}}
+{{/event_location}}{{#reference_code}}Reference: {{.}}
+{{/reference_code}}
+
+Questions? Just reply to this email.
+
+The Geneva Polo Social Club Team

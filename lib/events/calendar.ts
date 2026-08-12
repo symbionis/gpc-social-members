@@ -12,6 +12,13 @@ export interface CalendarEvent {
   description: string | null;
 }
 
+// Postgres `time` columns come back as "HH:MM:SS", but hand-entered values can be "HH:MM".
+// Pad to full seconds so the ISO string we build parses either way.
+function normalizeTime(time: string): string {
+  const parts = time.split(":");
+  return parts.length >= 3 ? parts.slice(0, 3).join(":") : `${parts[0] ?? "00"}:${parts[1] ?? "00"}:00`;
+}
+
 function stamp(d: Date, allDay: boolean): string {
   const p = (n: number) => String(n).padStart(2, "0");
   const date = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
@@ -26,7 +33,7 @@ function stamp(d: Date, allDay: boolean): string {
  */
 export function googleCalendarUrl(event: CalendarEvent): string | null {
   const allDay = !event.startTime;
-  const start = new Date(`${event.startDate}T${event.startTime ?? "00:00"}:00`);
+  const start = new Date(`${event.startDate}T${normalizeTime(event.startTime ?? "00:00")}`);
   if (Number.isNaN(start.getTime())) return null;
 
   let end: Date;

@@ -1,10 +1,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
 
-// Grouped household delivery (U12). At checkout, guests who were booked to the SAME email
-// address (a couple, a family) get ONE email carrying all their QR codes plus a single
-// link to manage them, instead of a separate email per guest. Replaces the per-guest QR
-// fan-out in event-registration.ts; ticket-qr.ts stays for one-off corrections/re-sends.
+// Grouped household delivery (U12, extended U4). At checkout, every claimed ticket booked to
+// the SAME email address — the payer's own included (U4: the receipt no longer carries a QR,
+// so the payer gets theirs here like everyone else) — gets ONE email carrying all their QR
+// codes plus a single link to manage them, instead of a separate email per holder. Replaces
+// the per-guest QR fan-out in event-registration.ts; ticket-qr.ts stays for one-off
+// corrections/re-sends.
 //
 // Idempotent per ticket (tickets.qr_email_sent_at): a group is sent only if at least one of
 // its tickets hasn't been emailed yet, and every ticket in the group is stamped on success.
@@ -152,12 +154,14 @@ export async function sendHouseholdTicketEmails(
     .maybeSingle();
   if (!event) return { groups: 0, sent: 0 };
 
-  // The guest set: claimed, live, non-lead (the lead's own QR rides the confirmation email).
+  // Every claimed, live ticket on this booking — the lead's own included (U4: the lead's QR
+  // travels here now, not on the receipt). The lead's own ticket is already `claimed` by the
+  // time this runs (seeded that way at checkout, before mint), so no separate "issued" case
+  // is needed for it.
   const { data: rows, error } = await supabase
     .from("tickets")
     .select("id, name, email, credential_token, manage_token, qr_email_sent_at, created_at")
     .eq("registration_id", registrationId)
-    .eq("is_lead", false)
     .eq("slot_status", "claimed")
     .is("released_at", null);
   if (error) {

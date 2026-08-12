@@ -15,7 +15,7 @@ EVENT
 {{/event_time}}{{#event_location}}{{.}}
 {{/event_location}}{{#reference_code}}Reference: {{.}}
 {{/reference_code}}
-{{#manage_url}}Manage {{#multiple}}these tickets{{/multiple}}{{^multiple}}this ticket{{/multiple}} (calendar, correct a name/email, upgrade): {{.}}
+{{#manage_url}}Manage {{#multiple}}these tickets{{/multiple}}{{^multiple}}this ticket{{/multiple}} (calendar, correct a name/email/phone, upgrade, buy more, cancel): {{.}}
 {{/manage_url}}
 On the day, just show {{#multiple}}each{{/multiple}}{{^multiple}}your{{/multiple}} QR code at the door and we'll scan {{#multiple}}everyone{{/multiple}}{{^multiple}}you{{/multiple}} straight in.
 

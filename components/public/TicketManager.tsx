@@ -6,6 +6,8 @@ import { formatCurrency } from "@/lib/format";
 import { eligibleConvertTargets, type ConvertType } from "@/lib/events/convert-eligibility";
 import type { TicketCancellationStatus } from "@/lib/events/refunds";
 import WaiverModal from "@/components/events/WaiverModal";
+import PhoneInput from "@/components/common/PhoneInput";
+import BuyMorePanel from "@/components/public/BuyMorePanel";
 
 // Guest manage page view (U10 + U11). Reached via a per-ticket manage_token link. Shows
 // every SAME-EMAIL ticket in the booking (the household) — each with its own admission QR
@@ -19,6 +21,7 @@ export interface ManageTicket {
   id: string;
   name: string;
   email: string;
+  phone: string;
   typeId: string;
   typeTitle: string;
   checkedIn: boolean;
@@ -47,6 +50,16 @@ interface Props {
   waiverEndpoint: string;
   /** All active types priced at the booking's rate — filtered per ticket to upgrade targets. */
   convertTypes: ConvertType[];
+  /** When set, show the "buy more tickets" panel posting to this endpoint (U2). Any holder
+   *  on this booking can buy more — not just the lead — reusing the same top-up route the
+   *  lead's booking page uses (KTD1). No seat it buys is for the buyer themselves. */
+  topupEndpoint?: string;
+  /** Ticket types the holder can buy more of (with a display price label). */
+  buyableTypes?: { id: string; title: string; priceLabel: string }[];
+  /** Receipt page link (U6, R22/AE10) — passed only when this token is the payer's own
+   *  (tickets.is_lead), the same gate the receipt route itself checks. null/absent hides the
+   *  link entirely, so a non-payer household member sees no trace of it. */
+  receiptUrl?: string | null;
 }
 
 export default function TicketManager({
@@ -61,6 +74,9 @@ export default function TicketManager({
   cancelEndpoint,
   waiverEndpoint,
   convertTypes,
+  topupEndpoint,
+  buyableTypes,
+  receiptUrl,
 }: Props) {
   const [tickets, setTickets] = useState<ManageTicket[]>(initialTickets);
   const many = tickets.length > 1;
@@ -76,6 +92,16 @@ export default function TicketManager({
         {eventLocation && (
           <p className="mt-0.5 font-body text-sm text-marine/70">{eventLocation}</p>
         )}
+        {calendarUrl && (
+          <a
+            href={calendarUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-block font-body text-sm font-semibold text-marine underline underline-offset-2"
+          >
+            Add to calendar
+          </a>
+        )}
       </header>
 
       <div className="rounded-2xl border border-marine/20 bg-marine/5 p-5">
@@ -90,7 +116,7 @@ export default function TicketManager({
         </p>
       </div>
 
-      {(referenceCode || calendarUrl) && (
+      {(referenceCode || receiptUrl) && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-white px-4 py-3.5 text-base font-body">
           {referenceCode ? (
             <span className="text-marine/80">
@@ -99,14 +125,12 @@ export default function TicketManager({
           ) : (
             <span />
           )}
-          {calendarUrl && (
+          {receiptUrl && (
             <a
-              href={calendarUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+              href={receiptUrl}
               className="font-body font-semibold text-marine underline underline-offset-2"
             >
-              Add to calendar
+              View receipt
             </a>
           )}
         </div>
@@ -129,6 +153,10 @@ export default function TicketManager({
           />
         ))}
       </ul>
+
+      {topupEndpoint && buyableTypes && buyableTypes.length > 0 && (
+        <BuyMorePanel endpoint={topupEndpoint} types={buyableTypes} />
+      )}
     </div>
   );
 }
@@ -195,6 +223,9 @@ function TicketCard({
           {ticket.email && (
             <p className="truncate font-body text-sm text-marine/70">{ticket.email}</p>
           )}
+          {ticket.phone && (
+            <p className="truncate font-body text-sm text-marine/70">{ticket.phone}</p>
+          )}
           <p className="mt-1 font-body text-sm text-marine/80">{ticket.typeTitle || "Ticket"}</p>
 
           {/* The primary action sits with the ticket it applies to, not adrift below the QR.
@@ -232,7 +263,10 @@ function TicketCard({
 
           {cancelled && (
             <p className="mt-2 font-body text-sm text-red-700">
-              This ticket has been cancelled. A refund will follow from the organiser.
+              {/* No refund promise: this page cannot tell whether one is owed. A free or comped
+                  seat has nothing to refund, and even on a paid one the amount and timing are an
+                  admin's decision from the Refunds tab, not something to commit to here. */}
+              This ticket has been cancelled and its place released.
             </p>
           )}
         </div>
@@ -280,6 +314,8 @@ function EditControl({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(ticket.name);
   const [email, setEmail] = useState(ticket.email);
+  const [phone, setPhone] = useState(ticket.phone);
+  const [phoneInvalid, setPhoneInvalid] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Set once the guest has been told what changing the address does, so the next tap saves.
@@ -290,6 +326,11 @@ function EditControl({
   const submit = async () => {
     if (!name.trim()) return setError("Enter a name.");
     if (!EMAIL_RE.test(email.trim())) return setError("Enter a valid email.");
+    // phone collapses to the same "" whether the field was left blank or the user typed
+    // something that doesn't parse — phoneInvalid is the only way to tell those apart, so
+    // without this check an invalid number would silently save as blank (R8 covers blank,
+    // not garbage).
+    if (phoneInvalid) return setError("Enter a valid phone number, or leave it blank.");
     // Changing the address hands the seat to a different person, and that is not obvious from
     // a form that also fixes typos. Three things happen at once, none of them undoable from
     // this page: the ticket leaves this household (siblings are matched on shared email, so it
@@ -305,7 +346,12 @@ function EditControl({
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ticketId: ticket.id, name: name.trim(), email: email.trim() }),
+        body: JSON.stringify({
+          ticketId: ticket.id,
+          name: name.trim(),
+          email: email.trim(),
+          phone,
+        }),
       });
       const data = (await res.json()) as {
         ok?: boolean;
@@ -326,7 +372,7 @@ function EditControl({
         setConfirmingHandover(false);
         return;
       }
-      onSaved({ ...ticket, name: name.trim(), email: email.trim().toLowerCase() });
+      onSaved({ ...ticket, name: name.trim(), email: email.trim().toLowerCase(), phone: phone.trim() });
       setOpen(false);
       setConfirmingHandover(false);
     } catch {
@@ -343,7 +389,7 @@ function EditControl({
         onClick={() => setOpen(true)}
         className="font-body text-sm font-semibold text-marine underline underline-offset-2 hover:text-marine-light cursor-pointer"
       >
-        Edit name / email
+        Edit holder details
       </button>
     );
   }
@@ -369,6 +415,12 @@ function EditControl({
         type="email"
         placeholder="Email"
         className="w-full rounded-lg border border-border/70 px-3 py-2 text-base font-body text-marine"
+      />
+      <PhoneInput
+        id="ticket-phone"
+        defaultValue={ticket.phone || null}
+        onChange={(v) => setPhone(v ?? "")}
+        onValidityChange={setPhoneInvalid}
       />
       {error && <p className="text-sm font-body text-red-600">{error}</p>}
       {/* Consequences before the tap that causes them, not a toast afterwards — none of this
@@ -415,6 +467,9 @@ function EditControl({
             setConfirmingHandover(false);
             setEmail(ticket.email);
             setName(ticket.name);
+            setPhone(ticket.phone);
+            setPhoneInvalid(false);
+            setError(null);
           }}
           className="rounded-lg border border-border/70 px-4 py-2.5 text-base font-body text-marine"
         >

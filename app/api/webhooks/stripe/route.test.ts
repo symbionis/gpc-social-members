@@ -395,8 +395,9 @@ describe("stripe webhook — top-up branch", () => {
     const res = await post();
     expect(res.status).toBe(500);
     // ...but only after the confirmation email, which the retry would skip:
-    // apply_registration_topup returns 'already' on replay.
-    expect(mockedEmail).toHaveBeenCalledWith(REG);
+    // apply_registration_topup returns 'already' on replay. U4: the receipt sender is told
+    // which payment it's receipting (the paying-row identifier).
+    expect(mockedEmail).toHaveBeenCalledWith(REG, { payingRow: { type: "topup", id: TOPUP } });
   });
 
   it("does not fall back to the registration slot on an apply failure", async () => {

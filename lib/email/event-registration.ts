@@ -1,8 +1,20 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
 import { sendHouseholdTicketEmails } from "@/lib/email/household-tickets";
+import {
+  buildReceiptLines,
+  subtractReceiptItems,
+  toReceiptItemRow,
+  type RawReceiptItem,
+  type ReceiptItemRow,
+} from "@/lib/events/receipt-lines";
 
-const TEMPLATE_ALIAS = "event-registration-confirmed";
+// The PAYER's receipt (U4 — split from the old combined confirmation). Carries what was paid
+// — itemised lines, paid date, reference code, charge reference — and NOTHING that manages a
+// ticket: no QR, no manage link (R15/AE9). The payer's own QR now travels on the ticket-email
+// path instead — sendHouseholdTicketEmails() below includes the payer's ticket the same way it
+// includes every other holder's, so nothing that used to reach the payer via this email is lost.
+const TEMPLATE_ALIAS = "event-receipt";
 
 const DATE_FORMAT: Intl.DateTimeFormatOptions = {
   weekday: "long",
@@ -18,33 +30,34 @@ function formatDate(isoDate: string | null | undefined): string | null {
   return new Intl.DateTimeFormat("en-GB", DATE_FORMAT).format(d);
 }
 
-function formatTime(time: string | null | undefined): string | null {
-  if (!time) return null;
-  // start_time is stored as "HH:MM:SS" — return "HH:MM"
-  return time.slice(0, 5);
-}
-
 function firstNameFrom(fullName: string): string {
   const trimmed = fullName.trim();
   if (!trimmed) return "";
   return trimmed.split(/\s+/)[0];
 }
 
-function formatAmount(totalChf: number, isFree: boolean): string {
-  if (isFree) return "Free";
-  return `CHF ${totalChf.toFixed(2)}`;
+function priceLabel(chf: number): string {
+  return chf === 0 ? "Free" : `CHF ${chf.toFixed(2)}`;
 }
+
+
+/**
+ * Which payment this receipt is for (U4). Omitted = the ORIGINAL checkout payment. The
+ * webhook is the only caller that knows which payment just happened — the sender has no other
+ * way to find out — so it is the only call site that ever passes this.
+ */
+export type PayingRow = { type: "topup"; id: string } | { type: "conversion"; id: string };
 
 export async function sendEventRegistrationConfirmation(
   registrationId: string,
-  opts?: { resend?: boolean }
+  opts?: { resend?: boolean; payingRow?: PayingRow }
 ): Promise<{ success: boolean; error?: unknown }> {
   const supabase = createAdminClient();
 
   const { data: registration, error: regErr } = await supabase
     .from("event_registrations")
     .select(
-      "id, name, email, quantity, total_amount_chf, reference_code, status, event_id, manage_token"
+      "id, name, email, quantity, total_amount_chf, reference_code, status, event_id, paid_at, stripe_payment_intent_id"
     )
     .eq("id", registrationId)
     .limit(1)
@@ -75,87 +88,115 @@ export async function sendEventRegistrationConfirmation(
     return { success: false, error: evErr || "event not found" };
   }
 
-  const isFree = registration.status === "free" || Number(registration.total_amount_chf) === 0;
-  const amountLabel = formatAmount(Number(registration.total_amount_chf), isFree);
+  // Scope the receipt to the ONE payment it's receipting (KTD3). `event_registration_items`
+  // accumulates rows across the original checkout AND every later buy-more/conversion, so
+  // rendering the whole table per receipt would merge multiple payments into one list.
+  let scopedItems: ReceiptItemRow[] = [];
+  let totalChf = 0;
+  let paidAtIso: string | null = registration.paid_at as string | null;
+  let chargeReference: string | null = registration.stripe_payment_intent_id as string | null;
 
-  // Per-type breakdown — an itemised receipt (R12/U13). Render as a Mustachio section:
-  //   {{#ticket_lines}} {{quantity}} × {{title}} @ {{unit_label}} — {{line_label}} {{/ticket_lines}}
-  const { data: items, error: itemsErr } = await supabase
-    .from("event_registration_items")
-    .select("title_snapshot, quantity, unit_amount_chf, line_total_chf")
-    .eq("registration_id", registrationId)
-    .order("created_at", { ascending: true });
+  if (!opts?.payingRow) {
+    // Original payment: current item lines minus every applied buy-more's own contribution.
+    // A conversion mutates existing lines in place rather than adding a separately-attributable
+    // row, so it is not (and cannot be) subtracted out here — it shows up folded into whichever
+    // type it left behind, which is correct for "what the booking currently looks like" but not
+    // for "what this specific payment bought" if a conversion has happened since. That gap is a
+    // known limitation of the original-payment receipt, not of the topup/conversion receipts.
+    const { data: items, error: itemsErr } = await supabase
+      .from("event_registration_items")
+      .select("ticket_type_id, title_snapshot, quantity, unit_amount_chf, line_total_chf")
+      .eq("registration_id", registrationId)
+      .order("created_at", { ascending: true });
+    if (itemsErr) {
+      console.error("[event-registration-email] items lookup failed", { registrationId, err: itemsErr });
+    }
 
-  // Log a query error distinctly so a real failure isn't disguised as the
-  // legitimate "itemless legacy row" fallback below (which would email a
-  // collapsed single-line breakdown for an order that actually has items).
-  if (itemsErr) {
-    console.error("[event-registration-email] items lookup failed", { registrationId, err: itemsErr });
+    const { data: topups, error: topupsErr } = await supabase
+      .from("event_registration_topups")
+      .select("items")
+      .eq("registration_id", registrationId)
+      .eq("status", "applied");
+    if (topupsErr) {
+      console.error("[event-registration-email] topups lookup failed", { registrationId, err: topupsErr });
+    }
+
+    const allRows: ReceiptItemRow[] = (items ?? []).map((i) => toReceiptItemRow(i as RawReceiptItem, "orig"));
+    const contributed: ReceiptItemRow[][] = (topups ?? []).map((t) =>
+      ((t.items as RawReceiptItem[] | null) ?? []).map((i) => toReceiptItemRow(i, "orig"))
+    );
+    scopedItems = allRows.length > 0 ? subtractReceiptItems(allRows, contributed) : [];
+
+    if (scopedItems.length > 0) {
+      totalChf = Number(scopedItems.reduce((s, r) => s + r.lineTotalChf, 0).toFixed(2));
+    } else {
+      // Itemless fallback (legacy rows, or a deploy-window pending→paid row the webhook
+      // promoted without items): synthesize one line so the receipt is never blank.
+      totalChf = Number(registration.total_amount_chf);
+      scopedItems = [
+        {
+          ticketTypeId: "fallback",
+          title: "Registration",
+          quantity: registration.quantity as number,
+          unitAmountChf: registration.quantity ? totalChf / (registration.quantity as number) : totalChf,
+          lineTotalChf: totalChf,
+        },
+      ];
+    }
+  } else if (opts.payingRow.type === "topup") {
+    const { data: topup, error: topupErr } = await supabase
+      .from("event_registration_topups")
+      .select("items, applied_at, stripe_payment_intent_id")
+      .eq("id", opts.payingRow.id)
+      .limit(1)
+      .maybeSingle();
+    if (topupErr || !topup) {
+      console.error("[event-registration-email] topup not found", { topupId: opts.payingRow.id, err: topupErr });
+      return { success: false, error: topupErr || "topup not found" };
+    }
+    scopedItems = ((topup.items as RawReceiptItem[] | null) ?? []).map((i) => toReceiptItemRow(i, opts.payingRow!.id));
+    totalChf = Number(scopedItems.reduce((s, r) => s + r.lineTotalChf, 0).toFixed(2));
+    paidAtIso = (topup.applied_at as string | null) ?? paidAtIso;
+    chargeReference = (topup.stripe_payment_intent_id as string | null) ?? null;
+  } else {
+    // Conversion: a delta charge, not a set of purchased lines — event_registration_items
+    // was mutated in place (from-type decremented, to-type incremented), so there is no
+    // separately-attributable row to read back. Render the delta as its own single line.
+    const { data: conv, error: convErr } = await supabase
+      .from("event_ticket_type_conversions")
+      .select("delta_chf, applied_at, stripe_payment_intent_id, from_type_id, to_type_id")
+      .eq("id", opts.payingRow.id)
+      .limit(1)
+      .maybeSingle();
+    if (convErr || !conv) {
+      console.error("[event-registration-email] conversion not found", { conversionId: opts.payingRow.id, err: convErr });
+      return { success: false, error: convErr || "conversion not found" };
+    }
+    const { data: types } = await supabase
+      .from("event_ticket_types")
+      .select("id, title")
+      .in("id", [conv.from_type_id, conv.to_type_id]);
+    const titleOf = (id: string) => (types ?? []).find((t) => t.id === id)?.title ?? "Ticket";
+    const delta = Number(conv.delta_chf);
+    scopedItems = [
+      {
+        ticketTypeId: opts.payingRow.id,
+        title: `Upgrade: ${titleOf(conv.from_type_id as string)} → ${titleOf(conv.to_type_id as string)}`,
+        quantity: 1,
+        unitAmountChf: delta,
+        lineTotalChf: delta,
+      },
+    ];
+    totalChf = delta;
+    paidAtIso = (conv.applied_at as string | null) ?? paidAtIso;
+    chargeReference = (conv.stripe_payment_intent_id as string | null) ?? null;
   }
 
-  const priceLabel = (chf: number) => (chf === 0 ? "Free" : `CHF ${chf.toFixed(2)}`);
-  const ticketLines =
-    items && items.length > 0
-      ? items.map((i) => ({
-          title: i.title_snapshot,
-          quantity: i.quantity,
-          // Unit price each (receipt line); null on the fallback below omits the "@ x each".
-          unit_label: priceLabel(Number(i.unit_amount_chf)),
-          line_label: priceLabel(Number(i.line_total_chf)),
-        }))
-      : // Itemless fallback (legacy rows, or deploy-window pending→paid rows the
-        // webhook promoted without items): synthesize one line so the breakdown
-        // is never blank. No per-unit price to show, so unit_label is null.
-        [
-          {
-            title: "Registration",
-            quantity: registration.quantity,
-            unit_label: null,
-            line_label: amountLabel,
-          },
-        ];
-
-  const eventDateLabel = formatDate(event.start_date);
-  const eventTime = formatTime(event.start_time);
+  const receiptLines = buildReceiptLines(scopedItems);
+  const isFree = totalChf === 0;
+  const amountLabel = priceLabel(totalChf);
   const firstName = firstNameFrom(registration.name) || registration.name;
-
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const eventUrl =
-    event.visibility === "public"
-      ? `${appUrl}/public/events/${event.id}`
-      : `${appUrl}/events/${event.id}`;
-
-  // Lead "My Booking" page (FEAT-41): name/forward tickets, see every QR, buy more.
-  // null (never "") so the Mustachio block is omitted when there's no token.
-  const manageUrl = registration.manage_token
-    ? `${appUrl}/public/bookings/${registration.manage_token}`
-    : null;
-
-  // Per-ticket QR block: ONLY the lead booker's own ticket QR. This is the code they
-  // show at the entrance (the familiar "your ticket" behaviour). Guests' QRs aren't in
-  // the email — the lead names/shares/forwards those from the booking page (manage_url).
-  // Hosted QR image (qrcode.react can't run in email). Mustachio section {{#tickets}}
-  // {{label}} {{name}} <img src="{{qr_url}}"> {{/tickets}}; name is null (not "") if unnamed.
-  const { data: ticketRows, error: ticketErr } = await supabase
-    .from("tickets")
-    .select("credential_token, name, is_lead")
-    .eq("registration_id", registrationId)
-    .eq("is_lead", true)
-    .in("slot_status", ["issued", "claimed"])
-    .is("released_at", null)
-    .order("created_at", { ascending: true });
-  // Log distinctly so a real failure isn't disguised as a legitimate empty QR block
-  // (the lead can still reach their QR — and every guest's — via manage_url).
-  if (ticketErr) {
-    console.error("[event-registration-email] tickets lookup failed", { registrationId, err: ticketErr });
-  }
-  const tickets = (ticketRows ?? [])
-    .filter((t) => t.credential_token)
-    .map((t) => ({
-      label: "Your ticket",
-      name: (t.name as string | null)?.trim() || null,
-      qr_url: `${appUrl}/api/qr/${t.credential_token as string}`,
-    }));
+  const paidDateLabel = formatDate(paidAtIso);
 
   const result = await sendEmail({
     to: registration.email,
@@ -163,25 +204,16 @@ export async function sendEventRegistrationConfirmation(
     templateModel: {
       first_name: firstName,
       event_title: event.title,
-      event_date_label: eventDateLabel,
-      event_time: eventTime,
-      event_location: event.location || null,
-      quantity: registration.quantity,
-      ticket_lines: ticketLines,
+      receipt_lines: receiptLines,
       amount_label: amountLabel,
       reference_code: registration.reference_code,
+      paid_date_label: paidDateLabel,
+      charge_reference: chargeReference,
       is_free: isFree,
-      event_url: eventUrl,
-      // Lead booking page: name tickets, share each QR, forward batches, buy more.
-      manage_url: manageUrl,
-      // Per-ticket QR codes (FEAT-41). Empty array → the {{#tickets}} block renders
-      // nothing (the lead can still reach every QR via manage_url).
-      tickets,
-      // Resend (existing registrants): a {{#resend}} intro block explains why a
-      // second email arrived (the upgrade to QR tickets). false/absent → the block
-      // is omitted, so a normal first confirmation is unchanged.
+      // Resend (existing registrants): a {{#resend}} intro block explains why a second
+      // email arrived. false/absent → the block is omitted.
       resend: opts?.resend ?? false,
-      preheader: `You're registered for ${event.title}. Reference ${registration.reference_code}.`,
+      preheader: `Your receipt for ${event.title}. Reference ${registration.reference_code}.`,
     },
   });
 
@@ -194,32 +226,41 @@ export async function sendEventRegistrationConfirmation(
     return result;
   }
 
-  // Record the successful send so the admin "not yet notified" filter + bulk resend
-  // can skip this row and double-sends are avoided. Stamp ONLY on success — a failed
-  // send must leave the row in the not-yet-notified set so it stays eligible for retry.
-  // Best-effort: a stamp failure doesn't undo a delivered email, so log and continue.
-  const { error: stampErr } = await supabase
-    .from("event_registrations")
-    .update({ ticket_email_sent_at: new Date().toISOString() })
-    .eq("id", registrationId);
-  if (stampErr) {
-    console.error("[event-registration-email] failed to stamp ticket_email_sent_at", {
-      registrationId,
-      err: stampErr,
-    });
+  // The ticket email carries QRs — every holder's, INCLUDING the payer's own (U4: the payer
+  // no longer gets their QR via this receipt). Idempotent per ticket (qr_email_sent_at), so a
+  // re-fired Stripe webhook or an admin resend won't double-send.
+  let householdDelivered = true;
+  try {
+    const householdResult = await sendHouseholdTicketEmails(registrationId);
+    householdDelivered = householdResult.sent >= householdResult.groups;
+    if (!householdDelivered) {
+      console.error("[event-registration-email] grouped ticket send partially failed", {
+        registrationId,
+        ...householdResult,
+      });
+    }
+  } catch (err) {
+    householdDelivered = false;
+    console.error("[event-registration-email] grouped ticket send failed", { registrationId, err });
   }
 
-  // Auto-send each NAMED guest their entry QR ("no QR, no bracelet"). The lead's
-  // confirmation above carries only the lead's own QR; guests named at checkout get theirs
-  // here — GROUPED (U12): guests booked to the same email address receive ONE email with
-  // all their QRs plus a single manage link, instead of one email each. Best-effort and
-  // idempotent per ticket (qr_email_sent_at), so a re-fired Stripe webhook or an admin
-  // resend won't double-send. A guest-email failure never affects the lead's email or the
-  // registration.
-  try {
-    await sendHouseholdTicketEmails(registrationId);
-  } catch (err) {
-    console.error("[event-registration-email] grouped guest QR send failed", { registrationId, err });
+  // Record the successful send so the admin "not yet notified" filter + bulk resend can skip
+  // this row and double-sends are avoided. `ticket_email_sent_at` means the TICKET (QR)
+  // delivery, not the receipt above — stamp only once the household ticket send actually
+  // succeeded, so a receipt-sent-but-QR-failed registration stays in the retry-eligible set
+  // instead of silently falling out of it. Best-effort: a stamp failure doesn't undo a
+  // delivered email, so log and continue.
+  if (householdDelivered) {
+    const { error: stampErr } = await supabase
+      .from("event_registrations")
+      .update({ ticket_email_sent_at: new Date().toISOString() })
+      .eq("id", registrationId);
+    if (stampErr) {
+      console.error("[event-registration-email] failed to stamp ticket_email_sent_at", {
+        registrationId,
+        err: stampErr,
+      });
+    }
   }
 
   return result;

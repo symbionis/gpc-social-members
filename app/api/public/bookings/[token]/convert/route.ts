@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
 import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
+import { resolvePayerTicket, type PayerCandidateTicket } from "@/lib/events/booking-redirect";
 
 // Convert-ticket-type from the lead booking page. A lead changes ONE of their tickets
 // to a same-or-higher priced ticket type, paying the difference. Mirrors the top-up
@@ -52,21 +53,29 @@ export async function POST(
     is_member: boolean;
     status: string;
     email: string | null;
+    is_guest_list: boolean;
   }
   let reg: RegRow;
   let householdEmail: string | null = null;
   let selfTicketId: string | null = null; // set in the holder flow (the token's own ticket)
+  // Set for the lead flow (below) once we know whether it's a comp guest list: a comp list
+  // still renders CompGuestListManager at the booking page (U3/KTD2 — unchanged), so its
+  // redirect stays there; an ordinary booking's booking page is now redirect-only, so landing there
+  // after a paid Stripe upgrade would just bounce again — send it straight to the converted
+  // ticket's own manage page instead, resolved once the ticket row is loaded below.
   let redirectBase: string;
+  let redirectToOwnTicketPage = false;
 
   const { data: regByToken } = await supabase
     .from("event_registrations")
-    .select("id, event_id, is_member, status, email")
+    .select("id, event_id, is_member, status, email, is_guest_list")
     .eq("manage_token", token)
     .limit(1)
     .maybeSingle();
   if (regByToken) {
     reg = regByToken as RegRow;
     redirectBase = `/public/bookings/${token}`;
+    redirectToOwnTicketPage = !reg.is_guest_list;
   } else {
     const { data: self } = await supabase
       .from("tickets")
@@ -79,7 +88,7 @@ export async function POST(
     selfTicketId = self.id as string;
     const { data: r } = await supabase
       .from("event_registrations")
-      .select("id, event_id, is_member, status, email")
+      .select("id, event_id, is_member, status, email, is_guest_list")
       .eq("id", self.registration_id as string)
       .limit(1)
       .maybeSingle();
@@ -97,7 +106,7 @@ export async function POST(
   // flow's batch_token filter is dropped — a forwarded ticket is just a ticket now.)
   const { data: ticket } = await supabase
     .from("tickets")
-    .select("id, ticket_type_id, slot_status, checked_in_at, released_at, email")
+    .select("id, ticket_type_id, slot_status, checked_in_at, released_at, email, manage_token")
     .eq("id", ticketId)
     .eq("registration_id", reg.id as string)
     .is("released_at", null)
@@ -106,6 +115,29 @@ export async function POST(
     .limit(1)
     .maybeSingle();
   if (!ticket || !ticket.ticket_type_id) return bad("This ticket can’t be changed", 409);
+  // Lead flow on an ordinary (non-comp) booking: redirect to the PAYER's own manage page,
+  // not the converted ticket's — the lead flow has no household restriction on which ticket
+  // it may change (below), so the ticket just converted may belong to a different holder
+  // entirely. Landing the person who just paid on someone else's manage page would be wrong;
+  // resolve the payer's own live ticket the same way the U3 booking-page redirect does, and
+  // fall back to the booking page (which itself resolves the redirect) when none is found.
+  if (redirectToOwnTicketPage) {
+    const { data: payerTicketRows } = await supabase
+      .from("tickets")
+      .select("id, email, manage_token, is_lead, created_at")
+      .eq("registration_id", reg.id as string)
+      .in("slot_status", ["issued", "claimed"])
+      .is("released_at", null);
+    const candidates: PayerCandidateTicket[] = (payerTicketRows ?? []).map((t) => ({
+      id: t.id as string,
+      email: (t.email as string | null) ?? null,
+      manageToken: (t.manage_token as string | null) ?? null,
+      isLead: Boolean(t.is_lead),
+      createdAt: String(t.created_at),
+    }));
+    const payerTicket = resolvePayerTicket((reg.email as string | null) ?? null, candidates);
+    if (payerTicket) redirectBase = `/public/tickets/${payerTicket.manageToken}`;
+  }
   // A household member can only change tickets on their own email (what the manage page
   // shows them). Mirror lib/events/household.ts: a blank self-email household is SOLO — it
   // must not match other blank-email tickets, so fall back to the caller's own ticket id.

@@ -1,0 +1,37 @@
+<!-- event-cancellation-payer: sent to the PAYER when a seat they booked (and paid for) is
+     cancelled by its holder (U5/U14/U17) — used ONLY when the payer's address differs from
+     the holder's; when they're the same person the holder confirmation alone is sent. Tells
+     them the seat is released and a refund will follow; it does not itself trigger the
+     refund (an admin still issues it from the Refunds tab). Renders inside the
+     main-polo-club layout. Uses Mustachio section tags only (no if-blocks); pass null (not
+     an empty string) to omit an optional block. IMPORTANT: keep template tags out of
+     comments — Postmark parses them here too. -->
+<h1>A seat you booked has been released.</h1>
+
+<p>{{#payer_name}}Hi {{.}} — {{/payer_name}}{{^payer_name}}Hi — {{/payer_name}}{{#holder_name}}<strong>{{.}}</strong>'s{{/holder_name}}{{^holder_name}}a{{/holder_name}} ticket for <strong>{{event_title}}</strong> that you booked has been cancelled and the seat has already been released.</p>
+
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 20px 0 28px 0;">
+  <tr>
+    <td align="center" style="background-color: #052938; border-radius: 8px; padding: 24px 32px;">
+      <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 3px;"><font color="#95CEE1">Cancelled</font></p>
+      <p style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600;"><font color="#ffffff">{{event_title}}</font></p>
+      {{#event_date_label}}
+      <p style="margin: 0 0 4px 0; font-size: 14px;"><font color="#ffffff">{{.}}</font></p>
+      {{/event_date_label}}
+      {{#event_time}}
+      <p style="margin: 0 0 4px 0; font-size: 14px;"><font color="#ffffff">Was due to start at {{.}}</font></p>
+      {{/event_time}}
+      {{#event_location}}
+      <p style="margin: 0 0 16px 0; font-size: 14px;"><font color="#c8dfe8">{{.}}</font></p>
+      {{/event_location}}
+      {{#reference_code}}
+      <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 2px;"><font color="#7aafc4">Reference</font></p>
+      <p style="margin: 0; font-size: 14px; letter-spacing: 2px; font-weight: 600;"><font color="#ffffff">{{.}}</font></p>
+      {{/reference_code}}
+    </td>
+  </tr>
+</table>
+
+<p>Questions? Just reply to this email.</p>
+
+<p>The Geneva Polo Social Club Team</p>

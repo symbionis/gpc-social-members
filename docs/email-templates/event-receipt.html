@@ -1,0 +1,59 @@
+<!-- event-receipt: the PAYER's receipt for a single payment on a booking — original checkout,
+     a buy-more top-up, or a priced ticket-type upgrade (U4). Itemised lines, paid date,
+     reference code and charge reference ONLY. Deliberately carries NO QR code and NO manage
+     link (R15/AE9) — tickets travel separately via event-household-tickets, which now also
+     carries the payer's own QR. Renders inside the main-polo-club layout. Uses Mustachio
+     section tags only (no if-blocks) and an each-block for the line loop; pass null (not an
+     empty string) to omit an optional block. IMPORTANT: keep template tags out of comments —
+     Postmark parses them here too. -->
+<h1>Your receipt, {{first_name}}.</h1>
+
+{{#resend}}
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 16px 0 24px 0;">
+  <tr>
+    <td style="padding: 16px; background-color: #f4f7f9; border-radius: 6px; border-left: 3px solid #052938;">
+      <p style="margin: 0; font-size: 14px;">Here's a copy of your receipt for <strong>{{event_title}}</strong>.</p>
+    </td>
+  </tr>
+</table>
+{{/resend}}
+
+{{#is_free}}
+<p>This confirms your spot at <strong>{{event_title}}</strong> — no payment was due.</p>
+{{/is_free}}
+{{^is_free}}
+<p>Thank you — here's your receipt for <strong>{{event_title}}</strong>.</p>
+{{/is_free}}
+
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin: 24px 0;">
+  <tr>
+    <td style="padding: 6px 0 2px 0; font-size: 14px;"><strong>Receipt</strong></td>
+  </tr>
+  {{#each receipt_lines}}
+  <tr>
+    <td style="padding: 2px 0 2px 12px; font-size: 14px;">{{quantity}} &times; {{title}} &middot; {{unitLabel}} each &mdash; {{lineLabel}}</td>
+  </tr>
+  {{/each}}
+  <tr>
+    <td style="padding: 10px 0 6px 0; font-size: 14px; border-top: 1px solid #e3e3e3;"><strong>Total:</strong> {{amount_label}}</td>
+  </tr>
+  {{#reference_code}}
+  <tr>
+    <td style="padding: 2px 0 2px 0; font-size: 12px; color: #777777;">Reference: {{.}}</td>
+  </tr>
+  {{/reference_code}}
+  {{#paid_date_label}}
+  <tr>
+    <td style="padding: 2px 0 2px 0; font-size: 12px; color: #777777;">Paid: {{.}}</td>
+  </tr>
+  {{/paid_date_label}}
+  {{#charge_reference}}
+  <tr>
+    <td style="padding: 2px 0 6px 0; font-size: 12px; color: #777777; word-break: break-all;">Charge reference: {{.}}</td>
+  </tr>
+  {{/charge_reference}}
+</table>
+
+<p>Your tickets and QR codes arrive in a separate email.</p>
+
+<p>Warm regards,<br><strong>The Geneva Polo Social Club Team</strong></p>

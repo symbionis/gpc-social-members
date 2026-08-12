@@ -17,6 +17,7 @@ import type {
   DoorArrival,
   DoorNotArrived,
 } from "@/lib/events/door-access";
+import { bySurname, surnameKey } from "@/lib/events/roster-sort";
 
 /**
  * What the arrivals list renders: a ticket row (contact fields ride along because the
@@ -77,13 +78,6 @@ function matchesQuery(fields: (string | null)[], q: string): boolean {
   return fields.some((s) => s && s.toLowerCase().includes(q));
 }
 
-function partyMatches(p: DoorParty, q: string): boolean {
-  return matchesQuery(
-    [p.leadName, p.referenceCode, ...p.slots.flatMap((s) => [s.name, s.email, s.phone])],
-    q
-  );
-}
-
 function ticketMatches(t: DoorNotArrived, q: string): boolean {
   return matchesQuery([t.name, t.partyName, t.referenceCode, t.email, t.phone], q);
 }
@@ -108,7 +102,9 @@ export default function DoorConsole({
   const [view, setView] = useState<"arrived" | "notarrived">("arrived");
   // One query behind both tabs, so a search carries across a tab switch.
   const [query, setQuery] = useState("");
-  // Per-party resend status (keyed by registrationId): in-flight, success, or error.
+  // Per-TICKET resend status (keyed by ticket id): in-flight, success, or error. Keyed per
+  // ticket, not per party, because the resend now goes to the individual holder standing at
+  // the desk rather than to whoever paid for the booking.
   const [resend, setResend] = useState<
     Record<string, { sending?: boolean; ok?: boolean; error?: string }>
   >({});
@@ -120,7 +116,29 @@ export default function DoorConsole({
   }, [router]);
 
   const q = query.trim().toLowerCase();
-  const visible = useMemo(() => parties.filter((p) => partyMatches(p, q)), [parties, q]);
+  // The registered roster is a flat A–Z list of PEOPLE, ordered by the same comparator the
+  // printed door sheet and the admin attendee list use. Grouping by party made staff know
+  // whose booking a guest was on before they could find them — but the guest at the desk
+  // gives their own name, not the buyer's. Each row still carries its booking as context.
+  const registeredRows = useMemo(() => {
+    const rows = parties.flatMap((party) =>
+      party.slots.map((slot, i) => ({
+        party,
+        slot,
+        key: slot.attendeeId ?? `${party.registrationId}-open-${i}`,
+        sort: surnameKey(slot.name || null, party.referenceCode, Boolean(slot.attendeeId)),
+      }))
+    );
+    rows.sort((a, b) => bySurname(a.sort, b.sort));
+    return rows;
+  }, [parties]);
+  const visibleRegistered = useMemo(
+    () =>
+      registeredRows.filter(({ party, slot }) =>
+        matchesQuery([slot.name, slot.email, slot.phone, party.leadName, party.referenceCode], q)
+      ),
+    [registeredRows, q]
+  );
   const visibleArrivals = useMemo(
     () => arrivals.filter((a) => ticketMatches(a, q)),
     [arrivals, q]
@@ -136,31 +154,32 @@ export default function DoorConsole({
   const otherRows: ListRow[] = view === "arrived" ? visibleNotArrived : visibleArrivals;
   const otherLabel = view === "arrived" ? "Not arrived" : "Arrived";
 
-  // Resend the booking email (lead QR + booking page) to a party's lead — for a guest
-  // who arrives without their QR. The email goes to the registrant, not the operator.
-  async function resendTickets(registrationId: string) {
-    setResend((s) => ({ ...s, [registrationId]: { sending: true } }));
+  // Resend ONE holder's QR to their own address — for the guest at the desk who can't find
+  // their email. Goes to the ticket holder, never to the operator, and never to the lead:
+  // the person asking is usually not the person who paid.
+  async function resendTicket(ticketId: string) {
+    setResend((s) => ({ ...s, [ticketId]: { sending: true } }));
     try {
-      const res = await fetch(`/api/public/door/${eventId}/resend-confirmation`, {
+      const res = await fetch(`/api/public/door/${eventId}/resend-ticket`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ registrationId }),
+        body: JSON.stringify({ ticketId }),
         signal: AbortSignal.timeout(10000),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setResend((s) => ({
           ...s,
-          [registrationId]: { error: data.error || "Could not resend." },
+          [ticketId]: { error: data.error || "Could not resend." },
         }));
         return;
       }
-      setResend((s) => ({ ...s, [registrationId]: { ok: true } }));
+      setResend((s) => ({ ...s, [ticketId]: { ok: true } }));
     } catch (err) {
       console.error("[door/resend] request failed", err);
       setResend((s) => ({
         ...s,
-        [registrationId]: {
+        [ticketId]: {
           error:
             err instanceof DOMException && err.name === "TimeoutError"
               ? "Timed out — try again."
@@ -252,103 +271,75 @@ export default function DoorConsole({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search a guest or party"
+            placeholder="Search a guest, buyer or reference"
             className={searchInputClass}
             autoComplete="off"
           />
 
-          <div className="space-y-4">
-            {visible.length === 0 ? (
+          <div className="space-y-3">
+            {visibleRegistered.length === 0 ? (
               <p className="font-body text-base text-marine/70 bg-white border border-border rounded-xl px-4 py-4">
-                {parties.length === 0
-                  ? "No parties on the roster yet."
-                  : "No match. Ask the guest which name the booking is under, or send them to the welcome desk."}
+                {registeredRows.length === 0
+                  ? "No tickets on the roster yet."
+                  : "No match. Check the spelling, or send them to the welcome desk."}
               </p>
             ) : (
-              visible.map((p) => {
-                return (
-                  <div
-                    key={p.registrationId}
-                    className="rounded-2xl border border-border bg-white p-5 shadow-sm"
-                  >
-                    <div className="flex items-baseline justify-between gap-3">
-                      <div className="min-w-0">
-                        <h2 className="font-heading text-xl font-bold text-marine">
-                          {p.leadName || "—"}
-                        </h2>
-                        {p.referenceCode && (
-                          <p className="font-mono text-xs text-marine/45">{p.referenceCode}</p>
-                        )}
-                      </div>
-                      <span
-                        className={`shrink-0 px-3 py-1 rounded-full text-sm font-body font-semibold ${
-                          p.remaining > 0
-                            ? "bg-amber-100 text-amber-800"
-                            : "bg-emerald-100 text-emerald-800"
-                        }`}
-                      >
-                        {p.claimedCount} / {p.quantity} named
+              visibleRegistered.map(({ party, slot, key }) => (
+                <div
+                  key={key}
+                  data-testid="registered-row"
+                  className="rounded-2xl border border-border bg-white p-4 shadow-sm"
+                >
+                  {/* The booking rides along as context, not as a container: staff need to
+                      know which party a guest belongs to once they have found them, but they
+                      find them by their own name. A comp list says so here, because its open
+                      seats belong to the sponsor and must not be filled at the door. */}
+                  {/* Labelled, because an unlabelled name at the top of a row full of names
+                      reads as another guest. "Booked by" says what it is in two words, so the
+                      heading below is unambiguously the person at the desk. Kept small and
+                      grey: it is context for when it is needed (a guest who only knows whose
+                      booking they are on), never something to scan. */}
+                  <div className="mb-2 flex items-baseline justify-between gap-3">
+                    <p className="min-w-0 truncate font-body text-xs text-marine/50">
+                      Booked by <span className="text-marine/70">{party.leadName || "—"}</span>
+                      {party.referenceCode && (
+                        <span className="font-mono"> · {party.referenceCode}</span>
+                      )}
+                    </p>
+                    {party.isGuestList && (
+                      <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-body font-semibold text-amber-800">
+                        Comp list
                       </span>
-                    </div>
+                    )}
+                  </div>
 
-                    <div className="mt-4 space-y-3">
-                      {p.slots.map((slot, i) => (
-                        <SlotRow
-                          key={slot.attendeeId ?? `open-${slot.ticketTypeId}-${i}`}
-                          eventId={eventId}
-                          registrationId={p.registrationId}
-                          slot={slot}
-                          onSaved={() => router.refresh()}
-                        />
-                      ))}
-                    </div>
-
-                    {p.remaining === 0 ? (
-                      <p className="mt-4 font-body text-sm text-marine/60">
-                        This party is full — everyone is named.
-                      </p>
-                    ) : p.isGuestList ? (
-                      // A comp party's open seats belong to the sponsor — filling one gives
-                      // away one of their seats, so route staff to the welcome desk first.
-                      <p className="mt-4 font-body text-sm text-amber-700">
-                        Comped seats — {p.remaining} {p.remaining === 1 ? "seat is" : "seats are"}{" "}
-                        still unnamed. Check with the welcome desk before filling one.
+                  {/* Open-seat guidance now sits ON the seat rather than as a party footnote:
+                      it is a warning about the row the volunteer is looking at, and a comp
+                      party's open seat belongs to the sponsor — filling it at the door gives
+                      one of their seats away. */}
+                  {!slot.attendeeId &&
+                    (party.isGuestList ? (
+                      <p className="mb-2 font-body text-sm text-amber-700">
+                        Comped seats — this one belongs to the sponsor. Check with the welcome
+                        desk before filling it.
                       </p>
                     ) : (
-                      <p className="mt-4 font-body text-sm text-amber-700">
-                        {p.remaining} {p.remaining === 1 ? "seat" : "seats"} still to name — fill the
-                        details above or use the welcome desk.
+                      <p className="mb-2 font-body text-sm text-amber-700">
+                        Open seat, still to name — fill the details below or use the welcome
+                        desk.
                       </p>
-                    )}
+                    ))}
 
-                    {/* Lost-QR helper: resend the booking email (QR + booking page) to
-                        the lead's own address. */}
-                    <div className="mt-3 border-t border-border pt-3">
-                      {resend[p.registrationId]?.ok ? (
-                        <p className="font-body text-sm text-emerald-700">
-                          ✓ Ticket email resent to the lead’s address.
-                        </p>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => resendTickets(p.registrationId)}
-                          disabled={resend[p.registrationId]?.sending}
-                          className="w-full px-3 py-2.5 rounded-lg border border-marine/30 text-marine font-body font-semibold text-sm hover:bg-marine/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                        >
-                          {resend[p.registrationId]?.sending
-                            ? "Resending…"
-                            : "Resend ticket email to lead"}
-                        </button>
-                      )}
-                      {resend[p.registrationId]?.error && (
-                        <p className="mt-2 font-body text-sm text-red-700">
-                          {resend[p.registrationId]?.error}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
+                  <SlotRow
+                    eventId={eventId}
+                    registrationId={party.registrationId}
+                    slot={slot}
+                    onSaved={() => router.refresh()}
+                    onResend={resendTicket}
+                    resendState={slot.attendeeId ? resend[slot.attendeeId] : undefined}
+                  />
+                </div>
+              ))
             )}
           </div>
         </div>
@@ -392,6 +383,8 @@ export default function DoorConsole({
                     registrationId={list.registrationId}
                     slot={slot}
                     onSaved={() => router.refresh()}
+                    onResend={resendTicket}
+                    resendState={slot.attendeeId ? resend[slot.attendeeId] : undefined}
                   />
                 ))}
               </div>
@@ -554,11 +547,17 @@ function SlotRow({
   registrationId,
   slot,
   onSaved,
+  onResend,
+  resendState,
 }: {
   eventId: string;
   registrationId: string;
   slot: DoorSlot;
   onSaved: () => void;
+  /** Resend this holder's own QR to their own address. Omitted where there's nothing to
+   *  resend to — an open (unclaimed) seat, or a claimed one with no email on file. */
+  onResend?: (ticketId: string) => void;
+  resendState?: { sending?: boolean; ok?: boolean; error?: string };
 }) {
   const [name, setName] = useState(slot.name);
   const [email, setEmail] = useState(slot.email);
@@ -569,11 +568,12 @@ function SlotRow({
   const [error, setError] = useState<string | null>(null);
 
   const isOpen = slot.attendeeId === null;
-  // R13. A claimed guest holding neither email nor phone would otherwise be admitted
-  // with no contact at all unless the volunteer thought to tap "Edit details" first.
-  // Open its fields so contact is captured as part of the check-in, not behind an
-  // extra tap.
-  const needsContact = !isOpen && !slot.email && !slot.phone;
+  // R7/U7. A claimed guest with no email would otherwise be admitted with nothing to
+  // send a follow-up to, unless the volunteer thought to tap "Edit details" first.
+  // Open its fields so an email can be captured as part of the check-in, not behind
+  // an extra tap. Phone alone still satisfies *save* (below) — this only controls
+  // whether the row starts open, since email is specifically what the follow-up needs.
+  const needsContact = !isOpen && !slot.email;
   // New open slots are editable immediately; claimed (live) rows start locked, unless
   // they are missing the contact we came here to capture.
   const [editing, setEditing] = useState(isOpen || needsContact);
@@ -703,43 +703,55 @@ function SlotRow({
         isOpen ? "border-dashed border-marine/30 bg-cream/30" : "border-border bg-white"
       }`}
     >
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <span className="flex items-center gap-2 min-w-0 flex-wrap">
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="min-w-0 flex-1">
+          {/* The two things door staff are chasing, in order: WHO is in front of them, and
+              WHAT they are entitled to. The name leads at heading size; the type sits under it
+              at a size meant to be read across a desk, not squinted at — it was xs, which on a
+              long type ("Entrance + Traditional Asado Buffet") was unreadable at arm's length.
+              No "lead" pill: that concept is retired, and at a door it never meant anything
+              anyway — who paid is not who is standing there. */}
+          <p className="font-heading text-xl font-bold leading-tight text-marine break-words">
+            {slot.name || (
+              <span className="font-body text-base font-normal text-marine/50">Open seat</span>
+            )}
+          </p>
           {slot.ticketTypeTitle && (
-            <span className="font-body text-base font-semibold text-marine">
+            <p className="mt-0.5 font-body text-sm font-semibold text-marine/75 break-words">
               {slot.ticketTypeTitle}
-            </span>
+            </p>
           )}
-          {slot.isLead && (
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-marine/10 text-marine">
-              lead
-            </span>
-          )}
+        </div>
+
+        {/* Arrival state and the action on it, stacked top-right: the status is the answer to
+            "have I already done this one?", so it belongs beside the button that does it
+            rather than trailing the type it has nothing to do with. */}
+        <div className="shrink-0 flex flex-col items-end gap-1.5">
           {/* "Arrived" (green) means this ticket has been scanned/checked in by the
               door clerk — never just pre-registered. A filled-but-not-scanned slot
               shows a muted "Not arrived" so pre-registration isn't mistaken for it. */}
           {slot.checkedIn ? (
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-emerald-100 text-emerald-800">
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-emerald-100 text-emerald-800 whitespace-nowrap">
               arrived{slot.arrivedAt ? ` · ${formatDateTime(slot.arrivedAt)}` : ""}
             </span>
           ) : (
             !isOpen && (
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-cream text-marine/50">
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-body bg-cream text-marine/50 whitespace-nowrap">
                 not arrived
               </span>
             )
           )}
-        </span>
-        {!slot.checkedIn && !isOpen && (
-          <button
-            type="button"
-            onClick={() => checkInAdult()}
-            disabled={checkingIn}
-            className="shrink-0 px-3 py-1 rounded-lg border border-marine text-marine text-xs font-body font-semibold hover:bg-marine hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {checkingIn ? "…" : "Check in"}
-          </button>
-        )}
+          {!slot.checkedIn && !isOpen && (
+            <button
+              type="button"
+              onClick={() => checkInAdult()}
+              disabled={checkingIn}
+              className="px-3 py-1 rounded-lg border border-marine text-marine text-xs font-body font-semibold hover:bg-marine hover:text-white transition-colors disabled:opacity-50 cursor-pointer whitespace-nowrap"
+            >
+              {checkingIn ? "…" : "Check in"}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -772,7 +784,8 @@ function SlotRow({
 
       {needsContact && (
         <p className="mt-2 font-body text-sm text-amber-700">
-          No contact on file — take an email or phone as you check them in.
+          No email on file — ask for one as you check them in. They can still be
+          checked in without it.
         </p>
       )}
 
@@ -794,6 +807,32 @@ function SlotRow({
         error={error}
       />
 
+      {/* Lost-QR helper, per holder: sends this person's own QR to their own address. Shown
+          only where it can actually do something — a named seat with an email on file. The
+          guest asking at the desk is usually not the one who paid, which is why this sits on
+          the row rather than on the party. */}
+      {onResend && slot.attendeeId && slot.email && (
+        <div className="mt-2">
+          {resendState?.ok ? (
+            <p className="font-body text-sm text-emerald-700">
+              ✓ QR code resent to {slot.email}
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onResend(slot.attendeeId as string)}
+              disabled={resendState?.sending}
+              className="w-full px-3 py-2.5 rounded-lg border border-marine/30 text-marine font-body font-semibold text-sm hover:bg-marine/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {resendState?.sending ? "Sending…" : "Resend QR code"}
+            </button>
+          )}
+          {resendState?.error && (
+            <p className="mt-2 font-body text-sm text-red-700">{resendState.error}</p>
+          )}
+        </div>
+      )}
+
       {locked ? (
         <button
           type="button"
@@ -814,9 +853,12 @@ function SlotRow({
               {saving ? "Saving…" : isOpen ? "Save guest" : "Save changes"}
             </button>
           )}
-          {/* No Cancel on a contactless claimed slot: re-locking it is exactly the
-              state R13 exists to prevent. */}
-          {!isOpen && !needsContact && (
+          {/* Cancel is offered even on a contactless claimed slot (R7/U7): a guest who
+              declines to give an email must still be dismissible and checked in via the
+              "Check in" button above, which never depends on this form. Withholding
+              Cancel here would strand a declining guest in an open, unsavable row at
+              the front of a queue. */}
+          {!isOpen && (
             <button
               type="button"
               onClick={() => {

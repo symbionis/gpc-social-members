@@ -16,11 +16,11 @@ A confirmed booking made by one Lead for one Event, holding one or more Tickets.
 A Registration is free when its total is zero (confirmed immediately, no payment) or paid (created as pending, promoted to paid only when checkout completes). Roster slots are seeded on confirmation — immediately for free, after payment for paid.
 
 ### Ticket
-An individual admission slot belonging to a Registration — one per attendee. A Ticket may be a filled slot (a named, credentialed attendee) or an open slot the Lead has yet to assign.
+An individual admission slot belonging to a Registration — one per attendee, named and contactable at the moment it is created. The Guest List is the sole exception: an admin may add a Guest List guest with a name alone, and the Door Console asks the missing email as part of that guest's check-in.
 *Avoid:* Attendee
 
 ### Lead
-The person who created a Registration and manages it afterward — adding Tickets, assigning guests — through a private manage link. The Lead normally holds one of the Registration's Tickets.
+The person who paid for a Registration. Receives its receipts, reaches the Receipt Page, and is notified when a seat they paid for is cancelled by another holder. The Lead holds no management authority beyond that — every holder, the Lead included, manages their own Ticket the same way, through their own Manage Link (see Household). The Lead is not a role a page is built around; it is a flag (`tickets.is_lead`) recorded on whichever Ticket the payer names for themselves at checkout, used to route money-side communication and gate the Receipt Page.
 
 ### Guest List
 A sponsor's comp list, held as a zero-price Registration — a Lead plus any number of named guests, each with a Ticket Type. Built by an admin, never bought.
@@ -89,13 +89,16 @@ A Ticket can also be *released* — tombstoned rather than deleted, so the old c
 Door **roster** surfaces — the lists staff read from — admit **issued** and **claimed** and nothing else. The rule is an allowlist rather than "not unclaimed": a status these surfaces do not recognise must fall off the roster, never onto it as an anonymous line someone could tick off at the door. The QR scan is gated differently, on the Ticket's own Credential and Cancellation rather than on Slot Status.
 
 ### Booking Page
-The Lead's self-service page for a Registration, reached by a private manage link, where they name each Ticket, share Tickets with guests, see every QR, and buy more.
+Formerly the Lead's self-service page for a whole Registration; now retired for ordinary Registrations, whose old links redirect to the payer's own Household page. It survives only for a Guest List, since it remains the only surface rendering a contactless comp guest's QR and the sponsor's own paid seats — a comp-only carve-out pending its own deletion once no live comp sponsor link still points at an upcoming Event.
 
 ### Household
-The set of live Tickets within one Registration that share the same email address — a couple or a family who booked together on one address. The Household is the unit of Ticket delivery and self-service: its Tickets arrive as one grouped email carrying every QR, and are managed together through any one member's Manage Link.
+The set of live Tickets within one Registration that share the same email address — a couple or a family who booked together on one address. The Household is the unit of Ticket delivery and self-service: its Tickets arrive as one grouped email carrying every QR, and are managed together — including buying more Tickets onto the Registration — through any one member's Manage Link.
 
 ### Manage Link
-The private, rotatable per-Ticket link that opens a Ticket's Household — letting whoever holds it view every QR at that address, correct a name or email, upgrade (see Conversion), cancel (see Cancellation), or accept the Waiver ahead of the Event. Distinct from the Ticket Credential: the Manage Link governs the booking, the Credential only admits at the door. Rotating a Manage Link revokes the old one for the whole Household.
+The private, rotatable per-Ticket link that opens a Ticket's Household — letting whoever holds it view every QR at that address, correct a name, email or phone, upgrade (see Conversion), buy more (see Top-up), cancel (see Cancellation), or accept the Waiver ahead of the Event. Distinct from the Ticket Credential: the Manage Link governs the booking, the Credential only admits at the door. Rotating a Manage Link revokes the old one for the whole Household. The Lead's own Manage Link additionally reaches the Receipt Page.
+
+### Receipt Page
+The Lead's read-only purchase history, reached from their own Manage Link — every purchase they have made across every Event, newest first, itemised from the Registration's own recorded lines rather than the payment provider's hosted receipt. Gated on the `is_lead` flag of the Ticket the link resolves to, not on its email — an ordinary holder can rewrite their own Ticket's address (see Manage Link), so gating on email alone would let them read another person's spend by editing their address to match.
 
 ### Door Console
 The public, no-login check-in surface for an Event, opened by staff at a hard-to-guess per-Event link, used to scan Ticket QRs, fill in missing names and waivers, admit walk-ups against unredeemed Tickets, and resend a party's Tickets to its Lead.
