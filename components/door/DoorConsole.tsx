@@ -108,7 +108,9 @@ export default function DoorConsole({
   const [view, setView] = useState<"arrived" | "notarrived">("arrived");
   // One query behind both tabs, so a search carries across a tab switch.
   const [query, setQuery] = useState("");
-  // Per-party resend status (keyed by registrationId): in-flight, success, or error.
+  // Per-TICKET resend status (keyed by ticket id): in-flight, success, or error. Keyed per
+  // ticket, not per party, because the resend now goes to the individual holder standing at
+  // the desk rather than to whoever paid for the booking.
   const [resend, setResend] = useState<
     Record<string, { sending?: boolean; ok?: boolean; error?: string }>
   >({});
@@ -136,31 +138,32 @@ export default function DoorConsole({
   const otherRows: ListRow[] = view === "arrived" ? visibleNotArrived : visibleArrivals;
   const otherLabel = view === "arrived" ? "Not arrived" : "Arrived";
 
-  // Resend the booking email (lead QR + booking page) to a party's lead — for a guest
-  // who arrives without their QR. The email goes to the registrant, not the operator.
-  async function resendTickets(registrationId: string) {
-    setResend((s) => ({ ...s, [registrationId]: { sending: true } }));
+  // Resend ONE holder's QR to their own address — for the guest at the desk who can't find
+  // their email. Goes to the ticket holder, never to the operator, and never to the lead:
+  // the person asking is usually not the person who paid.
+  async function resendTicket(ticketId: string) {
+    setResend((s) => ({ ...s, [ticketId]: { sending: true } }));
     try {
-      const res = await fetch(`/api/public/door/${eventId}/resend-confirmation`, {
+      const res = await fetch(`/api/public/door/${eventId}/resend-ticket`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ registrationId }),
+        body: JSON.stringify({ ticketId }),
         signal: AbortSignal.timeout(10000),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setResend((s) => ({
           ...s,
-          [registrationId]: { error: data.error || "Could not resend." },
+          [ticketId]: { error: data.error || "Could not resend." },
         }));
         return;
       }
-      setResend((s) => ({ ...s, [registrationId]: { ok: true } }));
+      setResend((s) => ({ ...s, [ticketId]: { ok: true } }));
     } catch (err) {
       console.error("[door/resend] request failed", err);
       setResend((s) => ({
         ...s,
-        [registrationId]: {
+        [ticketId]: {
           error:
             err instanceof DOMException && err.name === "TimeoutError"
               ? "Timed out — try again."
@@ -299,15 +302,17 @@ export default function DoorConsole({
                           registrationId={p.registrationId}
                           slot={slot}
                           onSaved={() => router.refresh()}
+                          onResend={resendTicket}
+                          resendState={slot.attendeeId ? resend[slot.attendeeId] : undefined}
                         />
                       ))}
                     </div>
 
-                    {p.remaining === 0 ? (
-                      <p className="mt-4 font-body text-sm text-marine/60">
-                        This party is full — everyone is named.
-                      </p>
-                    ) : p.isGuestList ? (
+                    {/* Nothing is said when the party is full: every seat above already shows
+                        its own name, so a line repeating that adds a sentence to read at a
+                        door where reading time is the scarce thing. Only the states that need
+                        an ACTION speak. */}
+                    {p.remaining === 0 ? null : p.isGuestList ? (
                       // A comp party's open seats belong to the sponsor — filling one gives
                       // away one of their seats, so route staff to the welcome desk first.
                       <p className="mt-4 font-body text-sm text-amber-700">
@@ -321,31 +326,6 @@ export default function DoorConsole({
                       </p>
                     )}
 
-                    {/* Lost-QR helper: resend the booking email (QR + booking page) to
-                        the lead's own address. */}
-                    <div className="mt-3 border-t border-border pt-3">
-                      {resend[p.registrationId]?.ok ? (
-                        <p className="font-body text-sm text-emerald-700">
-                          ✓ Ticket email resent to the lead’s address.
-                        </p>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => resendTickets(p.registrationId)}
-                          disabled={resend[p.registrationId]?.sending}
-                          className="w-full px-3 py-2.5 rounded-lg border border-marine/30 text-marine font-body font-semibold text-sm hover:bg-marine/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                        >
-                          {resend[p.registrationId]?.sending
-                            ? "Resending…"
-                            : "Resend ticket email to lead"}
-                        </button>
-                      )}
-                      {resend[p.registrationId]?.error && (
-                        <p className="mt-2 font-body text-sm text-red-700">
-                          {resend[p.registrationId]?.error}
-                        </p>
-                      )}
-                    </div>
                   </div>
                 );
               })
@@ -392,6 +372,8 @@ export default function DoorConsole({
                     registrationId={list.registrationId}
                     slot={slot}
                     onSaved={() => router.refresh()}
+                    onResend={resendTicket}
+                    resendState={slot.attendeeId ? resend[slot.attendeeId] : undefined}
                   />
                 ))}
               </div>
@@ -554,11 +536,17 @@ function SlotRow({
   registrationId,
   slot,
   onSaved,
+  onResend,
+  resendState,
 }: {
   eventId: string;
   registrationId: string;
   slot: DoorSlot;
   onSaved: () => void;
+  /** Resend this holder's own QR to their own address. Omitted where there's nothing to
+   *  resend to — an open (unclaimed) seat, or a claimed one with no email on file. */
+  onResend?: (ticketId: string) => void;
+  resendState?: { sending?: boolean; ok?: boolean; error?: string };
 }) {
   const [name, setName] = useState(slot.name);
   const [email, setEmail] = useState(slot.email);
@@ -795,6 +783,32 @@ function SlotRow({
         busy={checkingIn}
         error={error}
       />
+
+      {/* Lost-QR helper, per holder: sends this person's own QR to their own address. Shown
+          only where it can actually do something — a named seat with an email on file. The
+          guest asking at the desk is usually not the one who paid, which is why this sits on
+          the row rather than on the party. */}
+      {onResend && slot.attendeeId && slot.email && (
+        <div className="mt-2">
+          {resendState?.ok ? (
+            <p className="font-body text-sm text-emerald-700">
+              ✓ QR code resent to {slot.email}
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onResend(slot.attendeeId as string)}
+              disabled={resendState?.sending}
+              className="w-full px-3 py-2.5 rounded-lg border border-marine/30 text-marine font-body font-semibold text-sm hover:bg-marine/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {resendState?.sending ? "Sending…" : "Resend QR code"}
+            </button>
+          )}
+          {resendState?.error && (
+            <p className="mt-2 font-body text-sm text-red-700">{resendState.error}</p>
+          )}
+        </div>
+      )}
 
       {locked ? (
         <button
