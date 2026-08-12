@@ -41,16 +41,13 @@ function ticket(overrides: Partial<Attendee> = {}): Attendee {
 
 function renderList(attendees: Attendee[]) {
   return render(
-    <AttendeeList
-      attendees={attendees}
-      baseUrl="https://app.test"
-      eventId="evt-1"
-    />
+    <AttendeeList attendees={attendees} baseUrl="https://app.test" eventId="evt-1" />
   );
 }
 
-const groups = () => screen.queryAllByTestId("address-group");
 const rows = () => screen.queryAllByTestId("ticket-row");
+const rowNames = () =>
+  rows().map((r) => within(r).getAllByRole("cell")[0].textContent ?? "");
 
 beforeEach(() => {
   seq = 0;
@@ -58,74 +55,101 @@ beforeEach(() => {
   global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
 });
 
-describe("U15 — roster grouped by email address (R26)", () => {
-  it("renders two tickets sharing an address as one group", () => {
+// The roster is a flat A–Z list of PEOPLE, ordered by the same comparator the printed door
+// sheet and the door console use. Staff move between the three mid-shift with someone waiting,
+// so a name has to sit in the same place on all of them.
+describe("roster is one flat, surname-ordered row per ticket", () => {
+  it("gives every ticket its own row, including housemates", () => {
     renderList([
       ticket({ name: "Ana Adult", email: "house@x.ch" }),
       ticket({ name: "Ben Adult", email: "HOUSE@x.ch" }), // same address, different case
     ]);
-    expect(groups()).toHaveLength(1);
-    // Both people are listed under the single group.
-    const group = groups()[0];
-    expect(within(group).getByText("Ana Adult")).toBeInTheDocument();
-    expect(within(group).getByText("Ben Adult")).toBeInTheDocument();
+    expect(rows()).toHaveLength(2);
+    expect(screen.getByText("Ana Adult")).toBeInTheDocument();
+    expect(screen.getByText("Ben Adult")).toBeInTheDocument();
   });
 
-  it("renders two distinct addresses as two groups", () => {
+  it("orders by surname, not by booking or address", () => {
     renderList([
-      ticket({ name: "Ana Adult", email: "ana@x.ch" }),
-      ticket({ name: "Cy Solo", email: "cy@x.ch" }),
+      ticket({ name: "Zoe Zider", email: "z@x.ch" }),
+      ticket({ name: "Ana Adult", email: "a@x.ch" }),
+      ticket({ name: "Mia Mueller", email: "m@x.ch" }),
     ]);
-    expect(groups()).toHaveLength(2);
-    expect(screen.getByLabelText("ana@x.ch")).toBeInTheDocument();
-    expect(screen.getByLabelText("cy@x.ch")).toBeInTheDocument();
+    const names = rowNames();
+    expect(names[0]).toContain("Ana Adult");
+    expect(names[1]).toContain("Mia Mueller");
+    expect(names[2]).toContain("Zoe Zider");
   });
-});
 
-describe("U15 — every ticket sold is shown (R25)", () => {
+  it("keeps unnamed slots at the end rather than sorting them under a blank name", () => {
+    renderList([
+      ticket({ name: "", email: "", named: false, manageToken: null }),
+      ticket({ name: "Ana Adult", email: "a@x.ch" }),
+    ]);
+    const names = rowNames();
+    expect(names[0]).toContain("Ana Adult");
+    expect(names[1]).toContain("Unnamed");
+  });
+
   it("renders one row per sold ticket, named or not", () => {
     renderList([
       ticket({ name: "Ana Adult", email: "house@x.ch" }),
       ticket({ name: "Ben Adult", email: "house@x.ch" }),
-      // A still-`issued` (unnamed) ticket — must still occupy a row so the roster length
-      // matches tickets sold.
       ticket({ name: "", email: "", named: false, manageToken: null, ticketTypeTitle: "Kids" }),
     ]);
     expect(rows()).toHaveLength(3);
   });
 
-  it("keeps a named guest with no email OUT of the unnamed bucket (comp-list case)", () => {
-    // A claimed comp-guest ticket carries a real name but no email address
-    // (tickets_contact_present allows an is_comp row with NULL email). It must read as named,
-    // not as an "issued/unnamed" slot.
+  it("shows a named guest with no email as themselves, not as an unnamed slot", () => {
+    // A claimed comp-guest ticket carries a real name but no address
+    // (tickets_contact_present allows an is_comp row with NULL email).
     renderList([
-      ticket({
-        name: "Deb Comp",
-        email: "",
-        named: true,
-        manageToken: null,
-        referenceCode: "GPC-7",
-        ticketTypeTitle: "Guest",
-      }),
+      ticket({ name: "Deb Comp", email: "", named: true, manageToken: null, referenceCode: "GPC-7" }),
     ]);
-    const group = screen.getByLabelText("Booking GPC-7");
-    expect(within(group).getByText("Deb Comp")).toBeInTheDocument();
-    // Not "Not named" — the guest is named, just address-less.
-    expect(within(group).queryByText("Not named")).toBeNull();
-    expect(within(group).getByText("No email")).toBeInTheDocument();
-    // No address → no Resend.
-    expect(within(group).queryByRole("button", { name: /Resend tickets to/ })).toBeNull();
+    expect(screen.getByText("Deb Comp")).toBeInTheDocument();
+    expect(screen.queryByText(/^Unnamed$/)).toBeNull();
+    // No address → nothing to resend to.
+    expect(screen.queryByRole("button", { name: /Resend tickets to/ })).toBeNull();
+  });
+});
+
+// The household survives as a cross-reference, not a container: everyone keeps their own row,
+// and the arrow answers "who are they here with?".
+describe("household expander", () => {
+  const household = () => [
+    ticket({ name: "Ana Adult", email: "house@x.ch" }),
+    ticket({ name: "Ben Baker", email: "house@x.ch" }),
+  ];
+
+  it("offers an expander only where an address carries more than one ticket", () => {
+    renderList([...household(), ticket({ name: "Cy Solo", email: "cy@x.ch" })]);
+    // Two housemates each get one; the solo holder gets none.
+    expect(screen.getAllByTestId("household-toggle")).toHaveLength(2);
   });
 
-  it("groups an unnamed ticket under its booking, marked not-named, with no resend", () => {
-    renderList([
-      ticket({ name: "", email: "", named: false, manageToken: null, referenceCode: "GPC-9" }),
-    ]);
-    const group = screen.getByLabelText("Unnamed · booking GPC-9");
-    expect(group).toBeInTheDocument();
-    expect(within(group).getByText("Not named")).toBeInTheDocument();
-    // An address is required to resend, so an unnamed group offers no Resend button.
-    expect(within(group).queryByRole("button", { name: /Resend tickets to/ })).toBeNull();
+  it("offers no expander for a ticket with no email", () => {
+    renderList([ticket({ name: "Deb Comp", email: "", manageToken: null })]);
+    expect(screen.queryByTestId("household-toggle")).toBeNull();
+  });
+
+  it("reveals the other people on the address, collapsed by default", async () => {
+    const user = userEvent.setup();
+    renderList(household());
+    expect(screen.queryByTestId("household-detail")).toBeNull();
+
+    // Expand Ana's row → Ben is named as her housemate.
+    await user.click(screen.getAllByTestId("household-toggle")[0]);
+    const detail = screen.getByTestId("household-detail");
+    expect(within(detail).getByText("Ben Baker")).toBeInTheDocument();
+    expect(within(detail).queryByText("Ana Adult")).toBeNull();
+  });
+
+  it("does not hide a housemate — they keep their own top-level row", () => {
+    renderList(household());
+    // Collapsed: both are still first-class rows, so either is findable by scanning.
+    expect(rows()).toHaveLength(2);
+    expect(rowNames()[0]).toContain("Ana Adult");
+    expect(rowNames()[1]).toContain("Ben Baker");
   });
 });
 
@@ -133,33 +157,39 @@ describe("the roster shows live seats only", () => {
   it("is a read-only roster — no seat can be freed from here", () => {
     // Cancelled seats are filtered out upstream (the page), so this component never sees one.
     // Freeing a seat is a cancellation now, handled in the Refunds tab, so that every freed
-    // seat carries an account of its money. Refund state: see CancellationsPanel.test.tsx.
+    // seat carries an account of its money.
     renderList([
       ticket({ id: "t-lead", name: "Ana Adult", email: "house@x.ch", isLead: true }),
-      ticket({ id: "t-guest", name: "Ben Adult", email: "house@x.ch" }),
+      ticket({ id: "t-guest", name: "Ben Baker", email: "house@x.ch" }),
     ]);
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
     expect(screen.getByText("Ana Adult")).toBeInTheDocument();
-    expect(screen.getByText("Ben Adult")).toBeInTheDocument();
+    expect(screen.getByText("Ben Baker")).toBeInTheDocument();
   });
 
-  it("reports an address as Notified only when every ticket on it has been emailed", () => {
+  // Now per-person rather than per-address: the roster is a list of people, so "has this one
+  // been sent their QR" is answerable on their own row instead of being collapsed into a
+  // whole-address verdict.
+  it("flags only the person who has not been emailed", () => {
     renderList([
-      ticket({ email: "house@x.ch", notified: true }),
-      ticket({ email: "house@x.ch", notified: false }),
+      ticket({ name: "Ana Adult", email: "house@x.ch", notified: true }),
+      ticket({ name: "Ben Baker", email: "house@x.ch", notified: false }),
     ]);
-    expect(screen.getByText("Not notified")).toBeInTheDocument();
-    expect(screen.queryByText("Notified")).toBeNull();
+    expect(screen.getAllByText("Not notified")).toHaveLength(1);
+    const benRow = rows().find((r) => within(r).queryByText("Ben Baker"));
+    expect(within(benRow as HTMLElement).getByText("Not notified")).toBeInTheDocument();
+  });
+
+  it("does not flag an unnamed slot as un-notified — there is no QR to have sent", () => {
+    renderList([ticket({ name: "", email: "", named: false, manageToken: null })]);
+    expect(screen.queryByText("Not notified")).toBeNull();
   });
 });
 
-describe("U15 — resend targets an email address", () => {
-  it("posts the address to the per-address resend endpoint", async () => {
+describe("resend targets an email address", () => {
+  it("posts the row's address to the per-address resend endpoint", async () => {
     const user = userEvent.setup();
-    renderList([
-      ticket({ name: "Ana Adult", email: "house@x.ch", notified: false }),
-      ticket({ name: "Ben Adult", email: "house@x.ch", notified: false }),
-    ]);
+    renderList([ticket({ name: "Ana Adult", email: "house@x.ch", notified: false })]);
     await user.click(screen.getByRole("button", { name: "Resend tickets to house@x.ch" }));
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
@@ -168,13 +198,19 @@ describe("U15 — resend targets an email address", () => {
     expect(JSON.parse(init.body)).toEqual({ email: "house@x.ch" });
   });
 
-  it("shows a group as Notified only when every live ticket has been emailed", () => {
+  // The grouped ticket email is still the delivery unit — one email per address carrying every
+  // QR on it — so resending from either housemate's row is the same send.
+  it("sends the same address from either housemate's row", async () => {
+    const user = userEvent.setup();
     renderList([
-      ticket({ email: "mixed@x.ch", notified: true }),
-      ticket({ email: "mixed@x.ch", notified: false }),
+      ticket({ name: "Ana Adult", email: "house@x.ch" }),
+      ticket({ name: "Ben Baker", email: "house@x.ch" }),
     ]);
-    expect(screen.getByText("Not notified")).toBeInTheDocument();
-    expect(screen.queryByText("Notified")).toBeNull();
+    const buttons = screen.getAllByRole("button", { name: "Resend tickets to house@x.ch" });
+    expect(buttons).toHaveLength(2);
+    await user.click(buttons[1]);
+    const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse(init.body)).toEqual({ email: "house@x.ch" });
   });
 });
 

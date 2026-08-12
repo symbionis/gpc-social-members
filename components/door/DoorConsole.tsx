@@ -17,6 +17,7 @@ import type {
   DoorArrival,
   DoorNotArrived,
 } from "@/lib/events/door-access";
+import { bySurname, surnameKey } from "@/lib/events/roster-sort";
 
 /**
  * What the arrivals list renders: a ticket row (contact fields ride along because the
@@ -77,13 +78,6 @@ function matchesQuery(fields: (string | null)[], q: string): boolean {
   return fields.some((s) => s && s.toLowerCase().includes(q));
 }
 
-function partyMatches(p: DoorParty, q: string): boolean {
-  return matchesQuery(
-    [p.leadName, p.referenceCode, ...p.slots.flatMap((s) => [s.name, s.email, s.phone])],
-    q
-  );
-}
-
 function ticketMatches(t: DoorNotArrived, q: string): boolean {
   return matchesQuery([t.name, t.partyName, t.referenceCode, t.email, t.phone], q);
 }
@@ -122,7 +116,29 @@ export default function DoorConsole({
   }, [router]);
 
   const q = query.trim().toLowerCase();
-  const visible = useMemo(() => parties.filter((p) => partyMatches(p, q)), [parties, q]);
+  // The registered roster is a flat A–Z list of PEOPLE, ordered by the same comparator the
+  // printed door sheet and the admin attendee list use. Grouping by party made staff know
+  // whose booking a guest was on before they could find them — but the guest at the desk
+  // gives their own name, not the buyer's. Each row still carries its booking as context.
+  const registeredRows = useMemo(() => {
+    const rows = parties.flatMap((party) =>
+      party.slots.map((slot, i) => ({
+        party,
+        slot,
+        key: slot.attendeeId ?? `${party.registrationId}-open-${i}`,
+        sort: surnameKey(slot.name || null, party.referenceCode, Boolean(slot.attendeeId)),
+      }))
+    );
+    rows.sort((a, b) => bySurname(a.sort, b.sort));
+    return rows;
+  }, [parties]);
+  const visibleRegistered = useMemo(
+    () =>
+      registeredRows.filter(({ party, slot }) =>
+        matchesQuery([slot.name, slot.email, slot.phone, party.leadName, party.referenceCode], q)
+      ),
+    [registeredRows, q]
+  );
   const visibleArrivals = useMemo(
     () => arrivals.filter((a) => ticketMatches(a, q)),
     [arrivals, q]
@@ -255,80 +271,70 @@ export default function DoorConsole({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search a guest or party"
+            placeholder="Search a guest, buyer or reference"
             className={searchInputClass}
             autoComplete="off"
           />
 
-          <div className="space-y-4">
-            {visible.length === 0 ? (
+          <div className="space-y-3">
+            {visibleRegistered.length === 0 ? (
               <p className="font-body text-base text-marine/70 bg-white border border-border rounded-xl px-4 py-4">
-                {parties.length === 0
-                  ? "No parties on the roster yet."
-                  : "No match. Ask the guest which name the booking is under, or send them to the welcome desk."}
+                {registeredRows.length === 0
+                  ? "No tickets on the roster yet."
+                  : "No match. Check the spelling, or send them to the welcome desk."}
               </p>
             ) : (
-              visible.map((p) => {
-                return (
-                  <div
-                    key={p.registrationId}
-                    className="rounded-2xl border border-border bg-white p-5 shadow-sm"
-                  >
-                    <div className="flex items-baseline justify-between gap-3">
-                      <div className="min-w-0">
-                        <h2 className="font-heading text-xl font-bold text-marine">
-                          {p.leadName || "—"}
-                        </h2>
-                        {p.referenceCode && (
-                          <p className="font-mono text-xs text-marine/45">{p.referenceCode}</p>
-                        )}
-                      </div>
-                      <span
-                        className={`shrink-0 px-3 py-1 rounded-full text-sm font-body font-semibold ${
-                          p.remaining > 0
-                            ? "bg-amber-100 text-amber-800"
-                            : "bg-emerald-100 text-emerald-800"
-                        }`}
-                      >
-                        {p.claimedCount} / {p.quantity} named
+              visibleRegistered.map(({ party, slot, key }) => (
+                <div
+                  key={key}
+                  data-testid="registered-row"
+                  className="rounded-2xl border border-border bg-white p-4 shadow-sm"
+                >
+                  {/* The booking rides along as context, not as a container: staff need to
+                      know which party a guest belongs to once they have found them, but they
+                      find them by their own name. A comp list says so here, because its open
+                      seats belong to the sponsor and must not be filled at the door. */}
+                  <div className="mb-2 flex items-baseline justify-between gap-3">
+                    <p className="min-w-0 truncate font-body text-xs text-marine/50">
+                      <span>{party.leadName || "\u2014"}</span>
+                      {party.referenceCode && (
+                        <span className="font-mono"> \u00b7 {party.referenceCode}</span>
+                      )}
+                    </p>
+                    {party.isGuestList && (
+                      <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-body font-semibold text-amber-800">
+                        Comp list
                       </span>
-                    </div>
+                    )}
+                  </div>
 
-                    <div className="mt-4 space-y-3">
-                      {p.slots.map((slot, i) => (
-                        <SlotRow
-                          key={slot.attendeeId ?? `open-${slot.ticketTypeId}-${i}`}
-                          eventId={eventId}
-                          registrationId={p.registrationId}
-                          slot={slot}
-                          onSaved={() => router.refresh()}
-                          onResend={resendTicket}
-                          resendState={slot.attendeeId ? resend[slot.attendeeId] : undefined}
-                        />
-                      ))}
-                    </div>
-
-                    {/* Nothing is said when the party is full: every seat above already shows
-                        its own name, so a line repeating that adds a sentence to read at a
-                        door where reading time is the scarce thing. Only the states that need
-                        an ACTION speak. */}
-                    {p.remaining === 0 ? null : p.isGuestList ? (
-                      // A comp party's open seats belong to the sponsor — filling one gives
-                      // away one of their seats, so route staff to the welcome desk first.
-                      <p className="mt-4 font-body text-sm text-amber-700">
-                        Comped seats — {p.remaining} {p.remaining === 1 ? "seat is" : "seats are"}{" "}
-                        still unnamed. Check with the welcome desk before filling one.
+                  {/* Open-seat guidance now sits ON the seat rather than as a party footnote:
+                      it is a warning about the row the volunteer is looking at, and a comp
+                      party's open seat belongs to the sponsor \u2014 filling it at the door gives
+                      one of their seats away. */}
+                  {!slot.attendeeId &&
+                    (party.isGuestList ? (
+                      <p className="mb-2 font-body text-sm text-amber-700">
+                        Comped seats \u2014 this one belongs to the sponsor. Check with the welcome
+                        desk before filling it.
                       </p>
                     ) : (
-                      <p className="mt-4 font-body text-sm text-amber-700">
-                        {p.remaining} {p.remaining === 1 ? "seat" : "seats"} still to name — fill the
-                        details above or use the welcome desk.
+                      <p className="mb-2 font-body text-sm text-amber-700">
+                        Open seat, still to name \u2014 fill the details below or use the welcome
+                        desk.
                       </p>
-                    )}
+                    ))}
 
-                  </div>
-                );
-              })
+                  <SlotRow
+                    eventId={eventId}
+                    registrationId={party.registrationId}
+                    slot={slot}
+                    onSaved={() => router.refresh()}
+                    onResend={resendTicket}
+                    resendState={slot.attendeeId ? resend[slot.attendeeId] : undefined}
+                  />
+                </div>
+              ))
             )}
           </div>
         </div>

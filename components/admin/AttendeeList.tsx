@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateTime } from "@/lib/format";
+import { bySurname, surnameKey } from "@/lib/events/roster-sort";
 
 /**
  * One LIVE ticket on the roster (U15). Claimed (named) and still-`issued` (unnamed) alike
@@ -64,76 +65,53 @@ interface Props {
 type MemberFilter = "all" | "members" | "non_members";
 
 /**
- * A group on the roster. `kind` distinguishes the three cases that "no address" used to
- * conflate:
- *  - `address` — an email household (R26): every ticket shares a lowercased email, so it can
- *    be managed and resent as one.
- *  - `booking` — named tickets with NO email (comp-guest-list guests, phone-only): they carry
- *    a real name but no address, so they group by booking, not email, and can't be resent.
- *  - `unnamed` — still-`issued` tickets nobody has named yet.
+ * One row on the flat roster: a single ticket, plus the other tickets sharing its address.
+ *
+ * The roster used to be grouped BY address, with the email as the card header. That put a
+ * delivery mechanic — the grouped ticket email goes to one mailbox — in charge of an
+ * operational surface whose only question is "is this person on the list?". A guest sharing
+ * their partner's address was findable only by first knowing whose address it was.
+ *
+ * So every ticket now gets its own row, ordered by surname exactly as the printed door sheet
+ * and the door console order theirs (lib/events/roster-sort). The household survives as a
+ * cross-reference: where an address carries more than one ticket, the row expands to show who
+ * else is on it. Each of those people still has their own row elsewhere in the list — the
+ * expander answers "who are they here with?", it does not hide anyone inside it.
  */
-interface RosterGroup {
-  key: string;
-  kind: "address" | "booking" | "unnamed";
-  /** Display address; "" for booking/unnamed groups. */
-  email: string;
-  /** Booking reference for the group header (from the earliest ticket that has one). */
-  referenceCode: string | null;
-  /** Any ticket's manage_token → the shared household manage page (address groups only). */
-  manageToken: string | null;
-  /** True only when every ticket at the address has been emailed. */
-  notified: boolean;
-  rows: Attendee[];
+interface RosterRow {
+  ticket: Attendee;
+  /** Other live tickets sharing this ticket's address. Empty for a solo holder or no email. */
+  household: Attendee[];
+  /** Sort key, precomputed so the comparator stays pure. */
+  sort: { last: string; first: string; bookingRef: string; named: boolean };
 }
 
-// Group every sold ticket. A ticket WITH an email joins that household (R26). A ticket without
-// one can't have a household — but "no email" is not "unnamed": a claimed comp/phone-only guest
-// has a real name and no address (tickets_contact_present allows a named, emailless is_comp row).
-// So an emailless ticket groups under its booking, and its `kind` is `booking` when named,
-// `unnamed` when still issued — never mislabelled "not named" just for lacking an address. The
-// email key mirrors household delivery so the roster, the grouped email, and the per-address
-// resend all agree on what one "address" is.
-function buildGroups(attendees: Attendee[]): RosterGroup[] {
-  const byKey = new Map<string, Attendee[]>();
+// Every ticket becomes a row. Tickets WITH an email also learn who shares it (lowercased, the
+// same key household delivery uses, so the roster and the email agree on what one address is).
+// A ticket with no email has no household by definition — a comp guest or phone-only walk-up
+// is not "in a household of one", they simply have no address to share.
+function buildRows(attendees: Attendee[]): RosterRow[] {
+  const byAddress = new Map<string, Attendee[]>();
   for (const a of attendees) {
-    const key = a.email
-      ? `addr:${a.email.trim().toLowerCase()}`
-      : `booking:${a.registrationId ?? a.id}`;
-    const list = byKey.get(key) ?? [];
+    const key = a.email.trim().toLowerCase();
+    if (!key) continue;
+    const list = byAddress.get(key) ?? [];
     list.push(a);
-    byKey.set(key, list);
+    byAddress.set(key, list);
   }
 
-  const groups: RosterGroup[] = [];
-  for (const [key, rows] of byKey) {
-    rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    const hasAddress = key.startsWith("addr:");
-    const kind: RosterGroup["kind"] = hasAddress
-      ? "address"
-      : rows.every((r) => !r.named)
-        ? "unnamed"
-        : "booking";
-    groups.push({
-      key,
-      kind,
-      email: hasAddress ? rows.find((r) => r.email)?.email ?? "" : "",
-      referenceCode: rows.find((r) => r.referenceCode)?.referenceCode ?? null,
-      // The manage page resolves a household by email, so a token is only actionable for an
-      // address group — a booking/unnamed group has no address to open.
-      manageToken: hasAddress ? rows.find((r) => r.manageToken)?.manageToken ?? null : null,
-      notified: hasAddress && rows.length > 0 && rows.every((r) => r.notified),
-      rows,
-    });
-  }
-
-  // Email households first (in booking order), then non-addressed bookings.
-  groups.sort((a, b) => {
-    const au = a.kind !== "address";
-    const bu = b.kind !== "address";
-    if (au !== bu) return au ? 1 : -1;
-    return (a.rows[0]?.createdAt ?? "").localeCompare(b.rows[0]?.createdAt ?? "");
+  const rows = attendees.map<RosterRow>((ticket) => {
+    const key = ticket.email.trim().toLowerCase();
+    const mates = key ? (byAddress.get(key) ?? []).filter((t) => t.id !== ticket.id) : [];
+    return {
+      ticket,
+      household: mates,
+      sort: surnameKey(ticket.name || null, ticket.referenceCode, ticket.named),
+    };
   });
-  return groups;
+
+  rows.sort((a, b) => bySurname(a.sort, b.sort));
+  return rows;
 }
 
 export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
@@ -142,6 +120,8 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
   const [memberFilter, setMemberFilter] = useState<MemberFilter>("all");
   // Addresses whose grouped email is being resent — keyed by lowercased email.
   const [resending, setResending] = useState<Set<string>>(new Set());
+  // Rows whose household cross-reference is open, keyed by ticket id.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -150,34 +130,38 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
     if (!baseUrl && typeof window !== "undefined") setOrigin(window.location.origin);
   }, [baseUrl]);
 
-  const groups = useMemo(() => buildGroups(attendees), [attendees]);
+  const rows = useMemo(() => buildRows(attendees), [attendees]);
 
-  const filteredGroups = useMemo(() => {
+  const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return groups
-      .map((g) => {
-        const rows = g.rows.filter((a) => {
-          if (memberFilter === "members" && !a.isMember) return false;
-          if (memberFilter === "non_members" && a.isMember) return false;
-          if (!q) return true;
-          return (
-            a.name.toLowerCase().includes(q) ||
-            a.email.toLowerCase().includes(q) ||
-            a.phone_e164.toLowerCase().includes(q) ||
-            (g.referenceCode ?? "").toLowerCase().includes(q)
-          );
-        });
-        return { ...g, rows };
-      })
-      .filter((g) => g.rows.length > 0);
-  }, [groups, query, memberFilter]);
+    return rows.filter(({ ticket }) => {
+      if (memberFilter === "members" && !ticket.isMember) return false;
+      if (memberFilter === "non_members" && ticket.isMember) return false;
+      if (!q) return true;
+      return (
+        ticket.name.toLowerCase().includes(q) ||
+        ticket.email.toLowerCase().includes(q) ||
+        ticket.phone_e164.toLowerCase().includes(q) ||
+        (ticket.referenceCode ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [rows, query, memberFilter]);
 
   const isFiltering = query.trim() !== "" || memberFilter !== "all";
-  const shownCount = filteredGroups.reduce((n, g) => n + g.rows.length, 0);
+
+  function toggleExpanded(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   // Resend the grouped ticket email to ONE address — every QR at that address, in one email.
-  // Per-address (U15): the roster groups by email, so a resend targets the address the admin
-  // is looking at, not the whole booking.
+  // Still per-address even though the roster is now per-person: the grouped email IS the
+  // delivery unit, so resending from either housemate's row sends the same one email. The
+  // button sits on the row because that is where the admin is looking.
   async function resendAddress(email: string) {
     const key = email.trim().toLowerCase();
     if (!key) return;
@@ -234,7 +218,8 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
 
       {isFiltering && (
         <p className="text-xs font-body text-muted-foreground">
-          Showing {shownCount} of {attendees.length} ticket{attendees.length === 1 ? "" : "s"}
+          Showing {filteredRows.length} of {attendees.length} ticket
+          {attendees.length === 1 ? "" : "s"}
         </p>
       )}
 
@@ -250,208 +235,253 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
         </p>
       )}
 
-      {filteredGroups.length === 0 ? (
+      {filteredRows.length === 0 ? (
         <div className="bg-white rounded-xl border border-border p-8 text-center text-muted-foreground font-body text-sm">
           {attendees.length === 0 ? "No tickets sold yet." : "No tickets match your search."}
         </div>
       ) : (
-        <div className="space-y-4">
-          {filteredGroups.map((group) => (
-            <AddressCard
-              key={group.key}
-              group={group}
-              origin={origin}
-              resending={resending.has(group.email.trim().toLowerCase())}
-              onResend={resendAddress}
-            />
-          ))}
+        <div className="bg-white rounded-xl border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm font-body">
+              <thead className="text-marine bg-cream/60 border-b border-border">
+                <tr className="text-left">
+                  <th className="px-4 py-2 font-semibold">Name</th>
+                  <th className="px-4 py-2 font-semibold">Ticket</th>
+                  <th className="px-4 py-2 font-semibold">Member</th>
+                  <th className="px-4 py-2 font-semibold">Waiver</th>
+                  <th className="px-4 py-2 font-semibold">Arrived</th>
+                  <th className="px-4 py-2 font-semibold">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.map((row) => (
+                  <TicketRow
+                    key={row.ticket.id}
+                    row={row}
+                    origin={origin}
+                    expanded={expanded.has(row.ticket.id)}
+                    onToggle={() => toggleExpanded(row.ticket.id)}
+                    resending={resending.has(row.ticket.email.trim().toLowerCase())}
+                    onResend={resendAddress}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function AddressCard({
-  group,
-  origin,
-  resending,
-  onResend,
-}: {
-  group: RosterGroup;
-  origin: string;
-  resending: boolean;
-  onResend: (email: string) => void;
-}) {
-  const isAddress = group.kind === "address";
-  const manageUrl =
-    isAddress && group.manageToken ? `${origin}/public/tickets/${group.manageToken}` : "";
-  const label =
-    group.kind === "address"
-      ? group.email
-      : group.kind === "unnamed"
-        ? `Unnamed${group.referenceCode ? ` · booking ${group.referenceCode}` : ""}`
-        : `Booking ${group.referenceCode ?? "—"}`;
-  const count = group.rows.length;
-
+function PaymentPill({ state }: { state: Attendee["paymentState"] }) {
+  // Emerald for money in, neutral for the two that brought none — the distinction the
+  // organiser is scanning for. Comp and free are kept apart because they mean different
+  // things: a sponsor gave the seat away, versus it never had a price.
+  if (state === "paid") {
+    return (
+      <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-50 text-emerald-700">
+        Paid
+      </span>
+    );
+  }
+  if (state === "comp") {
+    return (
+      <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-50 text-amber-800">
+        Comp
+      </span>
+    );
+  }
   return (
-    <section
-      aria-label={label}
-      data-testid="address-group"
-      className="bg-white rounded-xl border border-border overflow-hidden"
-    >
-      <header className="flex items-center gap-3 flex-wrap px-4 py-3 bg-cream/60 border-b border-border">
-        <div className="flex flex-col gap-0.5 min-w-0">
-          <span className="font-body font-semibold text-marine truncate">{label}</span>
-          <span className="text-xs font-body text-muted-foreground">
-            {count} ticket{count === 1 ? "" : "s"}
-            {group.referenceCode && group.kind === "address" ? ` · ${group.referenceCode}` : ""}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 ml-auto">
-          {group.kind === "unnamed" ? (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 whitespace-nowrap">
-              Not named
-            </span>
-          ) : group.kind === "booking" ? (
-            // Named but no email on file → nothing to notify, so say why there's no Resend
-            // rather than badging them "Not notified".
-            <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 whitespace-nowrap">
-              No email
-            </span>
-          ) : group.notified ? (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700 whitespace-nowrap">
-              Notified
-            </span>
-          ) : (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800 whitespace-nowrap">
-              Not notified
-            </span>
-          )}
-
-          {manageUrl && (
-            <a
-              href={manageUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Open this address's manage page (view QR codes, upgrade, correct)"
-              className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors whitespace-nowrap"
-            >
-              Manage ↗
-            </a>
-          )}
-
-          {isAddress && (
-            <button
-              type="button"
-              onClick={() => onResend(group.email)}
-              disabled={resending}
-              aria-label={`Resend tickets to ${group.email}`}
-              title="Resend the grouped ticket email (all QR codes at this address)"
-              className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
-            >
-              {resending ? "Resending…" : "Resend"}
-            </button>
-          )}
-        </div>
-      </header>
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm font-body">
-          <thead className="text-marine">
-            <tr className="text-left">
-              <th className="px-4 py-2 font-semibold">Name</th>
-              <th className="px-4 py-2 font-semibold">Ticket</th>
-              <th className="px-4 py-2 font-semibold">Member</th>
-              <th className="px-4 py-2 font-semibold">Waiver</th>
-              <th className="px-4 py-2 font-semibold">Arrived</th>
-            </tr>
-          </thead>
-          <tbody>
-            {group.rows.map((row) => (
-              <TicketRow
-                key={row.id}
-                row={row}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-100 text-gray-600">Free</span>
   );
 }
 
 function TicketRow({
   row,
+  origin,
+  expanded,
+  onToggle,
+  resending,
+  onResend,
 }: {
-  row: Attendee;
+  row: RosterRow;
+  origin: string;
+  expanded: boolean;
+  onToggle: () => void;
+  resending: boolean;
+  onResend: (email: string) => void;
 }) {
+  const { ticket, household } = row;
+  const hasHousehold = household.length > 0;
+  const manageUrl = ticket.manageToken ? `${origin}/public/tickets/${ticket.manageToken}` : "";
+
   return (
-    <tr data-testid="ticket-row" className="border-t border-border">
-      <td className="px-4 py-3 text-marine">
-        <span className="flex items-center gap-2">
-          <span>{row.name || <span className="text-muted-foreground italic">Unnamed</span>}</span>
-          {row.isLead && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-sky/10 text-sky-dark">
-              Buyer
+    <>
+      <tr data-testid="ticket-row" className="border-t border-border align-top">
+        <td className="px-4 py-3 text-marine">
+          <span className="flex items-center gap-2 flex-wrap">
+            {/* The expander is the only affordance on the name, so it reads as "there is more
+                about this person" rather than as a row-level disclosure of the whole table. */}
+            {hasHousehold && (
+              <button
+                type="button"
+                onClick={onToggle}
+                aria-expanded={expanded}
+                aria-label={
+                  expanded
+                    ? `Hide who shares ${ticket.email}`
+                    : `Show the ${household.length + 1} people sharing ${ticket.email}`
+                }
+                data-testid="household-toggle"
+                className="text-marine/60 hover:text-marine transition-colors cursor-pointer text-xs w-4 shrink-0"
+              >
+                {expanded ? "▾" : "▸"}
+              </button>
+            )}
+            <span>
+              {ticket.name || <span className="text-muted-foreground italic">Unnamed</span>}
+            </span>
+            {ticket.isLead && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-sky/10 text-sky-dark">
+                Buyer
+              </span>
+            )}
+            <PaymentPill state={ticket.paymentState} />
+            {ticket.named && !ticket.notified && ticket.email && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800">
+                Not notified
+              </span>
+            )}
+          </span>
+          {/* Address and phone are metadata on the person now, not the thing they live under. */}
+          {ticket.email && (
+            <span className="block text-[11px] text-muted-foreground truncate">
+              {ticket.email}
+              {hasHousehold && ` · +${household.length}`}
             </span>
           )}
-          {/* Emerald for money in, neutral for the two that brought none — the distinction the
-              organiser is scanning for. Comp and free are kept apart because they mean
-              different things: a sponsor gave the seat away, versus it never had a price. */}
-          {row.paymentState === "paid" ? (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-50 text-emerald-700">
-              Paid
+          {ticket.phone_e164 && (
+            <span className="block font-mono text-[11px] text-muted-foreground">
+              {ticket.phone_e164}
             </span>
-          ) : row.paymentState === "comp" ? (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-50 text-amber-800">
-              Comp
+          )}
+          {ticket.referenceCode && (
+            <span className="block font-mono text-[11px] text-muted-foreground">
+              {ticket.referenceCode}
+            </span>
+          )}
+        </td>
+        <td className="px-4 py-3">
+          {ticket.ticketTypeTitle ? (
+            <span className="text-xs text-marine">{ticket.ticketTypeTitle}</span>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          )}
+        </td>
+        <td className="px-4 py-3">
+          {ticket.isMember ? (
+            <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700">
+              Yes
             </span>
           ) : (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-100 text-gray-600">
-              Free
+            <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">No</span>
+          )}
+        </td>
+        <td className="px-4 py-3">
+          {!ticket.named ? (
+            <span className="text-xs text-muted-foreground">—</span>
+          ) : ticket.waiverSigned ? (
+            <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700">
+              Signed
+            </span>
+          ) : (
+            <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800">
+              Unsigned
             </span>
           )}
-        </span>
-        {row.phone_e164 && (
-          <span className="block font-mono text-[11px] text-muted-foreground">{row.phone_e164}</span>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        {row.ticketTypeTitle ? (
-          <span className="text-xs text-marine">{row.ticketTypeTitle}</span>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        {row.isMember ? (
-          <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700">Yes</span>
-        ) : (
-          <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">No</span>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        {!row.named ? (
-          <span className="text-xs text-muted-foreground">—</span>
-        ) : row.waiverSigned ? (
-          <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700">Signed</span>
-        ) : (
-          <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800">Unsigned</span>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        {row.checkedIn ? (
-          <div className="flex flex-col gap-0.5">
-            <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-800 w-fit">In</span>
-            {row.arrivedAt && (
-              <span className="text-xs text-muted-foreground">{formatDateTime(row.arrivedAt)}</span>
+        </td>
+        <td className="px-4 py-3">
+          {ticket.checkedIn ? (
+            <div className="flex flex-col gap-0.5">
+              <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-800 w-fit">
+                In
+              </span>
+              {ticket.arrivedAt && (
+                <span className="text-xs text-muted-foreground">
+                  {formatDateTime(ticket.arrivedAt)}
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          )}
+        </td>
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-2 justify-end">
+            {manageUrl && (
+              <a
+                href={manageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open this person's manage page (QR codes, upgrade, correct details)"
+                className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors whitespace-nowrap"
+              >
+                Manage ↗
+              </a>
+            )}
+            {ticket.email && (
+              <button
+                type="button"
+                onClick={() => onResend(ticket.email)}
+                disabled={resending}
+                aria-label={`Resend tickets to ${ticket.email}`}
+                title="Resend the ticket email to this address (every QR on it, in one email)"
+                className="px-2.5 py-1 rounded-lg border border-marine/40 text-marine text-xs font-body hover:bg-marine hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
+              >
+                {resending ? "Resending…" : "Resend"}
+              </button>
             )}
           </div>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
-        )}
-      </td>
-    </tr>
+        </td>
+      </tr>
+
+      {/* The cross-reference: who else is on this address. Each of these has their own row in
+          the list too — this answers "who are they here with?" without hiding anyone. */}
+      {expanded && hasHousehold && (
+        <tr data-testid="household-detail" className="border-t border-border/50 bg-cream/40">
+          <td colSpan={6} className="px-4 py-3">
+            <p className="text-xs font-body text-muted-foreground mb-1.5">
+              Shares {ticket.email} with:
+            </p>
+            <ul className="space-y-1">
+              {household.map((mate) => (
+                <li key={mate.id} className="flex items-center gap-2 flex-wrap text-xs text-marine">
+                  <span>
+                    {mate.name || <span className="text-muted-foreground italic">Unnamed</span>}
+                  </span>
+                  {mate.isLead && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-sky/10 text-sky-dark">
+                      Buyer
+                    </span>
+                  )}
+                  <PaymentPill state={mate.paymentState} />
+                  {mate.ticketTypeTitle && (
+                    <span className="text-muted-foreground">{mate.ticketTypeTitle}</span>
+                  )}
+                  {mate.checkedIn && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-100 text-emerald-800">
+                      In
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
