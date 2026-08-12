@@ -125,7 +125,8 @@ export default function EventRosterSummary({
 
   return (
     <div className="flex-1 min-w-0 space-y-5">
-      <p className="font-body text-sm font-bold text-marine">Overview</p>
+      {/* No "Overview" heading of its own — this renders under the tab of that name, and
+          repeating it would label the same thing twice. */}
 
       {/* Active tickets lead: that is the number the cap, the waitlist and public registration
           all reason about. The rest appear only when they add something — on a straightforward
