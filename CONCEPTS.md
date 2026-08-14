@@ -88,6 +88,11 @@ A Ticket can also be *released* — tombstoned rather than deleted, so the old c
 
 Door **roster** surfaces — the lists staff read from — admit **issued** and **claimed** and nothing else. The rule is an allowlist rather than "not unclaimed": a status these surfaces do not recognise must fall off the roster, never onto it as an anonymous line someone could tick off at the door. The QR scan is gated differently, on the Ticket's own Credential and Cancellation rather than on Slot Status.
 
+### Claim
+Putting a named person onto an **issued** Ticket, which turns it **claimed**. Claims happen at checkout when the buyer names their party, when a Top-up adds and names further Tickets, and at the door when staff name a walk-up. Correcting the name on an already-claimed Ticket is an edit, not a Claim.
+
+A holder's identity for this purpose is **name plus contact plus Ticket Type**, and all three carry weight. Two claims matching on all three are one claim arriving twice — the second is absorbed and consumes nothing, which is what makes a retried or redelivered purchase safe. Differing in any one of them makes it a distinct claim: two people sharing one email are two holders (see Household), and one person holding two Ticket Types is one holder who bought two things, as on a multi-day Event. Narrowing that identity to fewer dimensions silently merges holders or purchases that were never the same, and the merged party keeps its Seat while losing its name. A Ticket left **issued** cannot be admitted until someone names it at the door: the scan stops and asks rather than letting an anonymous holder through, which is the last place such a loss can still be caught.
+
 ### Booking Page
 Formerly the Lead's self-service page for a whole Registration; now retired for ordinary Registrations, whose old links redirect to the payer's own Household page. It survives only for a Guest List, since it remains the only surface rendering a contactless comp guest's QR and the sponsor's own paid seats — a comp-only carve-out pending its own deletion once no live comp sponsor link still points at an upcoming Event.
 
