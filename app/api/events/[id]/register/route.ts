@@ -20,8 +20,9 @@ import { isFullName } from "@/lib/names";
 import { parseAttendeeInput, collidesWithClaimed, EMAIL_RE } from "@/lib/events/attendee-input";
 import { findRedeemingRegistration } from "@/lib/events/waitlist-offer";
 import { captureServerException } from "@/lib/analytics/server-errors";
+import { ABSOLUTE_MAX_TICKETS, resolveBookingLimit } from "@/lib/events/booking-limits";
 
-const MAX_TICKETS = 20;
+const MAX_TICKETS = ABSOLUTE_MAX_TICKETS;
 // Bounds for the nominative roster fields — this endpoint is unauthenticated, so
 // reject oversized name/email rather than storing multi-megabyte junk (R10).
 
@@ -111,7 +112,9 @@ export async function POST(
 
   const { data: event, error: eventErr } = await supabase
     .from("events")
-    .select("id, is_published, registration_enabled, visibility, seat_cap, invite_code")
+    .select(
+      "id, is_published, registration_enabled, visibility, seat_cap, invite_code, max_tickets_member, max_tickets_invite, max_tickets_non_member"
+    )
     .eq("id", eventId)
     .limit(1)
     .single();
@@ -218,6 +221,16 @@ export async function POST(
     : isMembersOnly
       ? "invite"
       : "non_member";
+
+  // Per-booking ticket limit (R4), one per rate class. Skipped entirely for an offer
+  // redemption — an offer's own entry.quantity (checked above) is its only bound; an offer
+  // was never scoped by the rate-class limit (R10), and the two must not stack.
+  if (!offerEntry) {
+    const bookingLimit = resolveBookingLimit(event, rateClass);
+    if (totalQuantity > bookingLimit) {
+      return bad(`A maximum of ${bookingLimit} tickets can be booked at once`, 400);
+    }
+  }
 
   // Load the submitted types, SCOPED to this event (IDOR guard) and rejecting
   // archived types. A foreign or unknown id shrinks the returned set → 400.

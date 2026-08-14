@@ -982,4 +982,116 @@ describe("offer redemption (U6)", () => {
     const args = stripeCreate.mock.calls[0][0];
     expect(args.success_url).toContain("/public/events/evt-1");
   });
+
+  it("R10: the per-booking limit is skipped entirely for an offer redemption, even when the entry's quantity exceeds it", async () => {
+    // offerEvent is public → non_member rate class. A max_tickets_non_member of 2 would
+    // reject a basket of 3 on the ordinary checkout path, but the offer's own
+    // entry.quantity (3) is the only bound that applies here.
+    const cfg: Cfg = {
+      event: { ...offerEvent, max_tickets_non_member: 2 },
+      ticketTypes: [dinner],
+      waitlistEntry: { ...entryQty2, quantity: 3 },
+    };
+    const res = await offerPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 3 }],
+      attendees: [
+        { ticket_type_id: "t1", name: "Guest One", email: "g1@example.com" },
+        { ticket_type_id: "t1", name: "Guest Two", email: "g2@example.com" },
+      ],
+    });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("per-booking ticket limits (U5)", () => {
+  // Builds a basket of `total` tickets of one type, naming every guest slot (the lead's
+  // own seat is seeded from the booker fields and needs no attendee row).
+  function basket(total: number, ticketTypeId = "t1") {
+    const attendees = Array.from({ length: total - 1 }, (_, i) => ({
+      ticket_type_id: ticketTypeId,
+      name: `Guest ${i}`,
+      email: `guest${i}@example.com`,
+    }));
+    return { items: [{ ticket_type_id: ticketTypeId, quantity: total }], attendees };
+  }
+
+  it("covers AE1: an invite limit of 4 rejects a basket of 5 naming the limit", async () => {
+    const cfg: Cfg = {
+      event: { ...membersOnlyEvent, max_tickets_invite: 4 },
+      ticketTypes: [standardType],
+    };
+    const res = await publicPost(cfg, { code: INVITE, ...basket(5) });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/maximum of 4/);
+    expect(cfg.capturedRpc).toBeUndefined();
+  });
+
+  it("a basket of exactly the invite limit proceeds", async () => {
+    const cfg: Cfg = {
+      event: { ...membersOnlyEvent, max_tickets_invite: 4 },
+      ticketTypes: [standardType],
+    };
+    const res = await publicPost(cfg, { code: INVITE, ...basket(4) });
+    expect(res.status).toBe(200);
+  });
+
+  it("covers AE4: with no limits configured, a member basket of 10 succeeds and 11 is rejected", async () => {
+    mockedSession.mockResolvedValue(sessionClient({ id: "auth-1" }));
+    const okCfg: Cfg = {
+      event: membersOnlyEvent,
+      ticketTypes: [standardType],
+      memberRow: { id: "mem-1", status: "active" },
+    };
+    const okRes = await publicPost(okCfg, basket(10));
+    expect(okRes.status).toBe(200);
+
+    const overCfg: Cfg = {
+      event: membersOnlyEvent,
+      ticketTypes: [standardType],
+      memberRow: { id: "mem-1", status: "active" },
+    };
+    const overRes = await publicPost(overCfg, basket(11));
+    expect(overRes.status).toBe(400);
+  });
+
+  it("a public event's non_member limit binds a non-member basket, independent of the invite limit", async () => {
+    const publicType: TicketType = { ...standardType, price_non_member: 40 };
+    const cfg: Cfg = {
+      event: { ...membersOnlyEvent, visibility: "public", max_tickets_non_member: 6, max_tickets_invite: 2 },
+      ticketTypes: [publicType],
+    };
+    const res = await publicPost(cfg, basket(7));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/maximum of 6/);
+  });
+
+  it("R9: a basket mixing a seat-counting and a non-seat type one over the limit is rejected", async () => {
+    const merch: TicketType = { ...standardType, id: "t2", counts_as_seat: false };
+    const cfg: Cfg = {
+      event: { ...membersOnlyEvent, max_tickets_invite: 4 },
+      ticketTypes: [standardType, merch],
+    };
+    const res = await publicPost(cfg, {
+      code: INVITE,
+      leadTicketTypeId: "t1",
+      items: [
+        { ticket_type_id: "t1", quantity: 3 },
+        { ticket_type_id: "t2", quantity: 2 },
+      ],
+      attendees: [
+        { ticket_type_id: "t1", name: "Guest One", email: "g1@example.com" },
+        { ticket_type_id: "t1", name: "Guest Two", email: "g2@example.com" },
+        { ticket_type_id: "t2", name: "Guest Three", email: "g3@example.com" },
+        { ticket_type_id: "t2", name: "Guest Four", email: "g4@example.com" },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/maximum of 4/);
+  });
+
+  it("a crafted basket totalling 500 is rejected before any ticket-type lookup", async () => {
+    const cfg: Cfg = { event: membersOnlyEvent, ticketTypes: [] };
+    const res = await publicPost(cfg, { code: INVITE, items: [{ ticket_type_id: "t1", quantity: 500 }] });
+    expect(res.status).toBe(400);
+  });
 });
