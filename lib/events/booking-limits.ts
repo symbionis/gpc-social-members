@@ -68,7 +68,7 @@ export function rateClassForRegistration(
  * OPEN on this unauthenticated route, handing back full allowance on every failed read, which
  * is the opposite of what R5 exists to do. Callers must fail closed on the throw.
  */
-export async function countLiveTickets(
+async function purchasedQuantity(
   supabase: SupabaseClient<Database>,
   registrationId: string
 ): Promise<number> {
@@ -79,26 +79,28 @@ export async function countLiveTickets(
   if (itemsErr) {
     throw new Error(`Failed to read registration items: ${itemsErr.message}`);
   }
-
-  let purchased: number;
   if (items && items.length > 0) {
-    purchased = items.reduce((sum, i) => sum + (i.quantity as number), 0);
-  } else {
-    // Itemless registration fallback, mirroring seats_used's NOT EXISTS branch — an old
-    // registration with no event_registration_items rows falls back to the parent quantity
-    // rather than counting as zero and being allowed past its limit.
-    const { data: reg, error: regErr } = await supabase
-      .from("event_registrations")
-      .select("quantity")
-      .eq("id", registrationId)
-      .limit(1)
-      .maybeSingle();
-    if (regErr) {
-      throw new Error(`Failed to read registration quantity: ${regErr.message}`);
-    }
-    purchased = (reg?.quantity as number | undefined) ?? 0;
+    return items.reduce((sum, i) => sum + (i.quantity as number), 0);
   }
+  // Itemless registration fallback, mirroring seats_used's NOT EXISTS branch — an old
+  // registration with no event_registration_items rows falls back to the parent quantity
+  // rather than counting as zero and being allowed past its limit.
+  const { data: reg, error: regErr } = await supabase
+    .from("event_registrations")
+    .select("quantity")
+    .eq("id", registrationId)
+    .limit(1)
+    .maybeSingle();
+  if (regErr) {
+    throw new Error(`Failed to read registration quantity: ${regErr.message}`);
+  }
+  return (reg?.quantity as number | undefined) ?? 0;
+}
 
+async function pendingTopupQuantity(
+  supabase: SupabaseClient<Database>,
+  registrationId: string
+): Promise<number> {
   const windowStart = new Date(
     Date.now() - PENDING_TOPUP_WINDOW_MINUTES * 60 * 1000
   ).toISOString();
@@ -111,7 +113,7 @@ export async function countLiveTickets(
   if (topupsErr) {
     throw new Error(`Failed to read pending top-ups: ${topupsErr.message}`);
   }
-  const pending = (pendingTopups ?? []).reduce((sum, t) => {
+  return (pendingTopups ?? []).reduce((sum, t) => {
     const topupItems = (t.items as { quantity?: unknown }[] | null) ?? [];
     const topupQty = topupItems.reduce(
       (s, i) => s + (typeof i.quantity === "number" ? i.quantity : 0),
@@ -119,7 +121,12 @@ export async function countLiveTickets(
     );
     return sum + topupQty;
   }, 0);
+}
 
+async function cancelledCount(
+  supabase: SupabaseClient<Database>,
+  registrationId: string
+): Promise<number> {
   const { count: cancelled, error: cancelledErr } = await supabase
     .from("tickets")
     .select("id", { count: "exact", head: true })
@@ -128,6 +135,21 @@ export async function countLiveTickets(
   if (cancelledErr) {
     throw new Error(`Failed to read cancelled tickets: ${cancelledErr.message}`);
   }
+  return cancelled ?? 0;
+}
 
-  return purchased + pending - (cancelled ?? 0);
+export async function countLiveTickets(
+  supabase: SupabaseClient<Database>,
+  registrationId: string
+): Promise<number> {
+  // The three counts are independent reads over the same registration — run them
+  // concurrently rather than paying three sequential round-trips, since this now runs on
+  // every invite-class ticket-manage page render as well as every top-up submission.
+  const [purchased, pending, cancelled] = await Promise.all([
+    purchasedQuantity(supabase, registrationId),
+    pendingTopupQuantity(supabase, registrationId),
+    cancelledCount(supabase, registrationId),
+  ]);
+
+  return purchased + pending - cancelled;
 }

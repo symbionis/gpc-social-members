@@ -8,6 +8,7 @@ import EventGallery from "@/components/EventGallery";
 import SeatBadges from "@/components/events/SeatBadges";
 import { deriveSeatState, getSeatsUsed } from "@/lib/events/seat-usage";
 import { isValidInviteCode } from "@/lib/events/registration";
+import { priceForRateClass } from "@/lib/events/pricing";
 import { resolveBookingLimit } from "@/lib/events/booking-limits";
 
 const APPLY_URL = "/apply/GPC-2026";
@@ -130,6 +131,11 @@ export default async function PublicEventDetailPage({
     console.error("[public/events/[id]] session lookup failed", err);
   }
 
+  // This viewer's rate class: an active member on a members-only event → member; anyone
+  // else on a members-only event → invite; everyone on a public event → non_member. Drives
+  // both the price shown per ticket type and the per-booking ticket limit below.
+  const rateClass = isMembersOnly ? (isActiveMember ? "member" : "invite") : "non_member";
+
   // Invite-code gate. The stored event.invite_code is read SERVER-SIDE only and
   // is never passed to a client component; only the visitor-supplied URL `code`
   // (and the boolean below) cross to the client.
@@ -160,11 +166,7 @@ export default async function PublicEventDetailPage({
     id: t.id,
     title: t.title,
     description: t.description,
-    price: isMembersOnly
-      ? isActiveMember
-        ? t.price_member
-        : t.invite_price
-      : t.price_non_member,
+    price: priceForRateClass(t, rateClass),
   }));
   const priceableValues = ticketTypeOptions
     .map((o) => o.price)
@@ -211,10 +213,7 @@ export default async function PublicEventDetailPage({
   const hasSeatCap =
     event.seat_cap !== null && event.seat_cap !== undefined;
 
-  // Per-booking ticket limit (R4, R8) for THIS viewer's rate class — same branch as the
-  // price resolution above: an active member on a members-only event → member; anyone
-  // else on a members-only event → invite; everyone on a public event → non_member.
-  const rateClass = isMembersOnly ? (isActiveMember ? "member" : "invite") : "non_member";
+  // Per-booking ticket limit (R4, R8) for THIS viewer's rate class, resolved above.
   const bookingLimit = resolveBookingLimit(event, rateClass);
 
   return (

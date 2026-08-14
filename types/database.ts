@@ -1954,5 +1954,7 @@ export const Constants = {
 } as const
 
 
+// Hand-written aliases — Supabase type regen DROPS these; re-append after every regen.
+// See memory feedback_db_types_aliases.
 export type MemberStatus = Database["public"]["Enums"]["member_status"]
 export type PaymentCaptureStatus = Database["public"]["Enums"]["payment_capture_status"]

@@ -18,6 +18,43 @@ interface Props {
 
 type LimitField = "max_tickets_member" | "max_tickets_invite" | "max_tickets_non_member";
 
+/** Shared PATCH-and-refresh mechanics for one settings field/group on this event: submits
+ *  the body, tracks saving/saved/error, and refreshes the page on success. The caller owns
+ *  its own value state and validity check — those differ per field (a single ranged number
+ *  vs. a record of them) — this hook only owns what was identical between them. */
+function usePatchSettings(eventId: string, noun: string) {
+  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(body: Record<string, unknown>) {
+    setError(null);
+    setSaved(false);
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/events/${eventId}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || `Could not update ${noun}. Try again.`);
+        return;
+      }
+      setSaved(true);
+      router.refresh();
+    } catch {
+      setError(`Network error. Could not update ${noun}.`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return { saving, saved, error, setSaved, setError, save };
+}
+
 // Capacity settings for an event. The door check-in link + QR live on the Check-in
 // tab (EventCheckInPanel), alongside the live arrivals view.
 export default function EventCheckInSettings({
@@ -28,13 +65,9 @@ export default function EventCheckInSettings({
   maxTicketsInvite,
   maxTicketsNonMember,
 }: Props) {
-  const router = useRouter();
-
   // Ticket cap (events.seat_cap). Empty string = unlimited.
   const [cap, setCap] = useState(seatCap === null ? "" : String(seatCap));
-  const [capSaving, setCapSaving] = useState(false);
-  const [capSaved, setCapSaved] = useState(false);
-  const [capError, setCapError] = useState<string | null>(null);
+  const capPatch = usePatchSettings(eventId, "ticket cap");
 
   const savedCap = seatCap === null ? "" : String(seatCap);
   const capChanged = cap.trim() !== savedCap;
@@ -46,30 +79,10 @@ export default function EventCheckInSettings({
 
   async function saveCap() {
     if (capInvalid) {
-      setCapError("Ticket cap must be a positive whole number, or blank for unlimited.");
+      capPatch.setError("Ticket cap must be a positive whole number, or blank for unlimited.");
       return;
     }
-    setCapError(null);
-    setCapSaved(false);
-    setCapSaving(true);
-    try {
-      const res = await fetch(`/api/admin/events/${eventId}/settings`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ seat_cap: capParsed }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setCapError(data.error || "Could not update ticket cap. Try again.");
-        return;
-      }
-      setCapSaved(true);
-      router.refresh();
-    } catch {
-      setCapError("Network error. Could not update ticket cap.");
-    } finally {
-      setCapSaving(false);
-    }
+    await capPatch.save({ seat_cap: capParsed });
   }
 
   // Per-rate-class tickets-per-booking limits. Empty string = use the app default.
@@ -84,9 +97,7 @@ export default function EventCheckInSettings({
     max_tickets_invite: toStr(maxTicketsInvite),
     max_tickets_non_member: toStr(maxTicketsNonMember),
   });
-  const [limitsSaving, setLimitsSaving] = useState(false);
-  const [limitsSaved, setLimitsSaved] = useState(false);
-  const [limitsError, setLimitsError] = useState<string | null>(null);
+  const limitsPatch = usePatchSettings(eventId, "ticket limits");
 
   const limitFields: { field: LimitField; label: string }[] = [
     { field: "max_tickets_member", label: "Members" },
@@ -105,35 +116,17 @@ export default function EventCheckInSettings({
 
   async function saveLimits() {
     if (anyLimitInvalid) {
-      setLimitsError(`Ticket limits must be a whole number from 1 to ${ABSOLUTE_MAX_TICKETS}, or blank for the default.`);
+      limitsPatch.setError(
+        `Ticket limits must be a whole number from 1 to ${ABSOLUTE_MAX_TICKETS}, or blank for the default.`
+      );
       return;
     }
-    setLimitsError(null);
-    setLimitsSaved(false);
-    setLimitsSaving(true);
-    try {
-      const body: Partial<Record<LimitField, number | null>> = {};
-      for (const { field } of limitFields) {
-        const raw = limits[field].trim();
-        body[field] = raw === "" ? null : Number(raw);
-      }
-      const res = await fetch(`/api/admin/events/${eventId}/settings`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setLimitsError(data.error || "Could not update ticket limits. Try again.");
-        return;
-      }
-      setLimitsSaved(true);
-      router.refresh();
-    } catch {
-      setLimitsError("Network error. Could not update ticket limits.");
-    } finally {
-      setLimitsSaving(false);
+    const body: Partial<Record<LimitField, number | null>> = {};
+    for (const { field } of limitFields) {
+      const raw = limits[field].trim();
+      body[field] = raw === "" ? null : Number(raw);
     }
+    await limitsPatch.save(body);
   }
 
   return (
@@ -155,8 +148,8 @@ export default function EventCheckInSettings({
             value={cap}
             onChange={(e) => {
               setCap(e.target.value);
-              setCapSaved(false);
-              setCapError(null);
+              capPatch.setSaved(false);
+              capPatch.setError(null);
             }}
             className="w-44 px-3 py-2 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
             placeholder="Unlimited"
@@ -164,12 +157,12 @@ export default function EventCheckInSettings({
           <button
             type="button"
             onClick={saveCap}
-            disabled={capSaving || capInvalid || !capChanged}
+            disabled={capPatch.saving || capInvalid || !capChanged}
             className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
-            {capSaving ? "Saving…" : "Save"}
+            {capPatch.saving ? "Saving…" : "Save"}
           </button>
-          {capSaved && !capChanged && (
+          {capPatch.saved && !capChanged && (
             <span className="text-sm font-body text-emerald-700 self-center">
               Saved
             </span>
@@ -186,8 +179,8 @@ export default function EventCheckInSettings({
             {seatsUsed === 1 ? "" : "s"}. Saving will leave the event overbooked.
           </p>
         )}
-        {capError && (
-          <p className="text-xs text-red-700 mt-2">{capError}</p>
+        {capPatch.error && (
+          <p className="text-xs text-red-700 mt-2">{capPatch.error}</p>
         )}
       </section>
 
@@ -213,8 +206,8 @@ export default function EventCheckInSettings({
                 value={limits[field]}
                 onChange={(e) => {
                   setLimits((prev) => ({ ...prev, [field]: e.target.value }));
-                  setLimitsSaved(false);
-                  setLimitsError(null);
+                  limitsPatch.setSaved(false);
+                  limitsPatch.setError(null);
                 }}
                 className="w-32 px-3 py-2 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky"
                 placeholder={String(DEFAULT_BOOKING_LIMIT)}
@@ -227,16 +220,16 @@ export default function EventCheckInSettings({
           <button
             type="button"
             onClick={saveLimits}
-            disabled={limitsSaving || anyLimitInvalid || !limitsChanged}
+            disabled={limitsPatch.saving || anyLimitInvalid || !limitsChanged}
             className="px-4 py-2 bg-marine text-white rounded-lg text-sm font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
-            {limitsSaving ? "Saving…" : "Save"}
+            {limitsPatch.saving ? "Saving…" : "Save"}
           </button>
-          {limitsSaved && !limitsChanged && (
+          {limitsPatch.saved && !limitsChanged && (
             <span className="text-sm font-body text-emerald-700">Saved</span>
           )}
         </div>
-        {limitsError && <p className="text-xs text-red-700 mt-2">{limitsError}</p>}
+        {limitsPatch.error && <p className="text-xs text-red-700 mt-2">{limitsPatch.error}</p>}
       </section>
     </div>
   );
