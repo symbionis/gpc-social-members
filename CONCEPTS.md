@@ -20,7 +20,7 @@ An individual admission slot belonging to a Registration — one per attendee, n
 *Avoid:* Attendee
 
 ### Lead
-The person who paid for a Registration. Receives its receipts, reaches the Receipt Page, and is notified when a seat they paid for is cancelled by another holder. The Lead holds no management authority beyond that — every holder, the Lead included, manages their own Ticket the same way, through their own Manage Link (see Household). The Lead is not a role a page is built around; it is a flag (`tickets.is_lead`) recorded on whichever Ticket the payer names for themselves at checkout, used to route money-side communication and gate the Receipt Page.
+The person who paid for a Registration. Receives its receipts, reaches the Receipt Page, and is notified when a seat they paid for is cancelled by another holder. The Lead holds no management authority beyond that — every holder, the Lead included, manages their own Ticket the same way, through their own Manage Link (see Household). The Lead is not a role a page is built around; it is a mark carried by whichever single Ticket the payer names for themselves at checkout, used to route money-side communication and gate the Receipt Page.
 
 ### Guest List
 A sponsor's comp list, held as a zero-price Registration — a Lead plus any number of named guests, each with a Ticket Type. Built by an admin, never bought.
@@ -103,7 +103,7 @@ The set of live Tickets within one Registration that share the same email addres
 The private, rotatable per-Ticket link that opens a Ticket's Household — letting whoever holds it view every QR at that address, correct a name, email or phone, upgrade (see Conversion), buy more (see Top-up), cancel (see Cancellation), or accept the Waiver ahead of the Event. Distinct from the Ticket Credential: the Manage Link governs the booking, the Credential only admits at the door. Rotating a Manage Link revokes the old one for the whole Household. The Lead's own Manage Link additionally reaches the Receipt Page.
 
 ### Receipt Page
-The Lead's read-only purchase history, reached from their own Manage Link — every purchase they have made across every Event, newest first, itemised from the Registration's own recorded lines rather than the payment provider's hosted receipt. Gated on the `is_lead` flag of the Ticket the link resolves to, not on its email — an ordinary holder can rewrite their own Ticket's address (see Manage Link), so gating on email alone would let them read another person's spend by editing their address to match.
+The Lead's read-only purchase history, reached from their own Manage Link — every purchase they have made across every Event, newest first, itemised from the Registration's own recorded lines rather than the payment provider's hosted receipt. Gated on whether the Ticket the link resolves to is the Lead's, not on its email address — an ordinary holder can rewrite their own Ticket's address (see Manage Link), so gating on email alone would let them read another person's spend by editing their address to match.
 
 ### Door Console
 The public, no-login check-in surface for an Event, opened by staff at a hard-to-guess per-Event link, used to scan Ticket QRs, fill in missing names and waivers, admit walk-ups against unredeemed Tickets, and resend a party's Tickets to its Lead.
