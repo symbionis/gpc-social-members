@@ -885,6 +885,9 @@ export type Database = {
           is_confirmed: boolean
           is_published: boolean
           location: string | null
+          max_tickets_invite: number | null
+          max_tickets_member: number | null
+          max_tickets_non_member: number | null
           notes: string | null
           registration_enabled: boolean
           reminder_schedule: Json
@@ -910,6 +913,9 @@ export type Database = {
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null
+          max_tickets_invite?: number | null
+          max_tickets_member?: number | null
+          max_tickets_non_member?: number | null
           notes?: string | null
           registration_enabled?: boolean
           reminder_schedule?: Json
@@ -935,6 +941,9 @@ export type Database = {
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null
+          max_tickets_invite?: number | null
+          max_tickets_member?: number | null
+          max_tickets_non_member?: number | null
           notes?: string | null
           registration_enabled?: boolean
           reminder_schedule?: Json
@@ -1647,11 +1656,11 @@ export type Database = {
         Returns: undefined
       }
       apply_registration_topup: { Args: { p_topup_id: string }; Returns: Json }
-      apply_topup_roster: { Args: { p_topup_id: string }; Returns: Json }
       apply_ticket_type_conversion: {
         Args: { p_conversion_id: string }
         Returns: Json
       }
+      apply_topup_roster: { Args: { p_topup_id: string }; Returns: Json }
       checkin_by_credential: {
         Args: {
           p_credential_token: string
@@ -1945,7 +1954,5 @@ export const Constants = {
 } as const
 
 
-// Hand-written aliases — Supabase type regen DROPS these; re-append after every regen.
-// See memory feedback_db_types_aliases.
 export type MemberStatus = Database["public"]["Enums"]["member_status"]
 export type PaymentCaptureStatus = Database["public"]["Enums"]["payment_capture_status"]
