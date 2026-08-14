@@ -42,14 +42,30 @@ function adminClient(opts: {
    * part of the key — a null one is a legacy untyped seat, which matches every type.
    */
   claimed?: { name: string | null; email: string | null; ticket_type_id?: string | null }[];
+  /** Event visibility, threaded through to the events select for rate-class resolution. */
+  visibility?: string;
+  maxTicketsMember?: number | null;
+  maxTicketsInvite?: number | null;
+  maxTicketsNonMember?: number | null;
+  /** countLiveTickets inputs. */
+  liveItems?: { quantity: number }[];
+  pendingTopupItems?: { quantity: number }[];
+  cancelledCount?: number;
+  liveTicketsCountError?: boolean;
 }) {
   return {
     from: (table: string) => {
+      let headCount = false;
       const c: Record<string, unknown> = {};
-      c.select = () => c;
+      c.select = (_cols?: string, sel?: { count?: string; head?: boolean }) => {
+        headCount = Boolean(sel?.head);
+        return c;
+      };
       c.eq = () => c;
       c.in = () => c;
       c.is = () => c;
+      c.not = () => c;
+      c.gte = () => c;
       c.limit = () => c;
       // The names ride on the top-up row itself, not on the registration's shared slot —
       // that is what stops a redelivery of the original checkout from consuming them.
@@ -66,21 +82,37 @@ function adminClient(opts: {
         return c;
       };
       c.maybeSingle = async () => {
-        if (table === "event_registrations")
+        if (table === "event_registrations") {
+          const reg =
+            "reg" in opts
+              ? opts.reg
+              : { id: "reg", event_id: "evt", is_member: true, is_guest_list: false, status: "paid", email: "l@x.com" };
+          return { data: reg, error: null };
+        }
+        if (table === "events") {
           return {
-            data:
-              "reg" in opts
-                ? opts.reg
-                : { id: "reg", event_id: "evt", is_member: true, status: "paid", email: "l@x.com" },
+            data: {
+              seat_cap: opts.seatCap ?? null,
+              visibility: opts.visibility ?? "public",
+              max_tickets_member: opts.maxTicketsMember ?? null,
+              max_tickets_invite: opts.maxTicketsInvite ?? null,
+              max_tickets_non_member: opts.maxTicketsNonMember ?? null,
+            },
             error: null,
           };
-        if (table === "events") return { data: { seat_cap: opts.seatCap ?? null }, error: null };
+        }
         if (table === "event_registration_topups") return { data: { id: "topup-1" }, error: null };
         return { data: null, error: null };
       };
       (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) => {
         // Seats already named on this booking — what claim_ticket would dedupe against.
-        if (table === "tickets") return resolve({ data: opts.claimed ?? [], error: null });
+        if (table === "tickets" && !headCount) {
+          return resolve({ data: opts.claimed ?? [], error: null });
+        }
+        if (table === "tickets" && headCount) {
+          if (opts.liveTicketsCountError) return resolve({ count: null, error: { message: "boom" } });
+          return resolve({ count: opts.cancelledCount ?? 0, error: null });
+        }
         if (table === "event_ticket_types")
           return resolve({
             data: [
@@ -89,6 +121,17 @@ function adminClient(opts: {
             ],
             error: null,
           });
+        if (table === "event_registration_items") {
+          if (opts.liveTicketsCountError) return resolve({ data: null, error: { message: "boom" } });
+          return resolve({ data: opts.liveItems ?? [], error: null });
+        }
+        if (table === "event_registration_topups") {
+          if (opts.liveTicketsCountError) return resolve({ data: null, error: { message: "boom" } });
+          return resolve({
+            data: opts.pendingTopupItems ? [{ items: opts.pendingTopupItems }] : [],
+            error: null,
+          });
+        }
         return resolve({ data: [], error: null });
       };
       return c;
@@ -343,6 +386,8 @@ function dualTokenAdmin(opts: {
   /** tickets rows keyed by their OWN manage_token. */
   ticketsByToken?: Record<string, Record<string, unknown> | null>;
   price?: number;
+  visibility?: string;
+  maxTicketsInvite?: number | null;
 }) {
   return {
     from: (table: string) => {
@@ -359,6 +404,8 @@ function dualTokenAdmin(opts: {
       };
       c.in = () => c;
       c.is = () => c;
+      c.not = () => c;
+      c.gte = () => c;
       c.limit = () => c;
       c.insert = (payload: Record<string, unknown>) => {
         if (table === "event_registration_topups") {
@@ -378,13 +425,23 @@ function dualTokenAdmin(opts: {
         if (table === "tickets" && cols.includes("registration_id")) {
           return { data: (opts.ticketsByToken ?? {})[filters.manage_token as string] ?? null, error: null };
         }
-        if (table === "events") return { data: { seat_cap: null }, error: null };
+        if (table === "events")
+          return {
+            data: {
+              seat_cap: null,
+              visibility: opts.visibility,
+              max_tickets_member: null,
+              max_tickets_invite: opts.maxTicketsInvite ?? null,
+              max_tickets_non_member: null,
+            },
+            error: null,
+          };
         if (table === "event_registration_topups") return { data: { id: "topup-1" }, error: null };
         return { data: null, error: null };
       };
       (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) => {
         // Claimed-name dedupe read — none pre-existing in these scenarios.
-        if (table === "tickets") return resolve({ data: [], error: null });
+        if (table === "tickets") return resolve({ data: [], error: null, count: 0 });
         if (table === "event_ticket_types")
           return resolve({
             data: [
@@ -533,5 +590,159 @@ describe("dual-token auth (U2 — buy-more from the ticket manage page)", () => 
         cancel_url: expect.stringContaining("/public/bookings/reg-tok-A"),
       })
     );
+  });
+});
+
+describe("whole-booking ticket limit on invite top-ups (U6)", () => {
+  const inviteReg = {
+    id: "reg",
+    event_id: "evt",
+    is_member: false,
+    is_guest_list: false,
+    status: "paid",
+    email: "guest@x.com",
+  };
+
+  it("covers AE2: a top-up that would exceed the invite limit is refused before any Stripe session", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: inviteReg,
+        visibility: "members_only",
+        maxTicketsInvite: 4,
+        liveItems: [{ quantity: 4 }],
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/limited to 4 ticket/);
+    expect(sessionCreate).not.toHaveBeenCalled();
+  });
+
+  it("covers AE3: cancelling frees allowance, so the same booking can top up again", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: inviteReg,
+        visibility: "members_only",
+        maxTicketsInvite: 4,
+        liveItems: [{ quantity: 4 }],
+        cancelledCount: 2,
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(2) });
+    expect(res.status).toBe(200);
+  });
+
+  it("a refunded (not just requested) cancellation frees allowance the same way", async () => {
+    // cancelledCount is a head-count over any non-null cancellation_status — the mock does
+    // not distinguish requested vs refunded, mirroring the real query's `.not(..., "is", null)`.
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: inviteReg,
+        visibility: "members_only",
+        maxTicketsInvite: 4,
+        liveItems: [{ quantity: 4 }],
+        cancelledCount: 1,
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(200);
+  });
+
+  it("covers AE5: a public event's non_member limit does not bind a later top-up (R7)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: { ...inviteReg, is_member: false },
+        visibility: "public",
+        maxTicketsNonMember: 6,
+        liveItems: [{ quantity: 6 }],
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 3 }], attendees: guests(3) });
+    expect(res.status).toBe(200);
+  });
+
+  it("a member booking at its member limit is unaffected by the invite rule (R7 — checkout-only)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: { id: "reg", event_id: "evt", is_member: true, is_guest_list: false, status: "paid", email: "m@x.com" },
+        visibility: "members_only",
+        maxTicketsMember: 4,
+        liveItems: [{ quantity: 4 }],
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(200);
+  });
+
+  it("R9: a non-seat type still counts toward the invite limit", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: inviteReg,
+        visibility: "members_only",
+        maxTicketsInvite: 4,
+        liveItems: [{ quantity: 4 }],
+        countsAsSeat: false,
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(400);
+  });
+
+  it("covers AE7: a comp guest list (is_guest_list) is exempt from the invite limit", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: { ...inviteReg, is_guest_list: true },
+        visibility: "members_only",
+        maxTicketsInvite: 4,
+        liveItems: [{ quantity: 20 }],
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(2) });
+    expect(res.status).toBe(200);
+  });
+
+  it("covers AE8: a pending top-up counts toward the limit, refusing a second concurrent one", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: inviteReg,
+        visibility: "members_only",
+        maxTicketsInvite: 4,
+        liveItems: [],
+        pendingTopupItems: [{ quantity: 4 }],
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 4 }], attendees: guests(4) });
+    expect(res.status).toBe(400);
+  });
+
+  it("a failing live-ticket read is refused (fail closed), never waved through", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: inviteReg,
+        visibility: "members_only",
+        maxTicketsInvite: 4,
+        liveTicketsCountError: true,
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(500);
+    expect(sessionCreate).not.toHaveBeenCalled();
+  });
+
+  it("a per-ticket manage token on an at-limit invite booking is refused identically to the lead's token", async () => {
+    mockedAdmin.mockReturnValue(
+      dualTokenAdmin({
+        regsByToken: {},
+        // No event_registration_items rows in this mock, so countLiveTickets falls back to
+        // the registration's own `quantity` (the itemless-registration path, R9's sibling).
+        regsById: { "reg-A": { ...REG_A, is_member: false, is_guest_list: false, quantity: 4 } },
+        ticketsByToken: { "tkt-of-A": { id: "t1", registration_id: "reg-A" } },
+        visibility: "members_only",
+        maxTicketsInvite: 4,
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "tkt-of-A");
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/limited to 4 ticket/);
   });
 });

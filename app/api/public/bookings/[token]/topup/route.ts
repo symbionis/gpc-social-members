@@ -5,6 +5,11 @@ import { mintRegistrationTickets, applyTopupRoster } from "@/lib/events/roster";
 import { parseAttendeeInput, collidesWithClaimed } from "@/lib/events/attendee-input";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
 import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
+import {
+  resolveBookingLimit,
+  rateClassForRegistration,
+  countLiveTickets,
+} from "@/lib/events/booking-limits";
 
 // Buy-more top-up (U6, widened by U2 for the holder page). Adds tickets UNDER the existing
 // registration (the one-reg-per-email index blocks a second one). We record a pending
@@ -63,13 +68,14 @@ export async function POST(
     id: string;
     event_id: string;
     is_member: boolean;
+    is_guest_list: boolean;
     status: string;
     email: string | null;
   }
   let reg: RegRow;
   const { data: regByToken } = await supabase
     .from("event_registrations")
-    .select("id, event_id, is_member, status, email")
+    .select("id, event_id, is_member, is_guest_list, status, email")
     .eq("manage_token", token)
     .limit(1)
     .maybeSingle();
@@ -86,7 +92,7 @@ export async function POST(
     if (!self || !self.registration_id) return bad("Booking not found", 404);
     const { data: r } = await supabase
       .from("event_registrations")
-      .select("id, event_id, is_member, status, email")
+      .select("id, event_id, is_member, is_guest_list, status, email")
       .eq("id", self.registration_id as string)
       .limit(1)
       .maybeSingle();
@@ -145,7 +151,7 @@ export async function POST(
   // getSeatsUsed, so the top-up's NEW seat tickets are what must still fit.
   const { data: ev } = await supabase
     .from("events")
-    .select("seat_cap")
+    .select("seat_cap, visibility, max_tickets_member, max_tickets_invite, max_tickets_non_member")
     .eq("id", reg.event_id as string)
     .limit(1)
     .maybeSingle();
@@ -160,6 +166,35 @@ export async function POST(
     }
     if (seatsUsed + seatQuantity > seatCap) {
       return bad("Not enough tickets remaining for this event", 409);
+    }
+  }
+
+  // Whole-booking ticket limit (R5, R7, R9, R11, R12) — invite-class bookings only. A comp
+  // guest list (is_guest_list) resolves to `member` and is exempt (R11); member and public
+  // bookings are checkout-only bound and gain no new restriction here (R7). Placed before
+  // naming validation and before the pending top-up row is written, so the buyer is refused
+  // while they can still fix the order and before any money moves.
+  if (ev) {
+    const rateClass = rateClassForRegistration(reg, ev);
+    if (rateClass === "invite") {
+      const limit = resolveBookingLimit(ev, rateClass);
+      let liveTickets: number;
+      try {
+        liveTickets = await countLiveTickets(supabase, reg.id as string);
+      } catch (err) {
+        // Fail CLOSED: a failed read must refuse the top-up, never wave it through. This is
+        // the only server-side enforcement of the whole-booking rule on an unauthenticated
+        // route — a silent zero here would hand back full allowance on every failed read.
+        console.error("[booking-topup] live ticket count failed", { registrationId: reg.id, err });
+        return bad("Could not verify your booking", 500);
+      }
+      if (liveTickets + totalQty > limit) {
+        const remaining = Math.max(0, limit - liveTickets);
+        return bad(
+          `This booking is limited to ${limit} ticket${limit === 1 ? "" : "s"} — ${remaining} remaining`,
+          400
+        );
+      }
     }
   }
 
