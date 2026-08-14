@@ -16,8 +16,11 @@ export const DEFAULT_BOOKING_LIMIT = 10;
 export const ABSOLUTE_MAX_TICKETS = 20;
 
 /** A pending top-up older than this no longer reserves allowance — an abandoned checkout
- *  should not strand a guest's allowance indefinitely (R12). */
-const PENDING_TOPUP_WINDOW_MINUTES = 60;
+ *  should not strand a guest's allowance indefinitely (R12). Exported so the top-up route can
+ *  bound its Stripe Checkout Session's own validity to the same window — otherwise a stale
+ *  session stops counting toward the limit but stays payable (Stripe's own default runs up to
+ *  24h), letting a buyer open a second top-up once the first ages out and then pay both. */
+export const PENDING_TOPUP_WINDOW_MINUTES = 60;
 
 export interface BookingLimitColumns {
   max_tickets_member: number | null;

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   DEFAULT_BOOKING_LIMIT,
   ABSOLUTE_MAX_TICKETS,
+  PENDING_TOPUP_WINDOW_MINUTES,
   resolveBookingLimit,
   rateClassForRegistration,
   countLiveTickets,
@@ -86,6 +87,9 @@ function mockSupabase(opts: {
   pendingTopups?: { items: { quantity: number }[] }[];
   cancelledCount?: number;
   errorOn?: "items" | "registration" | "topups" | "tickets";
+  /** Records every `.gte(col, value)` call on the "event_registration_topups" query, so a
+   *  test can assert the reservation-window cutoff actually reaches the query. */
+  gteCalls?: [string, string][];
 }) {
   return {
     from: (table: string) => {
@@ -96,7 +100,10 @@ function mockSupabase(opts: {
         return c;
       };
       c.eq = () => c;
-      c.gte = () => c;
+      c.gte = (col: string, value: string) => {
+        if (table === "event_registration_topups") opts.gteCalls?.push([col, value]);
+        return c;
+      };
       c.not = () => c;
       c.limit = () => c;
       c.maybeSingle = async () => {
@@ -165,5 +172,22 @@ describe("countLiveTickets", () => {
   it("throws when the cancelled-tickets query errors", async () => {
     const supabase = mockSupabase({ items: [{ quantity: 1 }], errorOn: "tickets" });
     await expect(countLiveTickets(supabase, "reg-1")).rejects.toThrow();
+  });
+
+  it("R12: filters pending top-ups to the last 60 minutes, not older ones — the query builder receives that cutoff", async () => {
+    // The mock's own .gte() doesn't filter (Postgres does that for real); this proves the
+    // reservation-window cutoff actually reaches the query, which is what stops a pending row
+    // that aged out of the window from still reserving allowance.
+    const gteCalls: [string, string][] = [];
+    const before = Date.now();
+    const supabase = mockSupabase({ items: [{ quantity: 1 }], gteCalls });
+    await countLiveTickets(supabase, "reg-1");
+    expect(gteCalls).toHaveLength(1);
+    const [col, cutoffIso] = gteCalls[0];
+    expect(col).toBe("created_at");
+    const cutoffMs = new Date(cutoffIso).getTime();
+    const expectedCutoffMs = before - PENDING_TOPUP_WINDOW_MINUTES * 60 * 1000;
+    // Allow a small tolerance for the time the test itself takes to run.
+    expect(Math.abs(cutoffMs - expectedCutoffMs)).toBeLessThan(5000);
   });
 });

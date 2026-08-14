@@ -9,6 +9,7 @@ import {
   resolveBookingLimit,
   rateClassForRegistration,
   countLiveTickets,
+  PENDING_TOPUP_WINDOW_MINUTES,
 } from "@/lib/events/booking-limits";
 
 // Buy-more top-up (U6, widened by U2 for the holder page). Adds tickets UNDER the existing
@@ -149,13 +150,20 @@ export async function POST(
   // A lead's buy-more must respect the event seat cap (the bump to quantity feeds
   // seats_used). The registration's current quantity is already counted in
   // getSeatsUsed, so the top-up's NEW seat tickets are what must still fit.
-  const { data: ev } = await supabase
+  const { data: ev, error: evErr } = await supabase
     .from("events")
     .select("seat_cap, visibility, max_tickets_member, max_tickets_invite, max_tickets_non_member")
     .eq("id", reg.event_id as string)
     .limit(1)
     .maybeSingle();
-  const seatCap = (ev?.seat_cap as number | null) ?? null;
+  // Fail CLOSED: a failed or missing read must refuse the top-up, not silently skip both the
+  // seat-cap check and the whole-booking limit below. Both guards depend on `ev` — an
+  // `if (ev)` that never fires because the query errored would wave every request through.
+  if (evErr || !ev) {
+    console.error("[booking-topup] event lookup failed", { eventId: reg.event_id, err: evErr });
+    return bad("Could not verify this event", 500);
+  }
+  const seatCap = (ev.seat_cap as number | null) ?? null;
   if (seatCap !== null && seatQuantity > 0) {
     let seatsUsed: number;
     try {
@@ -174,27 +182,25 @@ export async function POST(
   // bookings are checkout-only bound and gain no new restriction here (R7). Placed before
   // naming validation and before the pending top-up row is written, so the buyer is refused
   // while they can still fix the order and before any money moves.
-  if (ev) {
-    const rateClass = rateClassForRegistration(reg, ev);
-    if (rateClass === "invite") {
-      const limit = resolveBookingLimit(ev, rateClass);
-      let liveTickets: number;
-      try {
-        liveTickets = await countLiveTickets(supabase, reg.id as string);
-      } catch (err) {
-        // Fail CLOSED: a failed read must refuse the top-up, never wave it through. This is
-        // the only server-side enforcement of the whole-booking rule on an unauthenticated
-        // route — a silent zero here would hand back full allowance on every failed read.
-        console.error("[booking-topup] live ticket count failed", { registrationId: reg.id, err });
-        return bad("Could not verify your booking", 500);
-      }
-      if (liveTickets + totalQty > limit) {
-        const remaining = Math.max(0, limit - liveTickets);
-        return bad(
-          `This booking is limited to ${limit} ticket${limit === 1 ? "" : "s"} — ${remaining} remaining`,
-          400
-        );
-      }
+  const rateClass = rateClassForRegistration(reg, ev);
+  if (rateClass === "invite") {
+    const limit = resolveBookingLimit(ev, rateClass);
+    let liveTickets: number;
+    try {
+      liveTickets = await countLiveTickets(supabase, reg.id as string);
+    } catch (err) {
+      // Fail CLOSED: a failed read must refuse the top-up, never wave it through. This is
+      // the only server-side enforcement of the whole-booking rule on an unauthenticated
+      // route — a silent zero here would hand back full allowance on every failed read.
+      console.error("[booking-topup] live ticket count failed", { registrationId: reg.id, err });
+      return bad("Could not verify your booking", 500);
+    }
+    if (liveTickets + totalQty > limit) {
+      const remaining = Math.max(0, limit - liveTickets);
+      return bad(
+        `This booking is limited to ${limit} ticket${limit === 1 ? "" : "s"} — ${remaining} remaining`,
+        400
+      );
     }
   }
 
@@ -313,6 +319,16 @@ export async function POST(
     return NextResponse.json({ ok: true, applied: true, redirectUrl: successUrl });
   }
 
+  // For an invite-class booking, cap the checkout session's own validity to the same window
+  // countLiveTickets uses to decide whether a pending row still reserves allowance. Without
+  // this, a session that outlives the window stops counting toward the limit but stays
+  // payable (Stripe's own default runs up to 24h) — a buyer could open a second top-up once
+  // the first ages out of the count, then pay both, stacking past the limit.
+  const expiresAt =
+    rateClass === "invite"
+      ? Math.floor(Date.now() / 1000) + PENDING_TOPUP_WINDOW_MINUTES * 60
+      : undefined;
+
   let session;
   try {
     session = await getStripe().checkout.sessions.create({
@@ -326,6 +342,7 @@ export async function POST(
         quantity: li.quantity,
       })),
       customer_email: (reg.email as string) ?? undefined,
+      ...(expiresAt ? { expires_at: expiresAt } : {}),
       // `topup_id` is the discriminator: the webhook gates on its PRESENCE to apply the
       // top-up BEFORE its paid short-circuit (the registration is already 'paid'). It is
       // deliberately the id rather than a `topup: "true"` flag — the id is both the gate and

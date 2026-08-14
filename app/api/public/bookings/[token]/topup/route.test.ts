@@ -52,6 +52,8 @@ function adminClient(opts: {
   pendingTopupItems?: { quantity: number }[];
   cancelledCount?: number;
   liveTicketsCountError?: boolean;
+  /** Simulates the events lookup itself failing (a DB error, not a missing row). */
+  eventsError?: boolean;
 }) {
   return {
     from: (table: string) => {
@@ -90,6 +92,7 @@ function adminClient(opts: {
           return { data: reg, error: null };
         }
         if (table === "events") {
+          if (opts.eventsError) return { data: null, error: { message: "boom" } };
           return {
             data: {
               seat_cap: opts.seatCap ?? null,
@@ -201,6 +204,16 @@ describe("POST /api/public/bookings/[token]/topup", () => {
     mockedSeats.mockResolvedValue(5);
     const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(2) });
     expect(res.status).toBe(200);
+  });
+
+  // Covers finding #1 from code review: a failed events lookup must refuse the top-up
+  // (fail closed), not silently skip both the seat-cap check and the whole-booking limit —
+  // an `if (ev)` that never fires on error would wave every request through.
+  it("500s when the events lookup itself fails, rather than silently skipping seat-cap and booking-limit checks", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ eventsError: true }));
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(500);
+    expect(sessionCreate).not.toHaveBeenCalled();
   });
 
   it("applies a free top-up immediately without checkout", async () => {
@@ -616,6 +629,42 @@ describe("whole-booking ticket limit on invite top-ups (U6)", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/limited to 4 ticket/);
     expect(sessionCreate).not.toHaveBeenCalled();
+  });
+
+  // Covers finding #2 from code review: without this, a pending top-up ages out of the
+  // reservation window (stops counting toward the limit) while its Stripe session stays
+  // payable for hours, letting a buyer open a second top-up and pay both, stacking past the
+  // limit. Bounding the session's own validity to the same window closes it.
+  it("bounds the invite-class Stripe session's own validity to the reservation window", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: inviteReg,
+        visibility: "members_only",
+        maxTicketsInvite: 4,
+        liveItems: [{ quantity: 1 }],
+      })
+    );
+    const before = Math.floor(Date.now() / 1000);
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(200);
+    const args = sessionCreate.mock.calls[0][0];
+    expect(args.expires_at).toBeGreaterThanOrEqual(before + 60 * 60 - 5);
+    expect(args.expires_at).toBeLessThanOrEqual(before + 60 * 60 + 5);
+  });
+
+  it("does not bound a member or public booking's Stripe session validity (R7 — checkout-only bound)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: { ...inviteReg, is_member: true },
+        visibility: "members_only",
+        maxTicketsMember: 4,
+        liveItems: [{ quantity: 1 }],
+      })
+    );
+    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    expect(res.status).toBe(200);
+    const args = sessionCreate.mock.calls[0][0];
+    expect(args.expires_at).toBeUndefined();
   });
 
   it("covers AE3: cancelling frees allowance, so the same booking can top up again", async () => {
