@@ -76,6 +76,44 @@ describe("U1 — unified ticket list + step 1 gating", () => {
   });
 });
 
+describe("R2/R8 — per-booking limit caps the party", () => {
+  it("caps at a configured bookingLimit even with no seat-cap maxQuantity", async () => {
+    const user = userEvent.setup();
+    renderForm([asado], { bookingLimit: 4 });
+    for (let i = 0; i < 4; i++) await user.click(addBtn("Asado"));
+    expect(addBtn("Asado")).toBeDisabled();
+    expect(screen.getByText(/Maximum 4 tickets/i)).toBeInTheDocument();
+  });
+
+  it("with no bookingLimit configured, caps at the shared default of 10 (not the old hard cap of 20)", async () => {
+    const user = userEvent.setup();
+    renderForm([asado]);
+    for (let i = 0; i < 10; i++) await user.click(addBtn("Asado"));
+    expect(addBtn("Asado")).toBeDisabled();
+    expect(screen.getByText(/Maximum 10 tickets/i)).toBeInTheDocument();
+  });
+
+  it("the tighter of bookingLimit and maxQuantity wins", async () => {
+    const user = userEvent.setup();
+    renderForm([asado], { bookingLimit: 4, maxQuantity: 2 });
+    await user.click(addBtn("Asado"));
+    await user.click(addBtn("Asado"));
+    expect(addBtn("Asado")).toBeDisabled();
+    expect(screen.getByText(/Maximum 2 tickets/i)).toBeInTheDocument();
+  });
+
+  it("R10: offer mode's redeemableQuantity overrides bookingLimit entirely, never combined", async () => {
+    const user = userEvent.setup();
+    const offer: OfferMode = { token: "tok-1", redeemableQuantity: 3, email: "entry@x.ch" };
+    renderForm([asado], { bookingLimit: 1, offer });
+    await user.click(addBtn("Asado"));
+    await user.click(addBtn("Asado"));
+    await user.click(addBtn("Asado"));
+    expect(addBtn("Asado")).toBeDisabled();
+    expect(screen.getByText(/Maximum 3 tickets/i)).toBeInTheDocument();
+  });
+});
+
 describe("ticket-type description display", () => {
   it("renders a type's description beside its title", () => {
     renderForm([{ ...asado, description: "Includes welcome drink + seated dinner" }]);

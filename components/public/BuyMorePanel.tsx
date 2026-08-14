@@ -15,9 +15,18 @@ import { useState } from "react";
 export default function BuyMorePanel({
   endpoint,
   types,
+  remainingAllowance,
+  bookingLimit,
 }: {
   endpoint: string;
   types: { id: string; title: string; priceLabel: string }[];
+  /** Invite-class bookings only (R5/R7/R11): the booking's remaining whole-booking allowance
+   *  (limit − live tickets). Absent/null = unrestricted — a member or public booking is
+   *  checkout-only bound and a comp guest list is exempt. */
+  remainingAllowance?: number | null;
+  /** The resolved limit itself, for the exhausted-state message. Only meaningful alongside
+   *  `remainingAllowance`. */
+  bookingLimit?: number | null;
 }) {
   const [open, setOpen] = useState(false);
   const [qty, setQty] = useState<Record<string, number>>({});
@@ -28,7 +37,17 @@ export default function BuyMorePanel({
   const [error, setError] = useState<string | null>(null);
 
   const totalSelected = Object.values(qty).reduce((s, n) => s + (n || 0), 0);
-  const set = (id: string, n: number) => setQty((prev) => ({ ...prev, [id]: Math.max(0, n) }));
+  const bound = remainingAllowance ?? null;
+  const atAllowanceCap = bound !== null && totalSelected >= bound;
+  const exhausted = bound !== null && bound <= 0;
+  const set = (id: string, n: number) => {
+    const next = Math.max(0, n);
+    if (bound !== null) {
+      const others = totalSelected - (qty[id] || 0);
+      if (others + next > bound) return; // never assemble a basket over the remaining allowance
+    }
+    setQty((prev) => ({ ...prev, [id]: next }));
+  };
 
   // One row per seat selected. Every added ticket is named before payment (R1/R5) — the
   // same rule the public checkout and the lead's buy-more panel enforce.
@@ -93,7 +112,14 @@ export default function BuyMorePanel({
         <span className="font-heading text-base font-bold text-marine">Buy more tickets</span>
         <span className="font-body text-sm text-marine/70">{open ? "Hide" : "Open"}</span>
       </button>
-      {open && (
+      {open && exhausted && (
+        <div className="mt-4">
+          <p className="font-body text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+            {`You've reached the maximum of ${bookingLimit} ticket${bookingLimit === 1 ? "" : "s"} for this booking.`}
+          </p>
+        </div>
+      )}
+      {open && !exhausted && (
         <div className="mt-4 space-y-4">
           <p className="font-body text-base text-marine/80">
             Add more tickets to this booking. Name each one below — after payment they appear
@@ -121,7 +147,8 @@ export default function BuyMorePanel({
                     type="button"
                     aria-label={`Add one ${t.title}`}
                     onClick={() => set(t.id, (qty[t.id] || 0) + 1)}
-                    className="h-9 w-9 rounded-lg border border-border/70 font-body text-lg text-marine"
+                    disabled={atAllowanceCap}
+                    className="h-9 w-9 rounded-lg border border-border/70 font-body text-lg text-marine disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     +
                   </button>
@@ -129,6 +156,11 @@ export default function BuyMorePanel({
               </li>
             ))}
           </ul>
+          {bound !== null && (
+            <p className="font-body text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              {`${bound - totalSelected} ticket${bound - totalSelected === 1 ? "" : "s"} remaining on this booking.`}
+            </p>
+          )}
           {seatRows.length > 0 && (
             <div className="space-y-3 border-t border-border/70 pt-4">
               <p className="font-body text-sm font-semibold text-marine">

@@ -28,6 +28,8 @@ function renderManager(
     topupEndpoint?: string;
     buyableTypes?: { id: string; title: string; priceLabel: string }[];
     receiptUrl?: string | null;
+    remainingAllowance?: number | null;
+    bookingLimit?: number | null;
   } = {}
 ) {
   return render(
@@ -45,6 +47,8 @@ function renderManager(
       convertTypes={[]}
       topupEndpoint={extra.topupEndpoint}
       buyableTypes={extra.buyableTypes}
+      remainingAllowance={extra.remainingAllowance}
+      bookingLimit={extra.bookingLimit}
       receiptUrl={extra.receiptUrl}
     />
   );
@@ -471,6 +475,32 @@ describe("TicketManager — buy more tickets (U2)", () => {
 
     // @ts-expect-error jsdom navigation stub
     window.location = originalLocation;
+  });
+
+  it("passes the remaining allowance through to the panel, capping additions there", async () => {
+    const user = userEvent.setup();
+    renderManager([ticket()], {
+      topupEndpoint: "/topup",
+      buyableTypes: types,
+      remainingAllowance: 2,
+      bookingLimit: 4,
+    });
+    await user.click(screen.getByRole("button", { name: /Buy more tickets/i }));
+    await user.click(screen.getByRole("button", { name: "Add one Clubhouse Dinner" }));
+    expect(screen.getByText(/1 ticket remaining on this booking/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add one Clubhouse Dinner" }));
+    expect(screen.getByRole("button", { name: "Add one Clubhouse Dinner" })).toBeDisabled();
+  });
+
+  it("stays mounted in a disabled state at zero remaining allowance, rather than disappearing", () => {
+    renderManager([ticket()], {
+      topupEndpoint: "/topup",
+      buyableTypes: types,
+      remainingAllowance: 0,
+      bookingLimit: 4,
+    });
+    // The toggle itself is still there — the guest gets a reason, not a vanished feature.
+    expect(screen.getByRole("button", { name: /Buy more tickets/i })).toBeInTheDocument();
   });
 });
 

@@ -105,6 +105,40 @@ describe("resolveHousehold", () => {
     expect(hh!.tickets.map((t) => t.id)).toEqual(["T1"]);
   });
 
+  it("exposes registrationId, isGuestList, and the event's booking-limit columns (U7)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        self: { id: "T1", event_id: "E1", registration_id: "R1", email: "house@x.com" },
+        event: { ...EVENT, visibility: "members_only", max_tickets_invite: 4 },
+        reg: { id: "R1", status: "paid", reference_code: "ABC", is_member: false, is_guest_list: true },
+        siblings: [
+          { id: "T1", name: "Alice", email: "house@x.com", ticket_type_id: "TT1", slot_status: "claimed", credential_token: "c1", checked_in_at: null, created_at: "2026-01-01T00:00:00Z" },
+        ],
+        types: TYPES,
+      })
+    );
+    const hh = await resolveHousehold("tok");
+    expect(hh!.registrationId).toBe("R1");
+    expect(hh!.isGuestList).toBe(true);
+    expect(hh!.event.visibility).toBe("members_only");
+    expect(hh!.event.maxTicketsInvite).toBe(4);
+    expect(hh!.event.maxTicketsMember).toBeNull();
+  });
+
+  it("registrationId is null and isGuestList is false for a standalone (no-registration) ticket", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        self: { id: "S1", event_id: "E1", registration_id: null, email: "walkup@x.com" },
+        event: EVENT,
+        solo: { id: "S1", name: "Walkup Guest", email: "walkup@x.com", ticket_type_id: "TT1", slot_status: "claimed", credential_token: "c1", checked_in_at: null, created_at: "2026-01-01T00:00:00Z" },
+        types: TYPES,
+      })
+    );
+    const hh = await resolveHousehold("tok");
+    expect(hh!.registrationId).toBeNull();
+    expect(hh!.isGuestList).toBe(false);
+  });
+
   it("returns null for an unknown/rotated token", async () => {
     mockedAdmin.mockReturnValue(adminClient({ self: null }));
     expect(await resolveHousehold("gone")).toBeNull();

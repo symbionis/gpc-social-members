@@ -8,6 +8,7 @@ import EventGallery from "@/components/EventGallery";
 import SeatBadges from "@/components/events/SeatBadges";
 import { deriveSeatState, getSeatsUsed } from "@/lib/events/seat-usage";
 import { isValidInviteCode } from "@/lib/events/registration";
+import { resolveBookingLimit } from "@/lib/events/booking-limits";
 
 const APPLY_URL = "/apply/GPC-2026";
 
@@ -210,6 +211,12 @@ export default async function PublicEventDetailPage({
   const hasSeatCap =
     event.seat_cap !== null && event.seat_cap !== undefined;
 
+  // Per-booking ticket limit (R4, R8) for THIS viewer's rate class — same branch as the
+  // price resolution above: an active member on a members-only event → member; anyone
+  // else on a members-only event → invite; everyone on a public event → non_member.
+  const rateClass = isMembersOnly ? (isActiveMember ? "member" : "invite") : "non_member";
+  const bookingLimit = resolveBookingLimit(event, rateClass);
+
   return (
     <>
       <div className="h-20 bg-marine" />
@@ -370,6 +377,7 @@ export default async function PublicEventDetailPage({
                       eventTitle={event.title}
                       ticketTypes={ticketTypeOptions}
                       maxQuantity={maxQuantity}
+                      bookingLimit={bookingLimit}
                       buttonLabel="Reserve your spot"
                       code={isMembersOnly ? suppliedCode : undefined}
                     />

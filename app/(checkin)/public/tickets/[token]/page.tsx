@@ -4,6 +4,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveHousehold } from "@/lib/events/household";
 import { googleCalendarUrl } from "@/lib/events/calendar";
 import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
+import {
+  resolveBookingLimit,
+  rateClassForRegistration,
+  countLiveTickets,
+} from "@/lib/events/booking-limits";
 import type { ConvertType } from "@/lib/events/convert-eligibility";
 import TicketManager, { type ManageTicket } from "@/components/public/TicketManager";
 import { formatDate, formatCurrency } from "@/lib/format";
@@ -128,6 +133,36 @@ export default async function TicketManagePage({
         .filter((t) => t.priceLabel !== "—")
     : [];
 
+  // Whole-booking ticket limit (R5/R7/R9/R11) — invite-class bookings only. Member and
+  // public bookings, and comp guest lists, stay unrestricted here (checkout-only bound).
+  let remainingAllowance: number | null = null;
+  let bookingLimit: number | null = null;
+  if (household.registrationId) {
+    const rateClass = rateClassForRegistration(
+      { is_member: household.isMember, is_guest_list: household.isGuestList },
+      { visibility: household.event.visibility }
+    );
+    if (rateClass === "invite") {
+      bookingLimit = resolveBookingLimit(
+        {
+          max_tickets_member: household.event.maxTicketsMember,
+          max_tickets_invite: household.event.maxTicketsInvite,
+          max_tickets_non_member: household.event.maxTicketsNonMember,
+        },
+        rateClass
+      );
+      try {
+        const live = await countLiveTickets(supabase, household.registrationId);
+        remainingAllowance = Math.max(0, bookingLimit - live);
+      } catch (err) {
+        // Fail closed: if the live count can't be read, show no remaining allowance rather
+        // than an unrestricted buy-more panel.
+        console.error("[tickets/[token]] live ticket count failed", err);
+        remainingAllowance = 0;
+      }
+    }
+  }
+
   // Receipt link (U6, R22/AE10): shown only when the ticket THIS token opened is the
   // payer's own (tickets.is_lead) — the same flag the receipt route itself gates on, so
   // visibility here and actual access always agree. A household member's own token never
@@ -157,6 +192,8 @@ export default async function TicketManagePage({
       convertTypes={convertTypes}
       topupEndpoint={`/api/public/bookings/${token}/topup`}
       buyableTypes={buyableTypes}
+      remainingAllowance={remainingAllowance}
+      bookingLimit={bookingLimit}
       receiptUrl={receiptUrl}
     />
   );

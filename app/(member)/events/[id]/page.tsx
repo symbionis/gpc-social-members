@@ -7,6 +7,7 @@ import EventFullyBookedBlock from "@/components/public/EventFullyBookedBlock";
 import EventGallery from "@/components/EventGallery";
 import SeatBadges from "@/components/events/SeatBadges";
 import { deriveSeatState, getSeatsUsed } from "@/lib/events/seat-usage";
+import { resolveBookingLimit } from "@/lib/events/booking-limits";
 
 function coerceImages(value: unknown, fallbacks: (string | null | undefined)[]): string[] {
   if (Array.isArray(value)) {
@@ -150,6 +151,9 @@ export default async function EventDetailPage({
   const hasSeatCap =
     event.seat_cap !== null && event.seat_cap !== undefined;
 
+  // The viewer is always an active member here (R4, R8).
+  const bookingLimit = resolveBookingLimit(event, "member");
+
   return (
     <div>
       <Link
@@ -262,6 +266,7 @@ export default async function EventDetailPage({
                   defaultName={memberFullName}
                   defaultEmail={member.email ?? ""}
                   maxQuantity={maxQuantity}
+                  bookingLimit={bookingLimit}
                   buttonLabel="Register"
                 />
               </>

@@ -56,6 +56,11 @@ interface Props {
   topupEndpoint?: string;
   /** Ticket types the holder can buy more of (with a display price label). */
   buyableTypes?: { id: string; title: string; priceLabel: string }[];
+  /** Invite-class bookings only (R5/R7/R11): remaining whole-booking allowance and the
+   *  resolved limit, passed through to BuyMorePanel. Absent/null for member, public, and
+   *  comp guest-list bookings, which are unrestricted here (R7/R11). */
+  remainingAllowance?: number | null;
+  bookingLimit?: number | null;
   /** Receipt page link (U6, R22/AE10) — passed only when this token is the payer's own
    *  (tickets.is_lead), the same gate the receipt route itself checks. null/absent hides the
    *  link entirely, so a non-payer household member sees no trace of it. */
@@ -76,6 +81,8 @@ export default function TicketManager({
   convertTypes,
   topupEndpoint,
   buyableTypes,
+  remainingAllowance,
+  bookingLimit,
   receiptUrl,
 }: Props) {
   const [tickets, setTickets] = useState<ManageTicket[]>(initialTickets);
@@ -155,7 +162,12 @@ export default function TicketManager({
       </ul>
 
       {topupEndpoint && buyableTypes && buyableTypes.length > 0 && (
-        <BuyMorePanel endpoint={topupEndpoint} types={buyableTypes} />
+        <BuyMorePanel
+          endpoint={topupEndpoint}
+          types={buyableTypes}
+          remainingAllowance={remainingAllowance}
+          bookingLimit={bookingLimit}
+        />
       )}
     </div>
   );

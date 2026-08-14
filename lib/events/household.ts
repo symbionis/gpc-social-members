@@ -50,6 +50,10 @@ export interface HouseholdEvent {
   endDate: string | null;
   location: string | null;
   description: string | null;
+  visibility: string;
+  maxTicketsMember: number | null;
+  maxTicketsInvite: number | null;
+  maxTicketsNonMember: number | null;
 }
 
 export interface Household {
@@ -59,6 +63,12 @@ export interface Household {
   referenceCode: string | null;
   /** The registration's rate class — drives self-serve upgrade pricing (U11). */
   isMember: boolean;
+  /** True for an admin-created comp guest list (R11) — exempt from the invite whole-booking
+   *  limit, unlike an ordinary invite-link registration. */
+  isGuestList: boolean;
+  /** The owning registration, or null for a standalone (no-registration) ticket. Needed to
+   *  compute the whole-booking ticket limit's remaining allowance (U7). */
+  registrationId: string | null;
   event: HouseholdEvent;
   tickets: HouseholdTicket[];
 }
@@ -95,7 +105,9 @@ export async function resolveHousehold(token: string): Promise<Household | null>
 
   const { data: event } = await supabase
     .from("events")
-    .select("id, title, start_date, start_time, end_date, location, description, is_published")
+    .select(
+      "id, title, start_date, start_time, end_date, location, description, is_published, visibility, max_tickets_member, max_tickets_invite, max_tickets_non_member"
+    )
     .eq("id", self.event_id as string)
     .maybeSingle();
   if (!event) return null;
@@ -105,17 +117,19 @@ export async function resolveHousehold(token: string): Promise<Household | null>
   let status = "free";
   let referenceCode: string | null = null;
   let isMember = false;
+  let isGuestList = false;
   let siblingRows: Record<string, unknown>[];
 
   if (self.registration_id) {
     const { data: reg } = await supabase
       .from("event_registrations")
-      .select("id, status, reference_code, is_member")
+      .select("id, status, reference_code, is_member, is_guest_list")
       .eq("id", self.registration_id as string)
       .maybeSingle();
     status = (reg?.status as string | null) ?? "free";
     referenceCode = (reg?.reference_code as string | null) ?? null;
     isMember = Boolean(reg?.is_member);
+    isGuestList = Boolean(reg?.is_guest_list);
 
     const { data: rows } = await supabase
       .from("tickets")
@@ -172,6 +186,8 @@ export async function resolveHousehold(token: string): Promise<Household | null>
     eventPublished: Boolean(event.is_published),
     referenceCode,
     isMember,
+    isGuestList,
+    registrationId: (self.registration_id as string | null) ?? null,
     event: {
       id: event.id as string,
       title: (event.title as string | null) ?? "",
@@ -180,6 +196,10 @@ export async function resolveHousehold(token: string): Promise<Household | null>
       endDate: (event.end_date as string | null) ?? null,
       location: (event.location as string | null) ?? null,
       description: (event.description as string | null) ?? null,
+      visibility: (event.visibility as string | null) ?? "public",
+      maxTicketsMember: (event.max_tickets_member as number | null) ?? null,
+      maxTicketsInvite: (event.max_tickets_invite as number | null) ?? null,
+      maxTicketsNonMember: (event.max_tickets_non_member as number | null) ?? null,
     },
     tickets,
   };

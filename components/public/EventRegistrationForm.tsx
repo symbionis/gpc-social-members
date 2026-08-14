@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { isFullName, joinName, splitName } from "@/lib/names";
 import posthog from "posthog-js";
 import PhoneInput from "@/components/common/PhoneInput";
+import { DEFAULT_BOOKING_LIMIT, ABSOLUTE_MAX_TICKETS } from "@/lib/events/booking-limits";
 
 export interface TicketTypeOption {
   id: string;
@@ -45,13 +46,17 @@ interface Props {
   /** Remaining-seat cap for capped events; total selected tickets can't exceed it.
    *  Ignored when `offer` is set — `offer.redeemableQuantity` is the ceiling then. */
   maxQuantity?: number;
+  /** The viewer's resolved per-rate-class booking limit (resolveBookingLimit on the server —
+   *  member / invite / non_member, whichever applies to this viewer). Absent falls back to
+   *  the shared default so nothing regresses if a call site is missed. Ignored when `offer`
+   *  is set — `offer.redeemableQuantity` is the sole ceiling then (R10), never combined. */
+  bookingLimit?: number;
   /** Invite code from the URL, forwarded to the register API (members-only invite flow). */
   code?: string;
   /** Set by the offer landing (U5) to redeem a waitlist offer. */
   offer?: OfferMode;
 }
 
-const MAX_QUANTITY_HARD_CAP = 20;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function priceLabel(value: number) {
@@ -72,14 +77,19 @@ export default function EventRegistrationForm({
   defaultName = "",
   defaultEmail = "",
   maxQuantity,
+  bookingLimit,
   code,
   offer,
 }: Props) {
   // Offer mode's redeemable quantity IS the ceiling (U5 already clamped it to seats
-  // free) — it overrides maxQuantity rather than combining with it.
+  // free) — it overrides maxQuantity AND bookingLimit rather than combining with them
+  // (R10: an offer redemption is not bound by the rate-class booking limit).
+  const resolvedBookingLimit = Math.min(ABSOLUTE_MAX_TICKETS, bookingLimit ?? DEFAULT_BOOKING_LIMIT);
   const cap = Math.max(
     1,
-    Math.min(MAX_QUANTITY_HARD_CAP, (offer ? offer.redeemableQuantity : maxQuantity) ?? MAX_QUANTITY_HARD_CAP)
+    offer
+      ? offer.redeemableQuantity
+      : Math.min(resolvedBookingLimit, maxQuantity ?? resolvedBookingLimit)
   );
   const selectable = useMemo(() => ticketTypes.filter((t) => t.price !== null), [ticketTypes]);
   // R7: the pre-selected type only holds when it's still live (present with a

@@ -14,6 +14,9 @@ interface Props {
   buttonLabel: string;
   /** Max selectable ticket quantity. Clamped to remaining seats for capped events. */
   maxQuantity?: number;
+  /** The viewer's resolved per-rate-class booking limit. See EventRegistrationForm's prop
+   *  of the same name. */
+  bookingLimit?: number;
   /** Invite code from the URL, forwarded to the register API (members-only invite flow). */
   code?: string;
   /** Set by the offer landing (U5) to redeem a waitlist offer through this drawer. */
@@ -28,6 +31,7 @@ export default function EventRegistrationDrawer({
   defaultEmail,
   buttonLabel,
   maxQuantity,
+  bookingLimit,
   code,
   offer,
 }: Props) {
@@ -97,6 +101,7 @@ export default function EventRegistrationDrawer({
             defaultName={defaultName}
             defaultEmail={defaultEmail}
             maxQuantity={maxQuantity}
+            bookingLimit={bookingLimit}
             code={code}
             offer={offer}
           />
