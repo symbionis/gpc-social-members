@@ -5,6 +5,7 @@ import {
   validateReminderSchedule,
   type ReminderEntry,
 } from "@/lib/events/reminder-schedule";
+import { ABSOLUTE_MAX_TICKETS } from "@/lib/events/booking-limits";
 
 // Admin endpoint for per-event settings: the ticket cap (events.seat_cap) and
 // the extra reminder schedule. All fields are optional — callers PATCH whichever
@@ -50,6 +51,9 @@ export async function PATCH(
   let body: {
     seat_cap?: unknown;
     reminder_schedule?: unknown;
+    max_tickets_member?: unknown;
+    max_tickets_invite?: unknown;
+    max_tickets_non_member?: unknown;
   };
   try {
     body = await request.json();
@@ -65,6 +69,9 @@ export async function PATCH(
   const updates: {
     seat_cap?: number | null;
     reminder_schedule?: ReminderEntry[];
+    max_tickets_member?: number | null;
+    max_tickets_invite?: number | null;
+    max_tickets_non_member?: number | null;
   } = {};
 
   if ("seat_cap" in body) {
@@ -81,6 +88,34 @@ export async function PATCH(
       }
       updates.seat_cap = parsed;
     }
+  }
+
+  // Per-rate-class ticket-per-booking limits (R1/R3). Each is independently optional so a
+  // caller can PATCH just the one it's changing. Bounded to the same ABSOLUTE_MAX_TICKETS
+  // ceiling the register and top-up routes enforce — a stored value above it could never
+  // take effect, so it's rejected here rather than silently clamped later.
+  const limitFields = [
+    ["max_tickets_member", "Members'"],
+    ["max_tickets_invite", "Invited guests'"],
+    ["max_tickets_non_member", "Public"],
+  ] as const;
+  for (const [field, label] of limitFields) {
+    if (!(field in body)) continue;
+    const raw = body[field];
+    if (raw === null || raw === "") {
+      updates[field] = null;
+      continue;
+    }
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > ABSOLUTE_MAX_TICKETS) {
+      return NextResponse.json(
+        {
+          error: `${label} ticket limit must be a whole number from 1 to ${ABSOLUTE_MAX_TICKETS}, or blank for the default`,
+        },
+        { status: 400 }
+      );
+    }
+    updates[field] = parsed;
   }
 
   if ("reminder_schedule" in body) {
