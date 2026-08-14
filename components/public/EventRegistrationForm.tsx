@@ -189,6 +189,19 @@ export default function EventRegistrationForm({
   } {
     const errs: Record<string, string> = {};
     const attendees: { ticket_type_id: string; name: string; email?: string }[] = [];
+    // Identities already spoken for on this order, per ticket type. Seeded with the buyer's
+    // own seat, which is not a guest row but is a claimed seat all the same.
+    //
+    // The server refuses a duplicate with a 400 either way; catching it here means the buyer
+    // sees it on the row they typed it into, before the order is submitted. Type-scoped, so
+    // one person taking Friday AND Saturday of a multi-day event is untouched — the case this
+    // whole check used to break.
+    const takenPerType = new Set<string>();
+    const identity = (n: string, e: string, ttId: string) =>
+      `${n.trim().replace(/\s+/g, " ").toLowerCase()}|${e.trim().toLowerCase()}|${ttId}`;
+    if (leadTicketTypeId && name.trim() && email.trim()) {
+      takenPerType.add(identity(name, email, leadTicketTypeId));
+    }
 
     // Every ticket requires a name and an email before checkout can complete (R1) —
     // no exemption for a former child type (R8). A blank row is now an error, not a
@@ -205,6 +218,15 @@ export default function EventRegistrationForm({
         errs[row.key] = "Add a valid email for this guest.";
         continue;
       }
+      const key = identity(nm, e, row.ticketTypeId);
+      if (takenPerType.has(key)) {
+        // Sharing an email is normal (one household, one inbox) and stays allowed — it is the
+        // repeated NAME on the same ticket that the database cannot store as a second seat.
+        errs[row.key] =
+          "You already have a seat under that name — please name your guest (same email allowed).";
+        continue;
+      }
+      takenPerType.add(key);
       attendees.push({ ticket_type_id: row.ticketTypeId, name: nm, email: e });
     }
     setRowErrors(errs);

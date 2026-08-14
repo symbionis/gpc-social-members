@@ -27,6 +27,8 @@ let registrationRosterWrite: unknown = null;
 let sessionCreate: ReturnType<typeof vi.fn>;
 
 const TYPE = "33333333-3333-3333-3333-333333333333";
+/** A second live type on the same event — the multi-day case (Friday vs Saturday). */
+const OTHER_TYPE = "44444444-4444-4444-4444-444444444444";
 
 // reg → booking; events → seat_cap; event_ticket_types → priced type; topups insert →
 // {id}; rpc → applied.
@@ -35,8 +37,11 @@ function adminClient(opts: {
   price?: number | null;
   seatCap?: number | null;
   countsAsSeat?: boolean;
-  /** Seats already named on the booking, as claim_ticket's dedupe would see them. */
-  claimed?: { name: string | null; email: string | null }[];
+  /**
+   * Seats already named on the booking, as claim_ticket's dedupe would see them. The type is
+   * part of the key — a null one is a legacy untyped seat, which matches every type.
+   */
+  claimed?: { name: string | null; email: string | null; ticket_type_id?: string | null }[];
 }) {
   return {
     from: (table: string) => {
@@ -78,7 +83,10 @@ function adminClient(opts: {
         if (table === "tickets") return resolve({ data: opts.claimed ?? [], error: null });
         if (table === "event_ticket_types")
           return resolve({
-            data: [{ id: TYPE, title: "Adult", price_member: opts.price ?? 25, price_non_member: 40, archived_at: null, counts_as_seat: opts.countsAsSeat ?? false }],
+            data: [
+              { id: TYPE, title: "Adult", price_member: opts.price ?? 25, price_non_member: 40, archived_at: null, counts_as_seat: opts.countsAsSeat ?? false },
+              { id: OTHER_TYPE, title: "Saturday", price_member: opts.price ?? 25, price_non_member: 40, archived_at: null, counts_as_seat: opts.countsAsSeat ?? false },
+            ],
             error: null,
           });
         return resolve({ data: [], error: null });
@@ -195,25 +203,53 @@ describe("mandatory naming on top-ups", () => {
   // named on the booking — so a lead topping up under their own name and email got
   // `already: true`, no seat claimed, and a charge for a permanently unnamed ticket. A
   // top-up is the only purchase path where prior claimed seats exist.
-  it("refuses a guest who already holds a seat on this booking", async () => {
+  it("refuses a guest who already holds this ticket on this booking", async () => {
     mockedAdmin.mockReturnValue(
-      adminClient({ claimed: [{ name: "Ana Vidal", email: "ana@x.com" }] })
+      adminClient({ claimed: [{ name: "Ana Vidal", email: "ana@x.com", ticket_type_id: TYPE }] })
     );
     const res = await post({
       items: [{ ticketTypeId: TYPE, quantity: 1 }],
       attendees: [{ ticket_type_id: TYPE, name: "Ana Vidal", email: "ana@x.com" }],
     });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/already has a ticket on this booking/i);
+    expect((await res.json()).error).toMatch(/already has this ticket on this booking/i);
   });
 
   it("matches the existing seat the way claim_ticket does — case and spacing folded", async () => {
     mockedAdmin.mockReturnValue(
-      adminClient({ claimed: [{ name: "Ana  Vidal", email: "Ana@X.com" }] })
+      adminClient({ claimed: [{ name: "Ana  Vidal", email: "Ana@X.com", ticket_type_id: TYPE }] })
     );
     const res = await post({
       items: [{ ticketTypeId: TYPE, quantity: 1 }],
       attendees: [{ ticket_type_id: TYPE, name: "ana vidal", email: "ana@x.com" }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  // The mirror image, and the case that made this scoping necessary: one person holding
+  // Friday and Saturday of a multi-day event. Their second day is a real seat that was paid
+  // for. Refusing it would leave the buyer no way to complete an order they are entitled to
+  // make, and the unscoped guard silently swallowed it instead.
+  it("allows the same person on a DIFFERENT ticket type (multi-day event)", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ claimed: [{ name: "Ana Vidal", email: "ana@x.com", ticket_type_id: TYPE }] })
+    );
+    const res = await post({
+      items: [{ ticketTypeId: OTHER_TYPE, quantity: 1 }],
+      attendees: [{ ticket_type_id: OTHER_TYPE, name: "Ana Vidal", email: "ana@x.com" }],
+    });
+    expect(res.status).toBe(200);
+  });
+
+  // A seat minted before ticket types existed carries no type, and claim_ticket lets it adopt
+  // the incoming one — so it can still swallow the claim. It must collide with every type.
+  it("refuses a guest colliding with an untyped legacy seat, whatever the type", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({ claimed: [{ name: "Ana Vidal", email: "ana@x.com", ticket_type_id: null }] })
+    );
+    const res = await post({
+      items: [{ ticketTypeId: OTHER_TYPE, quantity: 1 }],
+      attendees: [{ ticket_type_id: OTHER_TYPE, name: "Ana Vidal", email: "ana@x.com" }],
     });
     expect(res.status).toBe(400);
   });

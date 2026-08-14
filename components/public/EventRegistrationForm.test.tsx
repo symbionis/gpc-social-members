@@ -175,6 +175,41 @@ describe("U2 — attendee naming step", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  // The buyer retyping their own name and email into the guest row is the mistake that cost
+  // four real bookings a guest: the server accepted it, claim_ticket read it as a replay of
+  // the buyer's own seat, and the second ticket stayed blank. Caught on the row it was typed
+  // into, so the buyer fixes it here rather than meeting a 400 after submitting.
+  it("blocks the buyer from naming themselves onto a second seat of their own ticket", async () => {
+    const user = userEvent.setup();
+    renderForm([asado]);
+    await user.click(addBtn("Asado"));
+    await user.click(addBtn("Asado"));
+    await goToStep2(user);
+    await user.type(screen.getByLabelText(/Guest 1 first name — Asado/), "Frank");
+    await user.type(screen.getByLabelText(/Guest 1 last name — Asado/), "Sykes");
+    await user.type(screen.getByLabelText(/Guest 1 email — Asado/), "frank@x.ch");
+    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    expect(screen.getByText(/already have a seat under that name/i)).toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  // Same buyer, same email, DIFFERENT ticket — one person across two days of a multi-day
+  // event. This must sail through: it is a second real seat, not a duplicate.
+  it("allows the buyer's name on a guest row of a different ticket type", async () => {
+    const user = userEvent.setup();
+    renderForm([asado, veg]);
+    await user.click(addBtn("Asado"));
+    await user.click(addBtn("Veg"));
+    await goToStep2(user);
+    await user.click(screen.getByRole("radio", { name: /Asado/ }));
+    await user.type(screen.getByLabelText(/Guest 1 first name — Veg/), "Frank");
+    await user.type(screen.getByLabelText(/Guest 1 last name — Veg/), "Sykes");
+    await user.type(screen.getByLabelText(/Guest 1 email — Veg/), "frank@x.ch");
+    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    expect(screen.queryByText(/already have a seat under that name/i)).not.toBeInTheDocument();
+    expect(global.fetch).toHaveBeenCalled();
+  });
+
   it("submits every named guest, tagged with its ticket type", async () => {
     const user = userEvent.setup();
     renderForm([asado]);

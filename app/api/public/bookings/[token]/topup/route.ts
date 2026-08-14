@@ -177,15 +177,17 @@ export async function POST(
   );
   if (!parsedAttendees.ok) return bad(parsedAttendees.error, 400);
 
-  // ...and the same person cannot be named onto a SECOND seat of a booking they already hold
-  // one on. parseAttendeeInput only sees this order; claim_ticket dedupes against every seat
-  // already named on the registration, so a lead topping up under their own name and email
-  // gets `already: true`, no seat claimed, and a charge for a permanently unnamed ticket.
-  // A top-up is the one purchase path where prior claimed seats exist, so this is the one
-  // place it can happen. Refuse before money moves, while the buyer can still fix it.
+  // ...and the same person cannot be named onto a SECOND seat OF THE SAME TICKET TYPE on a
+  // booking they already hold one on. parseAttendeeInput only sees this order; claim_ticket
+  // dedupes against every same-type seat already named on the registration, so a lead topping
+  // up under their own name and email gets `already: true`, no seat claimed, and a charge for a
+  // permanently unnamed ticket. Refuse before money moves, while the buyer can still fix it.
+  //
+  // Type-scoped, so topping up a booking with a second day of a multi-day event under the same
+  // name is allowed — that seat is real and claim_ticket will now fill it.
   const { data: claimedRows, error: claimedErr } = await supabase
     .from("tickets")
-    .select("name, email")
+    .select("name, email, ticket_type_id")
     .eq("registration_id", reg.id as string)
     .eq("slot_status", "claimed")
     .is("released_at", null);
@@ -199,7 +201,7 @@ export async function POST(
   const clash = collidesWithClaimed(parsedAttendees.attendees, claimedRows ?? []);
   if (clash) {
     return bad(
-      `${clash.name} already has a ticket on this booking — give the new guest their own name and email`,
+      `${clash.name} already has this ticket on this booking — please name your guest (same email allowed).`,
       400,
     );
   }
