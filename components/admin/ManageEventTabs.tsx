@@ -82,6 +82,10 @@ interface Props {
   /** How many sponsors hold a list. */
   guestListCount: number;
   seatCap: number | null;
+  /** Per-rate-class tickets-per-booking limits; null = use the app default. */
+  maxTicketsMember: number | null;
+  maxTicketsInvite: number | null;
+  maxTicketsNonMember: number | null;
   overbooked: boolean;
   baseUrl: string;
   reminders: ReminderSummaryRow[];
@@ -134,6 +138,9 @@ export default function ManageEventTabs({
   guestListSeats,
   guestListCount,
   seatCap,
+  maxTicketsMember,
+  maxTicketsInvite,
+  maxTicketsNonMember,
   overbooked,
   baseUrl,
   reminders,
@@ -656,6 +663,9 @@ export default function ManageEventTabs({
             eventId={eventId}
             seatCap={seatCap}
             seatsUsed={total}
+            maxTicketsMember={maxTicketsMember}
+            maxTicketsInvite={maxTicketsInvite}
+            maxTicketsNonMember={maxTicketsNonMember}
           />
           {visibility === "members_only" && (
             <EventInviteLink

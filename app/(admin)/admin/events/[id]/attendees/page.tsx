@@ -41,7 +41,7 @@ export default async function ManageEventPage({
   const { data: event } = await supabase
     .from("events")
     .select(
-      "id, title, start_date, seat_cap, reminder_schedule, visibility, registration_enabled, invite_code"
+      "id, title, start_date, seat_cap, reminder_schedule, visibility, registration_enabled, invite_code, max_tickets_member, max_tickets_invite, max_tickets_non_member"
     )
     .eq("id", id)
     .single();
@@ -595,6 +595,9 @@ export default async function ManageEventPage({
         guestListSeats={guestListTickets}
         guestListCount={guestListCount}
         seatCap={seatCap}
+        maxTicketsMember={event.max_tickets_member as number | null}
+        maxTicketsInvite={event.max_tickets_invite as number | null}
+        maxTicketsNonMember={event.max_tickets_non_member as number | null}
         overbooked={overbooked}
         baseUrl={baseUrl}
         reminders={reminders}
