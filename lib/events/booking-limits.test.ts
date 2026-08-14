@@ -6,6 +6,7 @@ import {
   resolveBookingLimit,
   rateClassForRegistration,
   countLiveTickets,
+  resolveRemainingAllowance,
 } from "@/lib/events/booking-limits";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -189,5 +190,74 @@ describe("countLiveTickets", () => {
     const expectedCutoffMs = before - PENDING_TOPUP_WINDOW_MINUTES * 60 * 1000;
     // Allow a small tolerance for the time the test itself takes to run.
     expect(Math.abs(cutoffMs - expectedCutoffMs)).toBeLessThan(5000);
+  });
+});
+
+describe("resolveRemainingAllowance", () => {
+  const inviteEvent = {
+    visibility: "members_only",
+    max_tickets_member: null,
+    max_tickets_invite: 4,
+    max_tickets_non_member: null,
+  };
+
+  it("returns null/null for a member registration (checkout-only bound, no allowance UI)", async () => {
+    const supabase = mockSupabase({ items: [{ quantity: 2 }] });
+    const result = await resolveRemainingAllowance(
+      supabase,
+      { id: "reg-1", is_member: true, is_guest_list: false },
+      inviteEvent
+    );
+    expect(result).toEqual({ remainingAllowance: null, bookingLimit: null });
+  });
+
+  it("returns null/null for a comp guest-list registration (R11 exemption)", async () => {
+    const supabase = mockSupabase({ items: [{ quantity: 20 }] });
+    const result = await resolveRemainingAllowance(
+      supabase,
+      { id: "reg-1", is_member: false, is_guest_list: true },
+      inviteEvent
+    );
+    expect(result).toEqual({ remainingAllowance: null, bookingLimit: null });
+  });
+
+  it("returns null/null for a non_member registration on a public event", async () => {
+    const supabase = mockSupabase({ items: [{ quantity: 2 }] });
+    const result = await resolveRemainingAllowance(
+      supabase,
+      { id: "reg-1", is_member: false, is_guest_list: false },
+      { ...inviteEvent, visibility: "public" }
+    );
+    expect(result).toEqual({ remainingAllowance: null, bookingLimit: null });
+  });
+
+  it("computes the remaining allowance for an invite-class registration", async () => {
+    const supabase = mockSupabase({ items: [{ quantity: 1 }] });
+    const result = await resolveRemainingAllowance(
+      supabase,
+      { id: "reg-1", is_member: false, is_guest_list: false },
+      inviteEvent
+    );
+    expect(result).toEqual({ remainingAllowance: 3, bookingLimit: 4 });
+  });
+
+  it("floors the remaining allowance at 0 rather than going negative", async () => {
+    const supabase = mockSupabase({ items: [{ quantity: 6 }] });
+    const result = await resolveRemainingAllowance(
+      supabase,
+      { id: "reg-1", is_member: false, is_guest_list: false },
+      inviteEvent
+    );
+    expect(result).toEqual({ remainingAllowance: 0, bookingLimit: 4 });
+  });
+
+  it("fails closed: a live-ticket count error resolves to zero remaining allowance, not an unrestricted one", async () => {
+    const supabase = mockSupabase({ errorOn: "items" });
+    const result = await resolveRemainingAllowance(
+      supabase,
+      { id: "reg-1", is_member: false, is_guest_list: false },
+      inviteEvent
+    );
+    expect(result).toEqual({ remainingAllowance: 0, bookingLimit: 4 });
   });
 });

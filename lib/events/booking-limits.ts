@@ -156,3 +156,33 @@ export async function countLiveTickets(
 
   return purchased + pending - cancelled;
 }
+
+/**
+ * The ticket-manage page's whole-booking-limit display state (U7): the resolved limit and
+ * the booking's remaining allowance, or both null when the registration's rate class isn't
+ * invite (member/public/comp-guest-list bookings are checkout-only bound and show no
+ * allowance UI here). Extracted from the page so this fail-closed logic is unit-testable —
+ * the page itself has no dedicated test file, only this function does.
+ */
+export async function resolveRemainingAllowance(
+  supabase: SupabaseClient<Database>,
+  registration: { id: string; is_member: boolean; is_guest_list: boolean },
+  event: BookingLimitColumns & { visibility: string }
+): Promise<{ remainingAllowance: number | null; bookingLimit: number | null }> {
+  const rateClass = rateClassForRegistration(registration, event);
+  if (rateClass !== "invite") return { remainingAllowance: null, bookingLimit: null };
+
+  const bookingLimit = resolveBookingLimit(event, rateClass);
+  try {
+    const live = await countLiveTickets(supabase, registration.id);
+    return { remainingAllowance: Math.max(0, bookingLimit - live), bookingLimit };
+  } catch (err) {
+    // Fail closed: if the live count can't be read, show no remaining allowance rather than
+    // an unrestricted buy-more panel.
+    console.error("[booking-limits] live ticket count failed", {
+      registrationId: registration.id,
+      err,
+    });
+    return { remainingAllowance: 0, bookingLimit };
+  }
+}
