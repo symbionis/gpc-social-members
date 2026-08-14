@@ -73,6 +73,21 @@ export interface RosterFillAttendee {
 }
 
 /**
+ * What a checkout fill actually achieved, per guest. `unnamed` is the important half: those
+ * seats exist and are paid for, but nobody is on them, and their QR never reaches anyone
+ * either — grouped delivery keys on the guest's own email, which is NULL on an unnamed seat.
+ * So the seat is counted against the event while the person holding it is unknown and
+ * unreachable. `reason` distinguishes a transport failure (`rpc_error`) from the guard
+ * collapsing the guest onto a seat that was already named (`collapsed_onto_existing_seat`)
+ * from a refusal claim_ticket reported by status (`full`, `type_full`, `inactive`,
+ * `invalid_input`).
+ */
+export interface RosterFillResult {
+  filled: number;
+  unnamed: { attendee: RosterFillAttendee; reason: string }[];
+}
+
+/**
  * Apply a PAID registration's stored `pending_roster` atomically: the
  * apply_pending_roster SECURITY DEFINER function claims each guest and clears the
  * column in one transaction under a row lock. Use this on the Stripe webhook path —
@@ -173,11 +188,12 @@ export async function applyTopupRoster(topupId: string): Promise<TopupRosterStat
 export async function fillRegistrationRoster(
   registrationId: string,
   attendees: RosterFillAttendee[],
-): Promise<void> {
-  if (attendees.length === 0) return;
+): Promise<RosterFillResult> {
+  const result: RosterFillResult = { filled: 0, unnamed: [] };
+  if (attendees.length === 0) return result;
   const supabase = createAdminClient();
   for (const a of attendees) {
-    const { error } = await supabase.rpc("claim_ticket", {
+    const { data, error } = await supabase.rpc("claim_ticket", {
       p_registration_id: registrationId,
       p_name: a.name,
       p_email: a.email,
@@ -194,8 +210,42 @@ export async function fillRegistrationRoster(
         ticketTypeId: a.ticket_type_id,
         err: error,
       });
+      result.unnamed.push({ attendee: a, reason: "rpc_error" });
+      continue;
+    }
+    // An RPC that did not throw is NOT an RPC that named someone. `already: true` means the
+    // replay guard matched an existing seat and claimed nothing — the guest's slot is still
+    // issued and unnamed, and its QR goes nowhere, because delivery groups by the guest's
+    // email. This return value used to be discarded, which is precisely why four bookings
+    // reached the door with a blank on the roster and nobody knew. Anything short of a fresh
+    // claim is a failure and says so.
+    const res = (data ?? {}) as { status?: string; already?: boolean };
+    if (res.status === "claimed" && !res.already) {
+      result.filled += 1;
+    } else {
+      result.unnamed.push({
+        attendee: a,
+        reason: res.already ? "collapsed_onto_existing_seat" : (res.status ?? "unknown"),
+      });
     }
   }
+  if (result.unnamed.length > 0) {
+    // Loud, greppable, and carries enough to reconcile by hand: which booking, which type,
+    // which guest, and why. The registration itself has already succeeded and the seats are
+    // sold, so there is nothing to roll back — this line is the only way anyone finds out.
+    console.error("[roster] SEATS LEFT UNNAMED after checkout fill", {
+      registrationId,
+      requested: attendees.length,
+      filled: result.filled,
+      unnamed: result.unnamed.map((u) => ({
+        name: u.attendee.name,
+        email: u.attendee.email,
+        ticketTypeId: u.attendee.ticket_type_id,
+        reason: u.reason,
+      })),
+    });
+  }
+  return result;
 }
 
 // The admin bulk-import wrapper lived here until the Guest list tab replaced the Import

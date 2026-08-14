@@ -63,13 +63,75 @@ describe("fillRegistrationRoster", () => {
     );
     mockedAdmin.mockReturnValue(client);
 
-    await fillRegistrationRoster("reg-1", [
+    const result = await fillRegistrationRoster("reg-1", [
       { ticket_type_id: "t-bad", name: "Drops", email: "d@x.ch" },
       { ticket_type_id: "t-ok", name: "Fine", email: "f@x.ch" },
     ]);
 
     expect(client.rpc).toHaveBeenCalledTimes(2);
-    expect(console.error).toHaveBeenCalledTimes(1);
+    // Two lines now: the per-row failure, and the summary naming who was left unseated.
+    expect(console.error).toHaveBeenCalledTimes(2);
+    expect(result.filled).toBe(1);
+    expect(result.unnamed).toEqual([
+      { attendee: { ticket_type_id: "t-bad", name: "Drops", email: "d@x.ch" }, reason: "rpc_error" },
+    ]);
+  });
+
+  // The failure that cost four bookings their guest: claim_ticket's replay guard matched an
+  // already-named seat, so it claimed nothing and returned success. The old code read only
+  // `error`, saw null, and moved on — the guest's seat stayed issued and unnamed, its QR
+  // undelivered, and nothing was logged. A non-error is not a fill.
+  it("treats `already: true` as a seat left UNNAMED, not as success", async () => {
+    const client = adminWithRpc(() => ({
+      data: { status: "claimed", already: true, attendee_id: "someone-else" },
+      error: null,
+    }));
+    mockedAdmin.mockReturnValue(client);
+
+    const result = await fillRegistrationRoster("reg-1", [
+      { ticket_type_id: "t-fri", name: "Leyla Baghirzade", email: "leyla@x.ch" },
+    ]);
+
+    expect(result.filled).toBe(0);
+    expect(result.unnamed).toEqual([
+      {
+        attendee: { ticket_type_id: "t-fri", name: "Leyla Baghirzade", email: "leyla@x.ch" },
+        reason: "collapsed_onto_existing_seat",
+      },
+    ]);
+    expect(console.error).toHaveBeenCalledWith(
+      "[roster] SEATS LEFT UNNAMED after checkout fill",
+      expect.objectContaining({ registrationId: "reg-1", filled: 0 }),
+    );
+  });
+
+  // Same blind spot, different shape: claim_ticket reports a refusal by status, never by error.
+  it("treats a refusal status (full / type_full) as a seat left UNNAMED", async () => {
+    const client = adminWithRpc(() => ({ data: { status: "type_full" }, error: null }));
+    mockedAdmin.mockReturnValue(client);
+
+    const result = await fillRegistrationRoster("reg-1", [
+      { ticket_type_id: "t-sat", name: "Ana Vidal", email: "ana@x.ch" },
+    ]);
+
+    expect(result.filled).toBe(0);
+    expect(result.unnamed[0].reason).toBe("type_full");
+  });
+
+  it("reports a clean fill with nothing logged", async () => {
+    const client = adminWithRpc(() => ({
+      data: { status: "claimed", already: false },
+      error: null,
+    }));
+    mockedAdmin.mockReturnValue(client);
+
+    const result = await fillRegistrationRoster("reg-1", [
+      { ticket_type_id: "t-fri", name: "Ana Vidal", email: "ana@x.ch" },
+      { ticket_type_id: "t-sat", name: "Ana Vidal", email: "ana@x.ch" },
+    ]);
+
+    expect(result).toEqual({ filled: 2, unnamed: [] });
+    expect(console.error).not.toHaveBeenCalled();
   });
 
   it("makes no RPC calls for an empty attendee list", async () => {

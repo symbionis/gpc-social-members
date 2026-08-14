@@ -17,7 +17,7 @@ import {
   type RosterFillAttendee,
 } from "@/lib/events/roster";
 import { isFullName } from "@/lib/names";
-import { parseAttendeeInput, EMAIL_RE } from "@/lib/events/attendee-input";
+import { parseAttendeeInput, collidesWithClaimed, EMAIL_RE } from "@/lib/events/attendee-input";
 import { findRedeemingRegistration } from "@/lib/events/waitlist-offer";
 import { captureServerException } from "@/lib/analytics/server-errors";
 
@@ -293,6 +293,30 @@ export async function POST(
   if (!parsedAttendees.ok) return bad(parsedAttendees.error, 400);
   const normalizedAttendees: RosterFillAttendee[] = parsedAttendees.attendees;
 
+  // ...and the booker cannot name themselves onto a SECOND seat of their own ticket type.
+  // parseAttendeeInput only sees the guest rows; the buyer's own seat is not among them, it is
+  // seeded from the booker fields moments from now. So the one collision it cannot see is the
+  // one that actually happens: a booker buying two of a type and typing their own name and
+  // email into the guest row. claim_ticket reads that as a replay of the lead's claim, returns
+  // already=true, claims nothing — and the second seat is minted, credentialled, and
+  // permanently unnamed. That is how four bookings lost a guest before this check existed.
+  //
+  // Compared against the PENDING lead identity rather than the tickets table: no seat exists
+  // yet at this point in the request. Same type only — the buyer holding Friday and Saturday
+  // is not a collision, and telling them to "name your guest" for their own second day would
+  // strand them with no way to complete the order.
+  if (leadType) {
+    const leadClash = collidesWithClaimed(normalizedAttendees, [
+      { name, email, ticket_type_id: leadType },
+    ]);
+    if (leadClash) {
+      return bad(
+        "You already have a seat under that name — please name your guest (same email allowed).",
+        400,
+      );
+    }
+  }
+
   // Resolve per-line prices. STRICT null check before any coercion — Number(null)
   // === 0 would silently make a line free, so an unset price for the resolved
   // class fails loud rather than under-charging.
@@ -469,9 +493,21 @@ export async function POST(
     await seedLeadAttendee(registrationId, phone || null);
     // Mint a credentialled (QR) ticket for every remaining purchased slot (U2).
     await mintRegistrationTickets(registrationId);
-    // Name the guest tickets the booker filled in at checkout (best-effort; any un-filled
-    // slot stays issued and can be named later from the lead's manage page or the door).
-    await fillRegistrationRoster(registrationId, normalizedAttendees);
+    // Name the guest tickets the booker filled in at checkout. The collision check above
+    // removes the one cause of a silent no-op we know of, so anything still unnamed here is
+    // unexpected — fillRegistrationRoster logs it loudly with the guest details. The seats are
+    // already sold and the registration already succeeded, so there is nothing to roll back;
+    // an un-filled slot stays issued and can be named later from the lead's manage page or at
+    // the door, and the log line is what tells anyone to go do that.
+    const fill = await fillRegistrationRoster(registrationId, normalizedAttendees);
+    if (fill.unnamed.length > 0) {
+      console.error("[event-register] registration completed with unnamed seats", {
+        registrationId,
+        eventId,
+        referenceCode,
+        unnamed: fill.unnamed.length,
+      });
+    }
     sendEventRegistrationConfirmation(registrationId).catch((err) =>
       console.error("[event-register] confirmation email failed", err)
     );

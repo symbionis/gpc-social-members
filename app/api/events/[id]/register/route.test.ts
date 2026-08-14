@@ -626,6 +626,76 @@ describe("U2 — shared email across a household (distinct-email guard removed, 
     expect(cfg.capturedClaims![0]).toMatchObject({ p_email: "lead@x.ch" });
   });
 
+  // The booker's own seat is not a guest row, so parseAttendeeInput cannot see it — and this
+  // is the collision that actually happened in production. Four bookings (two on ENLIGHTEN
+  // Summit, two on Breath & Polo) sold a second seat that claim_ticket then declined to name,
+  // returning already=true. The seat was minted, credentialled, and blank on the door roster,
+  // and the buyer was told the booking succeeded.
+  it("400s a booker who names THEMSELVES on a second seat of their own ticket type", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      leadTicketTypeId: "t1",
+      attendees: [{ ticket_type_id: "t1", name: "Lead Booker", email: "lead@x.ch" }],
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/already have a seat under that name/i);
+    // Refused before anything was created — no registration, no seats, no claim.
+    expect(cfg.capturedClaims).toBeUndefined();
+  });
+
+  it("folds case and whitespace when matching the booker's own identity", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree] };
+    const res = await publicPost(cfg, {
+      items: [{ ticket_type_id: "t1", quantity: 2 }],
+      leadTicketTypeId: "t1",
+      attendees: [{ ticket_type_id: "t1", name: "lead  BOOKER", email: "LEAD@x.ch" }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  // The seat the old guard destroyed: one person, two days of a multi-day event. Both seats
+  // are real, both were paid for, and both must be nameable under the same identity.
+  it("allows the booker on a second seat of a DIFFERENT ticket type (multi-day)", async () => {
+    const satFree: TicketType = { ...adultFree, id: "t2", title: "Saturday" };
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree, satFree] };
+    const res = await publicPost(cfg, {
+      items: [
+        { ticket_type_id: "t1", quantity: 1 },
+        { ticket_type_id: "t2", quantity: 1 },
+      ],
+      leadTicketTypeId: "t1",
+      attendees: [{ ticket_type_id: "t2", name: "Lead Booker", email: "lead@x.ch" }],
+    });
+    expect(res.status).toBe(200);
+    expect(cfg.capturedClaims).toHaveLength(1);
+    expect(cfg.capturedClaims![0]).toMatchObject({
+      p_name: "Lead Booker",
+      p_email: "lead@x.ch",
+      p_ticket_type_id: "t2",
+    });
+  });
+
+  // Same person, same email, different types, both as guests — the household equivalent of
+  // the case above (a booker naming their partner onto both days).
+  it("allows one guest named on two different ticket types in one order", async () => {
+    const satFree: TicketType = { ...adultFree, id: "t2", title: "Saturday" };
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree, satFree] };
+    const res = await publicPost(cfg, {
+      items: [
+        { ticket_type_id: "t1", quantity: 2 },
+        { ticket_type_id: "t2", quantity: 1 },
+      ],
+      leadTicketTypeId: "t1",
+      attendees: [
+        { ticket_type_id: "t1", name: "Partner Person", email: "shared@x.ch" },
+        { ticket_type_id: "t2", name: "Partner Person", email: "shared@x.ch" },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(cfg.capturedClaims).toHaveLength(2);
+  });
+
   it("covers R1 bypass: 400s two attendees with the same name AND email (would collapse in claim_ticket)", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree] };
     const res = await publicPost(cfg, {
