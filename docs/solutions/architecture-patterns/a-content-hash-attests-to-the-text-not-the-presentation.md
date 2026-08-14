@@ -1,6 +1,7 @@
 ---
 title: "A content hash attests to the text, not to how it was presented or how consent was signalled"
 date: 2026-08-11
+last_updated: 2026-08-14
 category: architecture-patterns
 module: events
 problem_type: architecture_pattern
@@ -44,7 +45,7 @@ export function computeWaiverVersion(
 ): string {
   const orderedLangs: WaiverLanguage[] = ["en", "fr"];
   const canonical = orderedLangs.map((l) => JSON.stringify(waivers[l])).join("|");
-  return `open-doors-2026-${fnv1aHex(canonical)}`;
+  return `gpc-terms-2026-${fnv1aHex(canonical)}`;
 }
 
 export const WAIVER_VERSION = computeWaiverVersion(WAIVERS);
@@ -79,7 +80,7 @@ The second structural move is smaller and does more than it looks: **make the af
 
 Where the doc genuinely cannot be re-presented — a pre-signed waiver arriving at the gate — the rule is *never re-stamp*. `lib/events/checkin.ts:82` gates on `needsWaiver = attendee.waiver_accepted_at == null` and line 90 says "Sign now only if not already signed — never clobber an early self-reg signature." The manage-page endpoint mirrors it at `app/api/public/bookings/[token]/waiver/route.ts:123-128`: "Re-signing would silently move a guest onto a version they may never have read." Re-stamping is the same failure in the time dimension — attaching a version to a person who never saw that rendering.
 
-Merge status, as of writing: PR #117 is merged to main. The consolidation onto a single `WaiverModal` and the guest-page pre-signing route described here are on PRs #121 and #122, which are **open, not shipped** — treat the single-modal state as pending until they land. #122 is stacked on #121 (its base is `feat/one-waiver-modal`, not `main`), so it cannot land first.
+Merge status: **shipped.** PR #117 deleted the orphan; PRs #121 and #122 (one modal for every surface, guest-page pre-signing) landed 2026-08-11 (`db4a926`). The single-modal state described here is the current state of the tree, not a pending one.
 
 ## Why This Matters
 
@@ -102,11 +103,11 @@ Four shapes should trigger this check:
 
 ## Examples
 
-**What the hash covers, and what it does not.** `lib/events/waiver.ts:193-201` serializes both languages in a fixed order and hashes the result:
+**What the hash covers, and what it does not.** `lib/events/waiver.ts:246-252` serializes both languages in a fixed order and hashes the result. The prefix labels the *source document*, and it moved from `open-doors-2026-` to `gpc-terms-2026-` in PR #127 when the Open Doors waiver was replaced by the Club's general attendance terms — a prefix change is itself a version change, which is the point of the hash. It is pinned by `lib/events/waiver.test.ts:71`:
 
 ```ts
 const canonical = orderedLangs.map((l) => JSON.stringify(waivers[l])).join("|");
-return `open-doors-2026-${fnv1aHex(canonical)}`;
+return `gpc-terms-2026-${fnv1aHex(canonical)}`;
 ```
 
 The input is `WAIVERS` — titles, intros, clause headings, paragraphs, bullets. Nothing about the button label, the surrounding instructions, whether a checkbox exists, or which language the chrome was in. Every one of those is part of what a guest experienced as "signing the waiver", and none of them moves the hash.
@@ -164,4 +165,4 @@ Note also that `guestName` is a required prop (`components/events/WaiverModal.ts
 - [Retiring a live flow: drop the write path, keep the history](../best-practices/retire-a-live-flow-drop-the-write-path-keep-the-history.md) — its step-5 orphan sweep is what missed `WaiverConsentModal` when PR #92 deleted the consumer. New rule that falls out: grep for the retired **component**, not only the retired route or noun, and treat an unimported component that renders legally operative content as a live defect rather than dead code.
 - [A comment that justifies an omission is a load-bearing claim about another subsystem](../best-practices/a-comment-that-justifies-an-omission-is-load-bearing.md) — same rot, opposite polarity. There a comment justified an absence; here `lib/events/waiver.ts` asserted a completeness ("the audit can never silently point a stale version at changed text") that is true of the clause text alone and reads as covering the acceptance. Its ladder applies unchanged: put the guarantee in a type or a test, because a hash cannot assert what it does not hash.
 
-Shipped across PR #117 (deleted the orphan, merged), and PRs #121 and #122 (one modal for every surface; guest-page pre-signing) which are **open as of writing**.
+Shipped across PR #117 (deleted the orphan) and PRs #121 and #122 (one modal for every surface; guest-page pre-signing), all merged.

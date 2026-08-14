@@ -20,7 +20,7 @@ An individual admission slot belonging to a Registration — one per attendee, n
 *Avoid:* Attendee
 
 ### Lead
-The person who paid for a Registration. Receives its receipts, reaches the Receipt Page, and is notified when a seat they paid for is cancelled by another holder. The Lead holds no management authority beyond that — every holder, the Lead included, manages their own Ticket the same way, through their own Manage Link (see Household). The Lead is not a role a page is built around; it is a flag (`tickets.is_lead`) recorded on whichever Ticket the payer names for themselves at checkout, used to route money-side communication and gate the Receipt Page.
+The person who paid for a Registration. Receives its receipts, reaches the Receipt Page, and is notified when a seat they paid for is cancelled by another holder. The Lead holds no management authority beyond that — every holder, the Lead included, manages their own Ticket the same way, through their own Manage Link (see Household). The Lead is not a role a page is built around; it is a mark carried by whichever single Ticket the payer names for themselves at checkout, used to route money-side communication and gate the Receipt Page.
 
 ### Guest List
 A sponsor's comp list, held as a zero-price Registration — a Lead plus any number of named guests, each with a Ticket Type. Built by an admin, never bought.
@@ -88,6 +88,11 @@ A Ticket can also be *released* — tombstoned rather than deleted, so the old c
 
 Door **roster** surfaces — the lists staff read from — admit **issued** and **claimed** and nothing else. The rule is an allowlist rather than "not unclaimed": a status these surfaces do not recognise must fall off the roster, never onto it as an anonymous line someone could tick off at the door. The QR scan is gated differently, on the Ticket's own Credential and Cancellation rather than on Slot Status.
 
+### Claim
+Putting a named person onto an **issued** Ticket, which turns it **claimed**. Claims happen at checkout when the buyer names their party, when a Top-up adds and names further Tickets, and at the door when staff name a walk-up. Correcting the name on an already-claimed Ticket is an edit, not a Claim.
+
+A holder's identity for this purpose is **name plus contact plus Ticket Type**, and all three carry weight. Two claims matching on all three are one claim arriving twice — the second is absorbed and consumes nothing, which is what makes a retried or redelivered purchase safe. Differing in any one of them makes it a distinct claim: two people sharing one email are two holders (see Household), and one person holding two Ticket Types is one holder who bought two things, as on a multi-day Event. Narrowing that identity to fewer dimensions silently merges holders or purchases that were never the same, and the merged party keeps its Seat while losing its name. A Ticket left **issued** cannot be admitted until someone names it at the door: the scan stops and asks rather than letting an anonymous holder through, which is the last place such a loss can still be caught.
+
 ### Booking Page
 Formerly the Lead's self-service page for a whole Registration; now retired for ordinary Registrations, whose old links redirect to the payer's own Household page. It survives only for a Guest List, since it remains the only surface rendering a contactless comp guest's QR and the sponsor's own paid seats — a comp-only carve-out pending its own deletion once no live comp sponsor link still points at an upcoming Event.
 
@@ -98,7 +103,7 @@ The set of live Tickets within one Registration that share the same email addres
 The private, rotatable per-Ticket link that opens a Ticket's Household — letting whoever holds it view every QR at that address, correct a name, email or phone, upgrade (see Conversion), buy more (see Top-up), cancel (see Cancellation), or accept the Waiver ahead of the Event. Distinct from the Ticket Credential: the Manage Link governs the booking, the Credential only admits at the door. Rotating a Manage Link revokes the old one for the whole Household. The Lead's own Manage Link additionally reaches the Receipt Page.
 
 ### Receipt Page
-The Lead's read-only purchase history, reached from their own Manage Link — every purchase they have made across every Event, newest first, itemised from the Registration's own recorded lines rather than the payment provider's hosted receipt. Gated on the `is_lead` flag of the Ticket the link resolves to, not on its email — an ordinary holder can rewrite their own Ticket's address (see Manage Link), so gating on email alone would let them read another person's spend by editing their address to match.
+The Lead's read-only purchase history, reached from their own Manage Link — every purchase they have made across every Event, newest first, itemised from the Registration's own recorded lines rather than the payment provider's hosted receipt. Gated on whether the Ticket the link resolves to is the Lead's, not on its email address — an ordinary holder can rewrite their own Ticket's address (see Manage Link), so gating on email alone would let them read another person's spend by editing their address to match.
 
 ### Door Console
 The public, no-login check-in surface for an Event, opened by staff at a hard-to-guess per-Event link, used to scan Ticket QRs, fill in missing names and waivers, admit walk-ups against unredeemed Tickets, and resend a party's Tickets to its Lead.

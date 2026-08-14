@@ -31,6 +31,10 @@ tags: [stripe, webhook, idempotency, postgres, security-definer, roster, race-co
 >
 > **The generalisable point:** the atomic fill+clear below makes a staging slot safe against *replay*. It does nothing about a *second producer* — the loser of that race reads a perfectly consistent roster that simply belongs to someone else. When a staging slot acquires a second writer, the question is not "is the apply atomic?" but "whose data is this, and does the consumer know?"
 
+> **Update (2026-08-14): the per-item key underneath this fix changed again.** `claim_ticket`'s replay guard was keyed on name + contact with **no ticket-type scoping**, so one person holding two ticket types of a multi-day event collapsed into one seat — `{status:'claimed', already:true}`, nothing claimed, a paid seat left permanently unnamed. `20260814150000_claim_ticket_replay_guard_scoped_to_type.sql` scoped the key to the type.
+>
+> Nothing in this doc's transaction-boundary fix changed. But read its "idempotency belongs to the transaction boundary" claim as *in addition to* a correct per-item key, not *instead of* one. The two layers are independent and each has now failed on its own: this doc's failure was a correct key applied non-atomically, and 2026-08-14's was an atomic apply carrying a wrong key. Getting either right does not protect you from the other. The key itself is documented at [`./contact-only-replay-guard-swallows-people-sharing-an-email.md`](./contact-only-replay-guard-swallows-people-sharing-an-email.md).
+
 ## Problem
 
 The Stripe webhook applies a booker-entered guest roster (`pending_roster`) after a paid event registration is confirmed. The first implementation did this as two separate database round-trips from the Node webhook handler:
@@ -66,7 +70,7 @@ The common thread: idempotency was being sought per-item, on data (names) that h
 
 Move the fill **and** the clear into a single `SECURITY DEFINER` plpgsql function that runs in one transaction under a row lock. The webhook calls it once. A crash rolls back both the claims and the clear together, so `pending_roster` stays set and a redelivery re-applies cleanly from a clean slate. Concurrent redeliveries serialise on the `FOR UPDATE` lock; the loser reads a now-`NULL` roster and returns without re-claiming.
 
-The public register route's free path keeps the simple app-side loop (`fillRegistrationRoster`, `app/api/events/[id]/register/route.ts:349`). Every other path — the Stripe webhook and both top-up branches — uses the atomic RPC. Note that a *synchronous* path may use the atomic RPC too: the free top-up does (`app/api/public/bookings/[token]/topup/route.ts:184`). The rule is not "async paths need the RPC"; it is that **a replayable path may not use anything else**.
+The public register route's free path keeps the simple app-side loop (`fillRegistrationRoster`, `app/api/events/[id]/register/route.ts:502`). Every other path — the Stripe webhook and both top-up branches — uses the atomic RPC. Note that a *synchronous* path may use the atomic RPC too: the free top-up does (`app/api/public/bookings/[token]/topup/route.ts:262`). The rule is not "async paths need the RPC"; it is that **a replayable path may not use anything else**.
 
 ### Before — app-side loop plus a separate clear (not replay-safe for children)
 
@@ -124,7 +128,11 @@ BEGIN
 
   FOR v_guest IN SELECT * FROM jsonb_array_elements(v_roster)
   LOOP
-    PERFORM public.claim_ticket(
+    -- Since 20260811070359 the return value is COLLECTED, not discarded: `already: true`
+    -- means the replay guard matched and nothing was claimed, and the guests left unnamed
+    -- are RAISE WARNING'd rather than silently dropped. Showing `PERFORM` here would print
+    -- the exact discard bug that had to be fixed again on the free path in PR #132.
+    v_res := public.claim_ticket(
       p_registration_id,
       v_guest ->> 'name',
       v_guest ->> 'email',        -- null for children; is_child derived from the type

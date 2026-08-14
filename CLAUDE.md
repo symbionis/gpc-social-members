@@ -11,6 +11,10 @@ Next.js (App Router) + Supabase + Stripe + Postmark, deployed on Railway.
 that smells like it has been seen before, and add an entry when you fix something
 non-obvious. `docs/plans/` holds dated implementation plans; newest on a topic wins.
 
+`CONCEPTS.md` (repo root) is the shared domain vocabulary — entities, named processes, and
+status concepts with project-specific meaning. Useful when orienting to the codebase or
+naming things in review.
+
 ## The database is shared
 
 Dev and prod are ONE Supabase project (`rmchkoktpzoojlglyfca`). There is no staging.

@@ -1,7 +1,7 @@
 ---
 title: "Race-safe slot-claim RPC: enforce a capacity cap at claim time"
 date: 2026-06-07
-last_updated: 2026-08-11
+last_updated: 2026-08-14
 category: design-patterns
 module: events
 problem_type: design_pattern
@@ -12,6 +12,7 @@ applies_when:
   - "A natural parent/owner row defines the cap and child rows consume it"
   - "Claims must serialize against a cap, whether they insert or flip a pre-provisioned row"
   - "The cap is hierarchical — a group total and/or a per-subtype sub-cap"
+  - "A claim is idempotent across retries, but the same actor may legitimately claim more than one subtype"
   - "Capacity logic must live server-side because there is no trusted client (public link, no login)"
 tags:
   - postgres
@@ -31,6 +32,8 @@ related_components:
 # Race-safe slot-claim RPC: enforce a capacity cap at claim time
 
 > **Update (2026-07-22):** The concrete example below — the self-registration flow, the `claim_self_registration` RPC, and the `event_registrations.self_reg_token` column/index — has been **retired** (self-registration removed in U16 / PR #88; the RPC, column, and unique index dropped in R28 / PR #92). The `event_attendees` table it references was **renamed to `tickets`**. The **pattern is unchanged and still in force**: the surviving `claim_ticket` RPC (checkout roster-fill + door walk-up) enforces the same race-safe, `SELECT … FOR UPDATE`-locked, no-pre-provisioning capacity cap on `tickets`, and event capacity is now also computed in SQL by `seats_used` (`purchased − cancelled`). Read the `claim_self_registration` / `event_attendees` / `self_reg_token` snippets below as the historical form of a pattern that today lives in `claim_ticket`.
+>
+> **Update (2026-08-14): this doc carried the subtype in the cap but not in the replay key, and that gap was a bug.** §5 models a per-subtype sub-cap; §3 described the idempotency key as name + contact. PR #132 had to add exactly the missing dimension after one person's two ticket types collapsed into a single unnamed seat. §3 is corrected below, but the rule the pattern needs stated once is this: **a replay/idempotency key must include every dimension that legitimately varies, and nothing that doesn't — and if you enforce a sub-cap per subtype, the subtype is by definition such a dimension.** A cap and a key that disagree about what makes two claims different will always resolve in favour of the key, silently.
 >
 > **Update (2026-08-11):** One design premise below did **not** survive, and the Context section should be read as the reasoning of its time. U3 (`supabase/migrations/20260622180000_mint_registration_tickets.sql`) now mints one `issued`, credentialled ticket per purchased slot at confirmation — that is exactly the "pre-provisioning" the Context marks *Rejected* — and `claim_ticket` flips an `issued` row to `claimed` rather than inserting, falling back to INSERT only when no open row exists. Crucially, **the hazard the rejection was premised on never materialised**: the per-type cap counts `slot_status = 'claimed'` only, so pre-provisioned rows never entered the `purchased − claimed` subtraction. What generalises from this doc is the lock-and-count concurrency pattern; the insert-vs-update choice is not part of it.
 
@@ -116,13 +119,27 @@ END IF;
 The lead/purchaser is itself a `claimed` attendee (seeded at registration), so
 it counts toward the cap — N total people, lead included.
 
-**3. Idempotency for double-submits.** Before counting, the function returns an
-existing live attendee with the same **name and** contact (`already=true`) instead
-of inserting a duplicate — covers a double-tap or the lead re-using the link.
-Contact alone was the original key, and it silently swallowed the second of two
-people sharing an email address; see
-[`../database-issues/contact-only-replay-guard-swallows-people-sharing-an-email.md`](../database-issues/contact-only-replay-guard-swallows-people-sharing-an-email.md)
-for why identity is name + contact, never contact alone.
+**3. Idempotency for double-submits — key it on every dimension that legitimately
+varies, and nothing that doesn't.** Before counting, the function returns an existing
+live attendee with the same **name + contact + subtype** (`already=true`) instead of
+claiming a second slot — covers a double-tap or the lead re-using the link.
+
+This key has been wrong in both directions, and both failures were silent. Too
+*loose* (contact alone) collapsed two people sharing an email into one. Too *tight*
+is the mirror image and far less obvious: **the subtype this pattern already models
+in the cap (§5) must also be in the replay key.** Keying on name + contact while a
+per-subtype sub-cap is in force silently forbids one person holding two slots of
+different subtypes — the ordinary case for a multi-day event selling Friday and
+Saturday separately. The second claim returned the first's row with `already=true`,
+claimed nothing, reported success, and left a paid seat permanently unnamed.
+
+The live key is scoped
+(`supabase/migrations/20260814150000_claim_ticket_replay_guard_scoped_to_type.sql`):
+`AND (v_ticket IS NULL OR ticket_type_id IS NULL OR ticket_type_id = v_ticket)`, with
+two deliberate wide matches — an unresolved incoming type, and an untyped legacy row
+that adopts the type on match and so must stay matchable. Narrowing costs no replay
+safety: a genuine retry replays the same subtype too. See
+[`../database-issues/contact-only-replay-guard-swallows-people-sharing-an-email.md`](../database-issues/contact-only-replay-guard-swallows-people-sharing-an-email.md).
 
 **4. Why `SECURITY DEFINER` + service_role-only.** `event_attendees` and
 `event_registrations` have RLS enabled **with no policies**, so anon/authenticated
