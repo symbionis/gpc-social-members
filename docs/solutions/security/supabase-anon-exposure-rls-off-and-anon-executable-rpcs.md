@@ -1,6 +1,7 @@
 ---
 title: "Supabase anon exposure has two independent gates: RLS on the table and EXECUTE on the function"
 date: 2026-08-09
+last_updated: 2026-08-14
 category: security
 module: database
 problem_type: security_issue
@@ -96,7 +97,7 @@ and treated `204` as "write allowed".
 
 **That inference is invalid.** With RLS *enabled* and no `UPDATE`/`DELETE` policy, PostgREST still returns `204`. RLS filters *which rows are affected*; it does not raise an error. "Zero rows matched the filter" and "zero rows survived the policy" are indistinguishable at the HTTP layer. A genuine permission failure (`42501`) surfaces only when the **role lacks the table grant** — which on Supabase defaults is never the case, since `anon` holds the grant on everything. So the write probe was structurally incapable of returning a negative.
 
-In fact `membership_tiers` and `seasons` had RLS enabled with an intentional `SELECT ... USING (true)` policy for role `public` (public pricing and season data) and no write policy. Writes were already denied. Note that these policies were not created by any migration — `grep` finds no `create policy` for either table under `supabase/migrations/` — so this was established by querying `pg_policies` on the live database, not by reading the repo. That is itself a reason to trust the catalog over the tree. Per the migration's own note at `20260809120000_enable_rls_exposed_tables.sql:16-21`, they were deliberately excluded from the fix.
+In fact `membership_tiers` and `seasons` had RLS enabled with an intentional `SELECT ... USING (true)` policy for role `public` (public pricing and season data) and no write policy. Writes were already denied. This was established by querying `pg_policies` on the live database. A first pass through the repo appeared to confirm the policies existed nowhere in the tree — that was wrong. They are in `supabase/migrations/20260324101510_add_rls_policies_and_seed_data.sql:16` (with the `ENABLE ROW LEVEL SECURITY` statements at lines 7 and 13), written in uppercase (`CREATE POLICY "Tiers are publicly readable" ON membership_tiers FOR SELECT USING (true);`) and missed by a case-sensitive `grep create policy`. Trust the catalog over the tree — but note the tree here was not silent, only mis-searched. **A grep that returns nothing is not evidence of absence.** Per the migration's own note at `20260809120000_enable_rls_exposed_tables.sql:16-21`, they were deliberately excluded from the fix.
 
 Two corollaries:
 
@@ -105,7 +106,31 @@ Two corollaries:
 
 ## Solution
 
-Shipped as **PR #100** (`fix(security): close RLS and SECURITY DEFINER exposure, tighten admin role enforcement`) on `symbionis/gpc-social-members` — **open at time of writing**, branch `symbionis/investigate-error-alert`. Both migrations were applied to production *during* the investigation, because the holes were live, and committed afterwards; the repo followed prod rather than leading it. Migrations were pushed via the Supabase Management API (`POST /v1/projects/{ref}/database/query`) because the Supabase MCP tools were unavailable in-session.
+> **Verified live 2026-08-14 (catalog, not migrations).** This doc's own advice is to trust the
+> catalog over the tree, so the closure was re-checked against the running database rather than
+> inferred from migration files:
+>
+> - **Every `SECURITY DEFINER` function in `public` is `service_role` only.** `has_function_privilege`
+>   returns false for both `anon` and `authenticated` on all of them, including
+>   `create_event_with_ticket_types`, `create_event_registration`, `claim_ticket`,
+>   `checkin_by_credential`, `apply_pending_roster`, `apply_registration_topup`,
+>   `mint_registration_tickets`, `seed_lead_attendee` and `rotate_ticket_manage_token`.
+> - **RLS is enabled on all 27 `public` tables.** Most carry zero policies, which with RLS on is
+>   deny-all for `anon`/`authenticated`; only `service_role` bypasses.
+> - **The `CREATE OR REPLACE` grant-preservation claim held in practice.** Two migrations landed on
+>   2026-08-14 (`20260814090000`, `20260814150000`) redefining `create_event_with_ticket_types` and
+>   `claim_ticket`; both functions are still `service_role` only afterwards.
+>
+> Re-run before trusting this: `select p.proname from pg_proc p join pg_namespace n on
+> n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef and
+> has_function_privilege('anon', p.oid, 'EXECUTE');` — must return zero rows.
+>
+> Still unverified from the repo, and worth a platform check before the next revoke: the complete
+> list of **deployed Edge Functions** (the tree structurally cannot enumerate them), and the
+> point-in-time `.rpc()` call-site audit below, which must be re-run rather than trusted.
+
+
+Shipped as **PR #100** (`fix(security): close RLS and SECURITY DEFINER exposure, tighten admin role enforcement`) on `symbionis/gpc-social-members` — merged as commit `986bf34`, branch `symbionis/investigate-error-alert`. Both migrations were applied to production *during* the investigation, because the holes were live, and committed afterwards; the repo followed prod rather than leading it. Migrations were pushed via the Supabase Management API (`POST /v1/projects/{ref}/database/query`) because the Supabase MCP tools were unavailable in-session.
 
 **Migration 1 — `supabase/migrations/20260809120000_enable_rls_exposed_tables.sql`:**
 
@@ -146,13 +171,13 @@ grant execute on function public.apply_ticket_type_conversion(uuid) to service_r
 
 - All **21** `.rpc()` call sites across `app/`, `lib/`, `components/`.
 - All callers of the `lib/events/seat-usage.ts` helpers — the real risk, because that module takes an **injected** client (`getSeatsUsed(supabase, eventId)` at `lib/events/seat-usage.ts:22-26`), so its safety depends entirely on what each caller passes in.
-- The public token-based booking routes: `app/api/public/bookings/[token]/topup/route.ts:49` and `app/api/public/bookings/[token]/convert/route.ts:42` — both `createAdminClient()`.
+- The public token-based booking routes: `app/api/public/bookings/[token]/topup/route.ts:57` and `app/api/public/bookings/[token]/convert/route.ts:43` — both `createAdminClient()`.
 - The door console: `lib/events/door-access.ts` makes zero `.rpc()` calls.
 - The check-in pages.
 - No `.rpc()` sits inside a `"use client"` component (verified by scanning every `.rpc()`-containing file for the directive).
-- There is no `supabase/functions` directory — no Edge Functions to consider.
+- No Edge Function calls any of the four. `supabase/functions` is absent from the merged tree, but *absent from the tree is not absent from the platform*: `supabase/functions/sinch-sms/index.ts` exists on the unmerged PR #44 branch and was deployed to the project via MCP. It was read and makes no Supabase client or `.rpc()` call, so the revoke was safe — but enumerate deployed Edge Functions from the platform (`supabase functions list`), never from the repo tree.
 
-Even the **public, unauthenticated** event registration route uses the admin client: `app/api/events/[id]/register/route.ts:104`. That is what made the revoke a pure permission tightening with no accompanying code change, safely applicable independent of any deploy.
+Even the **public, unauthenticated** event registration route uses the admin client: `app/api/events/[id]/register/route.ts:110`. That is what made the revoke a pure permission tightening with no accompanying code change, safely applicable independent of any deploy.
 
 ## Why This Works
 
@@ -271,9 +296,9 @@ This project runs a **shared dev/prod Supabase database** — a migration applie
 
 ## Related
 
-- `docs/solutions/security/supabase-securitydefiner-anon-execute-grant-2026-06-04.md` — **direct predecessor.** Documents the `SECURITY DEFINER` grant trap and names all four functions closed here. Its "State as of 2026-06-04" section is now stale: it still lists them as live anon-executable risks. Read this doc alongside it.
+- `docs/solutions/security/supabase-securitydefiner-anon-execute-grant-2026-06-04.md` — **direct predecessor.** Documents the `SECURITY DEFINER` grant trap and names all four functions closed here. It was updated on 2026-08-09 and its state section now reads "closed as of 2026-08-09", crediting `20260809220000_revoke_anon_execute_secdef.sql`. Read this doc alongside it: that one owns the function gate, this one owns the table gate.
 - `docs/solutions/design-patterns/race-safe-claim-rpc-capacity-cap.md` — explains *why* "RLS on, no policies" is the right posture for service-role-only tables rather than writing policies.
 - `docs/solutions/architecture-patterns/live-table-rename-on-shared-prod-db.md` — same threat model via an adjacent mechanism: a default (`security_invoker = false`) view bypasses base-table RLS and leaks to anon.
 - `docs/solutions/best-practices/verify-security-definer-rpc-do-block-rollback.md` — the repo's rolled-back-`DO`-block technique for proving RPC behaviour on the shared prod DB; the transactional-probe counterpart to this doc's catalog queries.
 - `docs/solutions/integration-issues/stripe-supabase-payment-flow-integration-issues.md` — the opposite failure mode on the same axis: RLS too strict, silently swallowing member inserts.
-- PR #100 — ships both migrations (open at time of writing). PR #39 / commit `5b29501` — origin of the predecessor doc.
+- PR #100 — ships both migrations (merged, commit `986bf34`). PR #39 / commit `5b29501` — origin of the predecessor doc.

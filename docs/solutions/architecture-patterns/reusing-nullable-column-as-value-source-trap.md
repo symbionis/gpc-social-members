@@ -2,7 +2,7 @@
 title: "Don't reuse a column that's force-null for a row category as a value source"
 date: "2026-05-26"
 last_refreshed: "2026-05-26"
-last_updated: "2026-08-11"
+last_updated: "2026-08-14"
 category: "architecture-patterns"
 module: "events"
 problem_type: "architecture_pattern"
@@ -107,7 +107,7 @@ const amount = unit === null ? null : Number(unit);
 .filter((t) => t.priceLabel !== "—");   // on an invite-only event: drops EVERY type
 ```
 
-On an invite-only event every type has `price_non_member = NULL`, so for a non-member lead all types were dropped, `buyableTypes` came back `[]`, and `components/public/BookingManager.tsx:104` gates the panel behind `topupEndpoint && buyableTypes && buyableTypes.length > 0`. The whole "Buy more tickets" panel vanished. **No error, no log, no empty state, HTTP 200** — the affordance simply ceased to exist for exactly the guests an invite-only event is built for.
+On an invite-only event every type has `price_non_member = NULL`, so for a non-member lead all types were dropped, `buyableTypes` came back `[]`, and `BookingManager.tsx:104` gated the panel behind `topupEndpoint && buyableTypes && buyableTypes.length > 0`. (`BookingManager` was retired by PR #130 — the lead's booking page now redirects to `/public/tickets/[token]` — but the identical gate lives on at `components/public/TicketManager.tsx:157` and `components/public/CompGuestListManager.tsx:98`, so the failure mode is unchanged, just reachable from two files). The whole "Buy more tickets" panel vanished. **No error, no log, no empty state, HTTP 200** — the affordance simply ceased to exist for exactly the guests an invite-only event is built for.
 
 Contrast with PR #50: on the *charge* path the missing invite class hit the register route's explicit null guard and produced a loud `500 "Event pricing is misconfigured"`. On the *display* path there is no guard — a filter drops the row and the UI silently loses a feature. **The secondary rule above ("the display path and the action/charge path must agree on what missing means") is precisely what was violated**: the top-up route (`app/api/public/bookings/[token]/topup/route.ts:88`) and the sibling `convertTypes` projection twenty lines below in the same page file (line 134) both applied `price_non_member ?? invite_price`; only `buyableTypes` did not. The server was willing to sell; the page never offered. The user-visible signature was "I can change a ticket's type but I can't buy another one."
 
@@ -130,7 +130,7 @@ Accepted trade-off: where an invite type is zero-priced, an invited non-member c
 
 Five app files now import it: the register route, the top-up route, the convert route, the booking page (both `buyableTypes` and `convertTypes`), and the ticket-holder page — the last of which shipped *after* the extraction and used the resolver rather than hand-rolling a seventh branch, which is the whole point.
 
-**One site still hand-rolls it:** `app/(public)/public/events/[id]/page.tsx:155-159` spells the three-way branch inline and does not import the module. It is correct today. It is also the only remaining place a recurrence can start, so it is the first thing to check when this trap next appears.
+**One site still hand-rolls it:** `app/(public)/public/events/[id]/page.tsx:141-166` spells the three-way branch inline and does not import the module. It is correct today. It is also the only remaining place a recurrence can start, so it is the first thing to check when this trap next appears.
 
 Additionally, **a filter that can drop every row must not silently remove the affordance** — collapse-to-empty should render an empty state ("No additional tickets available") or log, so "the panel is gone" is distinguishable from "the panel was never wired up." A regression fixture pins it: an invite-only event with four types (`price_non_member = NULL`, `invite_price` set) must yield `buyableTypes.length === 4` for a non-member lead.
 
