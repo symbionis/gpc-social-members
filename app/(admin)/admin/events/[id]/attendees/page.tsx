@@ -476,7 +476,10 @@ export default async function ManageEventPage({
       quantity: i.quantity,
     })),
     (id) => ticketTypeById.get(id)?.counts_as_seat === true,
-    guestListHolders.length
+    // Seat-consuming guest-list tickets only, matching how paid/free are counted just above
+    // (a non-seat type mints a ticket but takes no seat) — guestListHolders itself stays
+    // unfiltered for the overlap check below, which applies regardless of type.
+    guestListHolders.filter((g) => g.ticketTypeId && ticketTypeById.get(g.ticketTypeId)?.counts_as_seat === true).length
   );
 
   // Tickets still standing. `seats_used` is the authoritative figure: it subtracts cancelled

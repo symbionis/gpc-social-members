@@ -21,7 +21,7 @@
 // generated types contain.
 
 import type { createAdminClient } from "@/lib/supabase/admin";
-import { EMAIL_RE, MAX_PERSON_NAME } from "@/lib/events/order";
+import { EMAIL_RE, MAX_PERSON_NAME, ticketIdentityKey } from "@/lib/events/order";
 
 export type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -315,6 +315,33 @@ export async function addGuestToList(
       error: `Unknown or archived ticket type for this event: ${guest.ticket_type_id}`,
       status: 400,
     };
+  }
+
+  // Replay guard: the retired comp-era route required an idempotency key specifically to
+  // survive a network retry or an admin double-click. This route has none, and there is no
+  // DB uniqueness constraint on (guest_list_id, name, email, ticket_type_id) — a retried
+  // request would otherwise silently duplicate the guest's ticket. Mirror the R4 identity key
+  // (case-folded name, lowercased email, ticket type) and short-circuit to the existing row
+  // rather than inserting a second one.
+  const wantedKey = ticketIdentityKey(guest.name, guest.email ?? "", guest.ticket_type_id);
+  const { data: existingRows, error: existingError } = await adminClient
+    .from("tickets")
+    .select(
+      "id, guest_list_id, registration_id, event_id, ticket_type_id, name, email, slot_status, checked_in_at, created_at"
+    )
+    .eq("guest_list_id", listId)
+    .is("released_at", null);
+  if (existingError) {
+    console.error("[guest-lists] add guest replay check failed", { eventId, listId, err: existingError });
+    return { error: "Could not add the guest", status: 500 };
+  }
+  const duplicate = (existingRows as GuestListTicketRow[] | null ?? []).find(
+    (t) =>
+      t.ticket_type_id &&
+      ticketIdentityKey(t.name ?? "", t.email ?? "", t.ticket_type_id) === wantedKey
+  );
+  if (duplicate) {
+    return { ticket: duplicate };
   }
 
   const { data, error } = await adminClient

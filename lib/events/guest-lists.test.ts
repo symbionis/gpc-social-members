@@ -214,6 +214,74 @@ describe("addGuestToList", () => {
     });
   });
 
+  // Regression test for a code-review finding: a retried request (network retry, admin
+  // double-click) had no replay guard and would silently duplicate the guest's ticket.
+  it("returns the existing ticket instead of inserting a duplicate on a retried request", async () => {
+    const existing = {
+      id: "tix-existing",
+      guest_list_id: LIST,
+      registration_id: null,
+      event_id: EVENT,
+      ticket_type_id: TYPE_A,
+      name: "Bruno Keller",
+      email: null,
+      slot_status: "issued",
+      checked_in_at: null,
+      created_at: "2026-08-15T00:00:00Z",
+    };
+    const client = makeAdminClient({
+      event_ticket_types: ticketTypesHandler([TYPE_A]),
+      tickets: (call) => {
+        if (call.op === "select") return { data: [existing], error: null };
+        if (call.op === "insert") throw new Error("should not insert a duplicate");
+        return { data: null, error: null };
+      },
+    });
+
+    const result = await addGuestToList(client as unknown as never, EVENT, LIST, {
+      name: "Bruno Keller",
+      email: null,
+      ticket_type_id: TYPE_A,
+    });
+
+    expect("ticket" in result).toBe(true);
+    if ("ticket" in result) expect(result.ticket.id).toBe("tix-existing");
+    expect(client.calls.some((c) => c.table === "tickets" && c.op === "insert")).toBe(false);
+  });
+
+  it("does not treat the same person on a DIFFERENT ticket type as a duplicate (multi-day)", async () => {
+    const existing = {
+      id: "tix-existing",
+      guest_list_id: LIST,
+      registration_id: null,
+      event_id: EVENT,
+      ticket_type_id: TYPE_A,
+      name: "Bruno Keller",
+      email: null,
+      slot_status: "issued",
+      checked_in_at: null,
+      created_at: "2026-08-15T00:00:00Z",
+    };
+    const client = makeAdminClient({
+      event_ticket_types: ticketTypesHandler([TYPE_A, TYPE_B]),
+      tickets: (call) => {
+        if (call.op === "select") return { data: [existing], error: null };
+        if (call.op === "insert")
+          return { data: { id: "tix-new", ...(call.payload as Record<string, unknown>), checked_in_at: null, created_at: "x" }, error: null };
+        return { data: null, error: null };
+      },
+    });
+
+    const result = await addGuestToList(client as unknown as never, EVENT, LIST, {
+      name: "Bruno Keller",
+      email: null,
+      ticket_type_id: TYPE_B,
+    });
+
+    expect("ticket" in result).toBe(true);
+    if ("ticket" in result) expect(result.ticket.id).toBe("tix-new");
+  });
+
   it("accepts a guest added without an email — the insert payload carries no required email", async () => {
     const client = makeAdminClient({
       event_ticket_types: ticketTypesHandler([TYPE_A]),
@@ -700,6 +768,18 @@ describe("guest-lists route — write", () => {
 
     const res = await callDelete({ listId: LIST });
     expect(res.status).toBe(409);
+  });
+
+  it("400s a POST with an unrecognised type", async () => {
+    const res = await callPost({ type: "sponsor", listId: LIST });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/list.*guest/i);
+  });
+
+  it("400s a guest POST with no listId", async () => {
+    const res = await callPost({ type: "guest", name: "Ghost", ticketTypeId: TYPE_A });
+    expect(res.status).toBe(400);
   });
 });
 
