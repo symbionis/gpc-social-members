@@ -49,6 +49,17 @@ export interface RosterRow {
   isLead: boolean;
   /** False when nobody has been named on this ticket: print a blank line to write on. */
   named: boolean;
+  /**
+   * Non-null when this ticket belongs to a guest list (U5/U6): the list's id, its name and
+   * its contact, carried on every row rather than looked up separately so a pure grouping
+   * helper (rosterGuestListGroups below) can build sections from `rows` alone — the same
+   * shape rosterTypeTotals already uses. A guest-list ticket has no registration (KD10), so
+   * it always reaches the roster through the registration-less loop below, never through a
+   * party.
+   */
+  guestListId: string | null;
+  guestListName: string;
+  guestListContact: string;
 }
 
 export interface RosterEvent {
@@ -65,6 +76,7 @@ export type DoorRosterResult =
 interface TicketRow {
   id: string;
   registration_id: string | null;
+  guest_list_id: string | null;
   member_id: string | null;
   name: string | null;
   email: string | null;
@@ -122,10 +134,18 @@ export async function buildDoorRoster(
   // admission an unrecognized status must fall OFF the roster, never onto it as an
   // anonymous tickable line. `credential_token` is deliberately not selected — it is a
   // bearer QR token, and a printed sheet of them would admit anyone who photographs it.
+  //
+  // U6 / join-drop risk: this reads `tickets` directly with no join through
+  // `registrations` or `event_registrations` at all — `registration_id` is carried as a
+  // plain column and matched against `event_registrations` in memory below (see
+  // `liveByReg`). A `registration_id IS NULL` row (a guest-list ticket, U5) is therefore
+  // never dropped by this query; it is picked up by the "belongs to no registration" loop
+  // near the bottom of this function. Confirmed by reading this clause — there is no
+  // `.select("*, registrations(...)")` / foreign-table join anywhere in this file.
   const { data: ticketData, error: ticketsError } = await adminClient
     .from("tickets")
     .select(
-      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, cancellation_status, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, guest_list_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, cancellation_status, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", eventId)
     .in("slot_status", [...ADMISSIBLE_SLOT_STATUSES])
@@ -167,6 +187,29 @@ export async function buildDoorRoster(
   const ticketTitleById = new Map<string, string>();
   for (const t of typeRows ?? []) {
     ticketTitleById.set(t.id as string, (t.title as string | null) ?? "");
+  }
+
+  // Guest-list names + contacts (U6). A lean, dedicated query rather than reusing
+  // lib/events/guest-lists.ts's fetchGuestLists: that function re-reads `tickets` itself,
+  // with no admissibility or cancellation filter, so a cancelled guest-list ticket would
+  // ride back onto the door sheet through it. Only the list's own row (name, contact) is
+  // needed here — the ticket data this function already has stays authoritative.
+  const guestListIds = [
+    ...new Set(tickets.map((t) => t.guest_list_id).filter((id): id is string => !!id)),
+  ];
+  const guestListById = new Map<string, { name: string; contact: string }>();
+  if (guestListIds.length) {
+    const { data: guestListRows, error: guestListsError } = await adminClient
+      .from("event_guest_lists")
+      .select("id, list_name, contact_name")
+      .in("id", guestListIds);
+    if (guestListsError) return fail("event_guest_lists", guestListsError);
+    for (const l of guestListRows ?? []) {
+      guestListById.set(l.id as string, {
+        name: (l.list_name as string | null) ?? "",
+        contact: (l.contact_name as string | null) ?? "",
+      });
+    }
   }
 
   // The purchase record. `quantity` is how many tickets the party owns — the number of
@@ -230,6 +273,14 @@ export async function buildDoorRoster(
     (memberId && memberNameById.get(memberId)) || splitFullName(name);
   const typeTitle = (id: string | null) => (id ? ticketTitleById.get(id) ?? "" : "");
   const isClaimed = (t: TicketRow) => t.slot_status === "claimed";
+  // A guest-list ticket is named by the admin at creation (lib/events/guest-lists.ts's
+  // addGuestToList) and never goes through the self-registration claim flow — it is minted
+  // `issued` and STAYS `issued` through check-in, because lib/events/checkin.ts only ever
+  // sets `checked_in_at`, never `slot_status`. Treating "named" as isClaimed alone would
+  // print every guest-list guest, before and after they arrive, as an anonymous blank
+  // "to fill in" line — losing the name the sponsor actually gave. `guest_list_id` is the
+  // signal that this `issued` row is not an unclaimed placeholder.
+  const isNamed = (t: TicketRow) => isClaimed(t) || t.guest_list_id !== null;
 
   const liveByReg = new Map<string, TicketRow[]>();
   for (const t of tickets) {
@@ -247,14 +298,18 @@ export async function buildDoorRoster(
     bookingRef: string,
     partyLead: string
   ): RosterRow => {
+    const guestList = t.guest_list_id ? guestListById.get(t.guest_list_id) : undefined;
     const base = {
       bookingRef,
       ticketType: typeTitle(t.ticket_type_id),
       partyLead,
       tickets: "",
       isLead: t.is_lead && isClaimed(t),
+      guestListId: t.guest_list_id,
+      guestListName: guestList?.name ?? "",
+      guestListContact: guestList?.contact ?? "",
     };
-    if (!isClaimed(t)) {
+    if (!isNamed(t)) {
       return {
         ...base,
         last: "",
@@ -349,6 +404,11 @@ export async function buildDoorRoster(
         arrived: "",
         isLead: true,
         named: Boolean(last || first),
+        // A reconstructed lead comes from a registration, never a guest list — a
+        // guest-list ticket has no registration to reconstruct from (KD10).
+        guestListId: null,
+        guestListName: "",
+        guestListContact: "",
       };
     }
 
@@ -382,6 +442,12 @@ export async function buildDoorRoster(
       arrived: "",
       isLead: false,
       named: false,
+      // Padding fills a registration's unminted seats — a guest-list ticket is always
+      // individually minted (KD10) and never counted in a registration's quantity, so it
+      // is never a source of padding.
+      guestListId: null,
+      guestListName: "",
+      guestListContact: "",
     }));
 
     // On a current-generation event, minting should have produced these rows. Padding
@@ -406,8 +472,12 @@ export async function buildDoorRoster(
     rows.push(...(leadRow ? [leadRow] : []), ...partyRows);
   }
 
-  // Ops/bulk-imported tickets belong to no registration. Each files under its own
-  // surname among everyone else — not at the end.
+  // Tickets that belong to no registration: ops/bulk-imported rows, and — since U5/U6 —
+  // guest-list guests (KD10: a guest-list ticket is minted with `registration_id: null`
+  // and never gets one). Each files under its own surname among everyone else — not at the
+  // end — because rowFromTicket now treats a guest-list ticket as named (see isNamed).
+  // Grouping them by list, for staff working a sponsor's list as a unit, is a presentation
+  // concern layered on top via rosterGuestListGroups below, not a change to this flat list.
   for (const t of tickets) {
     if (t.registration_id) continue;
     rows.push(rowFromTicket(t, "", ""));
@@ -418,6 +488,39 @@ export async function buildDoorRoster(
   rows.sort(bySurname);
 
   return { status: "ok", event, rows };
+}
+
+export interface GuestListRosterGroup {
+  id: string;
+  name: string;
+  contactName: string;
+  rows: RosterRow[];
+}
+
+/**
+ * Guest-list rows (U6), grouped under their list and sorted within it by the same
+ * `bySurname` comparator the flat sheet uses — so a sponsor's list reads as one findable
+ * unit ("Cardis brought 12, here they are") instead of scattered blank-bookingRef entries
+ * through the A–Z sheet. Lists are ordered by name; a `rows` with no guest-list tickets
+ * returns an empty array, so a caller that ignores this on an event with no guest lists
+ * sees no change at all.
+ */
+export function rosterGuestListGroups(rows: RosterRow[]): GuestListRosterGroup[] {
+  const byList = new Map<string, RosterRow[]>();
+  for (const row of rows) {
+    if (!row.guestListId) continue;
+    const list = byList.get(row.guestListId) ?? [];
+    list.push(row);
+    byList.set(row.guestListId, list);
+  }
+  return [...byList.entries()]
+    .map(([id, groupRows]) => ({
+      id,
+      name: groupRows[0].guestListName,
+      contactName: groupRows[0].guestListContact,
+      rows: groupRows.slice().sort(bySurname),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Every ticket type on the sheet with its count — the catering line, in roster order. */
