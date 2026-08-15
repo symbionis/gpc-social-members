@@ -19,6 +19,7 @@ import {
   partitionByCancellation,
 } from "@/lib/events/ticket-admissibility";
 import { splitBookedTickets } from "@/lib/events/booked-tickets";
+import { fetchGuestLists } from "@/lib/events/guest-lists";
 
 export default async function ManageEventPage({
   params,
@@ -368,54 +369,29 @@ export default async function ManageEventPage({
     };
   });
 
-  // The event's comp guest lists (is_guest_list registrations) with their tickets — the
-  // Guest list tab maintains these. Both halves are already in hand: `registrations`
-  // holds every paid/free registration of this event, and `claimedRoster` holds every
-  // claimed, non-released ticket of it. Every comp-guest ticket is claimed (a comp seat is
-  // minted named), so the named subset already contains them — no second round trip, and
-  // tombstoned tickets are excluded by the roster query's released_at filter.
-  //
-  // TODO(U5): this whole block is the pre-unified-purchase-module guest list read. U5 replaces
-  // it with the real list model (table event_guest_lists, lib/events/guest-lists.ts) — wire the
-  // new source into the `guestLists` prop below rather than extending this one.
-  const rosterByReg = new Map<string, AttendeeRow[]>();
-  for (const a of claimedRoster) {
-    if (!a.registration_id) continue;
-    const list = rosterByReg.get(a.registration_id) ?? [];
-    list.push(a);
-    rosterByReg.set(a.registration_id, list);
-  }
-
-  const guestLists = (registrations ?? [])
-    .filter((r) => r.is_guest_list === true)
-    .map((r) => ({
-      registrationId: r.id,
-      referenceCode: (r.reference_code as string | null) ?? null,
-      leadName: (r.name as string | null) ?? "",
-      leadEmail: (r.email as string | null) ?? "",
-      people: (rosterByReg.get(r.id) ?? [])
-        // U10 (R16/KD7): used to be COMP tickets only (`.filter((t) => t.is_comp)`), which kept
-        // a paid top-up on the same registration off this list. Comp is retired and this page no
-        // longer reads is_comp, so every claimed ticket on the registration shows here now,
-        // top-ups included — the guest-list Remove route still refuses a non-comp ticket
-        // server-side, so this is a display-only widening until U5's real list model lands.
-        .slice()
-        .sort((a, b) =>
-          a.is_lead === b.is_lead
-            ? a.created_at.localeCompare(b.created_at)
-            : a.is_lead
-              ? -1
-              : 1
-        )
-        .map((t) => ({
-          ticketId: t.id,
-          name: t.name ?? "",
-          email: t.email ?? null,
-          ticketTypeTitle: t.ticket_type_id ? ticketTitleById.get(t.ticket_type_id) ?? "" : "",
-          isLead: t.is_lead,
-          checkedIn: t.checked_in_at !== null,
-        })),
-    }));
+  // The event's guest lists, U5 model (event_guest_lists + tickets.guest_list_id, KD10): a
+  // guest on a list IS a ticket with no registration behind it, so this reads
+  // lib/events/guest-lists.ts rather than anything off `registrations`/`claimedRoster` — the
+  // old is_guest_list-registration read this replaced counted a different, comp-era shape.
+  // Mapped onto GuestList.tsx's own local Props shape (`people`, `ticketTypeTitle`) rather
+  // than the server module's wire shape (`guests`, no title) — see that component's header
+  // for why it declares its own types instead of importing the server module's.
+  const guestListEntries = await fetchGuestLists(supabase, id);
+  const guestLists = guestListEntries.map((list) => ({
+    id: list.id,
+    listName: list.listName,
+    contactName: list.contactName,
+    contactEmail: list.contactEmail,
+    contactPhone: list.contactPhone,
+    people: list.guests.map((g) => ({
+      ticketId: g.ticketId,
+      name: g.name,
+      email: g.email,
+      ticketTypeId: g.ticketTypeId,
+      ticketTypeTitle: g.ticketTypeId ? ticketTitleById.get(g.ticketTypeId) ?? "" : "",
+      checkedIn: g.checkedIn,
+    })),
+  }));
 
   // How many sponsors hold a list. The comped TICKET count is derived with the other
   // categories below, off the same registrations — previously it was counted here off

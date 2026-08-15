@@ -627,9 +627,6 @@ export default function ManageEventTabs({
           eventId={eventId}
           ticketTypes={ticketTypes}
           guestLists={guestLists}
-          hasSeatCap={hasSeatCap}
-          seatCap={seatCap}
-          total={total}
         />
       )}
 
