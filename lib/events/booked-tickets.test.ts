@@ -14,7 +14,6 @@ const reg = (over: Partial<Parameters<typeof splitBookedTickets>[0][number]> = {
   id: "reg-1",
   quantity: 2,
   status: "paid",
-  is_guest_list: false,
   ...over,
 });
 
@@ -53,19 +52,6 @@ describe("splitBookedTickets", () => {
     );
 
     expect(split).toEqual({ paid: 2, free: 0, guestList: 3, booked: 5 });
-  });
-
-  // is_guest_list is vestigial now (see BookedRegistration's doc) — a registration flagged
-  // with it no longer routes to the guestList bucket; it is split by status like any other
-  // registration, because every registration reaching this function is a real booking (U7).
-  it("is never driven by is_guest_list on a registration, even when set", () => {
-    const split = splitBookedTickets(
-      [reg({ id: "r-1", quantity: 3, status: "free", is_guest_list: true })],
-      [{ registration_id: "r-1", ticket_type_id: SEAT, quantity: 3 }],
-      countsAsSeat
-    );
-
-    expect(split).toEqual({ paid: 0, free: 3, guestList: 0, booked: 3 });
   });
 
   it("separates free bookings from paid ones", () => {

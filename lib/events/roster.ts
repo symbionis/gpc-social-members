@@ -16,11 +16,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
  * Mint one issued, credentialled ticket per purchased-but-unfilled slot for a
- * confirmed registration. Call AFTER seedLeadAttendee — the lead's claimed row is
- * counted as existing, so the mint creates (purchased − existing) issued rows per
- * type. The work (registration lock, per-type shortfall, credential generation,
- * idempotency) lives in the mint_registration_tickets SECURITY DEFINER function, so
- * this is safe to call from the free path and the Stripe webhook (replay-safe).
+ * confirmed registration. Nothing is pre-seeded before this runs (KTD3) — the buyer's
+ * own seat(s) mint issued and unclaimed exactly like every guest's, so the mint
+ * creates (purchased − existing) issued rows per type against whatever is already
+ * claimed at call time. The work (registration lock, per-type shortfall, credential
+ * generation, idempotency) lives in the mint_registration_tickets SECURITY DEFINER
+ * function, so this is safe to call from the free path and the Stripe webhook
+ * (replay-safe).
  *
  * Best-effort: a mint failure is logged, not thrown — the registration has already
  * succeeded and the mint is idempotent, so a retry/backfill reconciles. The log

@@ -33,13 +33,6 @@ export interface BookedRegistration {
   id: string;
   quantity: number;
   status: string;
-  /**
-   * Vestigial (U9): comp registrations are retired (U7), so this is always false on a live
-   * registration and is no longer read by `splitBookedTickets`. Kept on the interface only
-   * because the attendees page still selects and passes the column; drop it there first if you
-   * want it gone from here too.
-   */
-  is_guest_list: boolean | null;
 }
 
 /** One purchased line of a booking. */
@@ -100,8 +93,8 @@ export function splitBookedTickets(
     const seats = hasAnyItem.has(r.id)
       ? seatQuantityByRegistration.get(r.id) ?? 0
       : r.quantity;
-    // `is_guest_list` is never read here (see BookedRegistration's doc) — every registration
-    // reaching this loop is a real paid or free booking now that comp is retired (U7).
+    // Every registration reaching this loop is a real paid or free booking now that comp
+    // is retired (U7) — there is no third registration status to branch on here.
     if (r.status === "paid") paid += seats;
     else free += seats;
   }

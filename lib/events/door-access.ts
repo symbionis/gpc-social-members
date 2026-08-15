@@ -421,18 +421,39 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
 export async function buildNewGuestListGroups(eventId: string): Promise<DoorGuestListGroup[]> {
   const supabase = createAdminClient();
 
-  const { data: lists, error: listsError } = await supabase
-    .from("event_guest_lists")
-    .select("id, list_name, contact_name")
-    .eq("event_id", eventId)
-    .order("created_at", { ascending: true });
+  // The guest lists and the ticket-type titles are independent reads (neither's filter
+  // depends on the other) — fire them concurrently rather than paying two round trips in
+  // series. Only the `tickets` read below genuinely depends on a prior result (`listIds`).
+  const [
+    { data: lists, error: listsError },
+    { data: ttRows, error: ttErr },
+  ] = await Promise.all([
+    supabase
+      .from("event_guest_lists")
+      .select("id, list_name, contact_name")
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: true }),
+    // Ticket-type titles for the slots, same pattern as buildDoorRoster's own lookup above —
+    // a second, independent query rather than threading state between the two functions.
+    supabase.from("event_ticket_types").select("id, title").eq("event_id", eventId),
+  ]);
   if (listsError) {
     throw new Error(`buildNewGuestListGroups: could not load guest lists: ${listsError.message}`, {
       cause: listsError,
     });
   }
+  if (ttErr) {
+    throw new Error(`buildNewGuestListGroups: could not load ticket types: ${ttErr.message}`, {
+      cause: ttErr,
+    });
+  }
   const listRows = lists ?? [];
   if (listRows.length === 0) return [];
+
+  const ticketTitleById = new Map<string, string>();
+  for (const t of ttRows ?? []) {
+    ticketTitleById.set(t.id as string, (t.title as string | null) ?? "");
+  }
 
   const listIds = listRows.map((l) => l.id as string);
   const { data: tickets, error: ticketsError } = await supabase
@@ -446,22 +467,6 @@ export async function buildNewGuestListGroups(eventId: string): Promise<DoorGues
       `buildNewGuestListGroups: could not load guest-list tickets: ${ticketsError.message}`,
       { cause: ticketsError }
     );
-  }
-
-  // Ticket-type titles for the slots, same pattern as buildDoorRoster's own lookup above —
-  // a second, independent query rather than threading state between the two functions.
-  const { data: ttRows, error: ttErr } = await supabase
-    .from("event_ticket_types")
-    .select("id, title")
-    .eq("event_id", eventId);
-  if (ttErr) {
-    throw new Error(`buildNewGuestListGroups: could not load ticket types: ${ttErr.message}`, {
-      cause: ttErr,
-    });
-  }
-  const ticketTitleById = new Map<string, string>();
-  for (const t of ttRows ?? []) {
-    ticketTitleById.set(t.id as string, (t.title as string | null) ?? "");
   }
 
   const slotsByList = new Map<string, DoorSlot[]>();

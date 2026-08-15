@@ -9,10 +9,10 @@ import {
   type OrderViolation,
 } from "@/lib/events/order";
 
-// Buy more tickets onto a booking (U2, widened by U4 onto the shared order module). Shared by
-// TicketManager (any holder — the seats it buys are never for the buyer, R9) and
-// CompGuestListManager (the sponsor's own lead ticket only). Every row takes its own name,
-// email, and ticket type(s) before payment, validated by the same rule set checkout uses
+// Buy more tickets onto a booking (U2, widened by U4 onto the shared order module). Used by
+// TicketManager (any holder — the seats it buys are never for the buyer, R9). Every row
+// takes its own name, email, and ticket type(s) before payment, validated by the same rule
+// set checkout uses
 // (R18/KD5) — this used to check only that a name and email were non-empty, which is far
 // less rigorous than checkout ever was. Presented as an ordinary purchase (R20) — never call
 // this a "top-up" in guest-facing copy, even though it posts to the top-up route under the

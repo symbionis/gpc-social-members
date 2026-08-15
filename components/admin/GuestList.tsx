@@ -12,10 +12,11 @@ import type { InviteTicketType } from "@/components/admin/EventInviteLink";
 // a list IS a ticket. Adding a guest never charges anything, never touches a registration,
 // and never affects the seat count (R12/R13/KTD4).
 //
-// This component deliberately declares its OWN local types rather than importing from
-// lib/events/guest-lists.ts: that module reaches for lib/events/guest-list-auth.ts, which
-// pulls in @/lib/supabase/server → next/headers, and this is a "use client" component. See
-// lib/events/guest-lists.ts's header for the same rule stated from the server side.
+// This component deliberately declares its OWN local types rather than importing
+// `GuestListEntry`/`GuestListGuest` from lib/events/guest-lists.ts: the shapes genuinely
+// differ, not for bundle-safety. This component's `GuestListPerson` resolves a
+// `ticketTypeTitle` (a lookup the server module has no ticket-type data to do) and renames
+// `guests` to `people` — see the server module's own header for the exact mapping.
 //
 // No paste import, no parser (KD11) — a guest is added one at a time: name, ticket type,
 // optional email.
@@ -28,6 +29,12 @@ export interface GuestListPerson {
   ticketTypeId: string | null;
   ticketTypeTitle: string;
   checkedIn: boolean;
+  /**
+   * AE6: this guest also holds a purchased ticket (matched on the R4 identity key — name,
+   * email, ticket type). Not an error — a sponsor naming someone who already bought is
+   * normal — but flagged so the admin sees it rather than reading two tickets as two people.
+   */
+  alreadyHasTicket: boolean;
 }
 
 /** One guest list: its own name, its contact, and its guests. */
@@ -364,6 +371,14 @@ export default function GuestList({ eventId, ticketTypes, guestLists }: Props) {
                           )}
                           {p.checkedIn && (
                             <span className="ml-2 text-xs text-emerald-800">Checked in</span>
+                          )}
+                          {p.alreadyHasTicket && (
+                            <span
+                              className="ml-2 text-xs text-amber-800"
+                              title="This person also holds a purchased ticket for this event"
+                            >
+                              Already has a ticket
+                            </span>
                           )}
                         </div>
                       </li>

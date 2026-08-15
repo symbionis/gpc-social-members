@@ -74,7 +74,7 @@ export default async function ManageEventPage({
     supabase
       .from("event_registrations")
       .select(
-        "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, manage_token, ticket_email_sent_at, stripe_payment_intent_id, is_guest_list, created_at, waitlist_entry_id"
+        "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, manage_token, ticket_email_sent_at, stripe_payment_intent_id, created_at, waitlist_entry_id"
       )
       .eq("event_id", id)
       .in("status", ["paid", "free"])
@@ -370,7 +370,7 @@ export default async function ManageEventPage({
   // than the server module's wire shape (`guests`, no title) — see that component's header
   // for why it declares its own types instead of importing the server module's.
   const guestListEntries = await fetchGuestLists(supabase, id);
-  const guestLists = guestListEntries.map((list) => ({
+  const guestListsBase = guestListEntries.map((list) => ({
     id: list.id,
     listName: list.listName,
     contactName: list.contactName,
@@ -390,26 +390,36 @@ export default async function ManageEventPage({
   // categories below, off the same registrations — previously it was counted here off
   // `guestLists` and excluded cancelled comps, which made it the one figure in the overview
   // measured after cancellation while the rest were measured before.
-  const guestListCount = guestLists.length;
+  const guestListCount = guestListsBase.length;
 
-  // U9: a person can hold both a purchased ticket and a guest-list ticket of the same type
-  // (a sponsor comping someone who already bought) — union, don't double-count. Matched on
-  // the R4 identity key (name + email + ticket type), never email alone (household seatmates
+  // U9/AE6: a person can hold both a purchased ticket and a guest-list ticket of the same
+  // type (a sponsor comping someone who already bought) — union the ticket-type totals
+  // rather than double-counting, and flag the overlap on the guest's own row so the admin
+  // sees it (AE6: "the admin list flags them as also holding a ticket"). Matched on the R4
+  // identity key (name + email + ticket type), never email alone (household seatmates
   // sharing an address must stay two people, not one).
   const purchasedHolders = claimedRoster.map((a) => ({
     name: a.name,
     email: a.email,
     ticketTypeId: a.ticket_type_id,
   }));
-  const guestListHolders = guestListEntries.flatMap((list) =>
-    list.guests.map((g) => ({
-      ticketId: g.ticketId,
-      name: g.name,
-      email: g.email,
-      ticketTypeId: g.ticketTypeId,
+  const guestListHolders = guestListsBase.flatMap((list) =>
+    list.people.map((p) => ({
+      ticketId: p.ticketId,
+      name: p.name,
+      email: p.email,
+      ticketTypeId: p.ticketTypeId,
     }))
   );
   const guestListOverlap = findGuestListOverlap(purchasedHolders, guestListHolders);
+
+  const guestLists = guestListsBase.map((list) => ({
+    ...list,
+    people: list.people.map((p) => ({
+      ...p,
+      alreadyHasTicket: guestListOverlap.overlappingTicketIds.has(p.ticketId),
+    })),
+  }));
 
   const ticketTypeSummary = ticketTypes.map((tt) => {
     const typeId = tt.id as string;
@@ -426,8 +436,8 @@ export default async function ManageEventPage({
 
   // Guests on lists who are admitted (checked in) — the other half of R19's separate pair
   // (guests on lists, guests admitted), kept apart from the purely-ticketed check-in rate.
-  const guestListAdmitted = guestListEntries.reduce(
-    (sum, list) => sum + list.guests.filter((g) => g.checkedIn).length,
+  const guestListAdmitted = guestLists.reduce(
+    (sum, list) => sum + list.people.filter((p) => p.checkedIn).length,
     0
   );
 
@@ -454,7 +464,6 @@ export default async function ManageEventPage({
       id: r.id,
       quantity: r.quantity,
       status: r.status,
-      is_guest_list: r.is_guest_list,
     })),
     ticketItemRows.map((i) => ({
       registration_id: i.registration_id,

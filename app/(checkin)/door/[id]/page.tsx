@@ -41,18 +41,14 @@ export default async function DoorConsolePage({
     );
   }
 
-  const {
-    parties,
-    arrivals,
-    notArrived,
-    arrived,
-    expected,
-    outstanding,
-    unaccounted,
-  } = await buildDoorRoster(id);
-  // U5/U6/U9: guest lists from the new list model — invisible to buildDoorRoster above,
-  // since a guest-list ticket has no registration to attach a party to (KD10).
-  const newGuestListGroups = await buildNewGuestListGroups(id);
+  // Two independent reads (neither depends on the other's output) — run concurrently rather
+  // than doubling this page's round-trip latency.
+  const [
+    { parties, arrivals, notArrived, arrived, expected, outstanding, unaccounted },
+    // U5/U6/U9: guest lists from the new list model — invisible to buildDoorRoster above,
+    // since a guest-list ticket has no registration to attach a party to (KD10).
+    newGuestListGroups,
+  ] = await Promise.all([buildDoorRoster(id), buildNewGuestListGroups(id)]);
 
   return shell(
     <div className="space-y-6">

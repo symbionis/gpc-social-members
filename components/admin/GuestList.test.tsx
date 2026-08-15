@@ -59,6 +59,7 @@ const entry = (over: Partial<GuestListEntry> = {}): GuestListEntry => ({
       ticketTypeId: "tt-asado",
       ticketTypeTitle: "Asado",
       checkedIn: false,
+      alreadyHasTicket: false,
     },
   ],
   ...over,
@@ -265,6 +266,7 @@ describe("GuestList — adding a guest to an existing list", () => {
               ticketTypeId: "tt-asado",
               ticketTypeTitle: "Asado",
               checkedIn: true,
+              alreadyHasTicket: false,
             },
           ],
         }),
@@ -274,6 +276,37 @@ describe("GuestList — adding a guest to an existing list", () => {
     const region = listRegion();
     expect(region.getByText("Checked in")).toBeInTheDocument();
     expect(region.queryByText("Lead")).not.toBeInTheDocument();
+  });
+
+  it("flags a guest who already holds a purchased ticket (AE6), without hiding the row", () => {
+    renderGuestList({
+      guestLists: [
+        entry({
+          people: [
+            {
+              ticketId: "t-overlap",
+              name: "Bruno Keller",
+              email: null,
+              ticketTypeId: "tt-asado",
+              ticketTypeTitle: "Asado",
+              checkedIn: false,
+              alreadyHasTicket: true,
+            },
+          ],
+        }),
+      ],
+    });
+
+    const region = listRegion();
+    expect(region.getByText("Bruno Keller")).toBeInTheDocument();
+    expect(region.getByText("Already has a ticket")).toBeInTheDocument();
+  });
+
+  it("shows no overlap flag for an ordinary guest", () => {
+    renderGuestList({ guestLists: [entry()] });
+
+    const region = listRegion();
+    expect(region.queryByText("Already has a ticket")).not.toBeInTheDocument();
   });
 });
 

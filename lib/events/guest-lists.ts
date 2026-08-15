@@ -1,28 +1,25 @@
-// The new guest-list model (U5 of
-// docs/plans/2026-08-15-001-feat-unified-purchase-module-plan.md): a guest list is a list
-// attached to an event — a list name, a list contact, and guests who each hold a
-// registration-less ticket. There is no entries table — a guest on a list IS a ticket
-// (KD10). Schema: supabase/migrations/20260814160001_guest_lists.sql.
+// The guest-list model (U5 of docs/plans/2026-08-15-001-feat-unified-purchase-module-plan.md):
+// a guest list is a list attached to an event — a list name, a list contact, and guests who
+// each hold a registration-less ticket. There is no entries table — a guest on a list IS a
+// ticket (KD10). Schema: supabase/migrations/20260814160001_guest_lists.sql.
 //
 // This module is imported ONLY by app/api/admin/events/[id]/guest-lists/route.ts (a server
 // route) and its own tests. components/admin/GuestList.tsx (a "use client" component)
-// declares its own local prop types and never imports this file — the same reason
-// lib/events/guest-list-auth.ts is not folded into lib/events/guest-list.ts (see that
-// file's header): assertAdmin reaches for @/lib/supabase/server, which pulls in
-// next/headers, and that must never end up in a client bundle.
+// declares its own local prop types instead of importing `GuestListEntry`/`GuestListGuest`
+// from here — not for bundle-safety (this module's only import, `createAdminClient`, is
+// type-only and pulls in nothing at runtime), but because the shapes genuinely differ: the
+// client's version resolves `ticketTypeTitle` (a lookup this module has no ticket-type data
+// to do) and renames `guests` to `people`. See that component's header for the exact mapping.
 //
-// `lib/events/guest-lists.ts` (plural, this file) sits alongside
-// `lib/events/guest-list.ts` (singular, the old comp-list module) until U7 deletes the
-// latter. Do not confuse the two — import paths differ by one character.
-//
-// ROW TYPES ARE LOCAL: types/database.ts has not been regenerated yet (U8 does that once,
-// after this migration lands) so it knows nothing of event_guest_lists or
-// tickets.guest_list_id. lib/supabase/admin.ts's createAdminClient() deliberately carries
-// no Database generic ("avoids strict type issues with service role operations"), so the
-// interfaces below are for OUR code's benefit, not the client's — they are not enforced by
-// the compiler against Supabase's response shape.
+// ROW TYPES ARE LOCAL rather than imported from `types/database.ts` (which does know about
+// `event_guest_lists`/`tickets.guest_list_id`): `lib/supabase/admin.ts`'s createAdminClient()
+// deliberately carries no Database generic ("avoids strict type issues with service role
+// operations"), so the interfaces below are for OUR code's benefit, not the client's — they
+// are not enforced by the compiler against Supabase's response shape regardless of what the
+// generated types contain.
 
 import type { createAdminClient } from "@/lib/supabase/admin";
+import { EMAIL_RE, MAX_PERSON_NAME } from "@/lib/events/order";
 
 export type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -75,10 +72,9 @@ export interface GuestListEntry {
 
 export type Validated<T> = { ok: true; value: T } | { ok: false; error: string };
 
-// Loose shape check only; a real ticket type lookup and the DB's own constraints are the
-// actual guards. This exists so an obvious typo surfaces as a 400, not a 500.
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MAX_NAME_LENGTH = 120;
+// EMAIL_RE/MAX_PERSON_NAME (imported above) are a loose shape check only; a real ticket
+// type lookup and the DB's own constraints are the actual guards. This exists so an obvious
+// typo surfaces as a 400, not a 500.
 
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
@@ -110,13 +106,13 @@ export function parseCreateListInput(input: unknown): Validated<CreateListPayloa
 
   const listName = str(raw.listName);
   if (!listName) return { ok: false, error: "The list requires a name" };
-  if (listName.length > MAX_NAME_LENGTH) {
+  if (listName.length > MAX_PERSON_NAME) {
     return { ok: false, error: "The list name is too long" };
   }
 
   const contactName = str(raw.contactName);
   if (!contactName) return { ok: false, error: "The list requires a contact name" };
-  if (contactName.length > MAX_NAME_LENGTH) {
+  if (contactName.length > MAX_PERSON_NAME) {
     return { ok: false, error: "The contact name is too long" };
   }
 
@@ -154,7 +150,7 @@ export function parseAddGuestInput(input: unknown): Validated<AddGuestPayload> {
 
   const name = str(raw.name);
   if (!name) return { ok: false, error: "The guest requires a name" };
-  if (name.length > MAX_NAME_LENGTH) return { ok: false, error: "The guest's name is too long" };
+  if (name.length > MAX_PERSON_NAME) return { ok: false, error: "The guest's name is too long" };
 
   const email = optionalEmail(raw.email);
   if (email && !EMAIL_RE.test(email)) {
@@ -193,9 +189,9 @@ export async function resolvesTicketType(
 
 /**
  * The guard every write against an EXISTING list must pass before touching it: the list
- * exists AND belongs to the path event. Mirrors assertGuestListOnEvent in
- * lib/events/guest-list-auth.ts (same shape, new table) — a list id from another event is
- * a 404 that does not distinguish "no such list" from "that list is on another event".
+ * exists AND belongs to the path event — a list id from another event is a 404 that does
+ * not distinguish "no such list" from "that list is on another event". Supersedes the
+ * comp-era `assertGuestListOnEvent` (retired from lib/events/guest-list-auth.ts, U9).
  */
 export async function resolveGuestListOnEvent(
   adminClient: AdminClient,
