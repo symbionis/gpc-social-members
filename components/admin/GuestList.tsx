@@ -2,37 +2,41 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { parseGuestNames } from "@/lib/events/guest-list";
 import type { InviteTicketType } from "@/components/admin/EventInviteLink";
 
-// Admin Guest list tab (U3 of docs/plans/2026-07-11-001-feat-admin-guest-list-door-console-plan.md).
-// Builds a sponsor's comp list as a real zero-price registration the door console already
-// understands, and maintains the lists that exist.
+// Admin Guest list tab, rewritten onto the U5 model
+// (docs/plans/2026-08-15-001-feat-unified-purchase-module-plan.md).
 //
-// Nothing is emailed on create (R8) — "Resend tickets" on the lead is the delivery path
-// for the party's QRs.
+// A guest list is a list attached to an event: a list name, a list contact, and guests
+// who each hold a registration-less ticket (KD10) — there is no entries table, a guest on
+// a list IS a ticket. Adding a guest never charges anything, never touches a registration,
+// and never affects the seat count (R12/R13/KTD4).
 //
-// The paste input is load-bearing: a sponsor sends a block of names, and the tab this
-// replaces let an admin paste them. The block parses (lib/events/guest-list.ts) into
-// EDITABLE rows — per-row name, email, ticket type — so a wrong row is corrected in place
-// rather than silently dropped or retyped.
+// This component deliberately declares its OWN local types rather than importing from
+// lib/events/guest-lists.ts: that module reaches for lib/events/guest-list-auth.ts, which
+// pulls in @/lib/supabase/server → next/headers, and this is a "use client" component. See
+// lib/events/guest-lists.ts's header for the same rule stated from the server side.
+//
+// No paste import, no parser (KD11) — a guest is added one at a time: name, ticket type,
+// optional email.
 
-/** One credentialled person on an existing comp list (a ticket). */
+/** One guest on an existing list (a registration-less ticket). */
 export interface GuestListPerson {
   ticketId: string;
   name: string;
   email: string | null;
+  ticketTypeId: string | null;
   ticketTypeTitle: string;
-  isLead: boolean;
   checkedIn: boolean;
 }
 
-/** One sponsor's comp list: a registration with is_guest_list = true, plus its tickets. */
+/** One guest list: its own name, its contact, and its guests. */
 export interface GuestListEntry {
-  registrationId: string;
-  referenceCode: string | null;
-  leadName: string;
-  leadEmail: string;
+  id: string;
+  listName: string;
+  contactName: string;
+  contactEmail: string | null;
+  contactPhone: string | null;
   people: GuestListPerson[];
 }
 
@@ -40,18 +44,6 @@ interface Props {
   eventId: string;
   ticketTypes: InviteTicketType[];
   guestLists: GuestListEntry[];
-  hasSeatCap: boolean;
-  seatCap: number | null;
-  /** Tickets already held for this event — what the cap confirm counts from. */
-  total: number;
-}
-
-/** An unsubmitted guest row in the create form. */
-interface DraftRow {
-  key: string;
-  name: string;
-  email: string;
-  ticketTypeId: string;
 }
 
 /** The add-a-guest row under an existing list. */
@@ -59,161 +51,69 @@ interface AddState {
   name: string;
   email: string;
   ticketTypeId: string;
-  /**
-   * One idempotency key per submit, held across retries (KTD2). A submitting flag does
-   * not survive a network retry or a back-and-resubmit; the key does, and the server
-   * returns the prior result unchanged when it repeats.
-   *
-   * The key is bound to the PAYLOAD, not just to the submit: every edit of the name, email
-   * or ticket type clears it. Otherwise a failed submit for "Bruno" whose write actually
-   * committed would hold key K, and correcting the row to "Chiara" and pressing Add would
-   * replay K — add_comp_guests finds the batch, returns the prior count and writes nothing,
-   * so the UI reports success and Chiara is silently never added.
-   */
-  idempotencyKey: string | null;
   submitting: boolean;
   error: string | null;
 }
 
-const EMPTY_ADD: AddState = {
-  name: "",
-  email: "",
-  ticketTypeId: "",
-  idempotencyKey: null,
-  submitting: false,
-  error: null,
-};
-
-let rowSeq = 0;
-function newRow(ticketTypeId: string): DraftRow {
-  rowSeq += 1;
-  return { key: `row-${rowSeq}`, name: "", email: "", ticketTypeId };
-}
-
-/**
- * The one guest shape both write paths send (create a list, add to a list). A guest is
- * name-only by design (R3), so an empty email is null — never "" — and the routes'
- * parsers agree.
- */
-function toGuestPayload(guest: { name: string; email: string; ticketTypeId: string }) {
-  return {
-    name: guest.name.trim(),
-    email: guest.email.trim() || null,
-    ticketTypeId: guest.ticketTypeId,
-  };
-}
+const EMPTY_ADD: AddState = { name: "", email: "", ticketTypeId: "", submitting: false, error: null };
 
 const inputClass =
   "px-3 py-2 rounded-lg border border-border bg-white text-marine font-body text-sm focus:outline-none focus:ring-2 focus:ring-sky/50 focus:border-sky";
 
-export default function GuestList({
-  eventId,
-  ticketTypes,
-  guestLists,
-  hasSeatCap,
-  seatCap,
-  total,
-}: Props) {
+export default function GuestList({ eventId, ticketTypes, guestLists }: Props) {
   const router = useRouter();
 
-  // --- create form ---------------------------------------------------------------
-  const [leadName, setLeadName] = useState("");
-  const [leadEmail, setLeadEmail] = useState("");
-  const [leadTicketTypeId, setLeadTicketTypeId] = useState("");
-  const [defaultTicketTypeId, setDefaultTicketTypeId] = useState("");
-  const [pasteText, setPasteText] = useState("");
-  const [pasteErrors, setPasteErrors] = useState<{ line: number; reason: string }[]>([]);
-  const [rows, setRows] = useState<DraftRow[]>([]);
+  // --- create-a-list form ---------------------------------------------------------
+  const [listName, setListName] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   // --- per-list state ------------------------------------------------------------
   const [adds, setAdds] = useState<Record<string, AddState>>({});
-  const [removing, setRemoving] = useState<Set<string>>(new Set());
-  const [resending, setResending] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState<Set<string>>(new Set());
   const [listError, setListError] = useState<string | null>(null);
 
-  function addState(regId: string): AddState {
-    return adds[regId] ?? EMPTY_ADD;
+  function addState(listId: string): AddState {
+    return adds[listId] ?? EMPTY_ADD;
   }
-  // Merges from the CURRENT state, not the render closure: the failure branch of addGuest
-  // patches state the same handler already set (the idempotency key), and a closure merge
-  // would drop it — turning the retry into a second, un-deduped submit.
-  function patchAdd(regId: string, patch: Partial<AddState>) {
-    setAdds((s) => ({ ...s, [regId]: { ...(s[regId] ?? EMPTY_ADD), ...patch } }));
+  function patchAdd(listId: string, patch: Partial<AddState>) {
+    setAdds((s) => ({ ...s, [listId]: { ...(s[listId] ?? EMPTY_ADD), ...patch } }));
   }
 
-  /** A ticket type resolves only if it is an ACTIVE type of this event (the RPC agrees). */
+  /** A ticket type resolves only if it is an ACTIVE type of this event (the route agrees). */
   function resolves(ticketTypeId: string) {
     return ticketTypes.some((t) => t.id === ticketTypeId);
   }
-
-  /**
-   * The cap is not enforced server-side on the comp path (KTD6) — an admin may comp past
-   * a full event. This confirm is a prompt, not a control.
-   */
-  function pastCapConfirmed(seats: number) {
-    if (!hasSeatCap || seatCap === null || total + seats <= seatCap) return true;
-    return window.confirm(
-      `This will put the event at ${total + seats} / ${seatCap} tickets — add anyway?`
-    );
-  }
-
-  function addPastedNames() {
-    const { rows: parsed, errors } = parseGuestNames(pasteText);
-    setPasteErrors(errors.map((e) => ({ line: e.line, reason: e.reason })));
-    if (parsed.length === 0) return;
-    setRows((current) => [
-      ...current,
-      ...parsed.map((p) => ({ ...newRow(defaultTicketTypeId), name: p.name })),
-    ]);
-    setPasteText("");
-  }
-
-  function patchRow(key: string, patch: Partial<DraftRow>) {
-    setRows((current) => current.map((r) => (r.key === key ? { ...r, ...patch } : r)));
-  }
-
-  const unresolvedRows = rows.filter((r) => !resolves(r.ticketTypeId)).length;
 
   async function createList() {
     if (creating) return;
     setCreateError(null);
     setNotice(null);
 
-    if (!leadName.trim() || !leadEmail.trim()) {
-      setCreateError("The lead needs a name and an email.");
+    if (!listName.trim()) {
+      setCreateError("The list needs a name.");
       return;
     }
-    if (!resolves(leadTicketTypeId)) {
-      setCreateError("Choose a ticket type for the lead.");
+    if (!contactName.trim()) {
+      setCreateError("The list needs a contact name.");
       return;
     }
-    if (rows.some((r) => !r.name.trim())) {
-      setCreateError("Every guest row needs a name.");
-      return;
-    }
-    if (unresolvedRows > 0) {
-      setCreateError(
-        `${unresolvedRows} guest row${unresolvedRows === 1 ? "" : "s"} still need a ticket type.`
-      );
-      return;
-    }
-    if (!pastCapConfirmed(1 + rows.length)) return;
 
     setCreating(true);
     try {
-      const res = await fetch(`/api/admin/events/${eventId}/guest-list`, {
+      const res = await fetch(`/api/admin/events/${eventId}/guest-lists`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lead: {
-            name: leadName.trim(),
-            email: leadEmail.trim(),
-            ticketTypeId: leadTicketTypeId,
-          },
-          guests: rows.map(toGuestPayload),
+          type: "list",
+          listName: listName.trim(),
+          contactName: contactName.trim(),
+          contactEmail: contactEmail.trim() || null,
+          contactPhone: contactPhone.trim() || null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -221,14 +121,11 @@ export default function GuestList({
         setCreateError(data.error || "Could not create the guest list.");
         return;
       }
-      setNotice(
-        `Guest list created${data.reference_code ? ` (ref ${data.reference_code})` : ""} — send the QRs with “Resend tickets”.`
-      );
-      setLeadName("");
-      setLeadEmail("");
-      setPasteText("");
-      setPasteErrors([]);
-      setRows([]);
+      setNotice(`Guest list “${listName.trim()}” created.`);
+      setListName("");
+      setContactName("");
+      setContactEmail("");
+      setContactPhone("");
       router.refresh();
     } catch {
       setCreateError("Network error. Try again.");
@@ -237,103 +134,69 @@ export default function GuestList({
     }
   }
 
-  async function addGuest(regId: string) {
-    const state = addState(regId);
+  async function addGuest(listId: string) {
+    const state = addState(listId);
     if (state.submitting) return;
 
     if (!state.name.trim()) {
-      patchAdd(regId, { error: "The guest needs a name." });
+      patchAdd(listId, { error: "The guest needs a name." });
       return;
     }
     if (!resolves(state.ticketTypeId)) {
-      patchAdd(regId, { error: "Choose a ticket type for this guest." });
+      patchAdd(listId, { error: "Choose a ticket type for this guest." });
       return;
     }
-    if (!pastCapConfirmed(1)) return;
 
-    // Reuse the key of a submit that already went out (a retry must not add twice).
-    const idempotencyKey = state.idempotencyKey ?? crypto.randomUUID();
-    patchAdd(regId, { submitting: true, error: null, idempotencyKey });
+    patchAdd(listId, { submitting: true, error: null });
     setListError(null);
     try {
-      const res = await fetch(`/api/admin/events/${eventId}/guest-list/${regId}/guests`, {
+      const res = await fetch(`/api/admin/events/${eventId}/guest-lists`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          idempotencyKey,
-          guests: [toGuestPayload(state)],
+          type: "guest",
+          listId,
+          name: state.name.trim(),
+          email: state.email.trim() || null,
+          ticketTypeId: state.ticketTypeId,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        // Key kept: the next click is a retry of THIS submit, not a new one.
-        patchAdd(regId, { submitting: false, error: data.error || "Could not add the guest." });
+        patchAdd(listId, { submitting: false, error: data.error || "Could not add the guest." });
         return;
       }
-      setAdds((s) => ({ ...s, [regId]: EMPTY_ADD }));
+      setAdds((s) => ({ ...s, [listId]: EMPTY_ADD }));
       router.refresh();
     } catch {
-      patchAdd(regId, { submitting: false, error: "Network error. Try again." });
+      patchAdd(listId, { submitting: false, error: "Network error. Try again." });
     }
   }
 
-  async function removeGuest(regId: string, person: GuestListPerson, listLead: string) {
-    if (
-      !window.confirm(
-        `Remove ${person.name || "this guest"} from ${listLead || "this"}'s guest list?`
-      )
-    ) {
+  async function deleteList(list: GuestListEntry) {
+    if (!window.confirm(`Delete the guest list “${list.listName}”? This cannot be undone.`)) {
       return;
     }
     setListError(null);
-    setRemoving((prev) => new Set(prev).add(person.ticketId));
+    setDeleting((prev) => new Set(prev).add(list.id));
     try {
-      const res = await fetch(`/api/admin/events/${eventId}/guest-list/${regId}/guests`, {
+      const res = await fetch(`/api/admin/events/${eventId}/guest-lists`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId: person.ticketId }),
+        body: JSON.stringify({ listId: list.id }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setListError(data.error || "Could not remove the guest.");
+        setListError(data.error || "Could not delete the guest list.");
         return;
       }
       router.refresh();
     } catch {
       setListError("Network error. Try again.");
     } finally {
-      setRemoving((prev) => {
+      setDeleting((prev) => {
         const next = new Set(prev);
-        next.delete(person.ticketId);
-        return next;
-      });
-    }
-  }
-
-  // Nothing is emailed when a comp list is created (R8), so this is how the party's QRs
-  // reach the lead. Same action as the roster tab's resend.
-  async function resendTickets(regId: string, name: string) {
-    setListError(null);
-    setNotice(null);
-    setResending((prev) => new Set(prev).add(regId));
-    try {
-      const res = await fetch(
-        `/api/admin/events/${eventId}/registrations/${regId}/resend-confirmation`,
-        { method: "POST", headers: { "Content-Type": "application/json" } }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setListError(data.error || "Could not resend the tickets.");
-        return;
-      }
-      setNotice(`Tickets resent to ${name || data.email || "the lead"}.`);
-      router.refresh();
-    } catch {
-      setListError("Could not resend the tickets.");
-    } finally {
-      setResending((prev) => {
-        const next = new Set(prev);
-        next.delete(regId);
+        next.delete(list.id);
         return next;
       });
     }
@@ -367,14 +230,11 @@ export default function GuestList({
     <div className="space-y-10">
       <section className="space-y-4 max-w-3xl">
         <div>
-          <h3 className="font-heading text-lg font-bold text-marine mb-1">
-            New guest list
-          </h3>
+          <h3 className="font-heading text-lg font-bold text-marine mb-1">New guest list</h3>
           <p className="font-body text-sm text-muted-foreground">
-            A sponsor&apos;s comp party: the lead plus their guests, each with their own
-            free ticket and QR. Guests are name-only — an email is optional. Nothing is
-            emailed here; send the QRs with <strong>Resend tickets</strong> once the list
-            looks right.
+            A list attached to this event, with its own name and a contact person. Guests
+            added below hold ordinary tickets — no registration, no payment, no manage
+            link — and never count against the event&apos;s seat cap.
           </p>
         </div>
 
@@ -394,114 +254,35 @@ export default function GuestList({
 
         <div className="flex flex-wrap gap-2 items-center">
           <input
-            aria-label="Lead name"
-            placeholder="Lead name"
-            value={leadName}
-            onChange={(e) => setLeadName(e.target.value)}
+            aria-label="List name"
+            placeholder="List name"
+            value={listName}
+            onChange={(e) => setListName(e.target.value)}
             className={inputClass}
           />
           <input
-            aria-label="Lead email"
-            type="email"
-            placeholder="Lead email"
-            value={leadEmail}
-            onChange={(e) => setLeadEmail(e.target.value)}
+            aria-label="Contact name"
+            placeholder="Contact name"
+            value={contactName}
+            onChange={(e) => setContactName(e.target.value)}
             className={inputClass}
           />
-          {ticketTypeSelect(leadTicketTypeId, setLeadTicketTypeId, "Lead ticket type")}
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-body text-sm text-muted-foreground">
-              Paste the sponsor&apos;s list — one name per line:
-            </span>
-            {ticketTypeSelect(
-              defaultTicketTypeId,
-              setDefaultTicketTypeId,
-              "Default ticket type"
-            )}
-          </div>
-          <textarea
-            aria-label="Paste guest names"
-            rows={5}
-            value={pasteText}
-            onChange={(e) => setPasteText(e.target.value)}
-            placeholder={"Bruno Keller\nChiara Bosco\nDavid Nunez"}
-            className={`${inputClass} w-full font-mono`}
+          <input
+            aria-label="Contact email"
+            type="email"
+            placeholder="Contact email (optional)"
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
+            className={inputClass}
           />
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={addPastedNames}
-              disabled={pasteText.trim() === ""}
-              className="px-3 py-1.5 bg-marine text-white rounded-lg text-xs font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              Add pasted names
-            </button>
-            <button
-              type="button"
-              onClick={() => setRows((current) => [...current, newRow(defaultTicketTypeId)])}
-              className="px-3 py-1.5 border border-border text-marine rounded-lg text-xs font-body font-medium hover:bg-cream/60 transition-colors cursor-pointer"
-            >
-              Add row
-            </button>
-          </div>
-          {pasteErrors.length > 0 && (
-            <ul className="font-body text-xs text-red-700 space-y-0.5">
-              {pasteErrors.map((e) => (
-                <li key={e.line}>
-                  Line {e.line}: {e.reason}
-                </li>
-              ))}
-            </ul>
-          )}
+          <input
+            aria-label="Contact phone"
+            placeholder="Contact phone (optional)"
+            value={contactPhone}
+            onChange={(e) => setContactPhone(e.target.value)}
+            className={inputClass}
+          />
         </div>
-
-        {rows.length > 0 && (
-          <ul className="space-y-2">
-            {rows.map((r, i) => {
-              const unresolved = !resolves(r.ticketTypeId);
-              return (
-                <li key={r.key} className="flex flex-wrap items-center gap-2">
-                  <input
-                    aria-label={`Guest ${i + 1} name`}
-                    placeholder="Name"
-                    value={r.name}
-                    onChange={(e) => patchRow(r.key, { name: e.target.value })}
-                    className={inputClass}
-                  />
-                  <input
-                    aria-label={`Guest ${i + 1} email`}
-                    type="email"
-                    placeholder="Email (optional)"
-                    value={r.email}
-                    onChange={(e) => patchRow(r.key, { email: e.target.value })}
-                    className={inputClass}
-                  />
-                  {ticketTypeSelect(
-                    r.ticketTypeId,
-                    (id) => patchRow(r.key, { ticketTypeId: id }),
-                    `Guest ${i + 1} ticket type`
-                  )}
-                  <button
-                    type="button"
-                    aria-label={`Remove guest ${i + 1}`}
-                    onClick={() =>
-                      setRows((current) => current.filter((row) => row.key !== r.key))
-                    }
-                    className="px-2 py-1 text-xs font-body text-red-700 hover:underline cursor-pointer"
-                  >
-                    Remove
-                  </button>
-                  {unresolved && (
-                    <span className="font-body text-xs text-red-700">Choose a ticket type</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
 
         <button
           type="button"
@@ -531,93 +312,72 @@ export default function GuestList({
           <p className="font-body text-sm text-muted-foreground">No guest lists yet.</p>
         ) : (
           guestLists.map((list) => {
-            const add = addState(list.registrationId);
-            const isResending = resending.has(list.registrationId);
+            const add = addState(list.id);
+            const isDeleting = deleting.has(list.id);
+            const hasCheckedIn = list.people.some((p) => p.checkedIn);
             return (
               <section
-                key={list.registrationId}
-                aria-label={`Guest list for ${list.leadName}`}
+                key={list.id}
+                aria-label={`Guest list ${list.listName}`}
                 className="rounded-lg border border-border bg-white overflow-hidden max-w-3xl"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-cream/40">
                   <div>
-                    <p className="font-body font-semibold text-marine text-sm">
-                      {list.leadName}
-                      {list.referenceCode && (
-                        <span className="font-mono text-xs text-muted-foreground ml-2">
-                          {list.referenceCode}
-                        </span>
-                      )}
-                    </p>
+                    <p className="font-body font-semibold text-marine text-sm">{list.listName}</p>
                     <p className="font-body text-xs text-muted-foreground">
-                      {list.leadEmail} · {list.people.length} ticket
-                      {list.people.length === 1 ? "" : "s"}
+                      {list.contactName}
+                      {list.contactEmail ? ` · ${list.contactEmail}` : ""}
+                      {list.contactPhone ? ` · ${list.contactPhone}` : ""}
+                      {" · "}
+                      {list.people.length} guest{list.people.length === 1 ? "" : "s"}
                     </p>
                   </div>
                   <button
                     type="button"
-                    onClick={() => resendTickets(list.registrationId, list.leadName)}
-                    disabled={isResending}
-                    className="px-3 py-1.5 border border-border text-marine rounded-lg text-xs font-body font-medium hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                    onClick={() => deleteList(list)}
+                    disabled={isDeleting}
+                    title={
+                      hasCheckedIn
+                        ? "This list has a checked-in guest and cannot be deleted"
+                        : undefined
+                    }
+                    className="px-3 py-1.5 border border-border text-red-700 rounded-lg text-xs font-body font-medium hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
-                    {isResending ? "Sending…" : "Resend tickets"}
+                    {isDeleting ? "Deleting…" : "Delete list"}
                   </button>
                 </div>
 
-                <ul className="divide-y divide-border/60">
-                  {list.people.map((p) => (
-                    <li
-                      key={p.ticketId}
-                      className="flex flex-wrap items-center justify-between gap-2 px-4 py-2"
-                    >
-                      <div className="font-body text-sm text-marine">
-                        {p.name}
-                        {p.isLead && (
-                          <span className="ml-2 text-xs text-muted-foreground">Lead</span>
-                        )}
-                        {p.ticketTypeTitle && (
-                          <span className="ml-2 text-xs text-sky-dark">{p.ticketTypeTitle}</span>
-                        )}
-                        {p.email && (
-                          <span className="ml-2 text-xs text-muted-foreground">{p.email}</span>
-                        )}
-                        {p.checkedIn && (
-                          <span className="ml-2 text-xs text-emerald-800">Checked in</span>
-                        )}
-                      </div>
-                      {/* The lead is the registration; a checked-in guest is already
-                          through the door (R7). Neither can be removed. */}
-                      {!p.isLead && !p.checkedIn && (
-                        <button
-                          type="button"
-                          aria-label={`Remove ${p.name}`}
-                          onClick={() => removeGuest(list.registrationId, p, list.leadName)}
-                          disabled={removing.has(p.ticketId)}
-                          className="px-2 py-1 text-xs font-body text-red-700 hover:underline disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                        >
-                          {removing.has(p.ticketId) ? "Removing…" : "Remove"}
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+                {list.people.length > 0 && (
+                  <ul className="divide-y divide-border/60">
+                    {list.people.map((p) => (
+                      <li
+                        key={p.ticketId}
+                        className="flex flex-wrap items-center justify-between gap-2 px-4 py-2"
+                      >
+                        <div className="font-body text-sm text-marine">
+                          {p.name}
+                          {p.ticketTypeTitle && (
+                            <span className="ml-2 text-xs text-sky-dark">{p.ticketTypeTitle}</span>
+                          )}
+                          {p.email && (
+                            <span className="ml-2 text-xs text-muted-foreground">{p.email}</span>
+                          )}
+                          {p.checkedIn && (
+                            <span className="ml-2 text-xs text-emerald-800">Checked in</span>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
                 <div className="px-4 py-3 border-t border-border/60 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    {/* Every edit clears the held key (see AddState.idempotencyKey): an
-                        EDITED row is a different guest, and reusing the key would have the
-                        server replay the previous batch — reporting success while writing
-                        nothing. An untouched retry keeps its key, as intended. */}
                     <input
                       aria-label="Guest name"
                       placeholder="Add a guest"
                       value={add.name}
-                      onChange={(e) =>
-                        patchAdd(list.registrationId, {
-                          name: e.target.value,
-                          idempotencyKey: null,
-                        })
-                      }
+                      onChange={(e) => patchAdd(list.id, { name: e.target.value })}
                       className={inputClass}
                     />
                     <input
@@ -625,32 +385,27 @@ export default function GuestList({
                       type="email"
                       placeholder="Email (optional)"
                       value={add.email}
-                      onChange={(e) =>
-                        patchAdd(list.registrationId, {
-                          email: e.target.value,
-                          idempotencyKey: null,
-                        })
-                      }
+                      onChange={(e) => patchAdd(list.id, { email: e.target.value })}
                       className={inputClass}
                     />
                     {ticketTypeSelect(
                       add.ticketTypeId,
-                      (id) =>
-                        patchAdd(list.registrationId, {
-                          ticketTypeId: id,
-                          idempotencyKey: null,
-                        }),
+                      (id) => patchAdd(list.id, { ticketTypeId: id }),
                       "Guest ticket type"
                     )}
                     <button
                       type="button"
-                      onClick={() => addGuest(list.registrationId)}
+                      onClick={() => addGuest(list.id)}
                       disabled={add.submitting}
                       className="px-3 py-1.5 bg-marine text-white rounded-lg text-xs font-body font-medium hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                     >
                       {add.submitting ? "Adding…" : "Add guest"}
                     </button>
                   </div>
+                  <p className="font-body text-xs text-muted-foreground">
+                    A guest attending several days is added once per day — one row per
+                    admission.
+                  </p>
                   {add.error && (
                     <p role="alert" className="font-body text-xs text-red-700">
                       {add.error}
