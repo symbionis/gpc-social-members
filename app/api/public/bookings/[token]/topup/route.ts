@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
-import { mintRegistrationTickets, applyTopupRoster } from "@/lib/events/roster";
-import { parseAttendeeInput, collidesWithClaimed } from "@/lib/events/attendee-input";
+import { mintRegistrationTickets, applyTopupRoster, type RosterFillAttendee } from "@/lib/events/roster";
+import { collidesWithClaimed } from "@/lib/events/attendee-input";
 import { getSeatsUsed } from "@/lib/events/seat-usage";
 import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
+import { validateOrder, deriveTicketCounts, type OrderPerson, type OrderBounds, type OrderViolation } from "@/lib/events/order";
 
 // Buy-more top-up (U6, widened by U2 for the holder page). Adds tickets UNDER the existing
 // registration (the one-reg-per-email index blocks a second one). We record a pending
@@ -16,14 +17,35 @@ import { resolvePrice, isUsablePrice } from "@/lib/events/pricing";
 // registration manage_token (the lead) OR a per-ticket manage_token (a household member).
 // A ticket token resolves to its OWN registration via that ticket's registration_id — the
 // purchase always lands on that one booking, never a different one, because there is no
-// other input (body carries only items/attendees, never a booking id) that could steer it
+// other input (body carries only `people`, never a booking id) that could steer it
 // elsewhere.
+//
+// U3: the request is a list of people, not a quantity basket plus a separately-typed
+// attendee list (KD1). Each person carries the ticket type(s) they hold, so there is
+// nothing left to reconcile — `deriveTicketCounts` grouping the people IS the requested
+// quantity. `validateOrder` (lib/events/order.ts) reports every naming/identity violation
+// in one pass (R5); this route still layers on two things `validateOrder` deliberately does
+// NOT own: ticket-type lifecycle (archived) and the collision check against seats already
+// claimed on THIS booking, since neither is visible to a pure, dependency-free module.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_QTY = 50;
+
+// The same numeric cap this route enforced before the people-list migration (MAX_QTY = 50).
+// A top-up adds to an existing booking rather than starting one, so it keeps its own bound
+// rather than inheriting public checkout's (smaller) cap.
+const TOPUP_ORDER_BOUNDS: OrderBounds = { maxPeople: 50, maxTickets: 50 };
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
+}
+
+/** Every violation `validateOrder` found, not just the first (R5) — `error` stays the first
+ *  one so an existing caller reading a single string still gets something sane. */
+function orderInvalid(violations: OrderViolation[]) {
+  return NextResponse.json(
+    { error: violations[0]?.message ?? "Invalid order", violations },
+    { status: 400 },
+  );
 }
 
 export async function POST(
@@ -33,26 +55,29 @@ export async function POST(
   const { token } = await params;
   if (!token) return bad("Invalid link", 404);
 
-  let body: { items?: unknown; attendees?: unknown };
+  let body: { people?: unknown };
   try {
     body = await request.json();
   } catch {
     return bad("Invalid JSON");
   }
 
-  const requested = Array.isArray(body.items)
-    ? body.items
-        .map((it) => {
-          const o = (it ?? {}) as { ticketTypeId?: unknown; quantity?: unknown };
-          const id = typeof o.ticketTypeId === "string" && UUID_RE.test(o.ticketTypeId) ? o.ticketTypeId : "";
-          const qty = typeof o.quantity === "number" ? Math.floor(o.quantity) : 0;
-          return { ticketTypeId: id, quantity: qty };
-        })
-        .filter((it) => it.ticketTypeId && it.quantity > 0)
-    : [];
-  if (requested.length === 0) return bad("select at least one ticket to add");
-  const totalQty = requested.reduce((s, it) => s + it.quantity, 0);
-  if (totalQty > MAX_QTY) return bad("too many tickets in one top-up");
+  interface RawPerson {
+    name?: unknown;
+    email?: unknown;
+    ticketTypeIds?: unknown;
+  }
+  const rawPeople = Array.isArray(body.people) ? (body.people as unknown[]) : [];
+  const people: OrderPerson[] = rawPeople.map((entry) => {
+    const o = (entry ?? {}) as RawPerson;
+    return {
+      name: typeof o.name === "string" ? o.name : "",
+      email: typeof o.email === "string" ? o.email : "",
+      ticketTypeIds: Array.isArray(o.ticketTypeIds)
+        ? o.ticketTypeIds.filter((id): id is string => typeof id === "string")
+        : [],
+    };
+  });
 
   const supabase = createAdminClient();
 
@@ -97,16 +122,45 @@ export async function POST(
     return bad("This booking isn’t confirmed yet", 409);
   }
 
-  // Price each requested type against the booking's rate (member vs non-member).
-  const ids = [...new Set(requested.map((r) => r.ticketTypeId))];
-  const { data: types } = await supabase
-    .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, invite_price, archived_at, counts_as_seat")
-    .eq("event_id", reg.event_id as string)
-    .in("id", ids);
-  const typeById = new Map((types ?? []).map((t) => [t.id as string, t]));
-  if ((types ?? []).length < ids.length) return bad("A selected ticket type isn’t available", 400);
+  // Ticket types referenced anywhere in the order. Only well-formed ids are worth a round
+  // trip — anything else can never be found and falls out of validateOrder below as
+  // unknown_ticket_type, without ever reaching a `.in()` filter that would choke on a
+  // malformed uuid.
+  interface TicketTypeRow {
+    id: string;
+    title: string;
+    price_member: number | null;
+    price_non_member: number | null;
+    invite_price: number | null;
+    archived_at: string | null;
+    counts_as_seat: boolean;
+  }
+  const ids = [...new Set(people.flatMap((p) => p.ticketTypeIds).filter((id) => UUID_RE.test(id)))];
+  const { data: types } = ids.length
+    ? await supabase
+        .from("event_ticket_types")
+        .select("id, title, price_member, price_non_member, invite_price, archived_at, counts_as_seat")
+        .eq("event_id", reg.event_id as string)
+        .in("id", ids)
+    : { data: [] as TicketTypeRow[] };
+  const typeById = new Map((types ?? []).map((t) => [(t as TicketTypeRow).id, t as TicketTypeRow]));
 
+  // Mandatory naming (R1) applies here too. Same module as public checkout, so the two
+  // cannot drift: this route shipped without any naming at all, which is how a paid booking
+  // could still grow an unnamed, contactless seat long after checkout stopped allowing one.
+  const orderResult = validateOrder(people, TOPUP_ORDER_BOUNDS, (ttId) => typeById.has(ttId));
+  if (!orderResult.ok) return orderInvalid(orderResult.violations);
+
+  // Ticket-type lifecycle is not validateOrder's concern (it only knows existence via
+  // isKnownTicketType) — archived is checked here, same as before.
+  const counts = deriveTicketCounts(people);
+  for (const ticketTypeId of counts.keys()) {
+    if (typeById.get(ticketTypeId)?.archived_at) {
+      return bad("A selected ticket type is no longer available", 400);
+    }
+  }
+
+  // Price each requested type against the booking's rate (member vs non-member).
   const items: {
     ticket_type_id: string;
     title_snapshot: string;
@@ -116,24 +170,27 @@ export async function POST(
   }[] = [];
   let total = 0;
   let seatQuantity = 0;
-  for (const r of requested) {
-    const t = typeById.get(r.ticketTypeId)!;
-    if (t.archived_at) return bad("A selected ticket type is no longer available", 400);
+  for (const [ticketTypeId, quantity] of counts) {
+    const t = typeById.get(ticketTypeId)!;
     // Non-members fall back to invite_price when price_non_member is unset — on a
     // members-only event there is no non-member price, so an invited guest's top-up
     // must use the same invite_price they paid at booking (else unit is null → 500).
+    //
+    // KTD7: the invite-rate limit is deliberately NOT enforced here — it's per-checkout
+    // only (Q5, session-settled 2026-08-15). A buyer can top up at the invite rate without
+    // hitting the cap; this is a product decision, not a gap.
     const unit = resolvePrice(t, reg);
     if (!isUsablePrice(unit)) {
       return bad("Event pricing is misconfigured", 500);
     }
     const unitAmount = Number(unit);
-    const lineTotal = Number((unitAmount * r.quantity).toFixed(2));
+    const lineTotal = Number((unitAmount * quantity).toFixed(2));
     total += lineTotal;
-    if (t.counts_as_seat) seatQuantity += r.quantity;
+    if (t.counts_as_seat) seatQuantity += quantity;
     items.push({
-      ticket_type_id: t.id as string,
+      ticket_type_id: ticketTypeId,
       title_snapshot: t.title as string,
-      quantity: r.quantity,
+      quantity,
       unit_amount_chf: unitAmount,
       line_total_chf: lineTotal,
     });
@@ -163,22 +220,19 @@ export async function POST(
     }
   }
 
-  // Mandatory naming (R1) applies here too. A top-up seeds no lead slot — every seat it buys
-  // is a guest — so each one needs its own name and email. Same parser as the public checkout,
-  // so the two cannot drift: this route shipped without any naming at all, which is how a paid
-  // booking could still grow an unnamed, contactless seat long after checkout stopped allowing
-  // one.
-  const requiredPerType = new Map(items.map((li) => [li.ticket_type_id, li.quantity]));
-  const parsedAttendees = parseAttendeeInput(
-    body.attendees,
-    requiredPerType,
-    (ttId) => requiredPerType.has(ttId),
-    MAX_QTY,
+  // The roster entries in the same shape the old attendee parser used to hand back — one per
+  // (person, ticket type), trimmed name, trimmed+lowercased email — since a person can now
+  // carry more than one ticket type (KD4, the multi-day case).
+  const attendees: RosterFillAttendee[] = people.flatMap((p) =>
+    p.ticketTypeIds.map((ticketTypeId) => ({
+      ticket_type_id: ticketTypeId,
+      name: p.name.trim(),
+      email: p.email.trim().toLowerCase(),
+    })),
   );
-  if (!parsedAttendees.ok) return bad(parsedAttendees.error, 400);
 
   // ...and the same person cannot be named onto a SECOND seat OF THE SAME TICKET TYPE on a
-  // booking they already hold one on. parseAttendeeInput only sees this order; claim_ticket
+  // booking they already hold one on. validateOrder only sees this order; claim_ticket
   // dedupes against every same-type seat already named on the registration, so a lead topping
   // up under their own name and email gets `already: true`, no seat claimed, and a charge for a
   // permanently unnamed ticket. Refuse before money moves, while the buyer can still fix it.
@@ -198,7 +252,7 @@ export async function POST(
     });
     return bad("Could not start the top-up", 500);
   }
-  const clash = collidesWithClaimed(parsedAttendees.attendees, claimedRows ?? []);
+  const clash = collidesWithClaimed(attendees, claimedRows ?? []);
   if (clash) {
     return bad(
       `${clash.name} already has this ticket on this booking — please name your guest (same email allowed).`,
@@ -221,7 +275,7 @@ export async function POST(
     .insert({
       registration_id: reg.id as string,
       items,
-      pending_roster: parsedAttendees.attendees,
+      pending_roster: attendees,
     })
     .select("id")
     .limit(1)
