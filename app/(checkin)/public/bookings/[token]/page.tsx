@@ -1,24 +1,23 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import CompGuestListManager, { type CompGuestTicket } from "@/components/public/CompGuestListManager";
-import { credentialUrl } from "@/lib/events/credential";
 import { resolvePayerTicket, type PayerCandidateTicket } from "@/lib/events/booking-redirect";
-import { resolvePrice } from "@/lib/events/pricing";
-import { formatDate, formatCurrency } from "@/lib/format";
 
 // Don't leak the secret manage_token to outbound links / analytics via Referer.
 export const metadata: Metadata = { referrer: "no-referrer" };
 
-// Lead "My Booking" page (U4 / FEAT-41), now a redirect-only surface for ordinary
-// registrations (U3 of docs/plans/2026-08-11-002-feat-consolidate-ticket-surfaces-plan.md,
-// R18/KTD2). An old booking-page link — already sent in past confirmation emails — still
-// resolves by manage_token, but a non-comp booking now sends the payer straight to their
-// own ticket manage page at /public/tickets/[token] instead of rendering a booking-page
-// surface here. A comp guest list (event_registrations.is_guest_list) is untouched: it's
-// still the only surface that renders a contactless comp guest's QR, so it keeps rendering
-// CompGuestListManager — the comp-only view extracted from the retired BookingManager (U8)
-// — exactly as before.
+// Lead "My Booking" page (U4 / FEAT-41), a redirect-only surface (U3 of
+// docs/plans/2026-08-11-002-feat-consolidate-ticket-surfaces-plan.md, R18/KTD2). An old
+// booking-page link — already sent in past confirmation emails — still resolves by
+// manage_token and sends the payer straight to their own ticket manage page at
+// /public/tickets/[token] instead of rendering a booking-page surface here.
+//
+// Comp tickets are retired (U7/R16/KD7): this page used to carry a second branch that
+// rendered CompGuestListManager for a sponsor's comp guest list (event_registrations.
+// is_guest_list) instead of redirecting. That branch — and the component — are gone. A
+// comp list's lead ticket is `is_lead = true` exactly like any other registration's, so an
+// old comp-list manage-link now redirects here too, landing on the lead's own ticket page
+// rather than the retired whole-party view.
 export default async function BookingPage({
   params,
 }: {
@@ -57,7 +56,7 @@ export default async function BookingPage({
 
   const { data: registration } = await supabase
     .from("event_registrations")
-    .select("id, event_id, name, email, quantity, status, reference_code, is_member, is_guest_list")
+    .select("id, event_id, email, status")
     .eq("manage_token", token)
     .limit(1)
     .maybeSingle();
@@ -81,7 +80,7 @@ export default async function BookingPage({
 
   const { data: event } = await supabase
     .from("events")
-    .select("id, title, start_date, is_published")
+    .select("id, is_published")
     .eq("id", registration.event_id)
     .limit(1)
     .maybeSingle();
@@ -90,117 +89,35 @@ export default async function BookingPage({
     return shell(notice("Event unavailable", "This event isn’t available right now."));
   }
 
-  // Ordinary (non-comp) registration: this link is now redirect-only (R18/KTD2). Resolve the
-  // payer's own live ticket and send them to its manage page. A comp guest list falls through
-  // to the CompGuestListManager rendering below.
-  if (!registration.is_guest_list) {
-    const { data: payerTicketRows } = await supabase
-      .from("tickets")
-      .select("id, email, manage_token, is_lead, created_at")
-      .eq("registration_id", registration.id)
-      .in("slot_status", ["issued", "claimed"])
-      .is("released_at", null);
-
-    const candidates: PayerCandidateTicket[] = (payerTicketRows ?? []).map((t) => ({
-      id: t.id as string,
-      email: (t.email as string | null) ?? null,
-      manageToken: (t.manage_token as string | null) ?? null,
-      isLead: Boolean(t.is_lead),
-      createdAt: String(t.created_at),
-    }));
-
-    const payerTicket = resolvePayerTicket((registration.email as string | null) ?? null, candidates);
-
-    if (!payerTicket) {
-      return shell(
-        notice(
-          "Booking details",
-          "This booking’s ticket isn’t currently active — it may have been cancelled or released. Contact us if you think this is a mistake."
-        )
-      );
-    }
-
-    redirect(`/public/tickets/${payerTicket.manageToken}`);
-  }
-
-  // Every live ticket in the party (issued = unnamed/open, claimed = named), each
-  // with its own credential for the QR. Released tombstones are excluded.
-  const { data: ticketRows } = await supabase
+  // Redirect-only surface (R18/KTD2): resolve the payer's own live ticket and send them to its
+  // manage page. Every registration takes this path now that the comp branch is retired (U7)
+  // — including an old comp guest list's lead, whose ticket is `is_lead = true` exactly like
+  // any other registration's.
+  const { data: payerTicketRows } = await supabase
     .from("tickets")
-    .select(
-      "id, name, email, phone_e164, ticket_type_id, slot_status, credential_token, checked_in_at, is_lead, created_at"
-    )
+    .select("id, email, manage_token, is_lead, created_at")
     .eq("registration_id", registration.id)
     .in("slot_status", ["issued", "claimed"])
     .is("released_at", null);
 
-  const { data: typeRows } = await supabase
-    .from("event_ticket_types")
-    .select("id, title, sort_order, price_member, price_non_member, invite_price, archived_at")
-    .eq("event_id", registration.event_id);
-  const titleById = new Map<string, string>();
-  const sortById = new Map<string, number>();
-  for (const t of typeRows ?? []) {
-    titleById.set(t.id as string, (t.title as string | null) ?? "");
-    sortById.set(t.id as string, (t.sort_order as number | null) ?? 0);
+  const candidates: PayerCandidateTicket[] = (payerTicketRows ?? []).map((t) => ({
+    id: t.id as string,
+    email: (t.email as string | null) ?? null,
+    manageToken: (t.manage_token as string | null) ?? null,
+    isLead: Boolean(t.is_lead),
+    createdAt: String(t.created_at),
+  }));
+
+  const payerTicket = resolvePayerTicket((registration.email as string | null) ?? null, candidates);
+
+  if (!payerTicket) {
+    return shell(
+      notice(
+        "Booking details",
+        "This booking’s ticket isn’t currently active — it may have been cancelled or released. Contact us if you think this is a mistake."
+      )
+    );
   }
 
-  // Buy-more targets for the sponsor's own paid seats (KTD2): active types priced at the
-  // booking's rate, with the same invite_price fallback the top-up route applies.
-  const buyableTypes = (typeRows ?? [])
-    .filter((t) => !t.archived_at)
-    .sort((a, b) => ((a.sort_order as number) ?? 0) - ((b.sort_order as number) ?? 0))
-    .map((t) => {
-      const unit = resolvePrice(t, registration);
-      const amount = unit === null ? null : Number(unit);
-      return {
-        id: t.id as string,
-        title: (t.title as string | null) ?? "Ticket",
-        priceLabel:
-          amount === null || !Number.isFinite(amount)
-            ? "—"
-            : amount === 0
-              ? "Free"
-              : formatCurrency(amount),
-      };
-    })
-    .filter((t) => t.priceLabel !== "—");
-
-  const tickets: CompGuestTicket[] = (ticketRows ?? [])
-    .slice()
-    .sort((a, b) => {
-      // Lead first, then by type order, then mint order.
-      if (Boolean(a.is_lead) !== Boolean(b.is_lead)) return a.is_lead ? -1 : 1;
-      const sa = a.ticket_type_id ? sortById.get(a.ticket_type_id as string) ?? 0 : 0;
-      const sb = b.ticket_type_id ? sortById.get(b.ticket_type_id as string) ?? 0 : 0;
-      if (sa !== sb) return sa - sb;
-      return String(a.created_at).localeCompare(String(b.created_at));
-    })
-    .map((t) => {
-      const typeId = t.ticket_type_id as string | null;
-      return {
-        id: t.id as string,
-        name: (t.name as string | null) ?? "",
-        email: (t.email as string | null) ?? "",
-        phone: (t.phone_e164 as string | null) ?? "",
-        typeTitle: typeId ? titleById.get(typeId) ?? "" : "",
-        status: t.slot_status as string,
-        checkedIn: t.checked_in_at !== null,
-        credentialUrl: credentialUrl((t.credential_token as string | null) ?? ""),
-        isLead: Boolean(t.is_lead),
-      };
-    });
-
-  return shell(
-    <CompGuestListManager
-      eventTitle={event.title as string}
-      eventDate={formatDate(event.start_date as string)}
-      referenceCode={(registration.reference_code as string | null) ?? ""}
-      quantity={(registration.quantity as number) ?? tickets.length}
-      tickets={tickets}
-      fillEndpoint={`/api/public/bookings/${token}/fill`}
-      topupEndpoint={`/api/public/bookings/${token}/topup`}
-      buyableTypes={buyableTypes}
-    />
-  );
+  redirect(`/public/tickets/${payerTicket.manageToken}`);
 }

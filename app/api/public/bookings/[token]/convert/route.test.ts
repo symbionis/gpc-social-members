@@ -228,7 +228,7 @@ describe("POST /api/public/bookings/[token]/convert", () => {
     mockedStripe.mockReturnValue({ checkout: { sessions: { create } } } as never);
     mockedAdmin.mockReturnValue(
       adminClient({
-        reg: { id: "reg", event_id: "evt", is_member: true, status: "paid", email: "l@x.com", is_guest_list: false },
+        reg: { id: "reg", event_id: "evt", is_member: true, status: "paid", email: "l@x.com" },
         ticket: {
           id: TICKET,
           ticket_type_id: FROM,
@@ -256,7 +256,7 @@ describe("POST /api/public/bookings/[token]/convert", () => {
     mockedStripe.mockReturnValue({ checkout: { sessions: { create } } } as never);
     mockedAdmin.mockReturnValue(
       adminClient({
-        reg: { id: "reg", event_id: "evt", is_member: true, status: "paid", email: "payer@x.com", is_guest_list: false },
+        reg: { id: "reg", event_id: "evt", is_member: true, status: "paid", email: "payer@x.com" },
         ticket: {
           id: TICKET,
           ticket_type_id: FROM,
@@ -291,14 +291,16 @@ describe("POST /api/public/bookings/[token]/convert", () => {
     expect(args.success_url).not.toContain("tkn-other-holder");
   });
 
-  // A comp guest list keeps rendering CompGuestListManager at the booking page (unchanged,
-  // U3 does not touch this path) — its lead-flow redirect must stay on /public/bookings.
-  it("keeps a comp guest list's paid upgrade redirect on the booking page", async () => {
+  // U7/KTD6: comp tickets are retired, and with them the booking page's separate comp
+  // branch — the booking page is now unconditionally redirect-only (see the page's own
+  // header comment), so an old comp guest list's lead-flow redirect no longer special-cases
+  // itself onto /public/bookings; it lands on the ticket's own manage page like any other.
+  it("redirects an old comp guest list's paid upgrade to the ticket's own manage page, same as an ordinary booking", async () => {
     const create = vi.fn().mockResolvedValue({ url: "https://stripe.test/cs" });
     mockedStripe.mockReturnValue({ checkout: { sessions: { create } } } as never);
     mockedAdmin.mockReturnValue(
       adminClient({
-        reg: { id: "reg", event_id: "evt", is_member: true, status: "paid", email: "l@x.com", is_guest_list: true },
+        reg: { id: "reg", event_id: "evt", is_member: true, status: "paid", email: "l@x.com" },
         ticket: {
           id: TICKET,
           ticket_type_id: FROM,
@@ -312,8 +314,9 @@ describe("POST /api/public/bookings/[token]/convert", () => {
     const res = await post({ ticketId: TICKET, toTicketTypeId: TO });
     expect(res.status).toBe(200);
     const args = create.mock.calls[0][0];
-    expect(args.success_url).toContain("/public/bookings/mtok");
-    expect(args.cancel_url).toContain("/public/bookings/mtok");
+    expect(args.success_url).toContain("/public/tickets/tkn-own");
+    expect(args.cancel_url).toContain("/public/tickets/tkn-own");
+    expect(args.success_url).not.toContain("/public/bookings/");
   });
 });
 

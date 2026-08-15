@@ -115,7 +115,7 @@ export async function POST(
   // route — the guard matters more now that the route moves money.
   const { data: ticket, error: ticketErr } = await adminClient
     .from("tickets")
-    .select("id, registration_id, ticket_type_id, is_comp, cancellation_status")
+    .select("id, registration_id, ticket_type_id, cancellation_status")
     .eq("id", ticketId)
     .eq("event_id", eventId)
     .limit(1)

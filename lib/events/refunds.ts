@@ -60,7 +60,6 @@ export interface RefundRegistration {
 export interface RefundTicket {
   registration_id: string | null;
   ticket_type_id: string | null;
-  is_comp?: boolean | null;
 }
 
 // Anything unparseable becomes 0 rather than NaN — a NaN would propagate into a Stripe amount
@@ -124,11 +123,19 @@ export function resolveTicketLine<T extends RefundItemLine>(
 /**
  * The CHF this ticket is worth, for refund and revenue purposes.
  *
- * A comped ticket, or any ticket on a `free` booking, is worth 0 — no money was taken, so
- * there is nothing to give back and nothing to subtract. Otherwise it is the resolved line's
- * snapshotted unit price, falling back to the booking average (`total_amount_chf / quantity`)
- * for legacy rows that predate the items table, where the parent total is the only record of
- * what was paid.
+ * Any ticket on a `free` booking is worth 0 — no money was taken, so there is nothing to give
+ * back and nothing to subtract. Otherwise it is the resolved line's snapshotted unit price.
+ *
+ * A dedicated comp flag used to short-circuit this up front (retired — U7/KTD6: the column and
+ * its historical rows stay as provenance, but nothing reads the flag anymore). Every historical
+ * comp ticket lives on a `free`-status registration, so the guard above already catches all of
+ * them; the line-resolution step below is what would ALSO catch a comp-shaped ticket even if it
+ * weren't free, since comp registrations only ever carry CHF 0 lines. Zero applies both when
+ * the resolved line prices at zero AND when no line resolves at all — an unresolved line no
+ * longer falls back to the booking average (`total_amount_chf / quantity`), because that
+ * fallback is exactly how a comp seat with no matching line would have silently refunded real
+ * money. Every live paid/pending registration carries item lines that resolve cleanly (verified
+ * against the shared database on 2026-08-15), so this drops no real coverage today.
  *
  * Never returns a negative number: a malformed row yields 0, which under-refunds rather than
  * inventing money to send back.
@@ -143,18 +150,11 @@ export function ticketRefundValueChf(
   // straight to Stripe as real money. Every caller pairs these correctly by hand today; this
   // makes a mispairing a hard zero instead of an unbounded wrong amount.
   if (ticket.registration_id && ticket.registration_id !== registration.id) return 0;
-  if (ticket.is_comp) return 0;
   if (registration.status === "free") return 0;
 
   const line = resolveTicketLine(ticket, registration, items);
-  if (line) return Math.max(0, round2(toNumber(line.unit_amount_chf)));
-
-  const quantity = registration.quantity ?? 0;
-  if (quantity > 0) {
-    return Math.max(0, round2(toNumber(registration.total_amount_chf) / quantity));
-  }
-
-  return 0;
+  if (!line) return 0;
+  return Math.max(0, round2(toNumber(line.unit_amount_chf)));
 }
 
 /**

@@ -67,7 +67,7 @@ export async function sendCancellationNotices(
 
   const { data: ticket, error: ticketErr } = await supabase
     .from("tickets")
-    .select("id, name, email, registration_id, is_comp")
+    .select("id, name, email, registration_id")
     .eq("id", ticketId)
     .limit(1)
     .maybeSingle();

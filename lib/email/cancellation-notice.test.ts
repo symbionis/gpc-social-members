@@ -17,7 +17,6 @@ const TICKET = {
   name: "Holder Holly",
   email: "holder@x.com",
   registration_id: "reg-1",
-  is_comp: false,
 };
 const REG = {
   id: "reg-1",
@@ -104,13 +103,6 @@ describe("sendCancellationNotices", () => {
     expect(mockedSend).toHaveBeenCalledTimes(2);
     expect(mockedSend.mock.calls[0][0]).toMatchObject({ templateAlias: "event-cancellation-holder" });
     expect(mockedSend.mock.calls[1][0]).toMatchObject({ templateAlias: "event-cancellation-payer" });
-    expect(res).toEqual({ holderSent: true, payerSent: true });
-  });
-
-  it("a comp ticket still notifies the payer", async () => {
-    mockedAdmin.mockReturnValue(adminClient({ ticket: { ...TICKET, is_comp: true } }));
-    const res = await sendCancellationNotices(TICKET_ID);
-    expect(mockedSend).toHaveBeenCalledTimes(2);
     expect(res).toEqual({ holderSent: true, payerSent: true });
   });
 

@@ -53,29 +53,27 @@ export async function POST(
     is_member: boolean;
     status: string;
     email: string | null;
-    is_guest_list: boolean;
   }
   let reg: RegRow;
   let householdEmail: string | null = null;
   let selfTicketId: string | null = null; // set in the holder flow (the token's own ticket)
-  // Set for the lead flow (below) once we know whether it's a comp guest list: a comp list
-  // still renders CompGuestListManager at the booking page (U3/KTD2 — unchanged), so its
-  // redirect stays there; an ordinary booking's booking page is now redirect-only, so landing there
-  // after a paid Stripe upgrade would just bounce again — send it straight to the converted
-  // ticket's own manage page instead, resolved once the ticket row is loaded below.
+  // Set for the lead flow (below): the booking page is redirect-only for every registration
+  // now that the comp branch is retired (U7), so landing there after a paid Stripe upgrade
+  // would just bounce again — send it straight to the converted ticket's own manage page
+  // instead, resolved once the ticket row is loaded below.
   let redirectBase: string;
   let redirectToOwnTicketPage = false;
 
   const { data: regByToken } = await supabase
     .from("event_registrations")
-    .select("id, event_id, is_member, status, email, is_guest_list")
+    .select("id, event_id, is_member, status, email")
     .eq("manage_token", token)
     .limit(1)
     .maybeSingle();
   if (regByToken) {
     reg = regByToken as RegRow;
     redirectBase = `/public/bookings/${token}`;
-    redirectToOwnTicketPage = !reg.is_guest_list;
+    redirectToOwnTicketPage = true;
   } else {
     const { data: self } = await supabase
       .from("tickets")
@@ -88,7 +86,7 @@ export async function POST(
     selfTicketId = self.id as string;
     const { data: r } = await supabase
       .from("event_registrations")
-      .select("id, event_id, is_member, status, email, is_guest_list")
+      .select("id, event_id, is_member, status, email")
       .eq("id", self.registration_id as string)
       .limit(1)
       .maybeSingle();
@@ -115,12 +113,12 @@ export async function POST(
     .limit(1)
     .maybeSingle();
   if (!ticket || !ticket.ticket_type_id) return bad("This ticket can’t be changed", 409);
-  // Lead flow on an ordinary (non-comp) booking: redirect to the PAYER's own manage page,
-  // not the converted ticket's — the lead flow has no household restriction on which ticket
-  // it may change (below), so the ticket just converted may belong to a different holder
-  // entirely. Landing the person who just paid on someone else's manage page would be wrong;
-  // resolve the payer's own live ticket the same way the U3 booking-page redirect does, and
-  // fall back to the booking page (which itself resolves the redirect) when none is found.
+  // Lead flow: redirect to the PAYER's own manage page, not the converted ticket's — the lead
+  // flow has no household restriction on which ticket it may change (below), so the ticket
+  // just converted may belong to a different holder entirely. Landing the person who just paid
+  // on someone else's manage page would be wrong; resolve the payer's own live ticket the same
+  // way the U3 booking-page redirect does, and fall back to the booking page (which itself
+  // resolves the redirect) when none is found.
   if (redirectToOwnTicketPage) {
     const { data: payerTicketRows } = await supabase
       .from("tickets")

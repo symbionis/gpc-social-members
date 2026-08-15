@@ -101,8 +101,8 @@ describe("roster is one flat, surname-ordered row per ticket", () => {
   });
 
   it("shows a named guest with no email as themselves, not as an unnamed slot", () => {
-    // A claimed comp-guest ticket carries a real name but no address
-    // (tickets_contact_present allows an is_comp row with NULL email).
+    // A claimed comp-guest ticket carries a real name but no address (tickets_contact_present's
+    // retained comp disjunct — KTD6 — allows such a row with NULL email).
     renderList([
       ticket({ name: "Deb Comp", email: "", named: true, manageToken: null, referenceCode: "GPC-7" }),
     ]);
