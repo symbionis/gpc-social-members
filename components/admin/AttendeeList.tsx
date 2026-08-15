@@ -47,16 +47,6 @@ export interface Attendee {
    * which is why a zero renders as nothing rather than as "CHF 0.00".
    */
   priceChf: number;
-  /**
-   * How this seat was obtained, which the roster shows because "did they pay?" is a question
-   * the door and the organiser both ask and neither could answer from here before:
-   *  - `paid` — bought through checkout on a paid booking
-   *  - `free` — a booking that cost nothing (a free event, a zero-price offer redemption, a
-   *    historical waitlist comp from before the paid offer flow, or a historical sponsor
-   *    guest-list seat — comp is retired, R16/KD7, and a comped seat is now indistinguishable
-   *    on this roster from any other free booking)
-   */
-  paymentState: "paid" | "free";
   /** Whether anyone is named on this ticket yet (slot_status === 'claimed'). */
   named: boolean;
 }
@@ -282,23 +272,6 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
   );
 }
 
-// Only one state worth a pill. A `free` seat gets none: on a free event that was every row, so
-// the pill marked nothing and only added noise — and, since comp is retired (R16/KD7), a
-// historical sponsor guest-list seat now folds into `free` too, rather than earning its own
-// "Special Guest" pill. What a seat cost is now answered by the price under its ticket type,
-// which says more than a pill could — and says nothing at all when there was no money, which is
-// the correct amount to say.
-function PaymentPill({ state }: { state: Attendee["paymentState"] }) {
-  if (state === "paid") {
-    return (
-      <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-50 text-emerald-700">
-        Paid
-      </span>
-    );
-  }
-  return null;
-}
-
 function TicketRow({
   row,
   origin,
@@ -349,7 +322,6 @@ function TicketRow({
                 Buyer
               </span>
             )}
-            <PaymentPill state={ticket.paymentState} />
             {ticket.named && !ticket.notified && ticket.email && (
               <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800">
                 Not notified
@@ -475,7 +447,6 @@ function TicketRow({
                       Buyer
                     </span>
                   )}
-                  <PaymentPill state={mate.paymentState} />
                   {mate.ticketTypeTitle && (
                     <span className="text-muted-foreground">{mate.ticketTypeTitle}</span>
                   )}

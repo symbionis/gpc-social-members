@@ -7,6 +7,14 @@ import { formatDate } from "@/lib/format";
 // Keep the event id out of the Referer header on any outbound link / asset.
 export const metadata: Metadata = { referrer: "no-referrer" };
 
+// Always render fresh: this page has no cookies/headers to opt it into dynamic
+// rendering on its own, so without this it gets rendered once and cached indefinitely
+// (Next's default for a route with no dynamic API) — a new arrival, check-in, or guest
+// list created after that first render would never show up, including across the
+// component's own 20s router.refresh() interval, since a refresh of a cached route just
+// re-serves the same cached render.
+export const dynamic = "force-dynamic";
+
 // Public, no-login door console (U4/U5/U11). Keyed on the event id (KTD1). Volunteer
 // staff open `/door/<eventId>` to browse/search the full roster (parties with their
 // guests), show a party's self-reg QR for a walk-up, free a not-yet-arrived guest's

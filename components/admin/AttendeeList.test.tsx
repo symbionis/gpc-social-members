@@ -33,7 +33,6 @@ function ticket(overrides: Partial<Attendee> = {}): Attendee {
     arrivedAt: null,
     createdAt: `2026-01-01T00:00:0${seq}Z`,
     named: true,
-    paymentState: "paid" as const,
     priceChf: 45,
     ...overrides,
   };
@@ -214,36 +213,18 @@ describe("resend targets an email address", () => {
   });
 });
 
-describe("payment pill", () => {
-  it("marks a paid seat", () => {
-    renderList([ticket({ name: "Ana Adult", paymentState: "paid" })]);
-    expect(screen.getByText("Paid")).toBeInTheDocument();
-  });
-
-  // R16/KD7 (U10): comp is retired. A historical comp ticket now arrives from the server as a
-  // plain free seat (paymentState: "free"), same as any other free booking — there is no comp
-  // branch left to hit, so it gets no special pill, just like every other free seat.
-  it("gives a historical comp ticket no special pill — it renders as a plain free seat", () => {
-    renderList([ticket({ name: "Comped Guest", paymentState: "free", priceChf: 0 })]);
-    expect(screen.queryByText("Special Guest")).toBeNull();
+describe("no payment pill", () => {
+  // The roster no longer marks payment state with a pill at all — what a seat cost is
+  // answered by the price under its ticket type (or its absence), never by a badge.
+  it("renders no Paid/Free/Comp/Special Guest pill regardless of price", () => {
+    renderList([
+      ticket({ name: "Ana Adult", priceChf: 45 }),
+      ticket({ name: "Free Guest", priceChf: 0 }),
+    ]);
+    expect(screen.queryByText("Paid")).toBeNull();
+    expect(screen.queryByText("Free")).toBeNull();
     expect(screen.queryByText("Comp")).toBeNull();
-    expect(screen.queryByText("Free")).toBeNull();
-    expect(screen.queryByText("Paid")).toBeNull();
-  });
-
-  // On a free event every row was "Free", so the pill marked nothing. What a seat cost is
-  // answered by the price under its ticket type instead — and by its absence when nothing
-  // was paid.
-  it("gives a free seat no pill at all", () => {
-    renderList([ticket({ name: "Free Guest", paymentState: "free", priceChf: 0 })]);
-    expect(screen.queryByText("Free")).toBeNull();
-    expect(screen.queryByText("Paid")).toBeNull();
     expect(screen.queryByText("Special Guest")).toBeNull();
-  });
-
-  it("shows exactly one payment pill per seat", () => {
-    renderList([ticket({ paymentState: "paid" })]);
-    expect(screen.getAllByText(/^Paid$/)).toHaveLength(1);
   });
 });
 
@@ -264,8 +245,8 @@ describe("ticket price", () => {
   // line reads as no money, which is the truth.
   it("shows no price for a seat that cost nothing", () => {
     renderList([
-      ticket({ name: "Comped Guest", email: "a@x.ch", paymentState: "free", priceChf: 0 }),
-      ticket({ name: "Free Guest", email: "b@x.ch", paymentState: "free", priceChf: 0 }),
+      ticket({ name: "Comped Guest", email: "a@x.ch", priceChf: 0 }),
+      ticket({ name: "Free Guest", email: "b@x.ch", priceChf: 0 }),
     ]);
     expect(screen.queryByText(/CHF/)).toBeNull();
   });
