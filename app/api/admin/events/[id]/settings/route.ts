@@ -6,9 +6,16 @@ import {
   type ReminderEntry,
 } from "@/lib/events/reminder-schedule";
 
-// Admin endpoint for per-event settings: the ticket cap (events.seat_cap) and
-// the extra reminder schedule. All fields are optional — callers PATCH whichever
-// they're changing. assertAdmin mirrors the attendees route.
+// Admin endpoint for per-event settings: the ticket cap (events.seat_cap), the
+// extra reminder schedule, and the invite-rate limit (events.max_tickets_invite).
+// All fields are optional — callers PATCH whichever they're changing. assertAdmin
+// mirrors the attendees route.
+//
+// max_tickets_invite (R6/R7, U8): one limit, applying only to orders at the
+// invite rate, counting distinct people (KD2) — not a ticket-row count. The
+// column round-trips here; enforcement at checkout is U2's job. The DB CHECK
+// bounds it to 1-20 — validated here too, so a violation is a clean 400
+// instead of a raw constraint error surfacing from Postgres.
 //
 // NB: strict_checkin is intentionally NOT handled here. Check-in is strict for
 // every event by default (the door is a pure gate against event_attendees); the
@@ -50,6 +57,7 @@ export async function PATCH(
   let body: {
     seat_cap?: unknown;
     reminder_schedule?: unknown;
+    max_tickets_invite?: unknown;
   };
   try {
     body = await request.json();
@@ -65,6 +73,7 @@ export async function PATCH(
   const updates: {
     seat_cap?: number | null;
     reminder_schedule?: ReminderEntry[];
+    max_tickets_invite?: number | null;
   } = {};
 
   if ("seat_cap" in body) {
@@ -80,6 +89,25 @@ export async function PATCH(
         );
       }
       updates.seat_cap = parsed;
+    }
+  }
+
+  if ("max_tickets_invite" in body) {
+    const raw = body.max_tickets_invite;
+    if (raw === null || raw === "") {
+      updates.max_tickets_invite = null;
+    } else {
+      const parsed = Number(raw);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 20) {
+        return NextResponse.json(
+          {
+            error:
+              "Invite limit must be a whole number between 1 and 20, or blank for unlimited",
+          },
+          { status: 400 }
+        );
+      }
+      updates.max_tickets_invite = parsed;
     }
   }
 
