@@ -265,10 +265,17 @@ export default async function ManageEventPage({
       // `free` covers a free event, an admin-comped conversion, and a historical sponsor
       // guest-list seat alike (comp is retired, R16/KD7) — all three took no money, which is
       // what the pill is answering, and none of them earns a special branch of its own anymore.
+      //
+      // A guest-list ticket (KD10) has no registration_id at all — it never went through
+      // checkout, so there is nothing to default to "paid" against. The old `?? "paid"`
+      // fallback assumed every registration-less row was still paid, which was true before
+      // guest lists existed; now it mislabels every guest-list guest. Only a resolvable
+      // registration with a non-"free" status is "paid" — everything else, including no
+      // registration at all, is "free".
       paymentState:
-        (regForRefundById.get(a.registration_id ?? "")?.status ?? "paid") === "free"
-          ? ("free" as const)
-          : ("paid" as const),
+        a.registration_id && regForRefundById.get(a.registration_id)?.status !== "free"
+          ? ("paid" as const)
+          : ("free" as const),
       named,
     };
   });
