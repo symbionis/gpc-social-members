@@ -132,3 +132,82 @@ describe("PATCH /api/admin/events/[id]/settings", () => {
     expect(updateSpy).toHaveBeenCalledWith({ seat_cap: 12 });
   });
 });
+
+// R6/R7 (U8): one invite-rate limit, counting distinct people, editable from
+// event settings. KD2: the column is a headcount cap, not a ticket-row cap —
+// enforcement (U2) is out of scope here, this only proves the column round-trips.
+describe("PATCH /api/admin/events/[id]/settings — max_tickets_invite", () => {
+  function captureClient(updateError: unknown = null) {
+    const updateSpy = vi.fn();
+    return {
+      updateSpy,
+      client: {
+        from: (table: string) => {
+          const c: Record<string, unknown> = {};
+          for (const m of ["select", "eq", "limit"]) c[m] = () => c;
+          c.update = (payload: unknown) => {
+            updateSpy(payload);
+            return c;
+          };
+          (c as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
+            resolve(
+              table === "events"
+                ? { data: null, error: updateError }
+                : { data: superAdmin, error: null }
+            );
+          return c;
+        },
+      } as unknown as ReturnType<typeof createAdminClient>,
+    };
+  }
+
+  it("persists a valid max_tickets_invite and writes only that field", async () => {
+    const { client, updateSpy } = captureClient();
+    mockedCreateAdminClient.mockReturnValue(client);
+
+    const res = await patch({ max_tickets_invite: 4 });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ success: true });
+    expect(updateSpy).toHaveBeenCalledWith({ max_tickets_invite: 4 });
+  });
+
+  it("persists a null max_tickets_invite (unlimited) when the field is cleared", async () => {
+    const { client, updateSpy } = captureClient();
+    mockedCreateAdminClient.mockReturnValue(client);
+
+    const res = await patch({ max_tickets_invite: null });
+    expect(res.status).toBe(200);
+    expect(updateSpy).toHaveBeenCalledWith({ max_tickets_invite: null });
+  });
+
+  it("treats an empty string as unlimited (null), matching seat_cap's convention", async () => {
+    const { client, updateSpy } = captureClient();
+    mockedCreateAdminClient.mockReturnValue(client);
+
+    const res = await patch({ max_tickets_invite: "" });
+    expect(res.status).toBe(200);
+    expect(updateSpy).toHaveBeenCalledWith({ max_tickets_invite: null });
+  });
+
+  it.each([0, -1, 21, 100])(
+    "400s an out-of-range max_tickets_invite (%i)",
+    async (value) => {
+      const { client, updateSpy } = captureClient();
+      mockedCreateAdminClient.mockReturnValue(client);
+
+      const res = await patch({ max_tickets_invite: value });
+      expect(res.status).toBe(400);
+      expect(updateSpy).not.toHaveBeenCalled();
+    }
+  );
+
+  it("accepts the DB CHECK boundary values 1 and 20", async () => {
+    for (const value of [1, 20]) {
+      const { client, updateSpy } = captureClient();
+      mockedCreateAdminClient.mockReturnValue(client);
+      const res = await patch({ max_tickets_invite: value });
+      expect(res.status).toBe(200);
+      expect(updateSpy).toHaveBeenCalledWith({ max_tickets_invite: value });
+    }
+  });
+});

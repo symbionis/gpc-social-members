@@ -74,4 +74,22 @@ describe("single-writer: bulk update never touches invite fields", () => {
     expect(capture.updated).not.toHaveProperty("invite_code");
     expect(capture.updated).not.toHaveProperty("invite_price");
   });
+
+  // R6/R7 (U8): max_tickets_invite is owned by the Settings route. Even if a
+  // caller injects it into this bulk-edit body, the explicit destructuring
+  // must drop it — otherwise an unrelated title/date edit could silently
+  // clobber the invite-rate limit an admin set from Settings.
+  it("editing an event does not write max_tickets_invite", async () => {
+    const res = await post({
+      event_id: "evt-1",
+      title: "Renamed Gala",
+      visibility: "members_only",
+      registration_enabled: false,
+      start_date: "2026-07-01",
+      max_tickets_invite: 5,
+    });
+    expect(res.status).toBe(200);
+    expect(capture.updated).toBeDefined();
+    expect(capture.updated).not.toHaveProperty("max_tickets_invite");
+  });
 });
