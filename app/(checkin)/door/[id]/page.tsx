@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { resolveDoorEvent, buildDoorRoster } from "@/lib/events/door-access";
+import { resolveDoorEvent, buildDoorRoster, buildNewGuestListGroups } from "@/lib/events/door-access";
 import DoorConsole from "@/components/door/DoorConsole";
 import ScanCheckIn from "@/components/door/ScanCheckIn";
 import { formatDate } from "@/lib/format";
@@ -50,6 +50,9 @@ export default async function DoorConsolePage({
     outstanding,
     unaccounted,
   } = await buildDoorRoster(id);
+  // U5/U6/U9: guest lists from the new list model — invisible to buildDoorRoster above,
+  // since a guest-list ticket has no registration to attach a party to (KD10).
+  const newGuestListGroups = await buildNewGuestListGroups(id);
 
   return shell(
     <div className="space-y-6">
@@ -67,6 +70,7 @@ export default async function DoorConsolePage({
         expectedCount={expected}
         outstandingCount={outstanding}
         unaccountedCount={unaccounted}
+        newGuestListGroups={newGuestListGroups}
       />
     </div>
   );

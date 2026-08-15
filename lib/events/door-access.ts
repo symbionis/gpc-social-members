@@ -52,6 +52,22 @@ export interface DoorParty {
 }
 
 /**
+ * One list from the NEW guest-list model (U5/U6 — `event_guest_lists` + registration-less
+ * tickets, KD10), as opposed to the OLD per-registration `isGuestList` comp parties above.
+ * Shaped for the console rather than reusing `GuestListEntry` from lib/events/guest-lists.ts
+ * as-is: that type carries `GuestListGuest` (ticketId, name, email, ticketTypeId, checkedIn),
+ * which is missing the phone/arrivedAt/ticketTypeTitle fields SlotRow needs to render and
+ * check in a guest exactly like every other slot. `buildNewGuestListGroups` below assembles
+ * `slots` in the `DoorSlot` shape already used everywhere else on this console.
+ */
+export interface DoorGuestListGroup {
+  id: string;
+  name: string;
+  contactName: string;
+  slots: DoorSlot[];
+}
+
+/**
  * One ticket as the arrivals / not-arrived feeds show it: the ticket plus the party
  * it belongs to and the type it was sold as. Contact fields ride along because the
  * arrivals search matches on them exactly as the Pre-registered tab's does (R15).
@@ -391,6 +407,91 @@ export async function buildDoorRoster(eventId: string): Promise<DoorRoster> {
     // mismatch stays invisible.
     unaccounted: expected - arrivals.length - outstanding,
   };
+}
+
+/**
+ * Guest lists from the NEW list model (U5/U6/U9 — KD10) for the live door console. A
+ * guest-list ticket has no registration, so it is invisible to `buildDoorRoster` above by
+ * construction (that function only ever walks tickets it can attach to a party) — this is a
+ * deliberately separate, independent read, not a filter bolted onto the party model. Read-only.
+ *
+ * Not paged: an event's guest-list guests are expected to be a few hundred at most, well
+ * under one page — revisit with `readAllRows` if that stops being true.
+ */
+export async function buildNewGuestListGroups(eventId: string): Promise<DoorGuestListGroup[]> {
+  const supabase = createAdminClient();
+
+  const { data: lists, error: listsError } = await supabase
+    .from("event_guest_lists")
+    .select("id, list_name, contact_name")
+    .eq("event_id", eventId)
+    .order("created_at", { ascending: true });
+  if (listsError) {
+    throw new Error(`buildNewGuestListGroups: could not load guest lists: ${listsError.message}`, {
+      cause: listsError,
+    });
+  }
+  const listRows = lists ?? [];
+  if (listRows.length === 0) return [];
+
+  const listIds = listRows.map((l) => l.id as string);
+  const { data: tickets, error: ticketsError } = await supabase
+    .from("tickets")
+    .select("id, guest_list_id, name, email, phone_e164, ticket_type_id, checked_in_at")
+    .in("guest_list_id", listIds)
+    .is("released_at", null)
+    .order("created_at", { ascending: true });
+  if (ticketsError) {
+    throw new Error(
+      `buildNewGuestListGroups: could not load guest-list tickets: ${ticketsError.message}`,
+      { cause: ticketsError }
+    );
+  }
+
+  // Ticket-type titles for the slots, same pattern as buildDoorRoster's own lookup above —
+  // a second, independent query rather than threading state between the two functions.
+  const { data: ttRows, error: ttErr } = await supabase
+    .from("event_ticket_types")
+    .select("id, title")
+    .eq("event_id", eventId);
+  if (ttErr) {
+    throw new Error(`buildNewGuestListGroups: could not load ticket types: ${ttErr.message}`, {
+      cause: ttErr,
+    });
+  }
+  const ticketTitleById = new Map<string, string>();
+  for (const t of ttRows ?? []) {
+    ticketTitleById.set(t.id as string, (t.title as string | null) ?? "");
+  }
+
+  const slotsByList = new Map<string, DoorSlot[]>();
+  for (const t of tickets ?? []) {
+    const guestListId = t.guest_list_id as string | null;
+    if (!guestListId) continue;
+    const slot: DoorSlot = {
+      attendeeId: t.id as string,
+      name: (t.name as string | null) ?? "",
+      email: (t.email as string | null) ?? "",
+      phone: (t.phone_e164 as string | null) ?? "",
+      ticketTypeId: t.ticket_type_id as string | null,
+      ticketTypeTitle: t.ticket_type_id ? ticketTitleById.get(t.ticket_type_id as string) ?? "" : "",
+      // A guest-list guest is never anyone's "lead" — there is no registration for them to
+      // lead. isLead only ever means something on the old, registration-based party model.
+      isLead: false,
+      checkedIn: t.checked_in_at !== null,
+      arrivedAt: t.checked_in_at as string | null,
+    };
+    const list = slotsByList.get(guestListId) ?? [];
+    list.push(slot);
+    slotsByList.set(guestListId, list);
+  }
+
+  return listRows.map((l) => ({
+    id: l.id as string,
+    name: l.list_name as string,
+    contactName: l.contact_name as string,
+    slots: slotsByList.get(l.id as string) ?? [],
+  }));
 }
 
 /**

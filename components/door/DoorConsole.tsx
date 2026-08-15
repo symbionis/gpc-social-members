@@ -16,6 +16,7 @@ import type {
   DoorParty,
   DoorArrival,
   DoorNotArrived,
+  DoorGuestListGroup,
 } from "@/lib/events/door-access";
 import { bySurname, surnameKey } from "@/lib/events/roster-sort";
 
@@ -43,22 +44,6 @@ interface DoorCheckInResponse {
   error?: string;
 }
 
-/**
- * One list from the NEW guest-list model (U5/U6 — `event_guest_lists` + registration-less
- * tickets, KD10), shaped for this console rather than reusing `GuestListEntry` from
- * lib/events/guest-lists.ts as-is: that type carries `GuestListGuest` (ticketId, name,
- * email, ticketTypeId, checkedIn), which is missing the phone/arrivedAt/ticketTypeTitle
- * fields SlotRow needs to render and check in a guest exactly like every other slot. A
- * caller assembles `slots` in the `DoorSlot` shape already used everywhere else on this
- * console.
- */
-export interface DoorGuestListGroup {
-  id: string;
-  name: string;
-  contactName: string;
-  slots: DoorSlot[];
-}
-
 interface Props {
   eventId: string;
   eventTitle: string;
@@ -78,14 +63,16 @@ interface Props {
    */
   unaccountedCount: number;
   /**
-   * Guest lists from the NEW list model (U5/U6), as opposed to the OLD per-registration
-   * `isGuestList` comp parties folded in above. Optional and empty by default: no caller
-   * wires this yet — lib/events/door-access.ts (this console's data source, via
-   * app/(checkin)/door/[id]/page.tsx) still only reads the old comp model, and neither
-   * file is in this unit's scope. An event with no guest lists — old or new — therefore
-   * renders exactly as it did before this prop existed (regression guard). Once wired,
-   * these render in the SAME "Guest lists" tab as the comp parties, reusing SlotRow so
-   * check-in, waiver and contact capture behave identically for either model.
+   * Guest lists from the NEW list model (U5/U6/U9), as opposed to the OLD per-registration
+   * `isGuestList` comp parties folded in above. Wired from
+   * `lib/events/door-access.ts`'s `buildNewGuestListGroups`, via
+   * `app/(checkin)/door/[id]/page.tsx` — a separate, independent read from
+   * `buildDoorRoster`, since a guest-list ticket has no registration to attach a party to
+   * (KD10) and is therefore invisible to that function by construction. Optional (defaults
+   * to empty) so an event with no guest lists — old or new — renders exactly as it did
+   * before this prop existed (regression guard). Renders in the SAME "Guest lists" tab as
+   * the comp parties, reusing SlotRow so check-in, waiver and contact capture behave
+   * identically for either model.
    */
   newGuestListGroups?: DoorGuestListGroup[];
 }
