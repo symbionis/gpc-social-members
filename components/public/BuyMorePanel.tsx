@@ -154,10 +154,7 @@ export default function BuyMorePanel({
       </button>
       {open && (
         <div className="mt-4 space-y-4">
-          <p className="font-body text-base text-marine/80">
-            Add more tickets to this booking. Name each guest below — after payment they appear
-            here with their own QR codes.
-          </p>
+          <p className="font-body text-base text-marine/80">Add more tickets to this booking.</p>
 
           {orderScopedViolations.length > 0 && (
             <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 space-y-1">
@@ -254,8 +251,7 @@ export default function BuyMorePanel({
 
           {guests.length > 0 && (
             <p className="font-body text-xs text-marine/60">
-              Each ticket needs a name and email so its holder gets their own QR code. Guests
-              can share an address if they arrive together.
+              Add each guest’s name and email and we’ll email them their QR code.
             </p>
           )}
 

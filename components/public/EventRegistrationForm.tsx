@@ -576,6 +576,10 @@ export default function EventRegistrationForm({
           <h3 ref={step2HeadingRef} tabIndex={-1} className="font-heading text-base font-bold text-marine focus:outline-none">
             Who&apos;s coming?
           </h3>
+          <p className="font-body text-xs text-muted-foreground">
+            Add each guest’s name and email and we’ll email them their QR code.
+          </p>
+
           {orderScopedBanner}
 
           {/* The buyer's own ticket(s) — an ordinary row in the order, not a special case. */}
