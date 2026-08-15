@@ -10,7 +10,7 @@ symptoms:
   - "Admin overview reported 10 tickets sold when only 7 had been paid for; 3 comp guest-list seats counted as sold"
   - "Printed door sheet rendered 12 lines for 10 admissible people, padding cancelled seats back as blank \"to fill in\" rows"
   - "A booking refunded in full still printed as an arrivable party and rendered a card at the door console"
-  - "Door console showed \"1 / 2 named\" with a slot no ticket row could satisfy"
+  - "Door console showed \"1 / 2 named\" with a slot NO ticket row could satisfy (if a NULL-named ticket row does exist, see the replay-guard doc instead)"
   - "expected counted 12 against a 10-person roster; the surplus landed in unaccounted, the field meant to flag genuine data problems"
   - "After the first fix, a cancelled LEAD with a live guest was still rebuilt from the purchaser and printed as an admissible line"
 root_cause: logic_error
@@ -248,8 +248,14 @@ that fires on normal operations is one nobody reads.
   — the padding rule it documents is what re-materialised the cancelled seats here.
 - [Supabase row fetch undercount when aggregating](../database-issues/supabase-row-fetch-undercount-when-aggregating-2026-05-19.md)
   — the sibling "never count off a truncated read" rule referenced in Prevention.
-- [Contact-only replay guard swallows people sharing an email](../database-issues/contact-only-replay-guard-swallows-people-sharing-an-email.md)
-  — adjacent caution about deriving identity from the wrong key.
+- [A replay guard's identity key silently swallows a seat when it is too loose or too tight](../database-issues/contact-only-replay-guard-swallows-people-sharing-an-email.md)
+  — **the differential diagnosis for symptom 3.** That bug also shows a party as
+  "1 / 2 named", from the opposite direction: `claim_ticket`'s replay guard swallowed the
+  second claim, so a real `issued` ticket row exists carrying a NULL name. Here the slot was
+  padded from `registration.quantity` and no ticket row backs it at all. **Check the tickets
+  table first: a row with a NULL name is the replay guard; no row at all is this doc.** Since
+  PR #118 the console synthesises slots only from ticket rows, so an unfilled slot showing on
+  the console today is the replay-guard case by default.
 - Event refunds net out of finance as of 2026-08-10, and there is no Stripe webhook by
   the owner's choice, so a dashboard-side refund can desync silently (auto memory
   [claude]). That makes the roster the place a cancellation becomes visible at the door —
