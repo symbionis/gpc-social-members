@@ -89,6 +89,7 @@ function renderConsole(over: Partial<Props> = {}) {
       expectedCount={over.expectedCount ?? arrivals.length + missing.length}
       outstandingCount={over.outstandingCount ?? missing.length}
       unaccountedCount={over.unaccountedCount ?? 0}
+      newGuestListGroups={over.newGuestListGroups}
     />
   );
 }
@@ -936,5 +937,88 @@ describe("the registered row leads with the guest's name", () => {
       ],
     });
     expect(screen.getByText("Open seat")).toBeInTheDocument();
+  });
+});
+
+// U6: the NEW guest-list model (event_guest_lists, KD10) rendered through the same
+// "Guest lists" tab as the old comp parties above. No caller wires this prop yet
+// (lib/events/door-access.ts and the door page are out of this unit's scope) — these
+// tests exercise the component in isolation, the same way the plan asks U6 to prove the
+// door-roster query with mocked Supabase rather than a live integration.
+describe("newGuestListGroups (U6 — new guest-list model)", () => {
+  type NewGroup = NonNullable<Props["newGuestListGroups"]>[number];
+  const newGroup = (over: Partial<NewGroup> = {}): NewGroup => ({
+    id: "gl-1",
+    name: "Cardis Sponsor",
+    contactName: "Jane Doe",
+    slots: [slot({ attendeeId: "g1", name: "Ana Vidal", isLead: false })],
+    ...over,
+  });
+
+  // Regression guard: omitting the prop entirely (every caller today) must render exactly
+  // as before — no stray tab, no crash on an undefined default.
+  it("offers no tab and no crash when the prop is omitted", () => {
+    renderConsole({ parties: [party()] });
+    expect(screen.queryByRole("button", { name: /Guest lists/ })).toBeNull();
+  });
+
+  it("adds a Guest lists tab for a new-model list, named with its contact", async () => {
+    const user = userEvent.setup();
+    renderConsole({ newGuestListGroups: [newGroup()] });
+
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+    const list = screen.getByTestId("door-guest-list");
+    expect(within(list).getByText("Cardis Sponsor")).toBeInTheDocument();
+    expect(within(list).getByText(/Jane Doe/)).toBeInTheDocument();
+    expect(within(list).getByDisplayValue("Ana Vidal")).toBeInTheDocument();
+  });
+
+  it("combines an old comp list and a new-model list under one shared count", async () => {
+    const user = userEvent.setup();
+    const comp = party({ leadName: "Legacy Comp Party", isGuestList: true });
+    renderConsole({ parties: [comp], newGuestListGroups: [newGroup()] });
+
+    expect(screen.getByRole("button", { name: "Guest lists (2)" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Guest lists (2)" }));
+    expect(screen.getAllByTestId("door-guest-list")).toHaveLength(2);
+    expect(screen.getByText("Legacy Comp Party")).toBeInTheDocument();
+    expect(screen.getByText("Cardis Sponsor")).toBeInTheDocument();
+  });
+
+  // Verification: admitting a new-model guest goes through the exact same control as
+  // everyone else — SlotRow's Check in button, the same /check-in route, no new branch.
+  it("checks a new-model guest in through the same control as everyone else", async () => {
+    const user = userEvent.setup();
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "checked_in" }) });
+    renderConsole({ newGuestListGroups: [newGroup()] });
+
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+    refresh.mockClear();
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/public/door/evt-1/check-in",
+      expect.objectContaining({ method: "POST" })
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.ticketId).toBe("g1");
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("shows the arrived count for a new-model list", async () => {
+    const user = userEvent.setup();
+    renderConsole({
+      newGuestListGroups: [
+        newGroup({
+          slots: [
+            slot({ attendeeId: "g1", name: "Ana Vidal", checkedIn: true }),
+            slot({ attendeeId: "g2", name: "Bruno Keller", isLead: false }),
+          ],
+        }),
+      ],
+    });
+    await user.click(screen.getByRole("button", { name: "Guest lists (1)" }));
+    expect(screen.getByText(/1 of 2 arrived/)).toBeInTheDocument();
   });
 });
