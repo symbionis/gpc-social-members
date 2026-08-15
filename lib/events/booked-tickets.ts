@@ -7,14 +7,20 @@
 // were reported as sold. A mutation that swept comps back into `paid` passed the entire suite.
 //
 // The split must agree with `seats_used` (lib/events/seat-usage.ts), because the overview
-// subtracts one from the other to show cancellations:
+// subtracts one from the other to show cancellations. `seats_used` structurally never counts
+// a guest-list ticket (KTD4 — it reads only registrations and their line items), so the
+// cancellation diff must exclude the guest-list bucket from BOTH sides, not just supply it
+// as a third addend to `booked`:
 //
 //   paid + free + guest list = booked
-//   booked − active          = cancelled
+//   (paid + free) − active   = cancelled   -- see cancelledFromSplit below
 //
 // so any disagreement between the two derivations surfaces to an admin as a phantom refund.
 // That is why the fallback below mirrors the RPC's branch condition exactly rather than
-// approximating it.
+// approximating it. Folding `guestList` into the LHS of the cancellation diff (i.e.
+// `booked − active`) inflates it by the entire guest-list count on any event that has
+// one, even with zero real cancellations — `cancelledFromSplit` is the one place that
+// subtraction should happen, so it can't drift back to the wrong formula at a call site.
 //
 // U9 (docs/plans/2026-08-15-001-feat-unified-purchase-module-plan.md): the guest-list bucket
 // used to come from `registrations.is_guest_list` — true for a comp registration under the old
@@ -102,6 +108,17 @@ export function splitBookedTickets(
   const guestList = guestListTicketCount;
 
   return { paid, free, guestList, booked: paid + free + guestList };
+}
+
+/**
+ * Tickets cancelled: `(paid + free) − active`, never `booked − active`. `booked` includes
+ * the guest-list bucket (splitBookedTickets above); `active` (seats_used) structurally never
+ * does (KTD4). Diffing `booked` straight against `active` counted every guest-list ticket as
+ * "cancelled" on any event that has one, even with zero real cancellations — this is the one
+ * place that subtraction happens, so a call site can't reintroduce the wrong formula.
+ */
+export function cancelledFromSplit(split: BookedTicketSplit, active: number): number {
+  return Math.max(0, split.paid + split.free - active);
 }
 
 // --- Guest-list / purchased overlap (U9) --------------------------------------------------

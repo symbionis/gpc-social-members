@@ -650,6 +650,11 @@ describe("shared email across a household + multi-day (distinct-email guard remo
     expect(cfg.capturedClaims).toHaveLength(2);
     expect(cfg.capturedClaims).toContainEqual(expect.objectContaining({ p_name: "Lead Booker", p_email: "lead@x.ch", p_ticket_type_id: "t1" }));
     expect(cfg.capturedClaims).toContainEqual(expect.objectContaining({ p_name: "Lead Booker", p_email: "lead@x.ch", p_ticket_type_id: "t2" }));
+    // KTD3/KTD9: neither mint nor claim_ticket ever sets is_lead now that the buyer is
+    // people[0] rather than seeded — markLeadTickets is the one remaining step, and this
+    // is the only place the free path's call to it was actually asserted rather than just
+    // captured by the mock.
+    expect(cfg.capturedLeadMark).toEqual({ is_lead: true });
   });
 
   // Same idea for a guest: one person, two types, one entry — the household

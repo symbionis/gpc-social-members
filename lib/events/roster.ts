@@ -4,6 +4,7 @@
 // files).
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { captureServerException } from "@/lib/analytics/server-errors";
 
 // seedLeadAttendee (and the seed_lead_attendee RPC it called) is retired (U2, KTD3).
 // Under the people contract the buyer is person zero — no more special-cased than
@@ -111,7 +112,12 @@ export async function applyPendingRoster(registrationId: string): Promise<void> 
  *
  * Best-effort: a failure is logged, not thrown — the registration and its tickets already
  * exist; a stuck is_lead flag is a "My Bookings" access problem to reconcile by hand, not a
- * reason to fail an otherwise-successful checkout or webhook delivery.
+ * reason to fail an otherwise-successful checkout or webhook delivery. "Reconcile by hand"
+ * needs someone to know to do it: a failure here also reports to error tracking (unlike
+ * mint/apply's console-only logging, both pre-existing) because there is no automatic
+ * retry on either caller's path — the free-register route has no redelivery mechanism at
+ * all, and the webhook's redelivery gate (`existing.pending_roster == null`) already treats
+ * a cleared roster as finished, so a replay would never revisit this call once it's reached.
  */
 export async function markLeadTickets(
   registrationId: string,
@@ -128,6 +134,10 @@ export async function markLeadTickets(
     .is("released_at", null);
   if (error) {
     console.error("[roster] markLeadTickets failed", { registrationId, err: error });
+    captureServerException(
+      new Error(`markLeadTickets failed for registration ${registrationId}: ${error.message}`),
+      { path: "lib/events/roster.ts#markLeadTickets", method: "UPDATE", status: 500 }
+    );
   }
 }
 

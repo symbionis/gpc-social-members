@@ -138,9 +138,9 @@ export function personIdentityKey(name: string, email: string): string {
  * include the type is what makes that representable rather than collapsing the second day
  * into the first.
  *
- * `lib/events/attendee-input.ts` re-exports this under its historical name
- * (`attendeeIdentity`) rather than keeping its own copy, so the two files can't drift from
- * each other — both must mirror the same SQL guard.
+ * `lib/events/attendee-input.ts`'s `collidesWithClaimed` imports `personIdentityKey` (below)
+ * rather than keeping its own copy, so the two files can't drift from each other — both must
+ * mirror the same SQL guard.
  */
 export function ticketIdentityKey(name: string, email: string, ticketTypeId: string): string {
   return `${personIdentityKey(name, email)}|${ticketTypeId}`;

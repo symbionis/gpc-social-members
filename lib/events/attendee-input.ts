@@ -24,15 +24,15 @@ export type ClaimedIdentity = {
  * Find the first submitted guest who is already a named seat on this booking, for the same
  * ticket type.
  *
- * `parseAttendeeInput` can only see one order at a time, so it catches the same person named
- * twice *within* one order. It cannot see that the booker already holds a seat under that name
- * and email. Left unchecked, that seat is paid for, minted, and permanently unnamed:
- * `claim_ticket` reports success and consumes nothing.
+ * `validateOrder` (lib/events/order.ts) catches the same person named twice *within* one
+ * order. It cannot see that the booking already holds a claimed seat under that name and
+ * email from an EARLIER order — a top-up adding to a booking whose seats are already named.
+ * Left unchecked, that new seat is paid for, minted, and permanently unnamed: `claim_ticket`
+ * reports success and consumes nothing.
  *
- * Both purchase paths need this and for the same reason. A top-up adds to a booking whose seats
- * are already named. Public checkout has no claimed rows yet at validation time — the lead's
- * seat is seeded moments later from the booker's own fields — so its caller passes that
- * pending identity in rather than reading the table.
+ * The only current caller is the top-up route. Public checkout has no claimed rows to check
+ * against — it is the first order on a fresh booking, so there is nothing yet for a new
+ * person to collide with.
  */
 export function collidesWithClaimed(
   attendees: RosterFillAttendee[],

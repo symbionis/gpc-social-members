@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   splitBookedTickets,
   findGuestListOverlap,
+  cancelledFromSplit,
   type PurchasedTicketHolder,
   type GuestListTicketHolder,
 } from "@/lib/events/booked-tickets";
@@ -168,6 +169,28 @@ describe("splitBookedTickets", () => {
 
     expect(split).toEqual({ paid: 5, free: 2, guestList: 4, booked: 11 });
     expect(split.booked).toBe(split.paid + split.free + split.guestList);
+  });
+});
+
+describe("cancelledFromSplit", () => {
+  // Regression test for the bug a code review caught: seats_used (`active`) structurally
+  // never counts a guest-list ticket, so diffing `booked` (which DOES include the guest-list
+  // bucket) straight against `active` reported every guest-list ticket as "cancelled" even
+  // with zero real cancellations.
+  it("reports zero cancelled when a guest list exists and nothing was cancelled", () => {
+    const split = { paid: 0, free: 0, guestList: 3, booked: 3 };
+    expect(cancelledFromSplit(split, 0)).toBe(0);
+  });
+
+  it("counts only paid+free against active, excluding the guest-list bucket", () => {
+    const split = { paid: 5, free: 2, guestList: 4, booked: 11 };
+    // 2 of the 7 paid+free seats were cancelled; active (seats_used) reflects that directly.
+    expect(cancelledFromSplit(split, 5)).toBe(2);
+  });
+
+  it("never goes negative", () => {
+    const split = { paid: 1, free: 0, guestList: 0, booked: 1 };
+    expect(cancelledFromSplit(split, 5)).toBe(0);
   });
 });
 

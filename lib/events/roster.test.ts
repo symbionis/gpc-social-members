@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
+vi.mock("@/lib/analytics/server-errors", () => ({ captureServerException: vi.fn() }));
 
 import { fillRegistrationRoster, applyTopupRoster, markLeadTickets } from "@/lib/events/roster";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { captureServerException } from "@/lib/analytics/server-errors";
 
 const mockedAdmin = vi.mocked(createAdminClient);
+const mockedCapture = vi.mocked(captureServerException);
 
 function adminWithRpc(rpc: (name: string, args: Record<string, unknown>) => unknown) {
   return { rpc: vi.fn(rpc) } as unknown as ReturnType<typeof createAdminClient> & {
@@ -228,6 +231,13 @@ describe("markLeadTickets", () => {
     expect(console.error).toHaveBeenCalledWith(
       "[roster] markLeadTickets failed",
       expect.objectContaining({ registrationId: "reg-1" })
+    );
+    // Neither caller retries a failed markLeadTickets (the free path has no redelivery at
+    // all, and the webhook's own redelivery gate treats a cleared roster as finished) — a
+    // console.error alone reaches nobody. This must also reach error tracking.
+    expect(mockedCapture).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("reg-1") }),
+      expect.objectContaining({ path: "lib/events/roster.ts#markLeadTickets" })
     );
   });
 });

@@ -3,8 +3,10 @@
 // each hold a registration-less ticket. There is no entries table — a guest on a list IS a
 // ticket (KD10). Schema: supabase/migrations/20260814160001_guest_lists.sql.
 //
-// This module is imported ONLY by app/api/admin/events/[id]/guest-lists/route.ts (a server
-// route) and its own tests. components/admin/GuestList.tsx (a "use client" component)
+// This module is imported by server-only callers: app/api/admin/events/[id]/guest-lists/route.ts
+// (the CRUD route), app/(admin)/admin/events/[id]/attendees/page.tsx (reads `fetchGuestLists`
+// for the overview and the guest-list tab), and its own tests. components/admin/GuestList.tsx
+// (a "use client" component)
 // declares its own local prop types instead of importing `GuestListEntry`/`GuestListGuest`
 // from here — not for bundle-safety (this module's only import, `createAdminClient`, is
 // type-only and pulls in nothing at runtime), but because the shapes genuinely differ: the
@@ -345,6 +347,14 @@ export async function addGuestToList(
  * checked-in guest's ticket would erase attendance history that follow-up and the
  * check-in figures read. Otherwise every (never-checked-in) ticket on the list is deleted,
  * then the list itself.
+ *
+ * The precheck SELECT and the DELETE are two separate round trips, so a door check-in can
+ * land in between: the precheck reads `checked_in_at: null`, then the guest scans in, then
+ * this function's DELETE would otherwise remove that just-checked-in ticket anyway — erasing
+ * exactly the attendance record the precheck exists to protect. The DELETE below is filtered
+ * on `checked_in_at IS NULL` too (not just the precheck), so a ticket that flips mid-request
+ * survives the delete; if fewer rows come back deleted than the precheck counted, that is the
+ * race actually happening, and the whole operation is refused rather than left half-done.
  */
 export async function deleteGuestList(
   adminClient: AdminClient,
@@ -372,14 +382,34 @@ export async function deleteGuestList(
   }
 
   if (rows.length > 0) {
-    const { error: deleteTicketsError } = await adminClient
+    const { data: deletedRows, error: deleteTicketsError } = await adminClient
       .from("tickets")
       .delete()
       .eq("guest_list_id", listId)
-      .is("released_at", null);
+      .is("released_at", null)
+      .is("checked_in_at", null)
+      .select("id");
     if (deleteTicketsError) {
       console.error("[guest-lists] delete tickets failed", { eventId, listId, err: deleteTicketsError });
       return { error: "Could not delete the guest list", status: 500 };
+    }
+    if ((deletedRows ?? []).length < rows.length) {
+      // A guest checked in between the precheck and this delete: fewer rows matched the
+      // checked_in_at IS NULL filter than the precheck counted, so at least one ticket
+      // survived (correctly) and the list is now in a mixed state. Refuse rather than
+      // silently deleting the rest — the admin can retry, and the checked-in guest's own
+      // 409 branch above will fire on that retry.
+      console.error("[guest-lists] delete raced a check-in — refusing", {
+        eventId,
+        listId,
+        expected: rows.length,
+        deleted: (deletedRows ?? []).length,
+      });
+      return {
+        error:
+          "A guest on this list just checked in. The list was not deleted — please try again.",
+        status: 409,
+      };
     }
   }
 

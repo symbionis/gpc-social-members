@@ -375,7 +375,8 @@ describe("deleteGuestList", () => {
             error: null,
           };
         }
-        return { data: null, error: null }; // delete
+        // delete: both rows match checked_in_at IS NULL, so both come back deleted.
+        return { data: [{ id: "tix-1" }, { id: "tix-2" }], error: null };
       },
       event_guest_lists: () => ({ data: null, error: null }), // delete
     });
@@ -385,6 +386,8 @@ describe("deleteGuestList", () => {
 
     const ticketDelete = client.calls.find((c) => c.table === "tickets" && c.op === "delete");
     expect(ticketDelete).toBeTruthy();
+    // The delete itself is filtered on checked_in_at IS NULL too, not just the precheck.
+    expect(ticketDelete?.filters).toMatchObject({ checked_in_at: null });
     const listDelete = client.calls.find((c) => c.table === "event_guest_lists" && c.op === "delete");
     expect(listDelete).toBeTruthy();
   });
@@ -411,6 +414,38 @@ describe("deleteGuestList", () => {
     if ("error" in result) expect(result.status).toBe(409);
 
     expect(client.calls.some((c) => c.op === "delete")).toBe(false);
+  });
+
+  // Regression test for a race a code review caught: a guest checks in between the precheck
+  // SELECT and the DELETE. The precheck reads checked_in_at: null for both tickets, but by
+  // the time the DELETE runs (filtered on checked_in_at IS NULL), tix-2 has since checked in
+  // and no longer matches — so only tix-1 comes back deleted, fewer than the precheck's 2.
+  it("refuses and deletes nothing further when a check-in races the delete", async () => {
+    const client = makeAdminClient({
+      tickets: (call) => {
+        if (call.op === "select") {
+          return {
+            data: [
+              { id: "tix-1", checked_in_at: null },
+              { id: "tix-2", checked_in_at: null },
+            ],
+            error: null,
+          };
+        }
+        // delete: tix-2 checked in between the precheck and this call, so the
+        // checked_in_at IS NULL filter now excludes it — only tix-1 matches.
+        return { data: [{ id: "tix-1" }], error: null };
+      },
+      event_guest_lists: () => ({ data: null, error: null }),
+    });
+
+    const result = await deleteGuestList(client as unknown as never, EVENT, LIST);
+    expect("error" in result).toBe(true);
+    if ("error" in result) expect(result.status).toBe(409);
+
+    // The list itself must not be deleted when the ticket delete raced a check-in.
+    const listDelete = client.calls.find((c) => c.table === "event_guest_lists" && c.op === "delete");
+    expect(listDelete).toBeUndefined();
   });
 });
 

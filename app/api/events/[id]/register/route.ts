@@ -91,9 +91,13 @@ export async function POST(
 
   // An order IS a list of people (U1/KD1) — the buyer is people[0], no separate
   // basket/attendees arrays and no `leadTicketTypeId` (KTD3). Shape the raw payload
-  // defensively (this route is unauthenticated); the actual rules — full names,
-  // email format, per-order bounds, known ticket types — are validateOrder's job
-  // below, not reimplemented here.
+  // defensively (this route is unauthenticated); the real rules — full names, email
+  // format, known ticket types, and these SAME bounds — are validateOrder's job below.
+  // The two length checks here are a cheap early exit only: this route is unauthenticated
+  // and hasn't queried the DB yet at this point, so an absurdly oversized payload is
+  // rejected before spending a round trip loading ticket types. validateOrder re-checks
+  // the identical bound later against the real MAX_TICKETS constant — intentional
+  // redundancy, not drift, since both read the same value.
   const rawPeople = Array.isArray(body.people) ? body.people : null;
   if (!rawPeople || rawPeople.length === 0) return bad("Select at least one ticket");
   if (rawPeople.length > MAX_TICKETS) {

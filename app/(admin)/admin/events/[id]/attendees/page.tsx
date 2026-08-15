@@ -18,7 +18,7 @@ import {
   ADMISSIBLE_SLOT_STATUSES,
   partitionByCancellation,
 } from "@/lib/events/ticket-admissibility";
-import { splitBookedTickets, findGuestListOverlap } from "@/lib/events/booked-tickets";
+import { splitBookedTickets, findGuestListOverlap, cancelledFromSplit } from "@/lib/events/booked-tickets";
 import { fetchGuestLists } from "@/lib/events/guest-lists";
 
 export default async function ManageEventPage({
@@ -28,6 +28,11 @@ export default async function ManageEventPage({
 }) {
   const { id } = await params;
   const supabase = createAdminClient();
+
+  // Independent of every query below (needs only `supabase`/`id`) — started here rather
+  // than at its first use further down so it overlaps with the sequential chain instead of
+  // adding to the tail of it. Awaited where it's actually consumed.
+  const guestListEntriesPromise = fetchGuestLists(supabase, id);
 
   // A failed query must surface as an error, not silently render as an empty
   // roster of zeros (indistinguishable from a genuinely empty event).
@@ -369,7 +374,7 @@ export default async function ManageEventPage({
   // Mapped onto GuestList.tsx's own local Props shape (`people`, `ticketTypeTitle`) rather
   // than the server module's wire shape (`guests`, no title) — see that component's header
   // for why it declares its own types instead of importing the server module's.
-  const guestListEntries = await fetchGuestLists(supabase, id);
+  const guestListEntries = await guestListEntriesPromise;
   const guestListsBase = guestListEntries.map((list) => ({
     id: list.id,
     listName: list.listName,
@@ -491,7 +496,10 @@ export default async function ManageEventPage({
     // warning errs toward caution.
     console.error("[admin/events/attendees] seat usage failed", { id, err });
   }
-  const cancelledTicketCount = Math.max(0, bookedTickets - activeTickets);
+  const cancelledTicketCount = cancelledFromSplit(
+    { paid: paidTickets, free: freeTickets, guestList: guestListTickets, booked: bookedTickets },
+    activeTickets
+  );
   const seatCap = event.seat_cap as number | null;
   const hasSeatCap = seatCap !== null && seatCap !== undefined;
   const overbooked = hasSeatCap && activeTickets > seatCap;
