@@ -411,6 +411,44 @@ export type Database = {
           },
         ]
       }
+      event_guest_lists: {
+        Row: {
+          contact_email: string | null
+          contact_name: string
+          contact_phone: string | null
+          created_at: string
+          event_id: string
+          id: string
+          list_name: string
+        }
+        Insert: {
+          contact_email?: string | null
+          contact_name: string
+          contact_phone?: string | null
+          created_at?: string
+          event_id: string
+          id?: string
+          list_name: string
+        }
+        Update: {
+          contact_email?: string | null
+          contact_name?: string
+          contact_phone?: string | null
+          created_at?: string
+          event_id?: string
+          id?: string
+          list_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_guest_lists_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_registration_items: {
         Row: {
           created_at: string
@@ -885,6 +923,9 @@ export type Database = {
           is_confirmed: boolean
           is_published: boolean
           location: string | null
+          max_tickets_invite: number | null
+          max_tickets_member: number | null
+          max_tickets_non_member: number | null
           notes: string | null
           registration_enabled: boolean
           reminder_schedule: Json
@@ -910,6 +951,9 @@ export type Database = {
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null
+          max_tickets_invite?: number | null
+          max_tickets_member?: number | null
+          max_tickets_non_member?: number | null
           notes?: string | null
           registration_enabled?: boolean
           reminder_schedule?: Json
@@ -935,6 +979,9 @@ export type Database = {
           is_confirmed?: boolean
           is_published?: boolean
           location?: string | null
+          max_tickets_invite?: number | null
+          max_tickets_member?: number | null
+          max_tickets_non_member?: number | null
           notes?: string | null
           registration_enabled?: boolean
           reminder_schedule?: Json
@@ -1521,6 +1568,7 @@ export type Database = {
           credential_token: string | null
           email: string | null
           event_id: string
+          guest_list_id: string | null
           id: string
           is_comp: boolean
           is_lead: boolean
@@ -1550,6 +1598,7 @@ export type Database = {
           credential_token?: string | null
           email?: string | null
           event_id: string
+          guest_list_id?: string | null
           id?: string
           is_comp?: boolean
           is_lead?: boolean
@@ -1579,6 +1628,7 @@ export type Database = {
           credential_token?: string | null
           email?: string | null
           event_id?: string
+          guest_list_id?: string | null
           id?: string
           is_comp?: boolean
           is_lead?: boolean
@@ -1627,6 +1677,13 @@ export type Database = {
             referencedRelation: "event_ticket_types"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "tickets_guest_list_id_fkey"
+            columns: ["guest_list_id"]
+            isOneToOne: false
+            referencedRelation: "event_guest_lists"
+            referencedColumns: ["id"]
+          },
         ]
       }
     }
@@ -1647,11 +1704,11 @@ export type Database = {
         Returns: undefined
       }
       apply_registration_topup: { Args: { p_topup_id: string }; Returns: Json }
-      apply_topup_roster: { Args: { p_topup_id: string }; Returns: Json }
       apply_ticket_type_conversion: {
         Args: { p_conversion_id: string }
         Returns: Json
       }
+      apply_topup_roster: { Args: { p_topup_id: string }; Returns: Json }
       checkin_by_credential: {
         Args: {
           p_credential_token: string
