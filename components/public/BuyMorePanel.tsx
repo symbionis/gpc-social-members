@@ -156,11 +156,6 @@ export default function BuyMorePanel({
               </li>
             ))}
           </ul>
-          {bound !== null && (
-            <p className="font-body text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-              {`${bound - totalSelected} ticket${bound - totalSelected === 1 ? "" : "s"} remaining on this booking.`}
-            </p>
-          )}
           {seatRows.length > 0 && (
             <div className="space-y-3 border-t border-border/70 pt-4">
               <p className="font-body text-sm font-semibold text-marine">

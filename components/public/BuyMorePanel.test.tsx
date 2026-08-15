@@ -36,17 +36,14 @@ describe("BuyMorePanel — no allowance bound (member/public/comp bookings, R7/R
 });
 
 describe("BuyMorePanel — remaining allowance bound (invite-class bookings, R5)", () => {
-  it("shows the remaining-allowance note and disables + once reached", async () => {
+  it("disables + once the remaining allowance is reached", async () => {
     const user = userEvent.setup();
     render(<BuyMorePanel endpoint="/topup" types={types} remainingAllowance={2} bookingLimit={4} />);
     await openPanel(user);
-    expect(screen.getByText(/2 tickets remaining on this booking/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add one Clubhouse Dinner" }));
-    expect(screen.getByText(/1 ticket remaining on this booking/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add one Clubhouse Dinner" }));
     expect(screen.getByRole("button", { name: "Add one Clubhouse Dinner" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Add one Brunch" })).toBeDisabled();
-    expect(screen.getByText(/0 tickets remaining on this booking/i)).toBeInTheDocument();
   });
 
   it("bounds the total across ticket types, not per type", async () => {

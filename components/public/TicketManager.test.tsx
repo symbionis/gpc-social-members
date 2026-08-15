@@ -487,7 +487,6 @@ describe("TicketManager — buy more tickets (U2)", () => {
     });
     await user.click(screen.getByRole("button", { name: /Buy more tickets/i }));
     await user.click(screen.getByRole("button", { name: "Add one Clubhouse Dinner" }));
-    expect(screen.getByText(/1 ticket remaining on this booking/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add one Clubhouse Dinner" }));
     expect(screen.getByRole("button", { name: "Add one Clubhouse Dinner" })).toBeDisabled();
   });
