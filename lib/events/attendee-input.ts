@@ -16,8 +16,9 @@
 // claims nothing, and reports success. Refusing it out loud at the door of the API is the only
 // way the buyer ever learns their guest went unnamed.
 
-import { isFullName, normalizeName } from "@/lib/names";
+import { isFullName } from "@/lib/names";
 import type { RosterFillAttendee } from "@/lib/events/roster";
+import { personIdentityKey, ticketIdentityKey } from "@/lib/events/order";
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const MAX_ATTENDEE_NAME = 120;
@@ -29,8 +30,8 @@ export type AttendeeParseResult =
 
 /**
  * The key `claim_ticket` dedupes on: case-folded, whitespace-collapsed name plus lowercased
- * contact. Two submissions with the same key collapse into ONE ticket at claim time — the
- * second returns the first's ticket with `already: true` and claims no seat.
+ * contact, plus ticket type. Two submissions with the same key collapse into ONE ticket at
+ * claim time — the second returns the first's ticket with `already: true` and claims no seat.
  *
  * SCOPED TO ONE TICKET TYPE. The same human legitimately holds two seats of DIFFERENT types —
  * a multi-day event sells Friday and Saturday separately, and one person buying both is the
@@ -39,18 +40,13 @@ export type AttendeeParseResult =
  * actually for is idempotency, and a genuine retry replays the same type too, so narrowing it
  * costs no replay safety.
  *
- * Exported because the collapse is only visible where the comparison set is, and that differs
- * per path: within one order (below), or against the seats a booking has already named
- * (`collidesWithClaimed`). Both must mirror the SQL, so both use this.
+ * Defined once, in `lib/events/order.ts` (U1) — the shared order module — as
+ * `ticketIdentityKey`, and re-exported here under this file's historical name so this file's
+ * own callers (`collidesWithClaimed` below, and the duplicate check in `parseAttendeeInput`)
+ * can't drift from it. Both this file and order.ts must mirror the same SQL guard, so both use
+ * the one definition.
  */
-export function attendeeIdentity(name: string, email: string, ticketTypeId: string): string {
-  return `${personKey(name, email)}|${ticketTypeId}`;
-}
-
-/** The person half of the key, without the ticket type. One normalization, used by both. */
-function personKey(name: string, email: string): string {
-  return `${normalizeName(name).toLowerCase()}|${email.trim().toLowerCase()}`;
-}
+export const attendeeIdentity = ticketIdentityKey;
 
 /** A seat already named on a booking, as the collision check needs to see it. */
 export type ClaimedIdentity = {
@@ -88,7 +84,7 @@ export function collidesWithClaimed(
   const takenTypes = new Map<string, Set<string | null>>();
   for (const c of claimed) {
     if (!c.name || !c.email) continue;
-    const key = personKey(c.name, c.email);
+    const key = personIdentityKey(c.name, c.email);
     const types = takenTypes.get(key) ?? new Set<string | null>();
     // A row with no type at all is treated as the untyped legacy seat it is, and matches every
     // type — never as "no collision". Failing open here would let through exactly the write the
@@ -97,7 +93,7 @@ export function collidesWithClaimed(
     takenTypes.set(key, types);
   }
   for (const a of attendees) {
-    const types = takenTypes.get(personKey(a.name, a.email ?? ""));
+    const types = takenTypes.get(personIdentityKey(a.name, a.email ?? ""));
     if (types && (types.has(null) || types.has(a.ticket_type_id))) return { name: a.name };
   }
   return null;
