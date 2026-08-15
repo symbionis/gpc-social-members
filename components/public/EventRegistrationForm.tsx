@@ -576,12 +576,6 @@ export default function EventRegistrationForm({
           <h3 ref={step2HeadingRef} tabIndex={-1} className="font-heading text-base font-bold text-marine focus:outline-none">
             Who&apos;s coming?
           </h3>
-          <p className="font-body text-xs text-muted-foreground">
-            Every guest needs their own QR code to get in — <strong>no QR code, no
-            bracelet.</strong> Add each guest’s name and email and we’ll email them their QR
-            code.
-          </p>
-
           {orderScopedBanner}
 
           {/* The buyer's own ticket(s) — an ordinary row in the order, not a special case. */}
@@ -600,17 +594,15 @@ export default function EventRegistrationForm({
 
           {/* Guest tickets — repeatable rows (R20). One row per person, however many types. */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="font-body text-xs text-muted-foreground uppercase tracking-wide">Guest tickets</p>
-              <button
-                type="button"
-                onClick={addGuest}
-                disabled={atCap}
-                className="font-body text-xs font-semibold text-marine underline underline-offset-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              >
-                + Add guest
-              </button>
-            </div>
+            <p className="font-body text-xs text-muted-foreground uppercase tracking-wide">Guest tickets</p>
+            <button
+              type="button"
+              onClick={addGuest}
+              disabled={atCap}
+              className="w-full px-4 py-3 rounded-lg border border-marine text-marine text-sm font-body font-semibold hover:bg-sky/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              + Add guest
+            </button>
             {guests.map((g, idx) => {
               const personIndex = idx + 1;
               const nameErr = violations.find((v) => v.personIndex === personIndex && v.field === "name")?.message;
