@@ -42,7 +42,7 @@ export default async function ManageEventPage({
   const { data: event } = await supabase
     .from("events")
     .select(
-      "id, title, start_date, seat_cap, reminder_schedule, visibility, registration_enabled, invite_code"
+      "id, title, start_date, seat_cap, reminder_schedule, visibility, registration_enabled, invite_code, max_tickets_invite"
     )
     .eq("id", id)
     .single();
@@ -453,6 +453,9 @@ export default async function ManageEventPage({
   const seatCap = event.seat_cap as number | null;
   const hasSeatCap = seatCap !== null && seatCap !== undefined;
   const overbooked = hasSeatCap && activeTickets > seatCap;
+  // R7 (U8): editable per event from the settings page. Enforcement against orders is U2's
+  // job, in the register route — this page only surfaces the column for editing.
+  const maxTicketsInvite = (event.max_tickets_invite as number | null) ?? null;
 
   // Widened per U2 of docs/plans/2026-08-11-001-feat-waitlist-paid-offer-flow-plan.md: the
   // admin surface needs what each entry actually asked for (requested type + quantity) and
@@ -578,6 +581,7 @@ export default async function ManageEventPage({
         ticketTypes={ticketTypes}
         registrationEnabled={Boolean(event.registration_enabled)}
         guestLists={guestLists}
+        maxTicketsInvite={maxTicketsInvite}
       />
     </div>
   );
