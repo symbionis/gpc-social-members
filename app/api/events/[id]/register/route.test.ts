@@ -639,33 +639,67 @@ describe("shared email across a household + multi-day (distinct-email guard remo
     expect(res.status).toBe(400);
   });
 
-  // The seat the old guard destroyed: one person, two days of a multi-day event.
-  // Under KD4 this is ONE person entry holding two ticket types, not two rows.
-  it("allows the booker on a second ticket type in the same entry (multi-day, KD4)", async () => {
+  // A ticket is per head: the route passes maxTicketsPerPerson: 1, so the buyer holding
+  // two types is refused. The two-types-in-one-entry SHAPE is still what a multi-day
+  // event would use (KD4) and `ticketIdentityKey` still keys on the type — nothing marks
+  // an event multi-day yet, so no caller may produce it. Raising the bound is what
+  // re-enables this, not a change here.
+  it("400s the booker holding a second ticket type in the same entry (one ticket per head)", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree, satFree] };
     const res = await publicPost(cfg, {
       people: [person("Lead Booker", "lead@x.ch", ["t1", "t2"])],
     });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.violations).toContainEqual(
+      expect.objectContaining({
+        rule: "too_many_ticket_types_for_person",
+        personIndex: 0,
+        field: "ticketTypeIds",
+      })
+    );
+    expect(cfg.capturedClaims).toBeUndefined();
+  });
+
+  // The single-ticket buyer that replaces it — still the only place the free path's
+  // markLeadTickets call is asserted rather than merely captured by the mock (KTD3/KTD9:
+  // neither mint nor claim_ticket sets is_lead now that the buyer is people[0]).
+  it("mints and lead-marks a single-ticket booker on the free path", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree, satFree] };
+    const res = await publicPost(cfg, {
+      people: [person("Lead Booker", "lead@x.ch", ["t1"])],
+    });
     expect(res.status).toBe(200);
-    expect(cfg.capturedClaims).toHaveLength(2);
-    expect(cfg.capturedClaims).toContainEqual(expect.objectContaining({ p_name: "Lead Booker", p_email: "lead@x.ch", p_ticket_type_id: "t1" }));
-    expect(cfg.capturedClaims).toContainEqual(expect.objectContaining({ p_name: "Lead Booker", p_email: "lead@x.ch", p_ticket_type_id: "t2" }));
-    // KTD3/KTD9: neither mint nor claim_ticket ever sets is_lead now that the buyer is
-    // people[0] rather than seeded — markLeadTickets is the one remaining step, and this
-    // is the only place the free path's call to it was actually asserted rather than just
-    // captured by the mock.
+    expect(cfg.capturedClaims).toHaveLength(1);
+    expect(cfg.capturedClaims).toContainEqual(
+      expect.objectContaining({ p_name: "Lead Booker", p_email: "lead@x.ch", p_ticket_type_id: "t1" })
+    );
     expect(cfg.capturedLeadMark).toEqual({ is_lead: true });
   });
 
-  // Same idea for a guest: one person, two types, one entry — the household
-  // equivalent of the case above (the booker's partner on both days).
-  it("allows one guest holding two different ticket types in one entry", async () => {
+  // Same bound applies to a guest row, not just the buyer.
+  it("400s one guest holding two different ticket types in one entry", async () => {
     const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree, satFree] };
     const res = await publicPost(cfg, {
       people: [person("Lead Booker", "lead@x.ch", ["t1"]), person("Partner Person", "shared@x.ch", ["t1", "t2"])],
     });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.violations).toContainEqual(
+      expect.objectContaining({ rule: "too_many_ticket_types_for_person", personIndex: 1 })
+    );
+    expect(cfg.capturedClaims).toBeUndefined();
+  });
+
+  // Two people on two different types is the shape that replaces multi-day-in-one-row:
+  // still one claim each, still one entry, no per-person bound breached.
+  it("allows two people each holding a different ticket type", async () => {
+    const cfg: Cfg = { event: publicEvent, ticketTypes: [adultFree, satFree] };
+    const res = await publicPost(cfg, {
+      people: [person("Lead Booker", "lead@x.ch", ["t1"]), person("Partner Person", "shared@x.ch", ["t2"])],
+    });
     expect(res.status).toBe(200);
-    expect(cfg.capturedClaims).toHaveLength(3); // buyer + partner's two types
+    expect(cfg.capturedClaims).toHaveLength(2);
   });
 
   it("400s two people with the same name AND email on the same type (would collapse in claim_ticket)", async () => {
@@ -710,7 +744,12 @@ describe("invite-rate limit (U8's events.max_tickets_invite — KD2/KD3/KTD7)", 
   const dayPass: TicketType = { id: "t1", title: "Day Pass", price_member: 0, price_non_member: null, invite_price: 0, counts_as_seat: true, archived_at: null };
   const satPass: TicketType = { id: "t2", title: "Saturday", price_member: 0, price_non_member: null, invite_price: 0, counts_as_seat: true, archived_at: null };
 
-  it("covers AE3: a buyer holding two ticket types is ONE person against a limit of 1 (KD4 multi-day)", async () => {
+  // AE3 measured the invite limit in PEOPLE, not tickets — provable back when one person
+  // could hold two types. With maxTicketsPerPerson: 1 the two counts are always equal, so
+  // that distinction is no longer observable from outside; the limit is still applied to
+  // `people.length` in the route. What IS observable is that the multi-type shape is now
+  // refused as a per-person violation before the invite limit is ever consulted.
+  it("400s a two-ticket-type buyer on the invite path before the rate limit is reached", async () => {
     const cfg: Cfg = { event: invitePublicEvent, ticketTypes: [dayPass, satPass] };
     mockedAdmin.mockReturnValue(adminClient(cfg));
     const res = await post({
@@ -718,6 +757,25 @@ describe("invite-rate limit (U8's events.max_tickets_invite — KD2/KD3/KTD7)", 
       email: "lead@x.ch",
       code: INVITE,
       people: [person("Lead Booker", "lead@x.ch", ["t1", "t2"])],
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.violations).toContainEqual(
+      expect.objectContaining({ rule: "too_many_ticket_types_for_person", personIndex: 0 })
+    );
+    expect(body.violations).not.toContainEqual(
+      expect.objectContaining({ rule: "invite_rate_limit" })
+    );
+  });
+
+  it("admits a single-ticket buyer at exactly the invite limit of 1", async () => {
+    const cfg: Cfg = { event: invitePublicEvent, ticketTypes: [dayPass, satPass] };
+    mockedAdmin.mockReturnValue(adminClient(cfg));
+    const res = await post({
+      name: "Lead Booker",
+      email: "lead@x.ch",
+      code: INVITE,
+      people: [person("Lead Booker", "lead@x.ch", ["t1"])],
     });
     expect(res.status).toBe(200);
   });

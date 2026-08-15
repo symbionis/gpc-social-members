@@ -140,6 +140,63 @@ describe("validateOrder — a person with no ticket types is refused", () => {
   });
 });
 
+describe("validateOrder — maxTicketsPerPerson (one ticket per head)", () => {
+  const ONE_EACH: OrderBounds = { maxPeople: 20, maxTickets: 20, maxTicketsPerPerson: 1 };
+
+  it("accepts one ticket per person", () => {
+    const people: OrderPerson[] = [
+      { name: "John Smith", email: "john@example.com", ticketTypeIds: ["day1"] },
+      { name: "Jane Doe", email: "jane@example.com", ticketTypeIds: ["day2"] },
+    ];
+    expect(validateOrder(people, ONE_EACH).ok).toBe(true);
+  });
+
+  it("refuses a person holding two types, pinned to that person's row", () => {
+    const people: OrderPerson[] = [
+      { name: "John Smith", email: "john@example.com", ticketTypeIds: ["day1"] },
+      { name: "Jane Doe", email: "jane@example.com", ticketTypeIds: ["day1", "day2"] },
+    ];
+    const result = validateOrder(people, ONE_EACH);
+    expect(result.ok).toBe(false);
+    const hits = violation(result, "too_many_ticket_types_for_person");
+    expect(hits).toHaveLength(1);
+    expect(hits[0].personIndex).toBe(1);
+    expect(hits[0].field).toBe("ticketTypeIds");
+    expect(hits[0].message).toBe("Each person can hold one ticket");
+  });
+
+  it("reports the bound once per offending person, not once per excess ticket", () => {
+    const people: OrderPerson[] = [
+      { name: "John Smith", email: "john@example.com", ticketTypeIds: ["a", "b", "c", "d"] },
+    ];
+    expect(violation(validateOrder(people, ONE_EACH), "too_many_ticket_types_for_person")).toHaveLength(1);
+  });
+
+  it("does not fire for an empty holding — that is no_ticket_types' job, and only one fires", () => {
+    const people: OrderPerson[] = [{ name: "Empty Handed", email: "e@example.com", ticketTypeIds: [] }];
+    const result = validateOrder(people, ONE_EACH);
+    expect(violation(result, "too_many_ticket_types_for_person")).toHaveLength(0);
+    expect(violation(result, "no_ticket_types")).toHaveLength(1);
+  });
+
+  it("is unbounded when the caller omits it (the multi-day shape stays representable)", () => {
+    const people: OrderPerson[] = [
+      { name: "John Smith", email: "john@example.com", ticketTypeIds: ["day1", "day2"] },
+    ];
+    expect(validateOrder(people, BOUNDS).ok).toBe(true);
+  });
+
+  it("honours a bound above 1", () => {
+    const two: OrderBounds = { maxPeople: 20, maxTickets: 20, maxTicketsPerPerson: 2 };
+    const ok: OrderPerson[] = [{ name: "John Smith", email: "j@example.com", ticketTypeIds: ["a", "b"] }];
+    const tooMany: OrderPerson[] = [{ name: "John Smith", email: "j@example.com", ticketTypeIds: ["a", "b", "c"] }];
+    expect(validateOrder(ok, two).ok).toBe(true);
+    const hits = violation(validateOrder(tooMany, two), "too_many_ticket_types_for_person");
+    expect(hits).toHaveLength(1);
+    expect(hits[0].message).toBe("Each person can hold at most 2 tickets");
+  });
+});
+
 describe("validateOrder — bounds and length caps (each refused independently)", () => {
   it("an order past the people bound is refused, order-scoped", () => {
     const tight: OrderBounds = { maxPeople: 1, maxTickets: 20 };

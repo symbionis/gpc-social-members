@@ -140,7 +140,9 @@ export default function EventRegistrationForm({
     ],
     [name, email, buyerTicketTypeIds, guests]
   );
-  const bounds: OrderBounds = { maxPeople: cap, maxTickets: cap };
+  // maxTicketsPerPerson mirrors the register route's bound so the radio group and the
+  // server agree on what "one ticket per head" means.
+  const bounds: OrderBounds = { maxPeople: cap, maxTickets: cap, maxTicketsPerPerson: 1 };
   const counts = useMemo(() => deriveTicketCounts(people), [people]);
   const totalQuantity = Array.from(counts.values()).reduce((a, b) => a + b, 0);
   const totalAmount = selectable.reduce(
@@ -166,10 +168,9 @@ export default function EventRegistrationForm({
     return result;
   }
 
-  function toggleBuyerType(id: string) {
-    setBuyerTicketTypeIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : atCap ? prev : [...prev, id]
-    );
+  // One ticket per head (R20) — selecting replaces rather than accumulates.
+  function selectBuyerType(id: string) {
+    setBuyerTicketTypeIds((prev) => (prev.length === 0 && atCap ? prev : [id]));
     clearViolations();
   }
 
@@ -191,19 +192,13 @@ export default function EventRegistrationForm({
     clearViolations();
   }
 
-  function toggleGuestType(key: string, ticketTypeId: string) {
+  function selectGuestType(key: string, ticketTypeId: string) {
     setGuests((prev) =>
       prev.map((g) => {
         if (g.key !== key) return g;
-        const has = g.ticketTypeIds.includes(ticketTypeId);
-        return {
-          ...g,
-          ticketTypeIds: has
-            ? g.ticketTypeIds.filter((x) => x !== ticketTypeId)
-            : atCap
-              ? g.ticketTypeIds
-              : [...g.ticketTypeIds, ticketTypeId],
-        };
+        // Same swap-is-free rule as the buyer: only an unpicked row is capped.
+        if (g.ticketTypeIds.length === 0 && atCap) return g;
+        return { ...g, ticketTypeIds: [ticketTypeId] };
       })
     );
     clearViolations();
@@ -385,20 +380,33 @@ export default function EventRegistrationForm({
     </div>
   );
 
-  function ticketCheckboxes(
-    checkedIds: string[],
-    onToggle: (id: string) => void,
+  /**
+   * One ticket per head (R20): each person picks exactly one type, so this is a radio
+   * group, not a checkbox list. `groupName` scopes the group to one person — sharing it
+   * across rows would make the whole order behave as a single mutually-exclusive pick.
+   *
+   * Switching an existing pick is always allowed even at the order cap: it swaps a
+   * ticket rather than adding one, so only a person with nothing selected yet can be
+   * blocked by `atCap`.
+   */
+  function ticketRadios(
+    groupName: string,
+    selectedId: string | undefined,
+    onSelect: (id: string) => void,
     labelFor: (title: string) => string
   ) {
     return (
-      <div className="space-y-2">
+      <div className="space-y-2" role="radiogroup" aria-label={labelFor("")}>
         {ticketTypes.map((t) => {
           const notOpen = t.price === null;
-          const checked = checkedIds.includes(t.id);
+          const checked = selectedId === t.id;
+          const blockedByCap = !selectedId && atCap;
           return (
             <label
               key={t.id}
-              className={`flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 ${notOpen ? "opacity-60" : "cursor-pointer"}`}
+              className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
+                checked ? "border-marine bg-sky/5" : "border-border"
+              } ${notOpen || blockedByCap ? "opacity-60" : "cursor-pointer"}`}
             >
               <span className="min-w-0">
                 <span className="block font-body text-sm text-marine truncate">{t.title}</span>
@@ -413,10 +421,11 @@ export default function EventRegistrationForm({
               </span>
               {!notOpen && (
                 <input
-                  type="checkbox"
+                  type="radio"
+                  name={groupName}
                   checked={checked}
-                  disabled={!checked && atCap}
-                  onChange={() => onToggle(t.id)}
+                  disabled={blockedByCap}
+                  onChange={() => onSelect(t.id)}
                   aria-label={labelFor(t.title)}
                   className="h-5 w-5 shrink-0"
                 />
@@ -517,12 +526,21 @@ export default function EventRegistrationForm({
           )}
 
           <div className="space-y-2">
-            <label className="block text-xs font-body text-muted-foreground">Your tickets</label>
-            {ticketCheckboxes(buyerTicketTypeIds, toggleBuyerType, (title) => `${title} ticket for you`)}
+            <label className="block text-xs font-body text-muted-foreground">Your ticket</label>
+            {ticketRadios(
+              "buyer-ticket",
+              buyerTicketTypeIds[0],
+              selectBuyerType,
+              (title) => (title ? `${title} ticket for you` : "Your ticket")
+            )}
           </div>
           {fieldError(0, "ticketTypeIds") && (
             <p className="font-body text-xs text-red-700">{fieldError(0, "ticketTypeIds")}</p>
           )}
+
+          <p className="font-body text-xs text-muted-foreground bg-cream/60 border border-border rounded-lg px-3 py-2">
+            This is your own ticket. You can book tickets for guests on the next screen.
+          </p>
 
           {atCap && (
             <p className="font-body text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
@@ -644,9 +662,12 @@ export default function EventRegistrationForm({
                   />
                   {emailErr && <p className="font-body text-xs text-red-700">{emailErr}</p>}
                   <div>
-                    <p className="font-body text-xs text-muted-foreground mb-1">Tickets for this guest</p>
-                    {ticketCheckboxes(g.ticketTypeIds, (id) => toggleGuestType(g.key, id), (title) =>
-                      `Guest ${idx + 1} ${title} ticket`
+                    <p className="font-body text-xs text-muted-foreground mb-1">Ticket for this guest</p>
+                    {ticketRadios(
+                      `guest-ticket-${g.key}`,
+                      g.ticketTypeIds[0],
+                      (id) => selectGuestType(g.key, id),
+                      (title) => (title ? `Guest ${idx + 1} ${title} ticket` : `Guest ${idx + 1} ticket`)
                     )}
                   </div>
                   {typesErr && <p className="font-body text-xs text-red-700">{typesErr}</p>}

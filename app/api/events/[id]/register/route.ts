@@ -279,7 +279,11 @@ export async function POST(
   // since a multi-day buyer is one entry with two types, not two entries) — this
   // module doesn't know about rate classes (KD6), so it's constructed here and
   // folded into the same violations array rather than reported separately.
-  const result = validateOrder(people, { maxPeople: MAX_TICKETS, maxTickets: MAX_TICKETS }, isKnownTicketType);
+  const result = validateOrder(
+    people,
+    { maxPeople: MAX_TICKETS, maxTickets: MAX_TICKETS, maxTicketsPerPerson: 1 },
+    isKnownTicketType,
+  );
   const violations: Violation[] = [...result.violations];
   if (
     rateClass === "invite" &&

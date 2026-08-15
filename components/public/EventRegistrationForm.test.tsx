@@ -71,20 +71,44 @@ describe("step 1 — the buyer's own tickets", () => {
     expect(screen.getByText("CHF 80.00", { selector: "span.font-heading" })).toBeInTheDocument();
   });
 
-  it("lets the buyer pick more than one ticket type (multi-day) in step 1", async () => {
+  // One ticket per head: step 1 is a radio group, so a second pick REPLACES the first
+  // rather than adding to it. The total reflects the swap, never the sum.
+  it("replaces the buyer's ticket when they pick a second type, rather than adding it", async () => {
     const user = userEvent.setup();
     renderForm([asado, veg]);
     await user.click(yourTicket("Asado"));
     await user.click(yourTicket("Veg"));
-    expect(screen.getByText("CHF 120.00", { selector: "span.font-heading" })).toBeInTheDocument();
+    expect(screen.getByText("CHF 40.00", { selector: "span.font-heading" })).toBeInTheDocument();
+    expect(yourTicket("Veg")).toBeChecked();
+    expect(yourTicket("Asado")).not.toBeChecked();
   });
 
-  it("caps the order and disables further selection at the cap", async () => {
+  it("tells the buyer guests are booked on the next screen", () => {
+    renderForm([asado]);
+    expect(screen.getByText(/book tickets for guests on the next screen/i)).toBeInTheDocument();
+  });
+
+  // Swapping is free even at the cap — it exchanges a ticket rather than adding one.
+  // Only a person with nothing selected can be blocked, which for the buyer at cap 1
+  // means never, since they are the first pick.
+  it("lets the buyer swap their ticket even when the order cap is 1", async () => {
     const user = userEvent.setup();
     renderForm([asado, veg], { maxQuantity: 1 });
     await user.click(yourTicket("Asado"));
-    expect(yourTicket("Veg")).toBeDisabled();
+    expect(yourTicket("Veg")).toBeEnabled();
+    await user.click(yourTicket("Veg"));
+    expect(yourTicket("Veg")).toBeChecked();
     expect(screen.getByText(/Maximum 1 tickets/i)).toBeInTheDocument();
+  });
+
+  it("blocks a guest row's first pick once the order cap is reached", async () => {
+    const user = userEvent.setup();
+    renderForm([asado, veg], { maxQuantity: 1 });
+    await fillBuyer(user);
+    await user.click(yourTicket("Asado"));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    // The cap is already consumed by the buyer, so "Add guest" is closed off entirely.
+    expect(screen.getByRole("button", { name: /add guest/i })).toBeDisabled();
   });
 });
 
@@ -115,12 +139,12 @@ describe("step 2 — repeatable guest rows (R20)", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
   }
 
-  it("a buyer taking two days sees one 'your ticket' row, not a guest row demanding their own details again", async () => {
+  it("the buyer sees their own ticket summarised, not a guest row demanding their details again", async () => {
     const user = userEvent.setup();
     renderForm([asado, veg]);
-    await goToStep2(user, ["Asado", "Veg"]);
+    await goToStep2(user, ["Veg"]);
     expect(screen.getByText("Who's coming?")).toBeInTheDocument();
-    expect(screen.getByText("Asado, Veg")).toBeInTheDocument();
+    expect(screen.getByText("Veg")).toBeInTheDocument();
     expect(screen.queryByLabelText(/Guest 1/)).not.toBeInTheDocument();
   });
 
@@ -315,12 +339,17 @@ describe("U7 — offer mode", () => {
     expect(cont).toBeEnabled();
   });
 
-  it("caps selection at the redeemable quantity", async () => {
+  // The redeemable quantity still bounds the ORDER; with one ticket per head it bounds
+  // how many people fit on it, and swapping the buyer's own type stays free.
+  it("caps the order at the redeemable quantity while still allowing a swap", async () => {
     const user = userEvent.setup();
     const offer: OfferMode = { token: "tok-1", redeemableQuantity: 1, email: "entry@x.ch" };
     renderForm([asado, veg], { offer });
     await user.click(yourTicket("Asado"));
-    expect(yourTicket("Veg")).toBeDisabled();
+    expect(yourTicket("Veg")).toBeEnabled();
+    await user.click(yourTicket("Veg"));
+    expect(yourTicket("Veg")).toBeChecked();
+    expect(yourTicket("Asado")).not.toBeChecked();
     expect(screen.getByText(/Maximum 1 tickets/i)).toBeInTheDocument();
   });
 

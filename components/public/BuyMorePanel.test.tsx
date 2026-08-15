@@ -60,7 +60,9 @@ describe("repeatable guest rows (R20) — same shape as checkout", () => {
     expect(screen.queryByLabelText(/Guest 1 name/)).not.toBeInTheDocument();
   });
 
-  it("a person taking two ticket types is one row with two checkboxes selected, not two rows", async () => {
+  // One ticket per head: each guest row is a radio group, so a second pick swaps the
+  // first. Two types means two rows, never one row holding both.
+  it("swaps a guest's ticket type rather than accumulating both on one row", async () => {
     const user = userEvent.setup();
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, redirectUrl: "/x" }) });
     // jsdom doesn't implement navigation; swallow it.
@@ -72,10 +74,34 @@ describe("repeatable guest rows (R20) — same shape as checkout", () => {
     await user.type(screen.getByLabelText("Guest 1 email"), "ana@x.ch");
     await user.click(screen.getByLabelText("Guest 1 Asado ticket"));
     await user.click(screen.getByLabelText("Guest 1 Veg ticket"));
+    expect(screen.getByLabelText("Guest 1 Veg ticket")).toBeChecked();
+    expect(screen.getByLabelText("Guest 1 Asado ticket")).not.toBeChecked();
     expect(screen.queryByLabelText(/Guest 2/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Buy 1 ticket/i }));
+    const body = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.people).toEqual([{ name: "Ana Adult", email: "ana@x.ch", ticketTypeIds: ["v"] }]);
+  });
+
+  it("two people on two types is two rows, one ticket each", async () => {
+    const user = userEvent.setup();
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, redirectUrl: "/x" }) });
+    Object.defineProperty(window, "location", { value: { href: "" }, writable: true });
+    renderOpenPanel();
+    await openPanel(user);
+    await user.click(screen.getByRole("button", { name: /add guest/i }));
+    await user.type(screen.getByLabelText("Guest 1 name"), "Ana Adult");
+    await user.type(screen.getByLabelText("Guest 1 email"), "ana@x.ch");
+    await user.click(screen.getByLabelText("Guest 1 Asado ticket"));
+    await user.click(screen.getByRole("button", { name: /add guest/i }));
+    await user.type(screen.getByLabelText("Guest 2 name"), "Bo Vidal");
+    await user.type(screen.getByLabelText("Guest 2 email"), "bo@x.ch");
+    await user.click(screen.getByLabelText("Guest 2 Veg ticket"));
     await user.click(screen.getByRole("button", { name: /Buy 2 tickets/i }));
     const body = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.people).toEqual([{ name: "Ana Adult", email: "ana@x.ch", ticketTypeIds: ["a", "v"] }]);
+    expect(body.people).toEqual([
+      { name: "Ana Adult", email: "ana@x.ch", ticketTypeIds: ["a"] },
+      { name: "Bo Vidal", email: "bo@x.ch", ticketTypeIds: ["v"] },
+    ]);
   });
 });
 

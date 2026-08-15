@@ -58,7 +58,8 @@ export default function BuyMorePanel({
   const heldSet = useMemo(() => new Set(heldTypeIds ?? []), [heldTypeIds]);
   const typeIds = useMemo(() => new Set(types.map((t) => t.id)), [types]);
   const isKnownTicketType = (id: string) => typeIds.has(id);
-  const bounds: OrderBounds = { maxPeople: MAX_GUESTS, maxTickets: MAX_GUESTS };
+  // maxTicketsPerPerson mirrors the topup route's bound — one ticket per head (R20).
+  const bounds: OrderBounds = { maxPeople: MAX_GUESTS, maxTickets: MAX_GUESTS, maxTicketsPerPerson: 1 };
 
   const people: OrderPerson[] = useMemo(
     () => guests.map((g) => ({ name: g.name, email: g.email, ticketTypeIds: g.ticketTypeIds })),
@@ -84,13 +85,10 @@ export default function BuyMorePanel({
     setGuests((prev) => prev.map((g) => (g.key === key ? { ...g, [field]: value } : g)));
     clearViolations();
   }
-  function toggleGuestType(key: string, ticketTypeId: string) {
+  // One ticket per head (R20) — selecting replaces rather than accumulates.
+  function selectGuestType(key: string, ticketTypeId: string) {
     setGuests((prev) =>
-      prev.map((g) => {
-        if (g.key !== key) return g;
-        const has = g.ticketTypeIds.includes(ticketTypeId);
-        return { ...g, ticketTypeIds: has ? g.ticketTypeIds.filter((x) => x !== ticketTypeId) : [...g.ticketTypeIds, ticketTypeId] };
-      })
+      prev.map((g) => (g.key === key ? { ...g, ticketTypeIds: [ticketTypeId] } : g))
     );
     clearViolations();
   }
@@ -217,12 +215,17 @@ export default function BuyMorePanel({
                   className="w-full rounded-lg border border-border/70 px-3 py-2 font-body text-base text-marine"
                 />
                 {emailErr && <p className="font-body text-xs text-red-600">{emailErr}</p>}
-                <ul className="space-y-1.5">
+                {/* One ticket per head (R20): a radio group scoped to this guest's row. */}
+                <ul className="space-y-1.5" role="radiogroup" aria-label={`Guest ${idx + 1} ticket`}>
                   {types.map((t) => {
-                    const checked = g.ticketTypeIds.includes(t.id);
+                    const checked = g.ticketTypeIds[0] === t.id;
                     return (
                       <li key={t.id}>
-                        <label className="flex items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2 cursor-pointer">
+                        <label
+                          className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 cursor-pointer ${
+                            checked ? "border-marine bg-marine/5" : "border-border/70"
+                          }`}
+                        >
                           <span className="font-body text-sm text-marine">
                             {t.title} <span className="text-marine/70">· {t.priceLabel}</span>
                             {heldSet.has(t.id) && (
@@ -232,9 +235,10 @@ export default function BuyMorePanel({
                             )}
                           </span>
                           <input
-                            type="checkbox"
+                            type="radio"
+                            name={`topup-guest-ticket-${g.key}`}
                             checked={checked}
-                            onChange={() => toggleGuestType(g.key, t.id)}
+                            onChange={() => selectGuestType(g.key, t.id)}
                             aria-label={`Guest ${idx + 1} ${t.title} ticket`}
                             className="h-5 w-5 shrink-0"
                           />

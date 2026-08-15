@@ -69,6 +69,19 @@ export interface OrderBounds {
    * `ticketTypeIds.length`, i.e. what `deriveTicketCounts`'s values would sum to.
    */
   maxTickets: number;
+  /**
+   * Upper bound on ONE person's `ticketTypeIds.length`. Every purchase surface passes
+   * 1 today: a ticket is per head, so a person holds exactly one (see the note on
+   * `ticketIdentityKey` about what this costs).
+   *
+   * A bound rather than a hard rule because the shape it forbids is still
+   * representable and still correct — one person legitimately holding two ticket
+   * types is how a multi-day event would be expressed (KD4). Nothing marks an event
+   * as multi-day yet, so no caller can safely raise this; when something does, it
+   * raises the bound here rather than reintroducing the concept in three forms.
+   * Omit it to leave per-person holdings unbounded.
+   */
+  maxTicketsPerPerson?: number;
 }
 
 export type OrderViolationField = "name" | "email" | "ticketTypeIds";
@@ -84,6 +97,7 @@ export type OrderViolationRule =
   | "email_invalid"
   | "email_too_long"
   | "no_ticket_types"
+  | "too_many_ticket_types_for_person"
   | "unknown_ticket_type"
   | "duplicate_ticket_type_for_person";
 
@@ -133,10 +147,14 @@ export function personIdentityKey(name: string, email: string): string {
  * ticket type (R4). Two submissions with the same key collapse into one ticket at claim
  * time — the second returns the first's ticket with `already: true` and claims no seat.
  *
- * Scoped to one ticket type on purpose: the same person legitimately holds two seats of
- * DIFFERENT types (Friday and Saturday of the same event — KD4), and narrowing the key to
- * include the type is what makes that representable rather than collapsing the second day
- * into the first.
+ * Scoped to one ticket type on purpose: the same person holding two seats of DIFFERENT
+ * types (Friday and Saturday of the same event — KD4) stays representable, rather than
+ * collapsing the second day into the first.
+ *
+ * No purchase surface currently produces that shape — every caller passes
+ * `maxTicketsPerPerson: 1`, so a person holds exactly one ticket. The type stays in the
+ * key anyway: it is the guard the SQL mirrors, and widening a dedupe key later is the
+ * kind of change that silently merges two real people. Narrow key, bounded caller.
  *
  * `lib/events/attendee-input.ts`'s `collidesWithClaimed` imports `personIdentityKey` (below)
  * rather than keeping its own copy, so the two files can't drift from each other — both must
@@ -217,6 +235,20 @@ export function validateOrder(
     if (ticketTypeIds.length === 0) {
       violations.push(
         personViolation("no_ticket_types", "Each person needs at least one ticket", personIndex, "ticketTypeIds"),
+      );
+    } else if (
+      bounds.maxTicketsPerPerson !== undefined &&
+      ticketTypeIds.length > bounds.maxTicketsPerPerson
+    ) {
+      violations.push(
+        personViolation(
+          "too_many_ticket_types_for_person",
+          bounds.maxTicketsPerPerson === 1
+            ? "Each person can hold one ticket"
+            : `Each person can hold at most ${bounds.maxTicketsPerPerson} tickets`,
+          personIndex,
+          "ticketTypeIds",
+        ),
       );
     }
 

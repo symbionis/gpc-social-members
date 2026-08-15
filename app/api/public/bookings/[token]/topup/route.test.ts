@@ -288,13 +288,22 @@ describe("mandatory naming on top-ups", () => {
     expect(res.status).toBe(200);
   });
 
-  // The same case expressed the way the people-list contract naturally represents it: ONE
-  // person entry holding both types at once, in a single top-up.
-  it("allows one person entry to carry two different ticket types in the same top-up", async () => {
+  // A ticket is per head here too: TOPUP_ORDER_BOUNDS passes maxTicketsPerPerson: 1, so
+  // one person entry carrying both types is refused rather than minting two seats for
+  // one name.
+  it("400s one person entry carrying two different ticket types in the same top-up", async () => {
     const res = await post({
       people: [{ name: "Ana Vidal", email: "ana@x.com", ticketTypeIds: [TYPE, OTHER_TYPE] }],
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.violations).toContainEqual(
+      expect.objectContaining({
+        rule: "too_many_ticket_types_for_person",
+        personIndex: 0,
+        field: "ticketTypeIds",
+      })
+    );
   });
 
   // A seat minted before ticket types existed carries no type, and claim_ticket lets it adopt

@@ -33,7 +33,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // The same numeric cap this route enforced before the people-list migration (MAX_QTY = 50).
 // A top-up adds to an existing booking rather than starting one, so it keeps its own bound
 // rather than inheriting public checkout's (smaller) cap.
-const TOPUP_ORDER_BOUNDS: OrderBounds = { maxPeople: 50, maxTickets: 50 };
+const TOPUP_ORDER_BOUNDS: OrderBounds = { maxPeople: 50, maxTickets: 50, maxTicketsPerPerson: 1 };
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
