@@ -102,14 +102,15 @@ describe("CompGuestListManager — buy more paid seats (KTD2)", () => {
     renderManager([sponsor()], { topupEndpoint: "/api/public/bookings/tok/topup", buyableTypes: types });
     const toggle = screen.getByRole("button", { name: /Buy more tickets/i });
     expect(toggle).toBeInTheDocument();
-    expect(screen.queryByLabelText(/Add one Sponsor Add-on/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /add guest/i })).toBeNull();
   });
 
-  it("lets the sponsor open the panel and select a quantity", async () => {
+  it("lets the sponsor open the panel and add a guest row", async () => {
     const user = userEvent.setup();
     renderManager([sponsor()], { topupEndpoint: "/api/public/bookings/tok/topup", buyableTypes: types });
     await user.click(screen.getByRole("button", { name: /Buy more tickets/i }));
-    await user.click(screen.getByRole("button", { name: /Add one Sponsor Add-on/i }));
-    expect(screen.getByLabelText(/Sponsor Add-on guest 1 email/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /add guest/i }));
+    expect(screen.getByLabelText("Guest 1 email")).toBeInTheDocument();
+    expect(screen.getByLabelText("Guest 1 Sponsor Add-on ticket")).toBeInTheDocument();
   });
 });
