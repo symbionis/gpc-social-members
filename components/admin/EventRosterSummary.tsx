@@ -18,6 +18,12 @@ export interface TicketTypeSummaryRow {
   countsAsSeat: boolean;
   /** Tickets purchased of this type (event_registration_items by ticket_type_id). */
   sold: number;
+  /**
+   * Guest-list guests of this type, NET of anyone who already holds a purchased ticket of it
+   * (U9's `findGuestListOverlap` — same person, same type, counted once as purchased). Optional
+   * so a call site that has not been updated yet still compiles and this simply adds nothing.
+   */
+  guestListSold?: number;
 }
 
 /**
@@ -47,10 +53,25 @@ interface Props {
   guestListSeats: number;
   /** How many sponsors hold a list, which is what makes the seat figure readable. */
   guestListCount: number;
+  /**
+   * Guest-list guests who have checked in — the "admitted" half of the R14 pair (guests on
+   * lists, guests admitted). Deliberately its own figure, never folded into the ticketed
+   * check-in rate below (KTD11): a guest-list guest has no registration, so counting their
+   * arrival against a ticketed denominator would push the rate past 100%.
+   */
+  guestListAdmitted?: number;
   hasSeatCap: boolean;
   seatCap: number | null;
   overbooked: boolean;
   ticketTypeSummary: TicketTypeSummaryRow[];
+  /**
+   * Checked-in tickets that trace back to a registration — i.e. excludes every guest-list
+   * ticket (KTD11). Paired with `total` (already purely ticketed — `seats_used` never reads
+   * `tickets` at all) to compute the check-in rate. Optional and undefined by default so a
+   * call site that has not been updated yet renders with no rate panel, rather than a
+   * misleading 0%.
+   */
+  checkedInTickets?: number;
 }
 
 function formatPrice(n: number | null): string {
@@ -105,10 +126,12 @@ export default function EventRosterSummary({
   cancelledSeats,
   guestListSeats,
   guestListCount,
+  guestListAdmitted = 0,
   hasSeatCap,
   seatCap,
   overbooked,
   ticketTypeSummary,
+  checkedInTickets,
 }: Props) {
   // Worth showing only when booked says something active does not: a cancellation happened,
   // or the tickets came from more than one place (paid, free, a guest list).
@@ -122,6 +145,14 @@ export default function EventRosterSummary({
       ? `of ${seatCap} cap — overbooked`
       : `of ${seatCap} cap`
     : "Uncapped";
+
+  // KTD11: checked-in ÷ registered, both purely ticketed. `total` already structurally
+  // excludes guest-list tickets (`seats_used` never reads `tickets`); `checkedInTickets` is the
+  // caller's job to exclude the same way (registration-backed tickets only). Rendered only when
+  // the caller has supplied a real figure — undefined means "not wired yet", not "0%".
+  const showCheckInRate = checkedInTickets !== undefined;
+  const checkInRatePct =
+    showCheckInRate && total > 0 ? Math.round(((checkedInTickets as number) / total) * 100) : 0;
 
   return (
     <div className="flex-1 min-w-0 space-y-5">
@@ -138,6 +169,16 @@ export default function EventRosterSummary({
           sub={capacitySub}
           tone={overbooked ? "alert" : "default"}
         />
+        {/* R19/KTD11: checked-in ÷ registered, purely ticketed on both sides. Shown only once a
+            caller supplies `checkedInTickets` — undefined means the figure has not been wired
+            up yet, not that check-in stands at 0%. */}
+        {showCheckInRate && (
+          <Panel
+            value={`${checkInRatePct}%`}
+            label="Checked in"
+            sub={`${checkedInTickets} of ${total} ticketed`}
+          />
+        )}
         {showBreakdown && (
           <>
             <Panel value={String(booked)} label="Booked tickets" sub="before cancellations" />
@@ -162,6 +203,17 @@ export default function EventRosterSummary({
             sub={`across ${guestListCount} guest list${guestListCount === 1 ? "" : "s"}`}
           />
         )}
+        {/* R14: guest-list attendance is its own pair, deliberately never folded into the
+            ticketed check-in rate above (KTD11) — a guest-list guest has no registration to be
+            "checked in" against. Sibling of the panel above rather than merged into it, so
+            "on the list" and "admitted" stay two separately-readable numbers. */}
+        {guestListCount > 0 && (
+          <Panel
+            value={String(guestListAdmitted)}
+            label="Guest list admitted"
+            sub={`of ${guestListSeats} on list${guestListSeats === 1 ? "" : "s"}`}
+          />
+        )}
       </div>
 
       {/* Per-ticket-type breakdown — ticket count leads, pre-registered beneath. */}
@@ -169,20 +221,33 @@ export default function EventRosterSummary({
         <div>
           <p className="mb-2 font-body text-sm font-bold text-marine">Ticket types</p>
           <div className="flex flex-wrap gap-3">
-            {ticketTypeSummary.map((tt) => (
-              <Panel
-                key={tt.id}
-                value={String(tt.sold)}
-                label={tt.title || "Untitled"}
-                sub={priceLabel(tt.priceMember, tt.priceNonMember)}
-              >
-                {!tt.countsAsSeat && (
-                  <span className="rounded-full bg-sky/10 px-2 py-0.5 text-[10px] font-body text-sky-dark">
-                    No seat
-                  </span>
-                )}
-              </Panel>
-            ))}
+            {ticketTypeSummary.map((tt) => {
+              // R14: the headline figure is purchased UNION guest-list, so an admin reading
+              // one number sees everyone who will actually show up holding this type — not
+              // just the ones the club was paid for. `guestListSold` already nets out anyone
+              // who also holds a purchased ticket of this same type (findGuestListOverlap), so
+              // that person is not counted twice here.
+              const guestListSold = tt.guestListSold ?? 0;
+              return (
+                <Panel
+                  key={tt.id}
+                  value={String(tt.sold + guestListSold)}
+                  label={tt.title || "Untitled"}
+                  sub={priceLabel(tt.priceMember, tt.priceNonMember)}
+                >
+                  {!tt.countsAsSeat && (
+                    <span className="rounded-full bg-sky/10 px-2 py-0.5 text-[10px] font-body text-sky-dark">
+                      No seat
+                    </span>
+                  )}
+                  {guestListSold > 0 && (
+                    <span className="rounded-full bg-sky/10 px-2 py-0.5 text-[10px] font-body text-sky-dark">
+                      incl. {guestListSold} guest list
+                    </span>
+                  )}
+                </Panel>
+              );
+            })}
           </div>
         </div>
       )}
