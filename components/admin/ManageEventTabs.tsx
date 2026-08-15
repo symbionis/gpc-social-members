@@ -81,6 +81,11 @@ interface Props {
   guestListSeats: number;
   /** How many sponsors hold a list. */
   guestListCount: number;
+  /** Registration-backed tickets checked in — excludes guest-list arrivals (KTD11), so the
+   *  Overview's check-in rate never exceeds 100% with guest lists present. */
+  checkedInTickets?: number;
+  /** Guest-list guests checked in — the other half of R19's separate pair. */
+  guestListAdmitted?: number;
   seatCap: number | null;
   overbooked: boolean;
   baseUrl: string;
@@ -135,6 +140,8 @@ export default function ManageEventTabs({
   cancelledSeats,
   guestListSeats,
   guestListCount,
+  checkedInTickets,
+  guestListAdmitted,
   seatCap,
   overbooked,
   baseUrl,
@@ -371,6 +378,8 @@ export default function ManageEventTabs({
           cancelledSeats={cancelledSeats}
           guestListSeats={guestListSeats}
           guestListCount={guestListCount}
+          checkedInTickets={checkedInTickets}
+          guestListAdmitted={guestListAdmitted}
           hasSeatCap={hasSeatCap}
           seatCap={seatCap}
           overbooked={overbooked}

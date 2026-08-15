@@ -18,7 +18,7 @@ import {
   ADMISSIBLE_SLOT_STATUSES,
   partitionByCancellation,
 } from "@/lib/events/ticket-admissibility";
-import { splitBookedTickets } from "@/lib/events/booked-tickets";
+import { splitBookedTickets, findGuestListOverlap } from "@/lib/events/booked-tickets";
 import { fetchGuestLists } from "@/lib/events/guest-lists";
 
 export default async function ManageEventPage({
@@ -269,6 +269,11 @@ export default async function ManageEventPage({
   });
 
   const checkedInCount = attendees.filter((a) => a.checkedIn).length;
+  // U9/KTD11: the OVERVIEW's check-in rate must stay purely ticketed — a guest-list ticket
+  // has no registration, so counting its arrival here (against activeTickets below, which
+  // structurally excludes guest-list tickets) would push the rate past 100%. checkedInCount
+  // above feeds the Check-in tab's own arrival bar and is a separate, pre-existing surface.
+  const checkedInTickets = attendees.filter((a) => a.checkedIn && a.registrationId !== null).length;
 
   // ---------------------------------------------------------------------------
   // Refunds tab: the cancelled seats, with the charges their money would come back from.
@@ -357,18 +362,6 @@ export default async function ManageEventPage({
       (soldByTicketType.get(item.ticket_type_id) ?? 0) + (item.quantity ?? 0)
     );
   }
-  const ticketTypeSummary = ticketTypes.map((tt) => {
-    const typeId = tt.id as string;
-    return {
-      id: typeId,
-      title: (tt.title as string | null) ?? "",
-      priceMember: (tt.price_member as number | null) ?? null,
-      priceNonMember: (tt.price_non_member as number | null) ?? null,
-      countsAsSeat: Boolean(tt.counts_as_seat),
-      sold: soldByTicketType.get(typeId) ?? 0,
-    };
-  });
-
   // The event's guest lists, U5 model (event_guest_lists + tickets.guest_list_id, KD10): a
   // guest on a list IS a ticket with no registration behind it, so this reads
   // lib/events/guest-lists.ts rather than anything off `registrations`/`claimedRoster` — the
@@ -398,6 +391,45 @@ export default async function ManageEventPage({
   // `guestLists` and excluded cancelled comps, which made it the one figure in the overview
   // measured after cancellation while the rest were measured before.
   const guestListCount = guestLists.length;
+
+  // U9: a person can hold both a purchased ticket and a guest-list ticket of the same type
+  // (a sponsor comping someone who already bought) — union, don't double-count. Matched on
+  // the R4 identity key (name + email + ticket type), never email alone (household seatmates
+  // sharing an address must stay two people, not one).
+  const purchasedHolders = claimedRoster.map((a) => ({
+    name: a.name,
+    email: a.email,
+    ticketTypeId: a.ticket_type_id,
+  }));
+  const guestListHolders = guestListEntries.flatMap((list) =>
+    list.guests.map((g) => ({
+      ticketId: g.ticketId,
+      name: g.name,
+      email: g.email,
+      ticketTypeId: g.ticketTypeId,
+    }))
+  );
+  const guestListOverlap = findGuestListOverlap(purchasedHolders, guestListHolders);
+
+  const ticketTypeSummary = ticketTypes.map((tt) => {
+    const typeId = tt.id as string;
+    return {
+      id: typeId,
+      title: (tt.title as string | null) ?? "",
+      priceMember: (tt.price_member as number | null) ?? null,
+      priceNonMember: (tt.price_non_member as number | null) ?? null,
+      countsAsSeat: Boolean(tt.counts_as_seat),
+      sold: soldByTicketType.get(typeId) ?? 0,
+      guestListSold: guestListOverlap.netNewByTicketType.get(typeId) ?? 0,
+    };
+  });
+
+  // Guests on lists who are admitted (checked in) — the other half of R19's separate pair
+  // (guests on lists, guests admitted), kept apart from the purely-ticketed check-in rate.
+  const guestListAdmitted = guestListEntries.reduce(
+    (sum, list) => sum + list.guests.filter((g) => g.checkedIn).length,
+    0
+  );
 
   // The overview counts TICKETS, split by how they were acquired, so each figure means
   // what its label says:
@@ -429,7 +461,8 @@ export default async function ManageEventPage({
       ticket_type_id: i.ticket_type_id,
       quantity: i.quantity,
     })),
-    (id) => ticketTypeById.get(id)?.counts_as_seat === true
+    (id) => ticketTypeById.get(id)?.counts_as_seat === true,
+    guestListHolders.length
   );
 
   // Tickets still standing. `seats_used` is the authoritative figure: it subtracts cancelled
@@ -570,6 +603,8 @@ export default async function ManageEventPage({
         cancelledSeats={cancelledTicketCount}
         guestListSeats={guestListTickets}
         guestListCount={guestListCount}
+        checkedInTickets={checkedInTickets}
+        guestListAdmitted={guestListAdmitted}
         seatCap={seatCap}
         overbooked={overbooked}
         baseUrl={baseUrl}
