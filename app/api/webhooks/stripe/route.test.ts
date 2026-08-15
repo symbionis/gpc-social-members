@@ -7,10 +7,10 @@ vi.mock("@/lib/email/event-registration", () => ({
   sendEventRegistrationConfirmation: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/lib/events/roster", () => ({
-  seedLeadAttendee: vi.fn().mockResolvedValue(undefined),
   mintRegistrationTickets: vi.fn().mockResolvedValue(undefined),
   applyPendingRoster: vi.fn().mockResolvedValue(undefined),
   applyTopupRoster: vi.fn().mockResolvedValue("applied"),
+  markLeadTickets: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/lib/utils/card", () => ({ generateCardNumber: vi.fn(() => "CARD1") }));
 
@@ -19,26 +19,26 @@ import { getStripe } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
 import {
-  seedLeadAttendee,
   mintRegistrationTickets,
   applyPendingRoster,
   applyTopupRoster,
+  markLeadTickets,
 } from "@/lib/events/roster";
 import type { TopupRosterStatus } from "@/lib/events/roster";
 
 const mockedStripe = vi.mocked(getStripe);
 const mockedAdmin = vi.mocked(createAdminClient);
 const mockedEmail = vi.mocked(sendEventRegistrationConfirmation);
-const mockedSeed = vi.mocked(seedLeadAttendee);
 const mockedMint = vi.mocked(mintRegistrationTickets);
 const mockedApply = vi.mocked(applyPendingRoster);
 const mockedApplyTopup = vi.mocked(applyTopupRoster);
+const mockedMarkLead = vi.mocked(markLeadTickets);
 
 // ===========================================================================
 // Nominative roster branch (U5): presence-gated fill + checkout.session.expired
 // ===========================================================================
 
-type RegRow = { id: string; status: string; pending_roster: unknown } | null;
+type RegRow = { id: string; status: string; pending_roster: unknown; name?: string; email?: string } | null;
 
 let regRow: RegRow;
 let updates: Record<string, unknown>[];
@@ -100,42 +100,46 @@ describe("event registration checkout.session.completed (U5)", () => {
     mockedAdmin.mockReturnValue(rosterAdmin());
   });
 
-  it("first promotion with a roster: promotes, seeds, mints, applies roster, emails", async () => {
-    regRow = { id: "reg-1", status: "pending", pending_roster: roster };
+  it("first promotion with a roster: promotes, mints, applies roster, flips is_lead, emails", async () => {
+    regRow = { id: "reg-1", status: "pending", pending_roster: roster, name: "Buyer Person", email: "buyer@x.ch" };
     const res = await fireCompleted();
     expect((await res.json())).toMatchObject({ received: true });
     expect(updates.some((u) => u.status === "paid")).toBe(true);
-    expect(mockedSeed).toHaveBeenCalledWith("reg-1");
     expect(mockedMint).toHaveBeenCalledWith("reg-1");
     expect(mockedApply).toHaveBeenCalledWith("reg-1");
+    // KTD3/KTD9: nothing seeds the buyer separately any more — mint issues their
+    // seat unclaimed like every guest's, applyPendingRoster claims it (their entry
+    // is in the staged roster, U2), and this is what flips is_lead afterward.
+    expect(mockedMarkLead).toHaveBeenCalledWith("reg-1", "Buyer Person", "buyer@x.ch");
     expect(mockedEmail).toHaveBeenCalledWith("reg-1");
   });
 
   it("recovery redelivery (already paid, roster still present): applies roster, no re-promote, no email", async () => {
-    regRow = { id: "reg-1", status: "paid", pending_roster: roster };
+    regRow = { id: "reg-1", status: "paid", pending_roster: roster, name: "Buyer Person", email: "buyer@x.ch" };
     const res = await fireCompleted();
     expect((await res.json())).toMatchObject({ received: true });
     expect(updates.some((u) => u.status === "paid")).toBe(false); // not re-promoted
     expect(mockedApply).toHaveBeenCalledWith("reg-1");
+    expect(mockedMarkLead).toHaveBeenCalledWith("reg-1", "Buyer Person", "buyer@x.ch");
     expect(mockedEmail).not.toHaveBeenCalled();
   });
 
   it("finished registration (paid, roster cleared): short-circuits, no side effects", async () => {
-    regRow = { id: "reg-1", status: "paid", pending_roster: null };
+    regRow = { id: "reg-1", status: "paid", pending_roster: null, name: "Buyer Person", email: "buyer@x.ch" };
     const res = await fireCompleted();
     expect((await res.json())).toMatchObject({ received: true, already_processed: true });
-    expect(mockedSeed).not.toHaveBeenCalled();
     expect(mockedMint).not.toHaveBeenCalled();
     expect(mockedApply).not.toHaveBeenCalled();
+    expect(mockedMarkLead).not.toHaveBeenCalled();
   });
 
-  it("first promotion with no roster: seeds + mints, no roster apply", async () => {
-    regRow = { id: "reg-1", status: "pending", pending_roster: null };
+  it("first promotion with no roster: mints, no roster apply, still flips is_lead", async () => {
+    regRow = { id: "reg-1", status: "pending", pending_roster: null, name: "Buyer Person", email: "buyer@x.ch" };
     const res = await fireCompleted();
     expect((await res.json())).toMatchObject({ received: true });
-    expect(mockedSeed).toHaveBeenCalledWith("reg-1");
     expect(mockedMint).toHaveBeenCalledWith("reg-1");
     expect(mockedApply).not.toHaveBeenCalled();
+    expect(mockedMarkLead).toHaveBeenCalledWith("reg-1", "Buyer Person", "buyer@x.ch");
     expect(mockedEmail).toHaveBeenCalledWith("reg-1");
   });
 });
@@ -153,7 +157,7 @@ describe("checkout.session.expired cleanup (KTD7)", () => {
     expect((await res.json())).toMatchObject({ received: true });
     expect(updates.some((u) => "pending_roster" in u && u.pending_roster === null)).toBe(true);
     expect(mockedApply).not.toHaveBeenCalled();
-    expect(mockedSeed).not.toHaveBeenCalled();
+    expect(mockedMarkLead).not.toHaveBeenCalled();
   });
 
   it("no-ops when the expired session carries no registration id", async () => {

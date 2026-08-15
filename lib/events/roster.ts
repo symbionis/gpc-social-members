@@ -5,35 +5,14 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 
-/**
- * Seed the purchaser as an is_lead attendee for a confirmed registration. The work
- * (paid/free gate, NOT EXISTS guard, idempotency) lives in the seed_lead_attendee
- * SECURITY DEFINER function, so this is safe to call from the free-registration
- * path and the Stripe webhook alike.
- *
- * Best-effort: a seed failure is logged, not thrown. The registration has already
- * succeeded, and the roster has other on-ramps (backfill, bulk import, ops), so a
- * transient seed error must not fail registration or a Stripe webhook retry. The
- * log line is the signal to reconcile.
- */
-export async function seedLeadAttendee(
-  registrationId: string,
-  phoneE164?: string | null,
-): Promise<void> {
-  const supabase = createAdminClient();
-  const { error } = await supabase.rpc("seed_lead_attendee", {
-    p_registration_id: registrationId,
-    // In-hand override (the free-registration path passes the captured phone) so a
-    // failed best-effort phone UPDATE doesn't drop it; null falls back to the row.
-    p_phone_e164: phoneE164 ?? null,
-  });
-  if (error) {
-    console.error("[roster] seed_lead_attendee failed", {
-      registrationId,
-      err: error,
-    });
-  }
-}
+// seedLeadAttendee (and the seed_lead_attendee RPC it called) is retired (U2, KTD3).
+// Under the people contract the buyer is person zero — no more special-cased than
+// any other entry — so their ticket is minted and claimed the same way every
+// guest's is, via mintRegistrationTickets + fillRegistrationRoster/
+// applyPendingRoster below. markLeadTickets (further down) is what now flips
+// is_lead, since neither of those two ever does. The SQL function itself is left
+// in place, unused, the way import_event_attendees was (see the file's trailing
+// comment) — retiring it is a migration, out of scope here.
 
 /**
  * Mint one issued, credentialled ticket per purchased-but-unfilled slot for a
@@ -62,10 +41,11 @@ export async function mintRegistrationTickets(
   }
 }
 
-// One booker-entered guest ticket to name at checkout. Every ticket now requires an
-// email (naming is mandatory, no exemption for a former child type), so email is
-// non-null. The lead is excluded (seeded from lead_ticket_type_id), so this list is
-// guests only.
+// One person's claim on one ticket type, to name at checkout or apply after
+// payment. Every ticket now requires an email (naming is mandatory, no exemption
+// for a former child type), so email is non-null. Under the people contract (U2,
+// KTD3) the buyer (people[0]) is one more entry here, not excluded — there is
+// nothing left that makes their seat different from a guest's.
 export interface RosterFillAttendee {
   ticket_type_id: string;
   name: string;
@@ -105,6 +85,47 @@ export async function applyPendingRoster(registrationId: string): Promise<void> 
   });
   if (error) {
     console.error("[roster] apply_pending_roster failed", { registrationId, err: error });
+  }
+}
+
+/**
+ * Flip is_lead=true on every one of this registration's claimed tickets that match the
+ * buyer's own identity (KTD3/KTD9). Under the people contract the buyer is claimed through
+ * the same claim_ticket path as every guest — neither mint_registration_tickets nor
+ * claim_ticket ever sets is_lead, so this is the one remaining step that does, and it must
+ * run after the buyer's own claim (fillRegistrationRoster on the free path,
+ * applyPendingRoster on the paid path).
+ *
+ * Matched by (registration_id, name, email) rather than a fixed ticket type: a buyer can now
+ * hold more than one type (a multi-day pass), and every one of those tickets is equally
+ * "their own" — several is_lead rows on one registration is correct, not a bug. See
+ * lib/events/household.ts's `isLead` doc comment: it drives the receipt link on EACH ticket,
+ * so a multi-day buyer seeing it on both of their own tickets is the wanted behaviour.
+ *
+ * `name`/`email` must be exactly what was passed to claim_ticket for this person — this
+ * route's own (already-trimmed, already-lowercased-for-email) `name`/`email` variables.
+ * claim_ticket lowercases email itself but stores name exactly as given (trimmed only), so
+ * this match is exact, never case-folded.
+ *
+ * Best-effort: a failure is logged, not thrown — the registration and its tickets already
+ * exist; a stuck is_lead flag is a "My Bookings" access problem to reconcile by hand, not a
+ * reason to fail an otherwise-successful checkout or webhook delivery.
+ */
+export async function markLeadTickets(
+  registrationId: string,
+  name: string,
+  email: string,
+): Promise<void> {
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("tickets")
+    .update({ is_lead: true })
+    .eq("registration_id", registrationId)
+    .eq("name", name)
+    .eq("email", email)
+    .is("released_at", null);
+  if (error) {
+    console.error("[roster] markLeadTickets failed", { registrationId, err: error });
   }
 }
 

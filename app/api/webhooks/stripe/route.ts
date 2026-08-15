@@ -3,10 +3,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/postmark";
 import { sendEventRegistrationConfirmation } from "@/lib/email/event-registration";
 import {
-  seedLeadAttendee,
   mintRegistrationTickets,
   applyPendingRoster,
   applyTopupRoster,
+  markLeadTickets,
 } from "@/lib/events/roster";
 import { generateCardNumber } from "@/lib/utils/card";
 import { NextResponse, type NextRequest } from "next/server";
@@ -378,7 +378,7 @@ export async function POST(request: NextRequest) {
 
         const { data: existing, error: lookupErr } = await supabase
           .from("event_registrations")
-          .select("id, status, pending_roster")
+          .select("id, status, pending_roster, name, email")
           .eq("id", eventRegistrationId)
           .limit(1)
           .maybeSingle();
@@ -479,21 +479,28 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Seed the purchaser onto the roster now that payment is confirmed (U12),
-        // then mint a credentialled (QR) ticket for every remaining purchased slot
-        // (U2). Both are idempotent, so a webhook replay (or the recovery path
-        // above) seeds/mints no duplicates.
-        await seedLeadAttendee(existing.id);
+        // Mint a credentialled (QR) ticket for every purchased slot (U2), buyer
+        // included — under the people contract (KTD3) nothing pre-seeds the buyer's
+        // own seat, so mint issues it unclaimed the same as every guest's. Idempotent,
+        // so a webhook replay (or the recovery path above) mints no duplicates.
         await mintRegistrationTickets(existing.id);
 
-        // Apply the booker-entered guest names captured at checkout. This is a single
-        // atomic RPC (claim each guest + clear the column in one transaction under a
-        // row lock), so it is fully replay-safe INCLUDING children: a crash rolls both
-        // back and a redelivery re-applies cleanly; concurrent redeliveries serialize
-        // and the loser sees a cleared roster and no-ops.
+        // Apply the whole staged order (buyer + guests, KTD9) captured at checkout.
+        // This is a single atomic RPC (claim each person + clear the column in one
+        // transaction under a row lock), so it is fully replay-safe: a crash rolls
+        // both back and a redelivery re-applies cleanly; concurrent redeliveries
+        // serialize and the loser sees a cleared roster and no-ops. A claim reporting
+        // it did nothing (`already: true`) is a failure, not a success — the RPC
+        // itself RAISE WARNINGs on exactly that (20260811070359_roster_apply_reports_
+        // unclaimed.sql), so that detection survives this rewrite unchanged.
         if (existing.pending_roster) {
           await applyPendingRoster(existing.id);
         }
+
+        // Neither mint nor claim_ticket ever sets is_lead — flip it on the buyer's
+        // own now-claimed ticket(s) so the manage/receipt access gate (KTD4,
+        // lib/events/purchase-history.ts) still has something to key on.
+        await markLeadTickets(existing.id, existing.name, existing.email);
 
         // Send the confirmation only on the first promotion — not on a pure
         // fill-recovery redelivery (the buyer already got their email).

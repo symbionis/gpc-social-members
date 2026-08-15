@@ -11,22 +11,43 @@ import {
   isValidInviteCode,
 } from "@/lib/events/registration";
 import {
-  seedLeadAttendee,
   mintRegistrationTickets,
   fillRegistrationRoster,
+  markLeadTickets,
   type RosterFillAttendee,
 } from "@/lib/events/roster";
-import { isFullName } from "@/lib/names";
-import { parseAttendeeInput, collidesWithClaimed, EMAIL_RE } from "@/lib/events/attendee-input";
+import {
+  validateOrder,
+  deriveTicketCounts,
+  type OrderPerson,
+  type OrderViolation,
+} from "@/lib/events/order";
 import { findRedeemingRegistration } from "@/lib/events/waitlist-offer";
 import { captureServerException } from "@/lib/analytics/server-errors";
 
+// Bound on both people.length and the derived ticket count (lib/events/order.ts's
+// OrderBounds) — this endpoint is unauthenticated, so an arbitrary payload must not
+// reach a service-role write unbounded.
 const MAX_TICKETS = 20;
-// Bounds for the nominative roster fields — this endpoint is unauthenticated, so
-// reject oversized name/email rather than storing multi-megabyte junk (R10).
+
+// An order-scoped violation this route constructs itself (the invite-rate limit) —
+// validateOrder doesn't know about rate classes (KD6: that policy lives in the
+// caller). Same wire shape as OrderViolation; `rule` just isn't one of its frozen
+// literals.
+type Violation = OrderViolation | { rule: string; message: string; personIndex: null; field: null };
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
+}
+
+/** A rejection carrying `violations` (R5/R18) — the shape U4's form looks for on a
+ *  non-2xx response, falling back to `.error` only when this array is absent/empty. */
+function invalidOrder(violations: Violation[], status = 400) {
+  const orderScoped = violations.find((v) => v.personIndex === null);
+  return NextResponse.json(
+    { error: orderScoped?.message ?? "Please fix the highlighted details.", violations },
+    { status }
+  );
 }
 
 export async function POST(
@@ -40,9 +61,7 @@ export async function POST(
     email?: unknown;
     phone?: unknown;
     code?: unknown;
-    items?: unknown;
-    leadTicketTypeId?: unknown;
-    attendees?: unknown;
+    people?: unknown;
     offer_token?: unknown;
   };
   try {
@@ -54,7 +73,8 @@ export async function POST(
   const name = typeof body.name === "string" ? body.name.trim() : "";
   // Overridden below (KTD8) once an offer_token resolves to a waitlist entry — the
   // entry's own email replaces whatever the client sent, for every downstream use
-  // (duplicate guard, the registration RPC, and Stripe's customer_email).
+  // (duplicate guard, the registration RPC, Stripe's customer_email, and person
+  // zero's own identity in `people`).
   let email =
     typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const code = typeof body.code === "string" ? body.code.trim() : "";
@@ -66,43 +86,34 @@ export async function POST(
   const rawPhone = typeof body.phone === "string" ? body.phone.trim() : "";
   const phone = /^\+[1-9]\d{6,14}$/.test(rawPhone) ? rawPhone : "";
 
-  // The purchaser's own ticket (their meal). Validated below to be one of the basket
-  // types; recorded on the registration so the seeded lead carries a ticket type.
-  const leadTicketTypeId =
-    typeof body.leadTicketTypeId === "string" ? body.leadTicketTypeId.trim() : "";
-
   if (!name) return bad("name is required");
-  // A first AND a last name. The roster files people by surname, so a one-word name
-  // leaves that person with nothing to be filed under on the printed door sheet.
-  // Enforced here as well as in the form: this route is unauthenticated.
-  if (!isFullName(name)) return bad("Please enter both a first and last name");
-  if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
+  if (!email) return bad("valid email is required");
 
-  // Parse the basket: one { ticket_type_id, quantity } per chosen type.
-  // Reject negatives / non-integers (closes any arithmetic-abuse path); drop
-  // zero-quantity rows (a type the buyer didn't select). At least one positive
-  // line is required and the total is capped at MAX_TICKETS.
-  const rawItems = Array.isArray(body.items) ? body.items : null;
-  if (!rawItems) return bad("items must be provided");
-
-  const parsed: { ticket_type_id: string; quantity: number }[] = [];
-  for (const it of rawItems) {
-    const rec = (it ?? {}) as { ticket_type_id?: unknown; quantity?: unknown };
-    const ticketTypeId = typeof rec.ticket_type_id === "string" ? rec.ticket_type_id : "";
-    const q =
-      typeof rec.quantity === "number"
-        ? rec.quantity
-        : Number.parseInt(String(rec.quantity ?? ""), 10);
-    if (!Number.isInteger(q) || q < 0) {
-      return bad("Each ticket quantity must be a whole number of 0 or more");
-    }
-    if (q === 0) continue; // not selected
-    if (!ticketTypeId) return bad("Each selected ticket must reference a ticket type");
-    parsed.push({ ticket_type_id: ticketTypeId, quantity: q });
+  // An order IS a list of people (U1/KD1) — the buyer is people[0], no separate
+  // basket/attendees arrays and no `leadTicketTypeId` (KTD3). Shape the raw payload
+  // defensively (this route is unauthenticated); the actual rules — full names,
+  // email format, per-order bounds, known ticket types — are validateOrder's job
+  // below, not reimplemented here.
+  const rawPeople = Array.isArray(body.people) ? body.people : null;
+  if (!rawPeople || rawPeople.length === 0) return bad("Select at least one ticket");
+  if (rawPeople.length > MAX_TICKETS) {
+    return bad(`A maximum of ${MAX_TICKETS} people can be on one order`);
   }
+  const people: OrderPerson[] = rawPeople.map((p) => {
+    const rec = (p ?? {}) as { name?: unknown; email?: unknown; ticketTypeIds?: unknown };
+    return {
+      name: typeof rec.name === "string" ? rec.name : "",
+      email: typeof rec.email === "string" ? rec.email : "",
+      ticketTypeIds: Array.isArray(rec.ticketTypeIds)
+        ? rec.ticketTypeIds.filter((x): x is string => typeof x === "string")
+        : [],
+    };
+  });
 
-  if (parsed.length === 0) return bad("Select at least one ticket");
-  const totalQuantity = parsed.reduce((sum, p) => sum + p.quantity, 0);
+  // Raw (pre-validation) derived ticket count, for the offer quantity lock below —
+  // computed the same way deriveTicketCounts would sum, without needing the ticket
+  // types loaded yet.
+  const totalQuantity = people.reduce((n, p) => n + p.ticketTypeIds.length, 0);
   if (totalQuantity > MAX_TICKETS) {
     return bad(`A maximum of ${MAX_TICKETS} tickets can be booked at once`);
   }
@@ -111,7 +122,9 @@ export async function POST(
 
   const { data: event, error: eventErr } = await supabase
     .from("events")
-    .select("id, is_published, registration_enabled, visibility, seat_cap, invite_code")
+    .select(
+      "id, is_published, registration_enabled, visibility, seat_cap, invite_code, max_tickets_invite"
+    )
     .eq("id", eventId)
     .limit(1)
     .single();
@@ -177,6 +190,13 @@ export async function POST(
     email = offerEntry.email;
   }
 
+  // KTD3: the buyer is person zero, no more and no less special than that — but
+  // their identity is still the booker fields above (never the client's raw
+  // people[0], which KTD8's pin must survive), so pin it here once, after the
+  // offer email override, for every downstream use (validation, roster, Stripe,
+  // the is_lead flip).
+  people[0] = { ...people[0], name, email };
+
   // Member detection: only trust an authenticated session, never the form email.
   const sessionClient = await createClient();
   const {
@@ -210,27 +230,20 @@ export async function POST(
     return bad("This event is for members only", 403);
   }
 
-  // One rate class for the whole basket, decided by session + code (never by the
+  // One rate class for the whole order, decided by session + code (never by the
   // client): member → price_member; invited guest on a members-only event →
-  // invite_price; everyone else on a public event → price_non_member.
+  // invite_price; everyone else on a public event → price_non_member. KTD7: this
+  // is also exactly when the order is "at the invite rate" for the limit below —
+  // members-only AND not a member is the only way to reach "invite".
   const rateClass: "member" | "invite" | "non_member" = isMember
     ? "member"
     : isMembersOnly
       ? "invite"
       : "non_member";
 
-  // Load the submitted types, SCOPED to this event (IDOR guard) and rejecting
+  // Load the referenced types, SCOPED to this event (IDOR guard) and rejecting
   // archived types. A foreign or unknown id shrinks the returned set → 400.
-  const ids = [...new Set(parsed.map((p) => p.ticket_type_id))];
-  // A type may appear at most once in the basket — the client always sends one line
-  // per type. Two positive lines for the same type would let the naming-capacity
-  // check (keyed on a per-type Map, last-write-wins) under-count the required names
-  // while the line-items and minted tickets sum across both lines — a crafted
-  // `items:[{t,19},{t,1}]` would buy 20 tickets while requiring 0 to be named,
-  // silently defeating mandatory naming (R1) on this unauthenticated route.
-  if (ids.length !== parsed.length) {
-    return bad("Each ticket type may appear only once in your order", 400);
-  }
+  const ids = [...new Set(people.flatMap((p) => p.ticketTypeIds))];
   const { data: types, error: typesErr } = await supabase
     .from("event_ticket_types")
     .select("id, title, price_member, price_non_member, invite_price, counts_as_seat, archived_at")
@@ -254,72 +267,36 @@ export async function POST(
     return bad("This offer can only be redeemed for a ticket type that counts toward capacity", 400);
   }
   const typeById = new Map(types.map((t) => [t.id, t]));
+  const isKnownTicketType = (ticketTypeId: string) => typeById.has(ticketTypeId);
 
-  // The lead's own ticket must be one of the basket's types. Every ticket type is
-  // equally eligible for the buyer's own slot (R6).
-  let leadType: string | null = leadTicketTypeId || null;
-  if (leadType && !ids.includes(leadType)) {
-    return bad("Your ticket must be one of the selected tickets", 400);
+  // Validate the whole order in one pass (KD5/R5): names, emails, per-person ticket
+  // types, and the order-scoped people/ticket bounds. Merge in the invite-rate
+  // limit (KD2: distinct people, not ticket rows — `people.length` already is that,
+  // since a multi-day buyer is one entry with two types, not two entries) — this
+  // module doesn't know about rate classes (KD6), so it's constructed here and
+  // folded into the same violations array rather than reported separately.
+  const result = validateOrder(people, { maxPeople: MAX_TICKETS, maxTickets: MAX_TICKETS }, isKnownTicketType);
+  const violations: Violation[] = [...result.violations];
+  if (
+    rateClass === "invite" &&
+    event.max_tickets_invite !== null &&
+    event.max_tickets_invite !== undefined &&
+    people.length > event.max_tickets_invite
+  ) {
+    violations.push({
+      rule: "invite_rate_limit",
+      message: `This invite link is limited to ${event.max_tickets_invite} ${event.max_tickets_invite === 1 ? "person" : "people"} per order`,
+      personIndex: null,
+      field: null,
+    });
   }
-  // Resolve the lead's ticket type from the basket when the client didn't send one:
-  // a single selected type implies it; 2+ selected types are genuinely ambiguous and
-  // must be chosen (mirrors the client "You"-row gate) rather than seeding an untyped
-  // lead.
-  if (!leadType && ids.length === 1) {
-    leadType = ids[0];
-  }
-  if (!leadType && ids.length >= 2) {
-    return bad("Please choose which ticket is yours", 400);
-  }
+  if (violations.length > 0) return invalidOrder(violations);
 
-  // Every purchased guest slot needs a name and an email before checkout can
-  // complete (R1) — no path may create an unnamed ticket, and a former child type
-  // is no longer exempt (R6, R8). Any number of tickets may share one address (R2)
-  // — only the booker-level registration guard below (KTD7) still rejects a
-  // duplicate. Bounds close abuse paths on this unauthenticated route.
-  // Mandatory naming (R1), enforced by the shared parser so the top-up path cannot drift from
-  // this one. The lead's own slot is seeded from the booker fields, so their type needs one
-  // fewer name than it sold.
-  const purchasedPerType = new Map(parsed.map((p) => [p.ticket_type_id, p.quantity]));
-  const requiredPerType = new Map(
-    [...purchasedPerType].map(([ttId, qty]) => [ttId, qty - (leadType === ttId ? 1 : 0)]),
-  );
-  const parsedAttendees = parseAttendeeInput(
-    body.attendees,
-    requiredPerType,
-    (ttId) => typeById.has(ttId),
-    MAX_TICKETS,
-  );
-  if (!parsedAttendees.ok) return bad(parsedAttendees.error, 400);
-  const normalizedAttendees: RosterFillAttendee[] = parsedAttendees.attendees;
-
-  // ...and the booker cannot name themselves onto a SECOND seat of their own ticket type.
-  // parseAttendeeInput only sees the guest rows; the buyer's own seat is not among them, it is
-  // seeded from the booker fields moments from now. So the one collision it cannot see is the
-  // one that actually happens: a booker buying two of a type and typing their own name and
-  // email into the guest row. claim_ticket reads that as a replay of the lead's claim, returns
-  // already=true, claims nothing — and the second seat is minted, credentialled, and
-  // permanently unnamed. That is how four bookings lost a guest before this check existed.
-  //
-  // Compared against the PENDING lead identity rather than the tickets table: no seat exists
-  // yet at this point in the request. Same type only — the buyer holding Friday and Saturday
-  // is not a collision, and telling them to "name your guest" for their own second day would
-  // strand them with no way to complete the order.
-  if (leadType) {
-    const leadClash = collidesWithClaimed(normalizedAttendees, [
-      { name, email, ticket_type_id: leadType },
-    ]);
-    if (leadClash) {
-      return bad(
-        "You already have a seat under that name — please name your guest (same email allowed).",
-        400,
-      );
-    }
-  }
-
-  // Resolve per-line prices. STRICT null check before any coercion — Number(null)
-  // === 0 would silently make a line free, so an unset price for the resolved
-  // class fails loud rather than under-charging.
+  // Resolve per-line prices from the derived per-type counts (KTD2: quantities are
+  // never submitted, only derived). STRICT null check before any coercion —
+  // Number(null) === 0 would silently make a line free, so an unset price for the
+  // resolved class fails loud rather than under-charging.
+  const counts = deriveTicketCounts(people);
   const lineItems: {
     ticket_type_id: string;
     title_snapshot: string;
@@ -330,20 +307,20 @@ export async function POST(
   let total = 0;
   let seatQuantity = 0;
 
-  for (const p of parsed) {
-    const t = typeById.get(p.ticket_type_id)!;
+  for (const [ticketTypeId, quantity] of counts) {
+    const t = typeById.get(ticketTypeId)!;
     const unit = priceForRateClass(t, rateClass);
     if (!isUsablePrice(unit)) {
       return bad("Event pricing is misconfigured", 500);
     }
     const unitAmount = Number(unit);
-    const lineTotal = Number((unitAmount * p.quantity).toFixed(2));
+    const lineTotal = Number((unitAmount * quantity).toFixed(2));
     total += lineTotal;
-    if (t.counts_as_seat) seatQuantity += p.quantity;
+    if (t.counts_as_seat) seatQuantity += quantity;
     lineItems.push({
       ticket_type_id: t.id,
       title_snapshot: t.title,
-      quantity: p.quantity,
+      quantity,
       unit_amount_chf: unitAmount,
       line_total_chf: lineTotal,
     });
@@ -458,22 +435,17 @@ export async function POST(
     }
   }
 
-  // Persist the captured phone and the registration's manage token. The phone is matched
-  // at the door; the manage_token scopes the party's lead "My Booking" link (sent in the
-  // confirmation email). Best-effort and non-blocking — a failure here never fails an
-  // already-created registration, it only leaves that party without phone / a manage link.
-  // Self-registration is retired (U16); its token and column have since been dropped (R28).
+  // Persist the captured phone and the registration's manage token (the "My
+  // Booking" link, distinct from each ticket's own manage_token). Best-effort and
+  // non-blocking — a failure here never fails an already-created registration, it
+  // only leaves that party without phone / a manage link.
   const regPatch: {
     phone_e164?: string;
     manage_token: string;
-    lead_ticket_type_id?: string;
   } = {
-    // Path-secret for the lead "My Booking" page (U4). Sent in the confirmation email as
-    // manage_url. generateSelfRegToken is kept for its CSPRNG shape (name is historical).
     manage_token: generateSelfRegToken(),
   };
   if (phone) regPatch.phone_e164 = phone;
-  if (leadType) regPatch.lead_ticket_type_id = leadType;
   const { error: patchErr } = await supabase
     .from("event_registrations")
     .update(regPatch)
@@ -485,21 +457,30 @@ export async function POST(
     });
   }
 
+  // Flatten the people list into one roster row per (person, ticket type) pair —
+  // the buyer (people[0]) included, no more seeded separately (KTD3): under a
+  // people list there is nothing that makes their seat different from a guest's.
+  const allAttendees: RosterFillAttendee[] = people.flatMap((p) =>
+    p.ticketTypeIds.map((ticketTypeId) => ({
+      ticket_type_id: ticketTypeId,
+      name: p.name.trim(),
+      email: p.email.trim().toLowerCase(),
+    }))
+  );
+
   // Free basket: confirm immediately.
   if (isFree) {
-    // Confirmed now → seed the purchaser onto the roster (paid registrations seed
-    // in the Stripe webhook after promotion to 'paid'). Pass the phone in-hand so a
-    // failed phone UPDATE above doesn't leave the lead unmatchable by phone.
-    await seedLeadAttendee(registrationId, phone || null);
-    // Mint a credentialled (QR) ticket for every remaining purchased slot (U2).
+    // Mint one issued, credentialled ticket per purchased slot (U2) — nothing was
+    // pre-seeded, so this mints the buyer's own seat(s) too.
     await mintRegistrationTickets(registrationId);
-    // Name the guest tickets the booker filled in at checkout. The collision check above
-    // removes the one cause of a silent no-op we know of, so anything still unnamed here is
-    // unexpected — fillRegistrationRoster logs it loudly with the guest details. The seats are
-    // already sold and the registration already succeeded, so there is nothing to roll back;
-    // an un-filled slot stays issued and can be named later from the lead's manage page or at
-    // the door, and the log line is what tells anyone to go do that.
-    const fill = await fillRegistrationRoster(registrationId, normalizedAttendees);
+    // Name every ticket — buyer included — from the order (R1). A claim reporting
+    // it did nothing (`already: true`) is a failure, not a success:
+    // fillRegistrationRoster already treats that as unnamed rather than filled, and
+    // logs it loudly below. The seats are already sold and the registration already
+    // succeeded, so there is nothing to roll back; an un-filled slot stays issued
+    // and can be named later from the manage page or at the door, and the log line
+    // is what tells anyone to go do that.
+    const fill = await fillRegistrationRoster(registrationId, allAttendees);
     if (fill.unnamed.length > 0) {
       console.error("[event-register] registration completed with unnamed seats", {
         registrationId,
@@ -508,28 +489,32 @@ export async function POST(
         unnamed: fill.unnamed.length,
       });
     }
+    // Neither mint_registration_tickets nor claim_ticket ever sets is_lead — flip it
+    // on the buyer's own now-claimed ticket(s) so the manage/receipt access gate
+    // (KTD4, lib/events/purchase-history.ts) still has something to key on.
+    await markLeadTickets(registrationId, name, email);
     sendEventRegistrationConfirmation(registrationId).catch((err) =>
       console.error("[event-register] confirmation email failed", err)
     );
     return NextResponse.json({ success: true, reference_code: referenceCode });
   }
 
-  // Paid basket: stash the booker-entered guest roster so the Stripe webhook can
+  // Paid basket: stash the whole order (buyer included) so the Stripe webhook can
   // apply it after payment (the tickets don't exist yet — mint runs post-payment).
-  // FAIL-LOUD: if this write fails we must NOT send the buyer to Stripe, or they'd
-  // pay for a roster that was never stored. (The regPatch above stays best-effort.)
-  if (normalizedAttendees.length > 0) {
-    const { error: rosterErr } = await supabase
-      .from("event_registrations")
-      .update({ pending_roster: normalizedAttendees })
-      .eq("id", registrationId);
-    if (rosterErr) {
-      console.error("[event-register] pending_roster persist failed — blocking checkout", {
-        registrationId,
-        err: rosterErr,
-      });
-      return bad("Could not save your guest details. Please try again.", 500);
-    }
+  // Always non-empty here — every person in a valid order holds at least one
+  // ticket type (validateOrder's no_ticket_types rule). FAIL-LOUD: if this write
+  // fails we must NOT send the buyer to Stripe, or they'd pay for a roster that was
+  // never stored. (The regPatch above stays best-effort.)
+  const { error: rosterErr } = await supabase
+    .from("event_registrations")
+    .update({ pending_roster: allAttendees })
+    .eq("id", registrationId);
+  if (rosterErr) {
+    console.error("[event-register] pending_roster persist failed — blocking checkout", {
+      registrationId,
+      err: rosterErr,
+    });
+    return bad("Could not save your guest details. Please try again.", 500);
   }
 
   // Paid basket: one Stripe line item per PAID type (free lines are recorded as
