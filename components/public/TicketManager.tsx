@@ -84,6 +84,14 @@ export default function TicketManager({
   const onSaved = (updated: ManageTicket) =>
     setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
 
+  // Types this household already holds a live ticket for (U4). BuyMorePanel shows these as an
+  // informational "You already have this" badge rather than erroring when selected — a
+  // DIFFERENT guest legitimately buying the same type is the ordinary case, so this never
+  // blocks selection.
+  const heldTypeIds = tickets
+    .filter((t) => t.cancellationStatus === null)
+    .map((t) => t.typeId);
+
   return (
     <div className="space-y-7">
       <header className="text-center">
@@ -155,7 +163,7 @@ export default function TicketManager({
       </ul>
 
       {topupEndpoint && buyableTypes && buyableTypes.length > 0 && (
-        <BuyMorePanel endpoint={topupEndpoint} types={buyableTypes} />
+        <BuyMorePanel endpoint={topupEndpoint} types={buyableTypes} heldTypeIds={heldTypeIds} />
       )}
     </div>
   );

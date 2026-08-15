@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isFullName, joinName, splitName } from "@/lib/names";
+import { joinName, splitName } from "@/lib/names";
 import posthog from "posthog-js";
 import PhoneInput from "@/components/common/PhoneInput";
+import {
+  validateOrder,
+  deriveTicketCounts,
+  type OrderPerson,
+  type OrderBounds,
+  type OrderViolation,
+} from "@/lib/events/order";
 
 export interface TicketTypeOption {
   id: string;
@@ -21,9 +28,9 @@ export interface TicketTypeOption {
  * an upper bound (R6), never re-derive it and never treat it as an exact total.
  */
 export interface OfferMode {
-  /** Forwarded to the register API as `offer_token` alongside the basket. */
+  /** Forwarded to the register API as `offer_token` alongside the order. */
   token: string;
-  /** Upper bound on total basket quantity. Not the raw entry quantity — U5 already
+  /** Upper bound on total order quantity. Not the raw entry quantity — U5 already
    *  clamps it to seats free. */
   redeemableQuantity: number;
   /** The waitlist entry's email (KTD8). Rendered read-only; the route pins it
@@ -52,18 +59,19 @@ interface Props {
 }
 
 const MAX_QUANTITY_HARD_CAP = 20;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function priceLabel(value: number) {
   return value === 0 ? "Free" : `CHF ${value.toFixed(2)}`;
 }
 
-/** A single named-attendee row rendered in step 2. */
-interface GuestRow {
-  /** Stable key `${ticket_type_id}#${indexWithinTypeGuests}`. */
+/** A repeatable guest row in step 2 (R20). One row per person, however many ticket
+ *  types they hold — never one row per ticket. */
+interface GuestEntry {
   key: string;
-  ticketTypeId: string;
-  title: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  ticketTypeIds: string[];
 }
 
 export default function EventRegistrationForm({
@@ -82,6 +90,8 @@ export default function EventRegistrationForm({
     Math.min(MAX_QUANTITY_HARD_CAP, (offer ? offer.redeemableQuantity : maxQuantity) ?? MAX_QUANTITY_HARD_CAP)
   );
   const selectable = useMemo(() => ticketTypes.filter((t) => t.price !== null), [ticketTypes]);
+  const selectableIds = useMemo(() => new Set(selectable.map((t) => t.id)), [selectable]);
+  const isKnownTicketType = (id: string) => selectableIds.has(id);
   // R7: the pre-selected type only holds when it's still live (present with a
   // resolved price). An archived/retired type never appears in `ticketTypes` at
   // all, so its absence here is exactly the signal we need.
@@ -94,85 +104,120 @@ export default function EventRegistrationForm({
   const name = joinName(firstName, lastName);
   const [email, setEmail] = useState(offer?.email ?? defaultEmail);
   const [phone, setPhone] = useState<string | null>(null);
-  // Quantities for the WHOLE party (the buyer's own ticket included). No implicit +1.
-  // Offer mode pre-selects the entry's requested type at quantity 1 when it's still
-  // live; otherwise the basket starts empty and `offerTypeUnavailable` prompts a pick.
-  const [quantities, setQuantities] = useState<Record<string, number>>(() => {
-    if (offer?.ticketTypeId && selectable.some((t) => t.id === offer.ticketTypeId)) {
-      return { [offer.ticketTypeId]: 1 };
-    }
-    return {};
-  });
+  // The buyer's own ticket type(s) — step 1 (R20). Pre-selected from the offer's
+  // requested type when it's still live; otherwise empty until the buyer picks.
+  const [buyerTicketTypeIds, setBuyerTicketTypeIds] = useState<string[]>(() =>
+    offer?.ticketTypeId && selectable.some((t) => t.id === offer.ticketTypeId) ? [offer.ticketTypeId] : []
+  );
   const [step, setStep] = useState<"tickets" | "attendees">("tickets");
-  // The buyer's own meal. Auto when one adult type is selected; chosen in step 2 otherwise.
-  const [leadTicketTypeId, setLeadTicketTypeId] = useState("");
-  // Guest name/email keyed by GuestRow.key.
-  const [guests, setGuests] = useState<
-    Record<string, { firstName: string; lastName: string; email: string }>
-  >({});
+  // Repeatable guest rows — step 2 (R20). Empty until "Add guest" is clicked.
+  const [guests, setGuests] = useState<GuestEntry[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  // Every violation from the last client- or server-side validation pass (KD5/R5),
+  // keyed by personIndex + field exactly as `validateOrder` returns them. Person 0 is
+  // always the buyer; person N (N>=1) is `guests[N-1]`.
+  const [violations, setViolations] = useState<OrderViolation[]>([]);
   const [success, setSuccess] = useState<{ referenceCode: string } | null>(null);
   const [soldOut, setSoldOut] = useState(false);
 
   const step2HeadingRef = useRef<HTMLHeadingElement | null>(null);
   const continueBtnRef = useRef<HTMLButtonElement | null>(null);
+  const nextGuestId = useRef(0);
 
-  const totalQuantity = Object.values(quantities).reduce((a, b) => a + b, 0);
+  // An order IS a list of people (U1/KD1) — the buyer is people[0], no special
+  // treatment beyond position. R21: the buyer's identity for the receipt/manage link
+  // is captured separately (name/email/phone state above) from whether they're also
+  // one of the people in the order — here they always are, same as today.
+  const people: OrderPerson[] = useMemo(
+    () => [
+      { name, email, ticketTypeIds: buyerTicketTypeIds },
+      ...guests.map((g) => ({
+        name: joinName(g.firstName, g.lastName),
+        email: g.email,
+        ticketTypeIds: g.ticketTypeIds,
+      })),
+    ],
+    [name, email, buyerTicketTypeIds, guests]
+  );
+  const bounds: OrderBounds = { maxPeople: cap, maxTickets: cap };
+  const counts = useMemo(() => deriveTicketCounts(people), [people]);
+  const totalQuantity = Array.from(counts.values()).reduce((a, b) => a + b, 0);
   const totalAmount = selectable.reduce(
-    (sum, t) => sum + (t.price as number) * (quantities[t.id] ?? 0),
+    (sum, t) => sum + (t.price as number) * (counts.get(t.id) ?? 0),
     0
   );
   const atCap = totalQuantity >= cap;
   const allFree = selectable.length > 0 && selectable.every((t) => t.price === 0);
 
-  const selectedTypes = useMemo(
-    () => selectable.filter((t) => (quantities[t.id] ?? 0) > 0),
-    [selectable, quantities]
-  );
-
-  // Resolve the buyer's own meal from the basket. One selected type implies it; 0 or
-  // 2+ selected types leave it empty so the "You" row forces an explicit pick. This
-  // runs only when the basket changes, so a radio choice the user makes afterwards
-  // persists (the effect doesn't clobber it).
-  useEffect(() => {
-    setLeadTicketTypeId(selectedTypes.length === 1 ? selectedTypes[0].id : "");
-  }, [selectedTypes]);
-
-  // The rows to name in step 2: one per purchased ticket EXCEPT the buyer's own slot
-  // (the lead is seeded server-side from leadTicketTypeId). Every ticket is mandatory
-  // naming (R1) — no path leaves a slot unfilled.
-  const guestRows = useMemo<GuestRow[]>(() => {
-    const rows: GuestRow[] = [];
-    for (const t of selectable) {
-      const qty = quantities[t.id] ?? 0;
-      const guestSlots = qty - (t.id === leadTicketTypeId ? 1 : 0);
-      for (let i = 0; i < guestSlots; i++) {
-        rows.push({ key: `${t.id}#${i}`, ticketTypeId: t.id, title: t.title });
-      }
-    }
-    return rows;
-  }, [selectable, quantities, leadTicketTypeId]);
-
-  function setQty(id: string, q: number) {
-    setQuantities((prev) => ({ ...prev, [id]: Math.max(0, q) }));
+  // Order-scoped violations (personIndex null) render as a summary banner above the
+  // rows, never against any one of them (KD5).
+  const orderScopedViolations = violations.filter((v) => v.personIndex === null);
+  function fieldError(personIndex: number, field: "name" | "email" | "ticketTypeIds") {
+    return violations.find((v) => v.personIndex === personIndex && v.field === field)?.message;
+  }
+  function clearViolations() {
+    if (violations.length > 0) setViolations([]);
   }
 
-  function setGuestField(
-    key: string,
-    field: "firstName" | "lastName" | "email",
-    value: string
-  ) {
-    setGuests((prev) => {
-      const cur = prev[key] ?? { firstName: "", lastName: "", email: "" };
-      return { ...prev, [key]: { ...cur, [field]: value } };
-    });
-    if (rowErrors[key]) setRowErrors((prev) => ({ ...prev, [key]: "" }));
+  function runValidation() {
+    const result = validateOrder(people, bounds, isKnownTicketType);
+    setViolations(result.violations);
+    return result;
+  }
+
+  function toggleBuyerType(id: string) {
+    setBuyerTicketTypeIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : atCap ? prev : [...prev, id]
+    );
+    clearViolations();
+  }
+
+  function addGuest() {
+    setGuests((prev) => [
+      ...prev,
+      { key: `g${nextGuestId.current++}`, firstName: "", lastName: "", email: "", ticketTypeIds: [] },
+    ]);
+    clearViolations();
+  }
+
+  function removeGuest(key: string) {
+    setGuests((prev) => prev.filter((g) => g.key !== key));
+    clearViolations();
+  }
+
+  function setGuestField(key: string, field: "firstName" | "lastName" | "email", value: string) {
+    setGuests((prev) => prev.map((g) => (g.key === key ? { ...g, [field]: value } : g)));
+    clearViolations();
+  }
+
+  function toggleGuestType(key: string, ticketTypeId: string) {
+    setGuests((prev) =>
+      prev.map((g) => {
+        if (g.key !== key) return g;
+        const has = g.ticketTypeIds.includes(ticketTypeId);
+        return {
+          ...g,
+          ticketTypeIds: has
+            ? g.ticketTypeIds.filter((x) => x !== ticketTypeId)
+            : atCap
+              ? g.ticketTypeIds
+              : [...g.ticketTypeIds, ticketTypeId],
+        };
+      })
+    );
+    clearViolations();
   }
 
   function goToAttendees() {
     setError(null);
+    // Step 1 only gates on the buyer's own fields (personIndex 0) and order-scoped bounds —
+    // guest rows are edited in step 2 and shouldn't block returning to it (e.g. after Back
+    // with a guest row left mid-edit). Guest violations surface at submit time instead.
+    const result = validateOrder(people, bounds, isKnownTicketType);
+    const blocking = result.violations.filter((v) => v.personIndex === 0 || v.personIndex === null);
+    setViolations(blocking);
+    if (blocking.length > 0) return;
     setStep("attendees");
   }
 
@@ -183,80 +228,16 @@ export default function EventRegistrationForm({
     else continueBtnRef.current?.focus();
   }, [step]);
 
-  function validateGuests(): {
-    attendees: { ticket_type_id: string; name: string; email?: string }[];
-    ok: boolean;
-  } {
-    const errs: Record<string, string> = {};
-    const attendees: { ticket_type_id: string; name: string; email?: string }[] = [];
-    // Identities already spoken for on this order, per ticket type. Seeded with the buyer's
-    // own seat, which is not a guest row but is a claimed seat all the same.
-    //
-    // The server refuses a duplicate with a 400 either way; catching it here means the buyer
-    // sees it on the row they typed it into, before the order is submitted. Type-scoped, so
-    // one person taking Friday AND Saturday of a multi-day event is untouched — the case this
-    // whole check used to break.
-    const takenPerType = new Set<string>();
-    const identity = (n: string, e: string, ttId: string) =>
-      `${n.trim().replace(/\s+/g, " ").toLowerCase()}|${e.trim().toLowerCase()}|${ttId}`;
-    if (leadTicketTypeId && name.trim() && email.trim()) {
-      takenPerType.add(identity(name, email, leadTicketTypeId));
-    }
-
-    // Every ticket requires a name and an email before checkout can complete (R1) —
-    // no exemption for a former child type (R8). A blank row is now an error, not a
-    // deferral to a self-registration link.
-    for (const row of guestRows) {
-      const g = guests[row.key];
-      const nm = joinName(g?.firstName ?? "", g?.lastName ?? "");
-      if (!nm || !isFullName(nm)) {
-        errs[row.key] = "Enter this guest's first and last name.";
-        continue;
-      }
-      const e = (g?.email ?? "").trim().toLowerCase();
-      if (!e || !EMAIL_RE.test(e)) {
-        errs[row.key] = "Add a valid email for this guest.";
-        continue;
-      }
-      const key = identity(nm, e, row.ticketTypeId);
-      if (takenPerType.has(key)) {
-        // Sharing an email is normal (one household, one inbox) and stays allowed — it is the
-        // repeated NAME on the same ticket that the database cannot store as a second seat.
-        errs[row.key] =
-          "You already have a seat under that name — please name your guest (same email allowed).";
-        continue;
-      }
-      takenPerType.add(key);
-      attendees.push({ ticket_type_id: row.ticketTypeId, name: nm, email: e });
-    }
-    setRowErrors(errs);
-    return { attendees, ok: Object.keys(errs).length === 0 && attendees.length === guestRows.length };
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!firstName.trim() || !lastName.trim())
-      return setError("Please enter your first and last name.");
-    if (!email.trim()) return setError("Please enter your email.");
-    if (totalQuantity < 1) return setError("Add at least one ticket.");
-    if (!leadTicketTypeId) return setError("Please choose which ticket is yours.");
-    // R6 backstop: the stepper cap already enforces this (cap === redeemableQuantity
-    // in offer mode), but the submit path re-checks independently rather than
-    // trusting client-side clamping alone.
-    if (offer && totalQuantity > offer.redeemableQuantity) {
-      return setError(
-        `This offer is for up to ${offer.redeemableQuantity} ticket${offer.redeemableQuantity === 1 ? "" : "s"}.`
-      );
+    const result = runValidation();
+    if (!result.ok) {
+      if (!result.violations.some((v) => v.personIndex === null)) {
+        setError("Please fix the highlighted details.");
+      }
+      return;
     }
-    if (totalQuantity > cap) return setError(`A maximum of ${cap} tickets can be booked at once.`);
-
-    const { attendees, ok } = validateGuests();
-    if (!ok) return setError("Please fix the highlighted guest details.");
-
-    const items = selectable
-      .filter((t) => (quantities[t.id] ?? 0) > 0)
-      .map((t) => ({ ticket_type_id: t.id, quantity: quantities[t.id] }));
 
     setSubmitting(true);
     try {
@@ -267,9 +248,11 @@ export default function EventRegistrationForm({
           name: name.trim(),
           email: email.trim(),
           ...(phone ? { phone } : {}),
-          items,
-          leadTicketTypeId,
-          ...(attendees.length ? { attendees } : {}),
+          people: people.map((p) => ({
+            name: p.name.trim(),
+            email: p.email.trim(),
+            ticketTypeIds: p.ticketTypeIds,
+          })),
           ...(code ? { code } : {}),
           ...(offer ? { offer_token: offer.token } : {}),
         }),
@@ -280,6 +263,13 @@ export default function EventRegistrationForm({
         const message = data.error || "Could not register. Please try again.";
         if (res.status === 409 && /tickets? remaining/i.test(message)) {
           setSoldOut(true);
+        } else if (Array.isArray(data.violations) && data.violations.length > 0) {
+          // A server-side rejection, shaped exactly like validateOrder's own result
+          // (R5/R18) — mark the offending rows rather than collapsing into one banner.
+          setViolations(data.violations as OrderViolation[]);
+          if (!(data.violations as OrderViolation[]).some((v) => v.personIndex === null)) {
+            setError("Please fix the highlighted details.");
+          }
         } else {
           setError(message);
         }
@@ -387,10 +377,61 @@ export default function EventRegistrationForm({
 
   const totalDisplay = totalQuantity > 0 && totalAmount === 0 ? "Free" : `CHF ${totalAmount.toFixed(2)}`;
 
+  const orderScopedBanner = orderScopedViolations.length > 0 && (
+    <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 space-y-1">
+      {orderScopedViolations.map((v) => (
+        <p key={v.rule} className="font-body text-sm text-red-700">{v.message}</p>
+      ))}
+    </div>
+  );
+
+  function ticketCheckboxes(
+    checkedIds: string[],
+    onToggle: (id: string) => void,
+    labelFor: (title: string) => string
+  ) {
+    return (
+      <div className="space-y-2">
+        {ticketTypes.map((t) => {
+          const notOpen = t.price === null;
+          const checked = checkedIds.includes(t.id);
+          return (
+            <label
+              key={t.id}
+              className={`flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 ${notOpen ? "opacity-60" : "cursor-pointer"}`}
+            >
+              <span className="min-w-0">
+                <span className="block font-body text-sm text-marine truncate">{t.title}</span>
+                <span className="block font-body text-xs text-muted-foreground">
+                  {notOpen ? "Not open yet" : priceLabel(t.price as number)}
+                </span>
+                {t.description && (
+                  <span className="block font-body text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                    {t.description}
+                  </span>
+                )}
+              </span>
+              {!notOpen && (
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={!checked && atCap}
+                  onChange={() => onToggle(t.id)}
+                  aria-label={labelFor(t.title)}
+                  className="h-5 w-5 shrink-0"
+                />
+              )}
+            </label>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4" aria-live="polite">
+    <form onSubmit={handleSubmit} noValidate className="space-y-4" aria-live="polite">
       <p className="font-body text-xs text-muted-foreground uppercase tracking-wide">
-        {step === "tickets" ? "Step 1 of 2 · Tickets" : "Step 2 of 2 · Who's coming"}
+        {step === "tickets" ? "Step 1 of 2 · Your tickets" : "Step 2 of 2 · Who's coming"}
       </p>
 
       {step === "tickets" && (
@@ -398,13 +439,38 @@ export default function EventRegistrationForm({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label htmlFor="reg-first-name" className="block text-xs font-body text-muted-foreground mb-1">First name</label>
-              <input id="reg-first-name" type="text" required value={firstName} onChange={(e) => setFirstName(e.target.value)} className={inputClass} autoComplete="given-name" />
+              <input
+                id="reg-first-name"
+                type="text"
+                required
+                value={firstName}
+                onChange={(e) => {
+                  setFirstName(e.target.value);
+                  clearViolations();
+                }}
+                className={inputClass}
+                autoComplete="given-name"
+              />
             </div>
             <div>
               <label htmlFor="reg-last-name" className="block text-xs font-body text-muted-foreground mb-1">Last name</label>
-              <input id="reg-last-name" type="text" required value={lastName} onChange={(e) => setLastName(e.target.value)} className={inputClass} autoComplete="family-name" />
+              <input
+                id="reg-last-name"
+                type="text"
+                required
+                value={lastName}
+                onChange={(e) => {
+                  setLastName(e.target.value);
+                  clearViolations();
+                }}
+                className={inputClass}
+                autoComplete="family-name"
+              />
             </div>
           </div>
+          {fieldError(0, "name") && (
+            <p className="font-body text-xs text-red-700">{fieldError(0, "name")}</p>
+          )}
 
           <div>
             <label htmlFor="reg-email" className="block text-xs font-body text-muted-foreground mb-1">Email</label>
@@ -413,7 +479,10 @@ export default function EventRegistrationForm({
               type="email"
               required
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                clearViolations();
+              }}
               readOnly={Boolean(offer)}
               aria-describedby={offer ? "reg-email-pinned" : undefined}
               className={`${inputClass}${offer ? " bg-cream/60 cursor-not-allowed" : ""}`}
@@ -423,6 +492,9 @@ export default function EventRegistrationForm({
               <p id="reg-email-pinned" className="font-body text-xs text-muted-foreground mt-1">
                 Pinned to your offer.
               </p>
+            )}
+            {fieldError(0, "email") && (
+              <p className="font-body text-xs text-red-700 mt-1">{fieldError(0, "email")}</p>
             )}
           </div>
 
@@ -445,55 +517,12 @@ export default function EventRegistrationForm({
           )}
 
           <div className="space-y-2">
-            <label className="block text-xs font-body text-muted-foreground">Tickets</label>
-            {ticketTypes.map((t) => {
-              const qty = quantities[t.id] ?? 0;
-              const notOpen = t.price === null;
-              return (
-                <div
-                  key={t.id}
-                  className={`flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 ${notOpen ? "opacity-60" : ""}`}
-                >
-                  <div className="min-w-0">
-                    <p className="font-body text-sm text-marine truncate">{t.title}</p>
-                    <p className="font-body text-xs text-muted-foreground">
-                      {notOpen ? "Not open yet" : priceLabel(t.price as number)}
-                    </p>
-                    {t.description && (
-                      <p className="font-body text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                        {t.description}
-                      </p>
-                    )}
-                  </div>
-                  {!notOpen && (
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setQty(t.id, qty - 1)}
-                        disabled={qty === 0}
-                        aria-label={`Remove one ${t.title} ticket`}
-                        className="w-8 h-8 rounded-full border border-border text-marine disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                      >
-                        −
-                      </button>
-                      <span className="w-6 text-center font-body text-sm text-marine" aria-label={`${t.title} quantity`}>
-                        {qty}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setQty(t.id, qty + 1)}
-                        disabled={atCap}
-                        aria-label={`Add one ${t.title} ticket`}
-                        className="w-8 h-8 rounded-full border border-border text-marine disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                      >
-                        +
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            <label className="block text-xs font-body text-muted-foreground">Your tickets</label>
+            {ticketCheckboxes(buyerTicketTypeIds, toggleBuyerType, (title) => `${title} ticket for you`)}
           </div>
+          {fieldError(0, "ticketTypeIds") && (
+            <p className="font-body text-xs text-red-700">{fieldError(0, "ticketTypeIds")}</p>
+          )}
 
           {atCap && (
             <p className="font-body text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
@@ -506,6 +535,8 @@ export default function EventRegistrationForm({
             <span className="font-heading text-lg font-bold text-marine">{totalDisplay}</span>
           </div>
 
+          {orderScopedBanner}
+
           {error && (
             <p className="text-sm font-body text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
           )}
@@ -514,7 +545,7 @@ export default function EventRegistrationForm({
             ref={continueBtnRef}
             type="button"
             onClick={goToAttendees}
-            disabled={totalQuantity < 1}
+            disabled={buyerTicketTypeIds.length < 1}
             className="w-full px-4 py-3 bg-marine text-white rounded-lg text-sm font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             Continue
@@ -533,85 +564,101 @@ export default function EventRegistrationForm({
             code.
           </p>
 
-          {/* The buyer's own ticket. */}
-          <div className="rounded-lg border border-sky/40 bg-sky/5 px-3 py-3 space-y-2">
+          {orderScopedBanner}
+
+          {/* The buyer's own ticket(s) — an ordinary row in the order, not a special case. */}
+          <div className="rounded-lg border border-sky/40 bg-sky/5 px-3 py-3 space-y-1">
             <p className="font-body text-xs font-semibold text-marine uppercase tracking-wide">Your ticket</p>
             <p className="font-body text-sm text-marine">{name || "You"}{email ? ` · ${email}` : ""}</p>
-            {selectedTypes.length > 1 ? (
-              <fieldset className="space-y-1">
-                <legend className="font-body text-xs text-muted-foreground mb-1">Which ticket is yours?</legend>
-                {selectedTypes.map((t) => (
-                  <label key={t.id} className="flex items-center gap-2 font-body text-sm text-marine cursor-pointer">
-                    <input
-                      type="radio"
-                      name="lead-ticket"
-                      value={t.id}
-                      checked={leadTicketTypeId === t.id}
-                      onChange={() => setLeadTicketTypeId(t.id)}
-                    />
-                    {t.title} — {priceLabel(t.price as number)}
-                  </label>
-                ))}
-              </fieldset>
-            ) : (
-              <p className="font-body text-xs text-muted-foreground">
-                {selectedTypes[0]?.title}
-                {selectedTypes[0] ? ` — ${priceLabel(selectedTypes[0].price as number)}` : ""}
-              </p>
+            <p className="font-body text-xs text-muted-foreground">
+              {selectable.filter((t) => buyerTicketTypeIds.includes(t.id)).map((t) => t.title).join(", ") || "—"}
+            </p>
+            {fieldError(0, "name") && <p className="font-body text-xs text-red-700">{fieldError(0, "name")}</p>}
+            {fieldError(0, "email") && <p className="font-body text-xs text-red-700">{fieldError(0, "email")}</p>}
+            {fieldError(0, "ticketTypeIds") && (
+              <p className="font-body text-xs text-red-700">{fieldError(0, "ticketTypeIds")}</p>
             )}
           </div>
 
-          {/* Guest tickets, grouped by meal type. */}
-          {guestRows.length > 0 && (
-            <div className="space-y-3">
+          {/* Guest tickets — repeatable rows (R20). One row per person, however many types. */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
               <p className="font-body text-xs text-muted-foreground uppercase tracking-wide">Guest tickets</p>
-              {guestRows.map((row, idx) => {
-                const g = guests[row.key] ?? { firstName: "", lastName: "", email: "" };
-                const err = rowErrors[row.key];
-                const nameId = `guest-${row.key}-name`;
-                const emailId = `guest-${row.key}-email`;
-                return (
-                  <div key={row.key} className="rounded-lg border border-border px-3 py-3 space-y-2">
-                    <p className="font-body text-xs text-muted-foreground">
-                      Guest {idx + 1} · {row.title}
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        id={nameId}
-                        type="text"
-                        value={g.firstName}
-                        onChange={(e) => setGuestField(row.key, "firstName", e.target.value)}
-                        placeholder="First name"
-                        aria-label={`Guest ${idx + 1} first name — ${row.title}`}
-                        className={inputClass}
-                        autoComplete="off"
-                      />
-                      <input
-                        type="text"
-                        value={g.lastName}
-                        onChange={(e) => setGuestField(row.key, "lastName", e.target.value)}
-                        placeholder="Last name"
-                        aria-label={`Guest ${idx + 1} last name — ${row.title}`}
-                        className={inputClass}
-                        autoComplete="off"
-                      />
-                    </div>
+              <button
+                type="button"
+                onClick={addGuest}
+                disabled={atCap}
+                className="font-body text-xs font-semibold text-marine underline underline-offset-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                + Add guest
+              </button>
+            </div>
+            {guests.map((g, idx) => {
+              const personIndex = idx + 1;
+              const nameErr = violations.find((v) => v.personIndex === personIndex && v.field === "name")?.message;
+              const emailErr = violations.find((v) => v.personIndex === personIndex && v.field === "email")?.message;
+              const typesErr = violations.find(
+                (v) => v.personIndex === personIndex && v.field === "ticketTypeIds"
+              )?.message;
+              return (
+                <div key={g.key} className="rounded-lg border border-border px-3 py-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="font-body text-xs text-muted-foreground">Guest {idx + 1}</p>
+                    <button
+                      type="button"
+                      onClick={() => removeGuest(g.key)}
+                      aria-label={`Remove guest ${idx + 1}`}
+                      className="font-body text-xs text-red-700 underline underline-offset-2 cursor-pointer"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
                     <input
-                      type="email"
-                      value={g.email}
-                      onChange={(e) => setGuestField(row.key, "email", e.target.value)}
-                      placeholder="Email (for their QR code)"
-                      aria-label={`Guest ${idx + 1} email — ${row.title}`}
-                      aria-describedby={err ? `${emailId}-err` : undefined}
+                      type="text"
+                      value={g.firstName}
+                      onChange={(e) => setGuestField(g.key, "firstName", e.target.value)}
+                      placeholder="First name"
+                      aria-label={`Guest ${idx + 1} first name`}
                       className={inputClass}
+                      autoComplete="off"
                     />
-                    {err && (
-                      <p id={`${emailId}-err`} className="font-body text-xs text-red-700">{err}</p>
+                    <input
+                      type="text"
+                      value={g.lastName}
+                      onChange={(e) => setGuestField(g.key, "lastName", e.target.value)}
+                      placeholder="Last name"
+                      aria-label={`Guest ${idx + 1} last name`}
+                      className={inputClass}
+                      autoComplete="off"
+                    />
+                  </div>
+                  {nameErr && <p className="font-body text-xs text-red-700">{nameErr}</p>}
+                  <input
+                    type="email"
+                    value={g.email}
+                    onChange={(e) => setGuestField(g.key, "email", e.target.value)}
+                    placeholder="Email (for their QR code)"
+                    aria-label={`Guest ${idx + 1} email`}
+                    className={inputClass}
+                  />
+                  {emailErr && <p className="font-body text-xs text-red-700">{emailErr}</p>}
+                  <div>
+                    <p className="font-body text-xs text-muted-foreground mb-1">Tickets for this guest</p>
+                    {ticketCheckboxes(g.ticketTypeIds, (id) => toggleGuestType(g.key, id), (title) =>
+                      `Guest ${idx + 1} ${title} ticket`
                     )}
                   </div>
-                );
-              })}
-            </div>
+                  {typesErr && <p className="font-body text-xs text-red-700">{typesErr}</p>}
+                </div>
+              );
+            })}
+          </div>
+
+          {atCap && (
+            <p className="font-body text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              Maximum {cap} tickets per order reached.
+            </p>
           )}
 
           {error && (
@@ -634,7 +681,7 @@ export default function EventRegistrationForm({
               </button>
               <button
                 type="submit"
-                disabled={submitting || !leadTicketTypeId}
+                disabled={submitting}
                 className="flex-1 px-4 py-3 bg-marine text-white rounded-lg text-sm font-body font-semibold hover:bg-marine-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {submitting ? "Processing…" : allFree ? "Confirm registration" : "Reserve your spot"}
