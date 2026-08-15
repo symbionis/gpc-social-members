@@ -138,7 +138,7 @@ export default async function ManageEventPage({
   const { data: attendeeRows, error: attendeeRowsError } = await supabase
     .from("tickets")
     .select(
-      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, is_comp, manage_token, qr_email_sent_at, cancellation_status, cancellation_requested_at, cancellation_refunded_at, refund_amount_chf, stripe_refund_id, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, manage_token, qr_email_sent_at, cancellation_status, cancellation_requested_at, cancellation_refunded_at, refund_amount_chf, stripe_refund_id, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", id)
     .in("slot_status", [...ADMISSIBLE_SLOT_STATUSES])
@@ -156,7 +156,6 @@ export default async function ManageEventPage({
     is_lead: boolean;
     slot_status: string;
     ticket_type_id: string | null;
-    is_comp: boolean;
     manage_token: string | null;
     qr_email_sent_at: string | null;
     cancellation_status: string | null;
@@ -243,16 +242,13 @@ export default async function ManageEventPage({
       checkedIn: a.checked_in_at !== null,
       arrivedAt: a.checked_in_at,
       createdAt: a.created_at,
-      // A comped seat on a sponsor's guest list. Drives the Special Guest pill; the Guest list
-      // tab is where such a seat is removed (remove_comp_guest), which shrinks the party rather
-      // than reopening the seat publicly.
-      isComp: Boolean(a.is_comp),
       // What this seat cost, shown under its ticket type. The SAME valuation the refund button
       // uses (lib/events/refunds.ts), deliberately: the roster and the refund must never quote
-      // different prices for one seat. Returns 0 for a comp and for any ticket on a `free`
-      // booking, and falls back to the booking average when a repriced top-up makes the seat's
-      // own line ambiguous — so this is what the seat is WORTH, not a lookup of the type's
-      // current list price, which may have changed since checkout.
+      // different prices for one seat. Returns 0 for any ticket on a `free` booking — which
+      // covers a historical comp, since a sponsor guest-list registration is itself `free` — and
+      // falls back to the booking average when a repriced top-up makes the seat's own line
+      // ambiguous — so this is what the seat is WORTH, not a lookup of the type's current list
+      // price, which may have changed since checkout.
       priceChf: a.registration_id
         ? ticketRefundValueChf(
             a,
@@ -260,12 +256,11 @@ export default async function ManageEventPage({
             (ticketItemRows ?? []) as TicketItemRow[]
           )
         : 0,
-      // A comped seat first (a sponsor gave it away even on a paid booking), then the
-      // booking's own status. `free` covers a free event and an admin-comped conversion alike:
-      // both took no money, which is what the pill is answering.
-      paymentState: a.is_comp
-        ? ("comp" as const)
-        : (regForRefundById.get(a.registration_id ?? "")?.status ?? "paid") === "free"
+      // `free` covers a free event, an admin-comped conversion, and a historical sponsor
+      // guest-list seat alike (comp is retired, R16/KD7) — all three took no money, which is
+      // what the pill is answering, and none of them earns a special branch of its own anymore.
+      paymentState:
+        (regForRefundById.get(a.registration_id ?? "")?.status ?? "paid") === "free"
           ? ("free" as const)
           : ("paid" as const),
       named,
@@ -379,6 +374,10 @@ export default async function ManageEventPage({
   // claimed, non-released ticket of it. Every comp-guest ticket is claimed (a comp seat is
   // minted named), so the named subset already contains them — no second round trip, and
   // tombstoned tickets are excluded by the roster query's released_at filter.
+  //
+  // TODO(U5): this whole block is the pre-unified-purchase-module guest list read. U5 replaces
+  // it with the real list model (table event_guest_lists, lib/events/guest-lists.ts) — wire the
+  // new source into the `guestLists` prop below rather than extending this one.
   const rosterByReg = new Map<string, AttendeeRow[]>();
   for (const a of claimedRoster) {
     if (!a.registration_id) continue;
@@ -395,13 +394,11 @@ export default async function ManageEventPage({
       leadName: (r.name as string | null) ?? "",
       leadEmail: (r.email as string | null) ?? "",
       people: (rosterByReg.get(r.id) ?? [])
-        // COMP tickets only. A comp registration carries a manage_token and the public
-        // top-up route accepts status 'free', so the sponsor lead can buy REAL paid tickets
-        // onto this very registration. Those claimed rows are is_comp = false, and listing
-        // them here would offer the guest-list Remove on a ticket the customer paid for (the
-        // DELETE route refuses them anyway — this is what keeps it from ever appearing).
-        .filter((t) => t.is_comp)
-        // Lead first, then the guests in the order they were added.
+        // U10 (R16/KD7): used to be COMP tickets only (`.filter((t) => t.is_comp)`), which kept
+        // a paid top-up on the same registration off this list. Comp is retired and this page no
+        // longer reads is_comp, so every claimed ticket on the registration shows here now,
+        // top-ups included — the guest-list Remove route still refuses a non-comp ticket
+        // server-side, so this is a display-only widening until U5's real list model lands.
         .slice()
         .sort((a, b) =>
           a.is_lead === b.is_lead
