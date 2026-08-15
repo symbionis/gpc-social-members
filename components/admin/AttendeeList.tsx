@@ -40,24 +40,23 @@ export interface Attendee {
   checkedIn: boolean;
   arrivedAt: string | null;
   createdAt: string;
-  /** A comped seat on a sponsor's guest list. */
-  isComp: boolean;
   /**
    * What this seat cost, in CHF — the same valuation the refund button quotes, so the roster
-   * and the refund cannot disagree about one seat. 0 for a comp and for any ticket on a free
-   * booking, which is why a zero renders as nothing rather than as "CHF 0.00": the pill beside
-   * the name already says why no money was taken.
+   * and the refund cannot disagree about one seat. 0 for any ticket on a free booking (a
+   * historical comp included, since comp is retired and its registration is itself `free`),
+   * which is why a zero renders as nothing rather than as "CHF 0.00".
    */
   priceChf: number;
   /**
    * How this seat was obtained, which the roster shows because "did they pay?" is a question
    * the door and the organiser both ask and neither could answer from here before:
    *  - `paid` — bought through checkout on a paid booking
-   *  - `comp` — a sponsor's guest-list seat, given away
-   *  - `free` — a booking that cost nothing (a free event, a zero-price offer redemption,
-   *    or a historical waitlist comp from before the paid offer flow)
+   *  - `free` — a booking that cost nothing (a free event, a zero-price offer redemption, a
+   *    historical waitlist comp from before the paid offer flow, or a historical sponsor
+   *    guest-list seat — comp is retired, R16/KD7, and a comped seat is now indistinguishable
+   *    on this roster from any other free booking)
    */
-  paymentState: "paid" | "comp" | "free";
+  paymentState: "paid" | "free";
   /** Whether anyone is named on this ticket yet (slot_status === 'claimed'). */
   named: boolean;
 }
@@ -283,25 +282,17 @@ export default function AttendeeList({ attendees, baseUrl, eventId }: Props) {
   );
 }
 
-// Only the two states worth a pill. A `free` seat gets none: on a free event that was every
-// row, so the pill marked nothing and only added noise. What a seat cost is now answered by the
-// price under its ticket type, which says more than a pill could — and says nothing at all when
-// there was no money, which is the correct amount to say.
+// Only one state worth a pill. A `free` seat gets none: on a free event that was every row, so
+// the pill marked nothing and only added noise — and, since comp is retired (R16/KD7), a
+// historical sponsor guest-list seat now folds into `free` too, rather than earning its own
+// "Special Guest" pill. What a seat cost is now answered by the price under its ticket type,
+// which says more than a pill could — and says nothing at all when there was no money, which is
+// the correct amount to say.
 function PaymentPill({ state }: { state: Attendee["paymentState"] }) {
   if (state === "paid") {
     return (
       <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-50 text-emerald-700">
         Paid
-      </span>
-    );
-  }
-  // A sponsor gave this seat away. Named for what the door and the organiser call these people
-  // rather than for the accounting mechanic — "Comp" is a billing word on a roster read by
-  // staff looking for a guest.
-  if (state === "comp") {
-    return (
-      <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-50 text-amber-800">
-        Special Guest
       </span>
     );
   }

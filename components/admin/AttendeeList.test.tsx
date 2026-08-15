@@ -32,7 +32,6 @@ function ticket(overrides: Partial<Attendee> = {}): Attendee {
     checkedIn: false,
     arrivedAt: null,
     createdAt: `2026-01-01T00:00:0${seq}Z`,
-    isComp: false,
     named: true,
     paymentState: "paid" as const,
     priceChf: 45,
@@ -221,12 +220,15 @@ describe("payment pill", () => {
     expect(screen.getByText("Paid")).toBeInTheDocument();
   });
 
-  // A sponsor's guest is a person the door is expecting, not a billing category. The roster is
-  // read by staff looking for someone, so it uses the word they use.
-  it("names a sponsor's seat Special Guest, not Comp", () => {
-    renderList([ticket({ name: "Comped Guest", isComp: true, paymentState: "comp" })]);
-    expect(screen.getByText("Special Guest")).toBeInTheDocument();
+  // R16/KD7 (U10): comp is retired. A historical comp ticket now arrives from the server as a
+  // plain free seat (paymentState: "free"), same as any other free booking — there is no comp
+  // branch left to hit, so it gets no special pill, just like every other free seat.
+  it("gives a historical comp ticket no special pill — it renders as a plain free seat", () => {
+    renderList([ticket({ name: "Comped Guest", paymentState: "free", priceChf: 0 })]);
+    expect(screen.queryByText("Special Guest")).toBeNull();
     expect(screen.queryByText("Comp")).toBeNull();
+    expect(screen.queryByText("Free")).toBeNull();
+    expect(screen.queryByText("Paid")).toBeNull();
   });
 
   // On a free event every row was "Free", so the pill marked nothing. What a seat cost is
@@ -240,8 +242,8 @@ describe("payment pill", () => {
   });
 
   it("shows exactly one payment pill per seat", () => {
-    renderList([ticket({ paymentState: "comp" })]);
-    expect(screen.getAllByText(/^(Paid|Special Guest)$/)).toHaveLength(1);
+    renderList([ticket({ paymentState: "paid" })]);
+    expect(screen.getAllByText(/^Paid$/)).toHaveLength(1);
   });
 });
 
@@ -257,11 +259,12 @@ describe("ticket price", () => {
     expect(screen.getByText("CHF 12.50")).toBeInTheDocument();
   });
 
-  // Both a comp and a free booking value at zero. "CHF 0.00" reads as a price that was
-  // charged; the absent line reads as no money, which is the truth.
+  // A historical comp ticket (now just another free-booking seat, R16/KD7) and a genuinely
+  // free booking both value at zero. "CHF 0.00" reads as a price that was charged; the absent
+  // line reads as no money, which is the truth.
   it("shows no price for a seat that cost nothing", () => {
     renderList([
-      ticket({ name: "Comped Guest", email: "a@x.ch", isComp: true, paymentState: "comp", priceChf: 0 }),
+      ticket({ name: "Comped Guest", email: "a@x.ch", paymentState: "free", priceChf: 0 }),
       ticket({ name: "Free Guest", email: "b@x.ch", paymentState: "free", priceChf: 0 }),
     ]);
     expect(screen.queryByText(/CHF/)).toBeNull();
