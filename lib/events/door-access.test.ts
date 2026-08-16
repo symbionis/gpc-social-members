@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 
-import { buildDoorRoster } from "@/lib/events/door-access";
+import { buildDoorRoster, buildNewGuestListGroups } from "@/lib/events/door-access";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const mockedCreateAdminClient = vi.mocked(createAdminClient);
@@ -445,5 +445,161 @@ describe("buildDoorRoster — cancelled seats", () => {
 
     expect(parties.some((p) => p.registrationId === "reg-refunded")).toBe(false);
     expect(arrivals.some((a) => a.name === "Nadia Refunded")).toBe(false);
+  });
+
+  // KD10: a guest-list ticket has no registration, so it can never attach to a party.
+  // This pins that as a deliberate, known property of buildDoorRoster, not an oversight —
+  // buildNewGuestListGroups (below) is the independent read that surfaces these guests.
+  it("never surfaces a registration-less guest-list ticket as a party or an arrival", async () => {
+    mockedCreateAdminClient.mockReturnValue(
+      rosterClient({
+        event_registrations: [],
+        tickets: [
+          {
+            id: "ticket-guest-1",
+            event_id: EVENT,
+            registration_id: null,
+            guest_list_id: "list-1",
+            name: "Priya Guest",
+            email: null,
+            phone_e164: null,
+            is_lead: false,
+            ticket_type_id: "tt-1",
+            checked_in_at: null,
+            created_at: "2026-08-01T00:00:00Z",
+            slot_status: "issued",
+            cancellation_status: null,
+          },
+        ],
+        event_ticket_types: [{ id: "tt-1", event_id: EVENT, title: "Dinner", sort_order: 0 }],
+      })
+    );
+
+    const { parties, arrivals, notArrived } = await buildDoorRoster(EVENT);
+
+    expect(parties).toHaveLength(0);
+    expect(arrivals.some((a) => a.name === "Priya Guest")).toBe(false);
+    expect(notArrived.some((r) => r.name === "Priya Guest")).toBe(false);
+  });
+});
+
+describe("buildNewGuestListGroups", () => {
+  it("groups a guest-list guest under their list name, independent of any registration", async () => {
+    mockedCreateAdminClient.mockReturnValue(
+      rosterClient({
+        event_guest_lists: [
+          {
+            id: "list-1",
+            event_id: EVENT,
+            list_name: "Acme Sponsors",
+            contact_name: "Jordan Contact",
+            contact_email: "jordan@acme.test",
+            contact_phone: null,
+            created_at: "2026-08-01T00:00:00Z",
+          },
+        ],
+        tickets: [
+          {
+            id: "ticket-guest-1",
+            guest_list_id: "list-1",
+            registration_id: null,
+            name: "Priya Guest",
+            email: null,
+            phone_e164: null,
+            ticket_type_id: "tt-1",
+            checked_in_at: null,
+            released_at: null,
+            created_at: "2026-08-01T00:00:00Z",
+          },
+        ],
+        event_ticket_types: [{ id: "tt-1", event_id: EVENT, title: "Dinner" }],
+      })
+    );
+
+    const groups = await buildNewGuestListGroups(EVENT);
+
+    expect(groups).toEqual([
+      {
+        id: "list-1",
+        name: "Acme Sponsors",
+        contactName: "Jordan Contact",
+        slots: [
+          {
+            attendeeId: "ticket-guest-1",
+            name: "Priya Guest",
+            email: "",
+            phone: "",
+            ticketTypeId: "tt-1",
+            ticketTypeTitle: "Dinner",
+            isLead: false,
+            checkedIn: false,
+            arrivedAt: null,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("marks a checked-in guest-list guest as checked in with an arrival time", async () => {
+    mockedCreateAdminClient.mockReturnValue(
+      rosterClient({
+        event_guest_lists: [
+          {
+            id: "list-1",
+            event_id: EVENT,
+            list_name: "Acme Sponsors",
+            contact_name: "Jordan Contact",
+            created_at: "2026-08-01T00:00:00Z",
+          },
+        ],
+        tickets: [
+          {
+            id: "ticket-guest-1",
+            guest_list_id: "list-1",
+            name: "Priya Guest",
+            ticket_type_id: "tt-1",
+            checked_in_at: "2026-08-15T18:00:00Z",
+            released_at: null,
+            created_at: "2026-08-01T00:00:00Z",
+          },
+        ],
+        event_ticket_types: [{ id: "tt-1", event_id: EVENT, title: "Dinner" }],
+      })
+    );
+
+    const [group] = await buildNewGuestListGroups(EVENT);
+    expect(group.slots[0]).toMatchObject({ checkedIn: true, arrivedAt: "2026-08-15T18:00:00Z" });
+  });
+
+  it("excludes a released (freed) guest-list ticket", async () => {
+    mockedCreateAdminClient.mockReturnValue(
+      rosterClient({
+        event_guest_lists: [
+          { id: "list-1", event_id: EVENT, list_name: "Acme Sponsors", contact_name: "Jordan", created_at: "2026-08-01T00:00:00Z" },
+        ],
+        tickets: [
+          {
+            id: "ticket-released",
+            guest_list_id: "list-1",
+            name: "Gone Guest",
+            ticket_type_id: "tt-1",
+            checked_in_at: null,
+            released_at: "2026-08-10T00:00:00Z",
+            created_at: "2026-08-01T00:00:00Z",
+          },
+        ],
+        event_ticket_types: [{ id: "tt-1", event_id: EVENT, title: "Dinner" }],
+      })
+    );
+
+    const [group] = await buildNewGuestListGroups(EVENT);
+    expect(group.slots).toHaveLength(0);
+  });
+
+  it("returns an empty array for an event with no guest lists", async () => {
+    mockedCreateAdminClient.mockReturnValue(
+      rosterClient({ event_guest_lists: [], tickets: [], event_ticket_types: [] })
+    );
+    expect(await buildNewGuestListGroups(EVENT)).toEqual([]);
   });
 });

@@ -26,6 +26,7 @@ function adminClient(
       c.eq = () => c;
       c.is = () => c;
       c.in = () => c;
+      c.or = () => c;
       c.limit = () => c;
       c.update = (payload: Record<string, unknown>) => {
         onUpdate?.(payload);
@@ -84,6 +85,55 @@ describe("POST /api/public/door/[id]/save-attendee", () => {
     const res = await post({ attendeeId: UID, name: "Ann Lead", email: "ann@x.com" });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, created: false });
+  });
+
+  // KD10: a guest-list guest is minted `issued` and NAMED, because
+  // tickets_contact_present only demands a contact once a row is `claimed`. The door
+  // is where that contact gets captured, so these rows must be editable — before this,
+  // the lookup matched `claimed` only and every such save 404'd.
+  it("edits a guest-list guest's issued slot and promotes it to claimed once contact is captured", async () => {
+    const payloads: Record<string, unknown>[] = [];
+    mockedAdmin.mockReturnValue(
+      adminClient(
+        { existing: { id: UID, checked_in_at: null, slot_status: "issued" } },
+        (p) => payloads.push(p)
+      )
+    );
+    const res = await post({ attendeeId: UID, name: "Comp Guest", email: "comp@x.com" });
+    expect(res.status).toBe(200);
+    expect(payloads[0]).toMatchObject({
+      name: "Comp Guest",
+      email: "comp@x.com",
+      slot_status: "claimed",
+    });
+  });
+
+  // Promotion is gated on actually having a contact: flipping an arrived-but-contactless
+  // guest to `claimed` would breach tickets_contact_present.
+  it("does not promote an issued slot when the arrived guest still gives no contact", async () => {
+    const payloads: Record<string, unknown>[] = [];
+    mockedAdmin.mockReturnValue(
+      adminClient(
+        { existing: { id: UID, checked_in_at: "2026-08-15T18:00:00Z", slot_status: "issued" } },
+        (p) => payloads.push(p)
+      )
+    );
+    const res = await post({ attendeeId: UID, name: "Comp Guest" });
+    expect(res.status).toBe(200);
+    expect(payloads[0]).not.toHaveProperty("slot_status");
+  });
+
+  it("leaves an already-claimed slot's status alone when editing it", async () => {
+    const payloads: Record<string, unknown>[] = [];
+    mockedAdmin.mockReturnValue(
+      adminClient(
+        { existing: { id: UID, checked_in_at: null, slot_status: "claimed" } },
+        (p) => payloads.push(p)
+      )
+    );
+    const res = await post({ attendeeId: UID, name: "Ann Lead", email: "ann@x.com" });
+    expect(res.status).toBe(200);
+    expect(payloads[0]).not.toHaveProperty("slot_status");
   });
 
   it("covers R6: rejects editing any slot down to no contact (no per-type exemption)", async () => {

@@ -76,7 +76,7 @@ async function refundedForBooking(
 ): Promise<number> {
   const { data: refundedTickets, error } = await supabase
     .from("tickets")
-    .select("registration_id, ticket_type_id, is_comp, refund_amount_chf")
+    .select("registration_id, ticket_type_id, refund_amount_chf")
     .eq("registration_id", registrationId)
     .eq("cancellation_status", "refunded");
   if (error) {
@@ -86,7 +86,7 @@ async function refundedForBooking(
   let total = 0;
   for (const t of refundedTickets ?? []) {
     total += refundedAmountChf(
-      t as { registration_id: string | null; ticket_type_id: string | null; is_comp?: boolean | null; refund_amount_chf?: number | string | null },
+      t as { registration_id: string | null; ticket_type_id: string | null; refund_amount_chf?: number | string | null },
       registration,
       items
     );

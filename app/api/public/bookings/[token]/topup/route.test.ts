@@ -35,6 +35,11 @@ const OTHER_TYPE = "44444444-4444-4444-4444-444444444444";
 function adminClient(opts: {
   reg?: Record<string, unknown> | null;
   price?: number | null;
+  /** price_non_member override — defaults to 40, matching the pre-U3 fixture. Pass null to
+   *  model a members-only event (no non-member column), the invite-rate case (KTD7). */
+  nonMemberPrice?: number | null;
+  /** invite_price override — defaults to null (no invite rate configured). */
+  invitePrice?: number | null;
   seatCap?: number | null;
   countsAsSeat?: boolean;
   /**
@@ -84,8 +89,24 @@ function adminClient(opts: {
         if (table === "event_ticket_types")
           return resolve({
             data: [
-              { id: TYPE, title: "Adult", price_member: opts.price ?? 25, price_non_member: 40, archived_at: null, counts_as_seat: opts.countsAsSeat ?? false },
-              { id: OTHER_TYPE, title: "Saturday", price_member: opts.price ?? 25, price_non_member: 40, archived_at: null, counts_as_seat: opts.countsAsSeat ?? false },
+              {
+                id: TYPE,
+                title: "Adult",
+                price_member: opts.price ?? 25,
+                price_non_member: opts.nonMemberPrice === undefined ? 40 : opts.nonMemberPrice,
+                invite_price: opts.invitePrice ?? null,
+                archived_at: null,
+                counts_as_seat: opts.countsAsSeat ?? false,
+              },
+              {
+                id: OTHER_TYPE,
+                title: "Saturday",
+                price_member: opts.price ?? 25,
+                price_non_member: opts.nonMemberPrice === undefined ? 40 : opts.nonMemberPrice,
+                invite_price: opts.invitePrice ?? null,
+                archived_at: null,
+                counts_as_seat: opts.countsAsSeat ?? false,
+              },
             ],
             error: null,
           });
@@ -97,12 +118,13 @@ function adminClient(opts: {
   } as unknown as ReturnType<typeof createAdminClient>;
 }
 
-/** n distinct, fully-named guests of the test ticket type. */
-function guests(n: number) {
+/** n distinct, fully-named people (U3: a person carries the ticket type(s) they hold —
+ *  R1 — rather than a separately-typed attendee list reconciled against a quantity). */
+function peopleOf(n: number, ticketTypeId = TYPE) {
   return Array.from({ length: n }, (_, i) => ({
-    ticket_type_id: TYPE,
     name: `Guest Number${i + 1}`,
     email: `guest${i + 1}@x.com`,
+    ticketTypeIds: [ticketTypeId],
   }));
 }
 
@@ -128,19 +150,19 @@ beforeEach(() => {
 });
 
 describe("POST /api/public/bookings/[token]/topup", () => {
-  it("requires at least one item", async () => {
-    const res = await post({ items: [] });
+  it("requires at least one person", async () => {
+    const res = await post({ people: [] });
     expect(res.status).toBe(400);
   });
 
   it("404s an unknown booking", async () => {
     mockedAdmin.mockReturnValue(adminClient({ reg: null }));
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }] });
+    const res = await post({ people: peopleOf(1) });
     expect(res.status).toBe(404);
   });
 
   it("creates a Stripe checkout for a paid top-up", async () => {
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(2) });
+    const res = await post({ people: peopleOf(2) });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, checkoutUrl: "https://stripe.test/cs" });
   });
@@ -149,43 +171,58 @@ describe("POST /api/public/bookings/[token]/topup", () => {
     // seat_cap 10, already 9 used; a seat-consuming top-up of 2 → 11 > 10.
     mockedAdmin.mockReturnValue(adminClient({ seatCap: 10, countsAsSeat: true }));
     mockedSeats.mockResolvedValue(9);
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }] });
+    const res = await post({ people: peopleOf(2) });
     expect(res.status).toBe(409);
   });
 
   it("allows a seat-consuming top-up that fits under the cap", async () => {
     mockedAdmin.mockReturnValue(adminClient({ seatCap: 10, countsAsSeat: true }));
     mockedSeats.mockResolvedValue(5);
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(2) });
+    const res = await post({ people: peopleOf(2) });
     expect(res.status).toBe(200);
   });
 
   it("applies a free top-up immediately without checkout", async () => {
     mockedAdmin.mockReturnValue(adminClient({ price: 0 }));
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }] , attendees: guests(2) });
+    const res = await post({ people: peopleOf(2) });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, applied: true });
+  });
+
+  // Characterization: the persisted `items` line-item shape (what event_registration_topups
+  // and the Stripe line items are built from) is unchanged by the U3 migration — only how the
+  // quantity is DERIVED changed (grouping people's ticketTypeIds via deriveTicketCounts,
+  // instead of reading a submitted `quantity` field).
+  it("derives the same per-type quantity and pricing shape a submitted quantity used to produce", async () => {
+    mockedAdmin.mockReturnValue(adminClient({ price: 0 }));
+    const res = await post({ people: peopleOf(2) });
+    expect(res.status).toBe(200);
+    expect(lastRosterWrite).toEqual([
+      { ticket_type_id: TYPE, name: "Guest Number1", email: "guest1@x.com" },
+      { ticket_type_id: TYPE, name: "Guest Number2", email: "guest2@x.com" },
+    ]);
   });
 });
 
 describe("mandatory naming on top-ups", () => {
   it("refuses a top-up that names nobody", async () => {
     // The gap this closes: a top-up used to mint seats with no name and no contact, long
-    // after the public checkout stopped allowing one.
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }] });
+    // after the public checkout stopped allowing one. Under the people-list contract, an
+    // empty order IS the "named nobody" case — validateOrder's empty_order rule.
+    const res = await post({ people: [] });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/needs a name and email/);
+    expect((await res.json()).error).toMatch(/at least one person/);
   });
 
-  it("refuses when fewer guests are named than seats bought", async () => {
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(1) });
-    expect(res.status).toBe(400);
-  });
+  // Dropped (not ported): "refuses when fewer guests are named than seats bought". Under the
+  // old items+attendees contract, a submitted `quantity` could outrun the named attendee
+  // list. Under the people-list contract (U3, KD1) there is no separate quantity to fall
+  // short of — the seats bought ARE the people named, by construction. This is a legitimate
+  // shape change, not a dropped guarantee.
 
   it("refuses a guest with no surname", async () => {
     const res = await post({
-      items: [{ ticketTypeId: TYPE, quantity: 1 }],
-      attendees: [{ ticket_type_id: TYPE, name: "Madonna", email: "m@x.com" }],
+      people: [{ name: "Madonna", email: "m@x.com", ticketTypeIds: [TYPE] }],
     });
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/first and last name/);
@@ -193,14 +230,26 @@ describe("mandatory naming on top-ups", () => {
 
   it("refuses a guest with no valid email", async () => {
     const res = await post({
-      items: [{ ticketTypeId: TYPE, quantity: 1 }],
-      attendees: [{ ticket_type_id: TYPE, name: "Ana Vidal", email: "not-an-email" }],
+      people: [{ name: "Ana Vidal", email: "not-an-email", ticketTypeIds: [TYPE] }],
     });
     expect(res.status).toBe(400);
   });
 
-  // parseAttendeeInput only sees ONE order. claim_ticket dedupes against every seat already
-  // named on the booking — so a lead topping up under their own name and email got
+  // R5: validateOrder reports every violation in one pass, not just the first. Pin that the
+  // route surfaces the full list, not a single early-exit message.
+  it("reports every violation on the person at once, not just the first", async () => {
+    const res = await post({
+      people: [{ name: "", email: "not-an-email", ticketTypeIds: [TYPE] }],
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { violations: { rule: string }[] };
+    const rules = body.violations.map((v) => v.rule);
+    expect(rules).toContain("name_required");
+    expect(rules).toContain("email_invalid");
+  });
+
+  // parseAttendeeInput used to only see ONE order. claim_ticket dedupes against every seat
+  // already named on the booking — so a lead topping up under their own name and email got
   // `already: true`, no seat claimed, and a charge for a permanently unnamed ticket. A
   // top-up is the only purchase path where prior claimed seats exist.
   it("refuses a guest who already holds this ticket on this booking", async () => {
@@ -208,8 +257,7 @@ describe("mandatory naming on top-ups", () => {
       adminClient({ claimed: [{ name: "Ana Vidal", email: "ana@x.com", ticket_type_id: TYPE }] })
     );
     const res = await post({
-      items: [{ ticketTypeId: TYPE, quantity: 1 }],
-      attendees: [{ ticket_type_id: TYPE, name: "Ana Vidal", email: "ana@x.com" }],
+      people: [{ name: "Ana Vidal", email: "ana@x.com", ticketTypeIds: [TYPE] }],
     });
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/already has this ticket on this booking/i);
@@ -220,25 +268,42 @@ describe("mandatory naming on top-ups", () => {
       adminClient({ claimed: [{ name: "Ana  Vidal", email: "Ana@X.com", ticket_type_id: TYPE }] })
     );
     const res = await post({
-      items: [{ ticketTypeId: TYPE, quantity: 1 }],
-      attendees: [{ ticket_type_id: TYPE, name: "ana vidal", email: "ana@x.com" }],
+      people: [{ name: "ana vidal", email: "ana@x.com", ticketTypeIds: [TYPE] }],
     });
     expect(res.status).toBe(400);
   });
 
   // The mirror image, and the case that made this scoping necessary: one person holding
-  // Friday and Saturday of a multi-day event. Their second day is a real seat that was paid
-  // for. Refusing it would leave the buyer no way to complete an order they are entitled to
-  // make, and the unscoped guard silently swallowed it instead.
+  // Friday and Saturday of a multi-day event (KD4 — a day is a ticket type). Their second
+  // day is a real seat that was paid for. Refusing it would leave the buyer no way to
+  // complete an order they are entitled to make, and an unscoped guard would silently
+  // swallow it instead.
   it("allows the same person on a DIFFERENT ticket type (multi-day event)", async () => {
     mockedAdmin.mockReturnValue(
       adminClient({ claimed: [{ name: "Ana Vidal", email: "ana@x.com", ticket_type_id: TYPE }] })
     );
     const res = await post({
-      items: [{ ticketTypeId: OTHER_TYPE, quantity: 1 }],
-      attendees: [{ ticket_type_id: OTHER_TYPE, name: "Ana Vidal", email: "ana@x.com" }],
+      people: [{ name: "Ana Vidal", email: "ana@x.com", ticketTypeIds: [OTHER_TYPE] }],
     });
     expect(res.status).toBe(200);
+  });
+
+  // A ticket is per head here too: TOPUP_ORDER_BOUNDS passes maxTicketsPerPerson: 1, so
+  // one person entry carrying both types is refused rather than minting two seats for
+  // one name.
+  it("400s one person entry carrying two different ticket types in the same top-up", async () => {
+    const res = await post({
+      people: [{ name: "Ana Vidal", email: "ana@x.com", ticketTypeIds: [TYPE, OTHER_TYPE] }],
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.violations).toContainEqual(
+      expect.objectContaining({
+        rule: "too_many_ticket_types_for_person",
+        personIndex: 0,
+        field: "ticketTypeIds",
+      })
+    );
   });
 
   // A seat minted before ticket types existed carries no type, and claim_ticket lets it adopt
@@ -248,8 +313,7 @@ describe("mandatory naming on top-ups", () => {
       adminClient({ claimed: [{ name: "Ana Vidal", email: "ana@x.com", ticket_type_id: null }] })
     );
     const res = await post({
-      items: [{ ticketTypeId: OTHER_TYPE, quantity: 1 }],
-      attendees: [{ ticket_type_id: OTHER_TYPE, name: "Ana Vidal", email: "ana@x.com" }],
+      people: [{ name: "Ana Vidal", email: "ana@x.com", ticketTypeIds: [OTHER_TYPE] }],
     });
     expect(res.status).toBe(400);
   });
@@ -261,23 +325,24 @@ describe("mandatory naming on top-ups", () => {
       adminClient({ claimed: [{ name: "Ana Vidal", email: "shared@x.com" }] })
     );
     const res = await post({
-      items: [{ ticketTypeId: TYPE, quantity: 1 }],
-      attendees: [{ ticket_type_id: TYPE, name: "Ben Torres", email: "shared@x.com" }],
+      people: [{ name: "Ben Torres", email: "shared@x.com", ticketTypeIds: [TYPE] }],
     });
     expect(res.status).toBe(200);
   });
 
-  it("refuses the same person named twice", async () => {
+  it("refuses the same person named twice on the same ticket type", async () => {
     // Two identical identities collapse into one ticket at claim time, leaving the sibling
-    // seat unnamed — the exact bypass the checkout already rejects.
-    const dup = { ticket_type_id: TYPE, name: "Ana Vidal", email: "ana@x.com" };
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: [dup, dup] });
+    // seat unnamed — the exact bypass the checkout already rejects. Message text now comes
+    // from validateOrder's duplicate_ticket_type_for_person rule (shared with checkout),
+    // not attendee-input.ts's old "same name and email" wording.
+    const dup = { name: "Ana Vidal", email: "ana@x.com", ticketTypeIds: [TYPE] };
+    const res = await post({ people: [dup, dup] });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/same name and email/);
+    expect((await res.json()).error).toMatch(/already holds this ticket type/);
   });
 
   it("stashes the names on the top-up row before sending the buyer to Stripe", async () => {
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 2 }], attendees: guests(2) });
+    const res = await post({ people: peopleOf(2) });
     expect(res.status).toBe(200);
     // Stashed BEFORE payment: a paid top-up whose roster never persisted would mint exactly
     // the unnamed seats this change exists to prevent.
@@ -293,7 +358,7 @@ describe("mandatory naming on top-ups", () => {
 
   it("names the seats immediately on a free top-up, which has no webhook", async () => {
     mockedAdmin.mockReturnValue(adminClient({ price: 0 }));
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    const res = await post({ people: peopleOf(1) });
     expect(res.status).toBe(200);
     // Keyed on the top-up, not the registration: the free path names exactly the seats
     // this top-up bought.
@@ -304,7 +369,7 @@ describe("mandatory naming on top-ups", () => {
   // renamed here, every paid top-up captures money and mints nothing — and no other test
   // would notice, because both sides use a hardcoded id.
   it("puts topup_id on the checkout session so the webhook can find the branch", async () => {
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    const res = await post({ people: peopleOf(1) });
     expect(res.status).toBe(200);
     expect(sessionCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -317,16 +382,43 @@ describe("mandatory naming on top-ups", () => {
   });
 
   // No webhook on the free path means no retry: this is the only attempt these names get,
-  // so the lead has to be told rather than shown a clean success.
+  // so the lead has to be told rather than shown a clean success. This is the "loud
+  // unnamed-seat" mechanism the plan asks to re-verify: a claim that reports it did nothing
+  // must still surface as a warning, never a silent clean success.
   it("warns the lead when a free top-up's seats could not be named", async () => {
     mockedAdmin.mockReturnValue(adminClient({ price: 0 }));
     mockedApplyRoster.mockResolvedValue("error");
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) });
+    const res = await post({ people: peopleOf(1) });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
       ok: true,
       warning: expect.stringMatching(/couldn't attach the guest names/i),
     });
+  });
+});
+
+// KTD7 (Q5, session-settled 2026-08-15): the invite-rate limit is enforced at checkout only.
+// This is a deliberate product decision (KD9 already accepts invite-rate leakage and defers
+// bounding it to the redemption gate) — NOT a gap. A later reader who finds no limit check
+// on a route that prices at the invite rate must not "fix" it without first overturning
+// KTD7. This test pins the current (accepting) behavior so that a silent "fix" trips a red
+// test here instead of shipping unnoticed.
+describe("KTD7 — invite-rate limit is not enforced on top-up", () => {
+  it("accepts a top-up at the invite rate with no per-checkout-style limit applied", async () => {
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        reg: { id: "reg", event_id: "evt", is_member: false, status: "paid", email: "g@x.com" },
+        // Members-only event: no non-member column, so pricing falls back to invite_price
+        // (lib/events/pricing.ts's resolvePrice) — the same rate this buyer paid at checkout.
+        nonMemberPrice: null,
+        invitePrice: 15,
+      })
+    );
+    // A quantity well past what any sane per-checkout invite cap would allow, to make the
+    // absence of enforcement unambiguous.
+    const res = await post({ people: peopleOf(6) });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, checkoutUrl: "https://stripe.test/cs" });
   });
 });
 
@@ -393,6 +485,7 @@ function dualTokenAdmin(opts: {
                 title: "Adult",
                 price_member: opts.price ?? 25,
                 price_non_member: 40,
+                invite_price: null,
                 archived_at: null,
                 counts_as_seat: false,
               },
@@ -425,7 +518,7 @@ describe("dual-token auth (U2 — buy-more from the ticket manage page)", () => 
         ticketsByToken: { "tkt-of-A": { id: "t1", registration_id: "reg-A" } },
       })
     );
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "tkt-of-A");
+    const res = await post({ people: peopleOf(1) }, "tkt-of-A");
     expect(res.status).toBe(200);
     expect(lastTopupInsert).toMatchObject({ registration_id: "reg-A" });
   });
@@ -438,7 +531,7 @@ describe("dual-token auth (U2 — buy-more from the ticket manage page)", () => 
         ticketsByToken: {},
       })
     );
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "reg-tok-A");
+    const res = await post({ people: peopleOf(1) }, "reg-tok-A");
     expect(res.status).toBe(200);
     expect(lastTopupInsert).toMatchObject({ registration_id: "reg-A" });
   });
@@ -455,7 +548,7 @@ describe("dual-token auth (U2 — buy-more from the ticket manage page)", () => 
         ticketsByToken: { "tkt-of-B": { id: "t2", registration_id: "reg-B" } },
       })
     );
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "tkt-of-B");
+    const res = await post({ people: peopleOf(1) }, "tkt-of-B");
     expect(res.status).toBe(200);
     expect(lastTopupInsert).toMatchObject({ registration_id: "reg-B" });
     expect(lastTopupInsert).not.toMatchObject({ registration_id: "reg-A" });
@@ -465,7 +558,7 @@ describe("dual-token auth (U2 — buy-more from the ticket manage page)", () => 
   // refused outright — there is no booking to resolve, paid or otherwise.
   it("refuses a token that matches neither a registration nor a live ticket", async () => {
     mockedAdmin.mockReturnValue(dualTokenAdmin({ regsByToken: {}, regsById: {}, ticketsByToken: {} }));
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "unknown-tok");
+    const res = await post({ people: peopleOf(1) }, "unknown-tok");
     expect(res.status).toBe(404);
   });
 
@@ -479,7 +572,7 @@ describe("dual-token auth (U2 — buy-more from the ticket manage page)", () => 
         ticketsByToken: { "solo-tkt": { id: "t3", registration_id: null } },
       })
     );
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "solo-tkt");
+    const res = await post({ people: peopleOf(1) }, "solo-tkt");
     expect(res.status).toBe(404);
   });
 
@@ -492,7 +585,7 @@ describe("dual-token auth (U2 — buy-more from the ticket manage page)", () => 
       })
     );
     const res = await post(
-      { items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: [{ ticket_type_id: TYPE, name: "Ana Vidal", email: "" }] },
+      { people: [{ name: "Ana Vidal", email: "", ticketTypeIds: [TYPE] }] },
       "tkt-of-A"
     );
     expect(res.status).toBe(400);
@@ -507,7 +600,7 @@ describe("dual-token auth (U2 — buy-more from the ticket manage page)", () => 
         ticketsByToken: { "tkt-of-A": { id: "t1", registration_id: "reg-A" } },
       })
     );
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "tkt-of-A");
+    const res = await post({ people: peopleOf(1) }, "tkt-of-A");
     expect(res.status).toBe(200);
     expect(sessionCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -525,7 +618,7 @@ describe("dual-token auth (U2 — buy-more from the ticket manage page)", () => 
         ticketsByToken: {},
       })
     );
-    const res = await post({ items: [{ ticketTypeId: TYPE, quantity: 1 }], attendees: guests(1) }, "reg-tok-A");
+    const res = await post({ people: peopleOf(1) }, "reg-tok-A");
     expect(res.status).toBe(200);
     expect(sessionCreate).toHaveBeenCalledWith(
       expect.objectContaining({

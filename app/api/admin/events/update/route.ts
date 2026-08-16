@@ -63,7 +63,8 @@ export async function POST(request: NextRequest) {
   }
 
   // Single-writer ownership — this bulk update route MUST NOT write:
-  //   seat_cap, reminder_schedule   → Manage page (Settings / Messaging)
+  //   seat_cap, reminder_schedule,
+  //     max_tickets_invite (R6/R7)  → Manage page (Settings / Messaging)
   //   invite_code                   → invite-code route
   //   all ticket-type prices (event_ticket_types.price_member / price_non_member
   //                            / invite_price) → ticket-types route

@@ -1,11 +1,19 @@
 import type { Metadata } from "next";
-import { resolveDoorEvent, buildDoorRoster } from "@/lib/events/door-access";
+import { resolveDoorEvent, buildDoorRoster, buildNewGuestListGroups } from "@/lib/events/door-access";
 import DoorConsole from "@/components/door/DoorConsole";
 import ScanCheckIn from "@/components/door/ScanCheckIn";
 import { formatDate } from "@/lib/format";
 
 // Keep the event id out of the Referer header on any outbound link / asset.
 export const metadata: Metadata = { referrer: "no-referrer" };
+
+// Always render fresh: this page has no cookies/headers to opt it into dynamic
+// rendering on its own, so without this it gets rendered once and cached indefinitely
+// (Next's default for a route with no dynamic API) — a new arrival, check-in, or guest
+// list created after that first render would never show up, including across the
+// component's own 20s router.refresh() interval, since a refresh of a cached route just
+// re-serves the same cached render.
+export const dynamic = "force-dynamic";
 
 // Public, no-login door console (U4/U5/U11). Keyed on the event id (KTD1). Volunteer
 // staff open `/door/<eventId>` to browse/search the full roster (parties with their
@@ -41,15 +49,14 @@ export default async function DoorConsolePage({
     );
   }
 
-  const {
-    parties,
-    arrivals,
-    notArrived,
-    arrived,
-    expected,
-    outstanding,
-    unaccounted,
-  } = await buildDoorRoster(id);
+  // Two independent reads (neither depends on the other's output) — run concurrently rather
+  // than doubling this page's round-trip latency.
+  const [
+    { parties, arrivals, notArrived, arrived, expected, outstanding, unaccounted },
+    // U5/U6/U9: guest lists from the new list model — invisible to buildDoorRoster above,
+    // since a guest-list ticket has no registration to attach a party to (KD10).
+    newGuestListGroups,
+  ] = await Promise.all([buildDoorRoster(id), buildNewGuestListGroups(id)]);
 
   return shell(
     <div className="space-y-6">
@@ -67,6 +74,7 @@ export default async function DoorConsolePage({
         expectedCount={expected}
         outstandingCount={outstanding}
         unaccountedCount={unaccounted}
+        newGuestListGroups={newGuestListGroups}
       />
     </div>
   );

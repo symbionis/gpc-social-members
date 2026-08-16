@@ -2,6 +2,7 @@
 
 import { Fragment } from "react";
 import type { RosterEvent, RosterRow } from "@/lib/events/door-roster";
+import { rosterGuestListGroups } from "@/lib/events/door-roster";
 
 interface Props {
   event: RosterEvent;
@@ -19,6 +20,48 @@ function formatDate(iso: string | null): string {
   });
 }
 
+/** One row of the sheet: the tickbox, the name (or a blank to write on), its party link,
+ * ticket type, contact, and booking ref. Shared by the flat A→Z list and the guest-list
+ * sections below it, so the two can never render a person differently. */
+function RosterTableRow({ row }: { row: RosterRow }) {
+  const lead = row.isLead;
+  return (
+    <tr className={lead ? "roster-lead" : "roster-guest"}>
+      <td className="col-tick">
+        <span className="tickbox" aria-hidden />
+      </td>
+      <td className="col-name">
+        {row.named ? (
+          <span className={lead ? "name-lead" : "name-guest"}>
+            {/* Someone who gave a one-word name has no surname to file
+                under. Print the name they gave, not a dangling ", Hallf". */}
+            {row.last ? (
+              <>
+                <span className="surname">{row.last}</span>
+                {row.first && <>, {row.first}</>}
+              </>
+            ) : (
+              <span className="surname">{row.first}</span>
+            )}
+          </span>
+        ) : (
+          // Nobody has been named on this ticket — a rule to write on.
+          <span className="name-blank" aria-label="unnamed guest" />
+        )}
+        {/* The party link, muted, under the name — so a guest that sorts
+            away from its lead is still attributable at the door. */}
+        {row.partyLead && <span className="party-label">{row.partyLead}</span>}
+      </td>
+      <td className="col-type">{row.ticketType}</td>
+      <td className="col-contact">{row.phone}</td>
+      <td className="col-ref">
+        {row.bookingRef}
+        {row.tickets && <span className="qty"> ({row.tickets})</span>}
+      </td>
+    </tr>
+  );
+}
+
 /**
  * The printed door sheet: every admissible ticket, one line each, in a single flat A→Z list
  * by surname across the whole event — leads and named guests intermixed, so staff can
@@ -29,18 +72,30 @@ function formatDate(iso: string | null): string {
  * rule to write the name on. Those unnamed lines have no surname to sort on, so they
  * trail at the end under a "To fill in" divider.
  *
+ * Guest-list guests (U6) are pulled out of that flat list and printed in their own section
+ * per list, under the list's name and contact, so staff can work a sponsor's list as a unit
+ * ("Cardis brought 12, here they are") instead of hunting for each name scattered through
+ * the A→Z sheet under a blank booking ref. They are still real ticket-holders — same row,
+ * same tickbox, same contact/type columns — just grouped differently.
+ *
  * Rows come from lib/events/door-roster, which is this sheet's only consumer.
  */
 export default function DoorRosterSheet({ event, rows, typeTotals }: Props) {
   const totalTickets = rows.length;
   const named = rows.filter((r) => r.named).length;
 
+  // The flat A→Z table shows everyone EXCEPT guest-list guests, who get their own section
+  // below (guestListGroups). Filtering preserves the sort order buildDoorRoster already
+  // produced, so the "To fill in" logic below still walks the rows in the same order.
+  const mainRows = rows.filter((r) => !r.guestListId);
+  const guestListGroups = rosterGuestListGroups(rows);
+
   // The trailing run of unnamed lines is fenced off with a "To fill in" divider — but
   // only when the sheet actually mixes named and unnamed rows. An all-named sheet needs
   // no divider; an all-unnamed sheet (early sales) would show the divider as a stray
   // header above nothing but blanks, so suppress it there too.
-  const firstUnnamedIndex = rows.findIndex((r) => !r.named);
-  const showDivider = named > 0 && firstUnnamedIndex !== -1;
+  const firstUnnamedIndex = mainRows.findIndex((r) => !r.named);
+  const showDivider = mainRows.some((r) => r.named) && firstUnnamedIndex !== -1;
 
   return (
     <>
@@ -104,56 +159,37 @@ export default function DoorRosterSheet({ event, rows, typeTotals }: Props) {
             </tr>
           </thead>
 
-          {/* One flat tbody: the list is A→Z across the whole event, no party grouping. */}
+          {/* One flat tbody: the list is A→Z across the whole event, no party grouping —
+              guest-list guests excepted, who print in their own sections below. */}
           <tbody>
-            {rows.map((row, i) => {
-              const lead = row.isLead;
-              return (
-                <Fragment key={i}>
-                  {showDivider && i === firstUnnamedIndex && (
-                    <tr className="roster-divider">
-                      <td className="col-tick" aria-hidden />
-                      <td colSpan={4}>To fill in</td>
-                    </tr>
-                  )}
-                  <tr className={lead ? "roster-lead" : "roster-guest"}>
-                    <td className="col-tick">
-                      <span className="tickbox" aria-hidden />
-                    </td>
-                    <td className="col-name">
-                      {row.named ? (
-                        <span className={lead ? "name-lead" : "name-guest"}>
-                          {/* Someone who gave a one-word name has no surname to file
-                              under. Print the name they gave, not a dangling ", Hallf". */}
-                          {row.last ? (
-                            <>
-                              <span className="surname">{row.last}</span>
-                              {row.first && <>, {row.first}</>}
-                            </>
-                          ) : (
-                            <span className="surname">{row.first}</span>
-                          )}
-                        </span>
-                      ) : (
-                        // Nobody has been named on this ticket — a rule to write on.
-                        <span className="name-blank" aria-label="unnamed guest" />
-                      )}
-                      {/* The party link, muted, under the name — so a guest that sorts
-                          away from its lead is still attributable at the door. */}
-                      {row.partyLead && (
-                        <span className="party-label">{row.partyLead}</span>
-                      )}
-                    </td>
-                    <td className="col-type">{row.ticketType}</td>
-                    <td className="col-contact">{row.phone}</td>
-                    <td className="col-ref">
-                      {row.bookingRef}
-                      {row.tickets && <span className="qty"> ({row.tickets})</span>}
-                    </td>
+            {mainRows.map((row, i) => (
+              <Fragment key={i}>
+                {showDivider && i === firstUnnamedIndex && (
+                  <tr className="roster-divider">
+                    <td className="col-tick" aria-hidden />
+                    <td colSpan={4}>To fill in</td>
                   </tr>
-                </Fragment>
-              );
-            })}
+                )}
+                <RosterTableRow row={row} />
+              </Fragment>
+            ))}
+
+            {/* One divider + block per guest list, in list-name order — reusing the same
+                divider styling the "To fill in" fence uses, so this needs no new CSS. */}
+            {guestListGroups.map((group) => (
+              <Fragment key={group.id}>
+                <tr className="roster-divider">
+                  <td className="col-tick" aria-hidden />
+                  <td colSpan={4}>
+                    Guest list — {group.name || "Unnamed list"}
+                    {group.contactName && ` (contact: ${group.contactName})`}
+                  </td>
+                </tr>
+                {group.rows.map((row, i) => (
+                  <RosterTableRow key={`${group.id}-${i}`} row={row} />
+                ))}
+              </Fragment>
+            ))}
           </tbody>
         </table>
 

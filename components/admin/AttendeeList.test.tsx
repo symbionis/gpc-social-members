@@ -32,9 +32,7 @@ function ticket(overrides: Partial<Attendee> = {}): Attendee {
     checkedIn: false,
     arrivedAt: null,
     createdAt: `2026-01-01T00:00:0${seq}Z`,
-    isComp: false,
     named: true,
-    paymentState: "paid" as const,
     priceChf: 45,
     ...overrides,
   };
@@ -102,8 +100,8 @@ describe("roster is one flat, surname-ordered row per ticket", () => {
   });
 
   it("shows a named guest with no email as themselves, not as an unnamed slot", () => {
-    // A claimed comp-guest ticket carries a real name but no address
-    // (tickets_contact_present allows an is_comp row with NULL email).
+    // A claimed comp-guest ticket carries a real name but no address (tickets_contact_present's
+    // retained comp disjunct — KTD6 — allows such a row with NULL email).
     renderList([
       ticket({ name: "Deb Comp", email: "", named: true, manageToken: null, referenceCode: "GPC-7" }),
     ]);
@@ -215,33 +213,18 @@ describe("resend targets an email address", () => {
   });
 });
 
-describe("payment pill", () => {
-  it("marks a paid seat", () => {
-    renderList([ticket({ name: "Ana Adult", paymentState: "paid" })]);
-    expect(screen.getByText("Paid")).toBeInTheDocument();
-  });
-
-  // A sponsor's guest is a person the door is expecting, not a billing category. The roster is
-  // read by staff looking for someone, so it uses the word they use.
-  it("names a sponsor's seat Special Guest, not Comp", () => {
-    renderList([ticket({ name: "Comped Guest", isComp: true, paymentState: "comp" })]);
-    expect(screen.getByText("Special Guest")).toBeInTheDocument();
-    expect(screen.queryByText("Comp")).toBeNull();
-  });
-
-  // On a free event every row was "Free", so the pill marked nothing. What a seat cost is
-  // answered by the price under its ticket type instead — and by its absence when nothing
-  // was paid.
-  it("gives a free seat no pill at all", () => {
-    renderList([ticket({ name: "Free Guest", paymentState: "free", priceChf: 0 })]);
-    expect(screen.queryByText("Free")).toBeNull();
+describe("no payment pill", () => {
+  // The roster no longer marks payment state with a pill at all — what a seat cost is
+  // answered by the price under its ticket type (or its absence), never by a badge.
+  it("renders no Paid/Free/Comp/Special Guest pill regardless of price", () => {
+    renderList([
+      ticket({ name: "Ana Adult", priceChf: 45 }),
+      ticket({ name: "Free Guest", priceChf: 0 }),
+    ]);
     expect(screen.queryByText("Paid")).toBeNull();
+    expect(screen.queryByText("Free")).toBeNull();
+    expect(screen.queryByText("Comp")).toBeNull();
     expect(screen.queryByText("Special Guest")).toBeNull();
-  });
-
-  it("shows exactly one payment pill per seat", () => {
-    renderList([ticket({ paymentState: "comp" })]);
-    expect(screen.getAllByText(/^(Paid|Special Guest)$/)).toHaveLength(1);
   });
 });
 
@@ -257,12 +240,13 @@ describe("ticket price", () => {
     expect(screen.getByText("CHF 12.50")).toBeInTheDocument();
   });
 
-  // Both a comp and a free booking value at zero. "CHF 0.00" reads as a price that was
-  // charged; the absent line reads as no money, which is the truth.
+  // A historical comp ticket (now just another free-booking seat, R16/KD7) and a genuinely
+  // free booking both value at zero. "CHF 0.00" reads as a price that was charged; the absent
+  // line reads as no money, which is the truth.
   it("shows no price for a seat that cost nothing", () => {
     renderList([
-      ticket({ name: "Comped Guest", email: "a@x.ch", isComp: true, paymentState: "comp", priceChf: 0 }),
-      ticket({ name: "Free Guest", email: "b@x.ch", paymentState: "free", priceChf: 0 }),
+      ticket({ name: "Comped Guest", email: "a@x.ch", priceChf: 0 }),
+      ticket({ name: "Free Guest", email: "b@x.ch", priceChf: 0 }),
     ]);
     expect(screen.queryByText(/CHF/)).toBeNull();
   });

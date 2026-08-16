@@ -94,6 +94,7 @@ function renderTabs(over: Partial<Props> = {}) {
     ticketTypes: TICKET_TYPES,
     registrationEnabled: true,
     guestLists: [],
+    maxTicketsInvite: null,
     cancellations: [],
     ...over,
   };

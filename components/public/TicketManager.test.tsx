@@ -404,8 +404,8 @@ describe("TicketManager — buy more tickets (U2)", () => {
     renderManager([ticket()], { topupEndpoint: "/topup", buyableTypes: types });
     const toggle = screen.getByRole("button", { name: /Buy more tickets/i });
     expect(toggle).toBeInTheDocument();
-    // Nothing else from the panel (quantity controls, guest fields) is visible until opened.
-    expect(screen.queryByLabelText(/Add one Clubhouse Dinner/i)).toBeNull();
+    // Nothing else from the panel (guest rows, ticket checkboxes) is visible until opened.
+    expect(screen.queryByRole("button", { name: /add guest/i })).toBeNull();
     // It sits after the ticket list in the document, not above it.
     const ticketsList = cardOf("Sophie Berger").closest("ul") as HTMLElement;
     expect(
@@ -422,23 +422,28 @@ describe("TicketManager — buy more tickets (U2)", () => {
     expect(document.body.textContent).not.toMatch(/top[\s-]?up/i);
   });
 
-  it("requires a name and email for every seat before it can be bought", async () => {
+  it("requires a name and email for every seat before it can be bought (U4: same rigor as checkout)", async () => {
     const user = userEvent.setup();
     renderManager([ticket()], { topupEndpoint: "/topup", buyableTypes: types });
     await user.click(screen.getByRole("button", { name: /Buy more tickets/i }));
-    await user.click(screen.getByRole("button", { name: "Add one Clubhouse Dinner" }));
+    await user.click(screen.getByRole("button", { name: /add guest/i }));
+    await user.click(screen.getByLabelText("Guest 1 Clubhouse Dinner ticket"));
 
-    const buyButton = screen.getByRole("button", { name: /Buy 1 ticket/i });
-    expect(buyButton).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /Buy 1 ticket/i }));
+    expect(screen.getByText("Each person needs a name")).toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalled();
 
-    await user.type(screen.getByPlaceholderText("First and last name"), "New Guest");
-    expect(buyButton).toBeDisabled();
+    await user.type(screen.getByLabelText("Guest 1 name"), "New Guest");
+    await user.click(screen.getByRole("button", { name: /Buy 1 ticket/i }));
+    expect(screen.getByText("Each person needs an email")).toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalled();
 
-    await user.type(screen.getByPlaceholderText("Email"), "new.guest@example.com");
-    expect(buyButton).toBeEnabled();
+    await user.type(screen.getByLabelText("Guest 1 email"), "new.guest@example.com");
+    await user.click(screen.getByRole("button", { name: /Buy 1 ticket/i }));
+    expect(global.fetch).toHaveBeenCalled();
   });
 
-  it("posts the selected items and named guests, then follows the checkout redirect", async () => {
+  it("posts the order as people, then follows the checkout redirect", async () => {
     const user = userEvent.setup();
     const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValue({
@@ -453,9 +458,10 @@ describe("TicketManager — buy more tickets (U2)", () => {
 
     renderManager([ticket()], { topupEndpoint: "/topup", buyableTypes: types });
     await user.click(screen.getByRole("button", { name: /Buy more tickets/i }));
-    await user.click(screen.getByRole("button", { name: "Add one Clubhouse Dinner" }));
-    await user.type(screen.getByPlaceholderText("First and last name"), "New Guest");
-    await user.type(screen.getByPlaceholderText("Email"), "new.guest@example.com");
+    await user.click(screen.getByRole("button", { name: /add guest/i }));
+    await user.type(screen.getByLabelText("Guest 1 name"), "New Guest");
+    await user.type(screen.getByLabelText("Guest 1 email"), "new.guest@example.com");
+    await user.click(screen.getByLabelText("Guest 1 Clubhouse Dinner ticket"));
     await user.click(screen.getByRole("button", { name: /Buy 1 ticket/i }));
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -464,8 +470,7 @@ describe("TicketManager — buy more tickets (U2)", () => {
     );
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body).toMatchObject({
-      items: [{ ticketTypeId: "tt-1", quantity: 1 }],
-      attendees: [{ ticket_type_id: "tt-1", name: "New Guest", email: "new.guest@example.com" }],
+      people: [{ name: "New Guest", email: "new.guest@example.com", ticketTypeIds: ["tt-1"] }],
     });
     expect(window.location.href).toBe("https://stripe.test/session");
 

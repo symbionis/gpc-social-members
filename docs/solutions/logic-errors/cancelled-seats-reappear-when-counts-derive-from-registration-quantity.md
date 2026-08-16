@@ -5,7 +5,8 @@ category: logic-errors
 module: events
 problem_type: logic_error
 component: service_object
-last_updated: 2026-08-11
+last_updated: 2026-08-15
+last_refreshed: 2026-08-15
 symptoms:
   - "Admin overview reported 10 tickets sold when only 7 had been paid for; 3 comp guest-list seats counted as sold"
   - "Printed door sheet rendered 12 lines for 10 admissible people, padding cancelled seats back as blank \"to fill in\" rows"
@@ -56,10 +57,18 @@ session while building a demo event with 10 admissible tickets, 12 booked seats 
 ## Symptoms
 
 **1. Admin overview reported comps as revenue.** The "Sold" panel summed
-`registration.quantity` across paid *and* free registrations. A guest list in this
-schema *is* a `free` registration (`event_registrations.is_guest_list`), so three
-comped guest-list seats were counted as sold and the panel read 10 sold on an event
-where 7 tickets had been paid for.
+`registration.quantity` across paid *and* free registrations. Under the comp model in
+force at the time, a guest list **was** a `free` registration
+(`event_registrations.is_guest_list`), so three comped guest-list seats were counted as
+sold and the panel read 10 sold on an event where 7 tickets had been paid for.
+
+> **Model change (KD10, 2026-08-15).** That premise is retired. A guest-list guest is no
+> longer a registration of any kind — it is a ticket with `registration_id` null and a
+> `guest_list_id` set, so `is_guest_list` is permanently false on new bookings and the
+> guest-list bucket can no longer be derived from registrations at all. The *lesson* below
+> is unaffected — two tables describing one population still drift — but read every
+> "guest list = free registration" statement in this doc as history. See
+> [a nullish default turns a missing record into a confident false claim](nullish-default-turns-a-missing-record-into-a-confident-false-claim.md).
 
 **2. The printed door sheet re-materialised refunded seats.** `lib/events/door-roster.ts`
 already had `.is("cancellation_status", null)` on its tickets query — and was still
@@ -72,7 +81,7 @@ reconstruct-the-lead-from-the-purchaser branch and printed as an arrivable party
 had the same query filter and the same raw quantity. A party read "1 / 2 named",
 offering a slot no ticket row could satisfy; a fully refunded booking still rendered a
 party card; and `expected` counted 12 against a 10-person roster. The surplus landed in
-`unaccounted` — the field documented at `lib/events/door-access.ts:106-114` as the
+`unaccounted` — the field documented at `lib/events/door-access.ts:121-131` as the
 signal that a party's rows and its quantity genuinely disagree. Ordinary refunds were
 now setting off the alarm that exists to catch real data corruption.
 
@@ -103,7 +112,10 @@ were in the same function.
 number people read as revenue. Renaming a wrong number does not make it right — the fix
 was splitting the categories so the figures reconcile: `paid + free + guest list =
 booked`, `booked − cancelled = active` (documented at
-`components/admin/EventRosterSummary.tsx:23-31`).
+`components/admin/EventRosterSummary.tsx:29-38`). Note that second identity holds only
+when there is no guest list — see the correction under Solution; `active` never counts
+guest-list tickets, so on an event with one, `booked − cancelled` overshoots it by
+exactly the guest-list count.
 
 **Consolidating the three roster builders — considered and rejected.** They look alike
 and are not: only the printed sheet pads to seat count (paper needs a line per seat);
@@ -116,7 +128,7 @@ assembly.
 
 `lib/events/ticket-admissibility.ts` now owns the admissibility rule for all the roster
 surfaces — the admin roster, the printed sheet and the door console import it
-(`app/(admin)/admin/events/[id]/attendees/page.tsx:17-20`, `lib/events/door-roster.ts:2-6`,
+(`app/(admin)/admin/events/[id]/attendees/page.tsx:20`, `lib/events/door-roster.ts:2-6`,
 `lib/events/door-access.ts:7-11`). Its runtime surface is three values and nothing else
 (plus the types they need):
 
@@ -156,7 +168,24 @@ purchaser-reconstruction branch from resurrecting a refunded party. The console 
 parties the same way and sums `expected` off the same helper. The admin page counts
 seat-consuming *items* per registration and buckets them into paid / free / guest list,
 taking `activeTickets` from the authoritative `seats_used` RPC and deriving the cancelled
-count as `booked − active`.
+count from those buckets.
+
+> **Corrected 2026-08-15 (KD10).** As shipped in #118 the cancelled count was
+> `booked − active`, and two of the three clauses above no longer describe the code:
+>
+> - The **guest-list bucket is no longer item-derived.** Guest-list tickets have no
+>   registration and no line items, so nothing per-registration can see them.
+>   `splitBookedTickets` now takes the seat-consuming guest-list ticket count as a fourth
+>   argument and passes it straight through.
+> - **`booked − active` is now wrong, and wrong in an expensive direction.** `booked`
+>   includes guest-list tickets; `active` comes from `seats_used`, which structurally
+>   excludes them (KTD4). Diffing the two counted *every* guest-list ticket as cancelled on
+>   any event that had one, with zero real cancellations — phantom refunds on the money
+>   surface. The correct formula subtracts only what capacity can see:
+>   `(paid + free) − active`, floored at zero (`cancelledFromSplit` in
+>   `lib/events/booked-tickets.ts`).
+>
+> Do not copy the original formula out of this doc.
 
 Status: shipped in **PR #118**, merged to `main` on 2026-08-11.
 

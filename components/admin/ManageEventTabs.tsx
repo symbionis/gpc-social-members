@@ -81,6 +81,11 @@ interface Props {
   guestListSeats: number;
   /** How many sponsors hold a list. */
   guestListCount: number;
+  /** Registration-backed tickets checked in — excludes guest-list arrivals (KTD11), so the
+   *  Overview's check-in rate never exceeds 100% with guest lists present. */
+  checkedInTickets?: number;
+  /** Guest-list guests checked in — the other half of R19's separate pair. */
+  guestListAdmitted?: number;
   seatCap: number | null;
   overbooked: boolean;
   baseUrl: string;
@@ -91,8 +96,10 @@ interface Props {
   inviteCode: string | null;
   ticketTypes: InviteTicketType[];
   registrationEnabled: boolean;
-  /** The event's comp guest lists (is_guest_list registrations), for the Guest list tab. */
+  /** The event's guest lists (U5 model — event_guest_lists + registration-less tickets). */
   guestLists: GuestListEntry[];
+  /** The invite-rate limit (R6/R7, U8) — null means unlimited. */
+  maxTicketsInvite: number | null;
   /** Cancelled seats for the Refunds tab — kept off the roster, which is a door document. */
   cancellations: CancellationRow[];
 }
@@ -133,6 +140,8 @@ export default function ManageEventTabs({
   cancelledSeats,
   guestListSeats,
   guestListCount,
+  checkedInTickets,
+  guestListAdmitted,
   seatCap,
   overbooked,
   baseUrl,
@@ -144,6 +153,7 @@ export default function ManageEventTabs({
   ticketTypes,
   registrationEnabled,
   guestLists,
+  maxTicketsInvite,
   cancellations,
 }: Props) {
   // Overview leads: the summary figures are what an organiser opens the page to read, and
@@ -368,6 +378,8 @@ export default function ManageEventTabs({
           cancelledSeats={cancelledSeats}
           guestListSeats={guestListSeats}
           guestListCount={guestListCount}
+          checkedInTickets={checkedInTickets}
+          guestListAdmitted={guestListAdmitted}
           hasSeatCap={hasSeatCap}
           seatCap={seatCap}
           overbooked={overbooked}
@@ -627,9 +639,6 @@ export default function ManageEventTabs({
           eventId={eventId}
           ticketTypes={ticketTypes}
           guestLists={guestLists}
-          hasSeatCap={hasSeatCap}
-          seatCap={seatCap}
-          total={total}
         />
       )}
 
@@ -656,6 +665,7 @@ export default function ManageEventTabs({
             eventId={eventId}
             seatCap={seatCap}
             seatsUsed={total}
+            maxTicketsInvite={maxTicketsInvite}
           />
           {visibility === "members_only" && (
             <EventInviteLink

@@ -351,7 +351,6 @@ describe("aggregateEvents", () => {
     const seat = (over: Partial<EventTicketRow> = {}): EventTicketRow => ({
       registration_id: "r1",
       ticket_type_id: "tt1",
-      is_comp: false,
       cancellation_status: null,
       refund_amount_chf: null,
       released_at: null,
@@ -407,9 +406,10 @@ describe("aggregateEvents", () => {
       const s = aggregateEvents(
         regs,
         items,
-        // A comp cancellation settles as 'refunded' with no money behind it; it must not
-        // reduce revenue it never contributed.
-        [seat({ cancellation_status: "refunded", is_comp: true, refund_amount_chf: 0 })],
+        // A comp cancellation settles as 'refunded' with no money behind it (the recorded
+        // amount is 0, not derived from a comp flag — see refunds.ts, U7/KTD6); it must
+        // not reduce revenue it never contributed.
+        [seat({ cancellation_status: "refunded", refund_amount_chf: 0 })],
         titles,
         YEAR_2026
       );
@@ -905,7 +905,6 @@ describe("getFinanceSummary pagination", () => {
       {
         registration_id: "r1",
         ticket_type_id: "tt1",
-        is_comp: false,
         cancellation_status: "refunded",
         refund_amount_chf: 80,
         released_at: null as string | null,

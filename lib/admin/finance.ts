@@ -106,7 +106,6 @@ export interface EventItemRow {
 export interface EventTicketRow {
   registration_id: string | null;
   ticket_type_id: string | null;
-  is_comp: boolean | null;
   cancellation_status: string | null;
   refund_amount_chf: number | string | null;
   released_at: string | null;
@@ -1020,7 +1019,7 @@ export async function getFinanceTransactions(
     fetchAll<EventTicketRow & { name: string | null }>(
       client,
       "tickets",
-      "registration_id, ticket_type_id, is_comp, cancellation_status, refund_amount_chf, released_at, name",
+      "registration_id, ticket_type_id, cancellation_status, refund_amount_chf, released_at, name",
       "id",
     ),
   ]);
@@ -1160,7 +1159,7 @@ export async function getFinanceSummary(
     fetchAll<EventTicketRow>(
       client,
       "tickets",
-      "registration_id, ticket_type_id, is_comp, cancellation_status, refund_amount_chf, released_at",
+      "registration_id, ticket_type_id, cancellation_status, refund_amount_chf, released_at",
       "id",
     ),
     fetchAll<MemberRow>(

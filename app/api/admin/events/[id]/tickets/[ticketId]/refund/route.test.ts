@@ -37,7 +37,6 @@ type TicketRow = {
   id: string;
   registration_id: string | null;
   ticket_type_id: string | null;
-  is_comp: boolean;
   cancellation_status: string | null;
 };
 type RegRow = {
@@ -52,7 +51,6 @@ const LIVE_TICKET: TicketRow = {
   id: TICKET,
   registration_id: "r1",
   ticket_type_id: "tt1",
-  is_comp: false,
   cancellation_status: "requested",
 };
 const PAID_REG: RegRow = {
@@ -262,11 +260,14 @@ describe("POST ticket refund", () => {
   });
 
   it("closes a comped seat at CHF 0 without calling Stripe", async () => {
+    // U7/KTD6: the comp flag is retired. Every historical comp ticket lives on a `free`-status
+    // registration (verified against the shared database), which is what the route now relies
+    // on to zero the refund instead of the flag.
     mockedAdmin.mockReturnValue(
       adminClient({
         admins: superAdmin,
-        ticket: { ...LIVE_TICKET, is_comp: true },
-        registration: PAID_REG,
+        ticket: LIVE_TICKET,
+        registration: { ...PAID_REG, status: "free" },
         updated: { id: TICKET },
       })
     );
@@ -276,6 +277,25 @@ describe("POST ticket refund", () => {
     expect(await res.json()).toMatchObject({ ok: true, refundedChf: 0, nothingToRefund: true });
     expect(refundCreate).not.toHaveBeenCalled();
     expect(lastUpdate).toMatchObject({ cancellation_status: "refunded", refund_amount_chf: 0 });
+  });
+
+  it("closes a seat whose type resolves no priced line at CHF 0 without falling through to the booking average", async () => {
+    // A comp-shaped ticket whose type no longer matches any item line (an archived/hard-deleted
+    // type) must not silently refund the booking average — KTD6's specific concern once the
+    // comp-flag short-circuit is gone.
+    mockedAdmin.mockReturnValue(
+      adminClient({
+        admins: superAdmin,
+        ticket: { ...LIVE_TICKET, ticket_type_id: "tt-gone" },
+        registration: PAID_REG,
+        items: [],
+        updated: { id: TICKET },
+      })
+    );
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, refundedChf: 0, nothingToRefund: true });
+    expect(refundCreate).not.toHaveBeenCalled();
   });
 
   it("refuses a priced seat with no payment on record instead of closing it at zero", async () => {

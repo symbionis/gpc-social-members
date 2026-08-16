@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
+vi.mock("@/lib/analytics/server-errors", () => ({ captureServerException: vi.fn() }));
 
-import { fillRegistrationRoster, applyTopupRoster } from "@/lib/events/roster";
+import { fillRegistrationRoster, applyTopupRoster, markLeadTickets } from "@/lib/events/roster";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { captureServerException } from "@/lib/analytics/server-errors";
 
 const mockedAdmin = vi.mocked(createAdminClient);
+const mockedCapture = vi.mocked(captureServerException);
 
 function adminWithRpc(rpc: (name: string, args: Record<string, unknown>) => unknown) {
   return { rpc: vi.fn(rpc) } as unknown as ReturnType<typeof createAdminClient> & {
@@ -154,6 +157,88 @@ describe("fillRegistrationRoster", () => {
     await fillRegistrationRoster("reg-1", attendees);
 
     expect(client.rpc).toHaveBeenCalledTimes(2);
+  });
+});
+
+// U2/KTD3/KTD9: neither mint_registration_tickets nor claim_ticket ever sets
+// is_lead, since the buyer is now just people[0] going through the same claim
+// path as every guest. markLeadTickets is the one remaining step that flips it,
+// via a plain UPDATE — not an RPC, since no schema/function changed for this unit.
+describe("markLeadTickets", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  function adminWithTicketsUpdate(update: (payload: Record<string, unknown>) => unknown) {
+    const eq = vi.fn();
+    const is = vi.fn();
+    const chain: Record<string, unknown> = {};
+    chain.eq = (...args: unknown[]) => {
+      eq(...args);
+      return chain;
+    };
+    chain.is = (...args: unknown[]) => {
+      is(...args);
+      return chain;
+    };
+    const updateFn = vi.fn((payload: Record<string, unknown>) => {
+      update(payload);
+      return chain;
+    });
+    (chain as { then: unknown }).then = (resolve: (r: unknown) => unknown) => resolve({ error: null });
+    const from = vi.fn((table: string) => {
+      if (table !== "tickets") throw new Error(`unexpected table ${table}`);
+      return { update: updateFn };
+    });
+    return { from, eq, is, updateFn } as unknown as ReturnType<typeof createAdminClient> & {
+      from: ReturnType<typeof vi.fn>;
+      eq: ReturnType<typeof vi.fn>;
+      is: ReturnType<typeof vi.fn>;
+      updateFn: ReturnType<typeof vi.fn>;
+    };
+  }
+
+  it("flips is_lead=true, scoped to this registration + the buyer's own identity", async () => {
+    const client = adminWithTicketsUpdate(() => {});
+    mockedAdmin.mockReturnValue(client);
+
+    await markLeadTickets("reg-1", "Lead Booker", "lead@x.ch");
+
+    expect(client.updateFn).toHaveBeenCalledWith({ is_lead: true });
+    expect(client.eq).toHaveBeenCalledWith("registration_id", "reg-1");
+    expect(client.eq).toHaveBeenCalledWith("name", "Lead Booker");
+    expect(client.eq).toHaveBeenCalledWith("email", "lead@x.ch");
+    expect(client.is).toHaveBeenCalledWith("released_at", null);
+  });
+
+  it("logs, does not throw, on a failed update", async () => {
+    const client = {
+      from: () => ({
+        update: () => {
+          const chain: Record<string, unknown> = {};
+          chain.eq = () => chain;
+          chain.is = () => chain;
+          (chain as { then: unknown }).then = (resolve: (r: unknown) => unknown) =>
+            resolve({ error: { message: "boom" } });
+          return chain;
+        },
+      }),
+    } as unknown as ReturnType<typeof createAdminClient>;
+    mockedAdmin.mockReturnValue(client);
+
+    await expect(markLeadTickets("reg-1", "Lead Booker", "lead@x.ch")).resolves.toBeUndefined();
+    expect(console.error).toHaveBeenCalledWith(
+      "[roster] markLeadTickets failed",
+      expect.objectContaining({ registrationId: "reg-1" })
+    );
+    // Neither caller retries a failed markLeadTickets (the free path has no redelivery at
+    // all, and the webhook's own redelivery gate treats a cleared roster as finished) — a
+    // console.error alone reaches nobody. This must also reach error tracking.
+    expect(mockedCapture).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("reg-1") }),
+      expect.objectContaining({ path: "lib/events/roster.ts#markLeadTickets" })
+    );
   });
 });
 

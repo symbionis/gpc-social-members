@@ -16,6 +16,7 @@ import type {
   DoorParty,
   DoorArrival,
   DoorNotArrived,
+  DoorGuestListGroup,
 } from "@/lib/events/door-access";
 import { bySurname, surnameKey } from "@/lib/events/roster-sort";
 
@@ -61,6 +62,19 @@ interface Props {
    * a real ticket-holder away. Can be negative (more live rows than seats sold).
    */
   unaccountedCount: number;
+  /**
+   * Guest lists from the NEW list model (U5/U6/U9), as opposed to the OLD per-registration
+   * `isGuestList` comp parties folded in above. Wired from
+   * `lib/events/door-access.ts`'s `buildNewGuestListGroups`, via
+   * `app/(checkin)/door/[id]/page.tsx` — a separate, independent read from
+   * `buildDoorRoster`, since a guest-list ticket has no registration to attach a party to
+   * (KD10) and is therefore invisible to that function by construction. Optional (defaults
+   * to empty) so an event with no guest lists — old or new — renders exactly as it did
+   * before this prop existed (regression guard). Renders in the SAME "Guest lists" tab as
+   * the comp parties, reusing SlotRow so check-in, waiver and contact capture behave
+   * identically for either model.
+   */
+  newGuestListGroups?: DoorGuestListGroup[];
 }
 
 const searchInputClass =
@@ -93,6 +107,7 @@ export default function DoorConsole({
   expectedCount,
   outstandingCount,
   unaccountedCount,
+  newGuestListGroups = [],
 }: Props) {
   const router = useRouter();
 
@@ -206,7 +221,7 @@ export default function DoorConsole({
   // It renders the SAME SlotRow the Attendees tab does rather than its own check-in: one
   // implementation reached from two places, so the waiver step, the contact capture and the
   // arrived state cannot diverge between the two tabs.
-  const guestLists = useMemo(
+  const compGuestLists = useMemo(
     () =>
       parties
         .filter((p) => p.isGuestList)
@@ -217,6 +232,39 @@ export default function DoorConsole({
         // Biggest list first: that is the one the door spends its evening on.
         .sort((a, b) => b.slots.length - a.slots.length || a.leadName.localeCompare(b.leadName)),
     [parties],
+  );
+
+  /**
+   * One unified "Guest lists" view over both models: the OLD per-registration comp party
+   * (`isGuestList`) and the NEW `event_guest_lists` model (U5/U6, KD10). Staff should not
+   * have to know or care which one produced a given sponsor's list — both are "a list of
+   * names someone else vouched for", found and checked in the same way. `registrationId`
+   * is `null` for a new-model group: it has no registration to save an edit against (see
+   * the SlotRow usage below), which only matters if a name/contact edit is attempted —
+   * check-in itself (checkInAdult) never reads it.
+   */
+  const guestListSections = useMemo(
+    () => [
+      ...compGuestLists.map((g) => ({
+        key: g.registrationId,
+        registrationId: g.registrationId as string | null,
+        name: g.leadName || "Unnamed sponsor",
+        referenceCode: g.referenceCode,
+        contactName: null as string | null,
+        arrived: g.arrived,
+        slots: g.slots,
+      })),
+      ...newGuestListGroups.map((g) => ({
+        key: g.id,
+        registrationId: null as string | null,
+        name: g.name || "Unnamed list",
+        referenceCode: null as string | null,
+        contactName: g.contactName || null,
+        arrived: g.slots.filter((s) => s.checkedIn).length,
+        slots: g.slots,
+      })),
+    ],
+    [compGuestLists, newGuestListGroups],
   );
 
   const tabClass = (active: boolean) =>
@@ -254,13 +302,13 @@ export default function DoorConsole({
           Arrivals{arrivedCount > 0 ? ` (${arrivedCount})` : ""}
         </button>
         {/* Only worth a tab when the event actually has sponsor lists. Most don't. */}
-        {guestLists.length > 0 && (
+        {guestListSections.length > 0 && (
           <button
             type="button"
             onClick={() => setTab("guestlists")}
             className={tabClass(tab === "guestlists")}
           >
-            Guest lists ({guestLists.length})
+            Guest lists ({guestListSections.length})
           </button>
         )}
       </div>
@@ -352,35 +400,44 @@ export default function DoorConsole({
             have no email and so no QR to scan — tick them off here as they arrive.
           </p>
 
-          {guestLists.map((list) => (
+          {guestListSections.map((section) => (
             <section
-              key={list.registrationId}
+              key={section.key}
               data-testid="door-guest-list"
-              aria-label={list.leadName || "Guest list"}
+              aria-label={section.name}
               className="rounded-xl border border-border bg-white overflow-hidden"
             >
               <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border bg-cream/60 px-4 py-3">
                 <div className="min-w-0">
-                  <span className="font-body font-semibold text-marine">
-                    {list.leadName || "Unnamed sponsor"}
-                  </span>
-                  {list.referenceCode && (
+                  <span className="font-body font-semibold text-marine">{section.name}</span>
+                  {section.referenceCode && (
                     <span className="ml-2 font-mono text-xs text-marine/50">
-                      {list.referenceCode}
+                      {section.referenceCode}
+                    </span>
+                  )}
+                  {/* A new-model list (U5/U6) names its own contact instead of carrying a
+                      booking reference — the two models label themselves differently, but
+                      both are "who to ask about this list". */}
+                  {section.contactName && (
+                    <span className="ml-2 font-body text-xs text-marine/50">
+                      contact: {section.contactName}
                     </span>
                   )}
                 </div>
                 <span className="shrink-0 font-body text-sm text-marine/60 tabular-nums">
-                  {list.arrived} of {list.slots.length} arrived
+                  {section.arrived} of {section.slots.length} arrived
                 </span>
               </header>
 
               <div className="space-y-2 p-3">
-                {list.slots.map((slot, i) => (
+                {section.slots.map((slot, i) => (
                   <SlotRow
-                    key={slot.attendeeId ?? `${list.registrationId}-open-${i}`}
+                    key={slot.attendeeId ?? `${section.key}-open-${i}`}
                     eventId={eventId}
-                    registrationId={list.registrationId}
+                    // Empty for a new-model list (no registration behind it, KD10). Only
+                    // matters if a name/contact edit is saved from this row — check-in
+                    // itself (SlotRow's checkInAdult) never reads registrationId.
+                    registrationId={section.registrationId ?? ""}
                     slot={slot}
                     onSaved={() => router.refresh()}
                     onResend={resendTicket}

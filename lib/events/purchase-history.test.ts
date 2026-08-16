@@ -218,7 +218,7 @@ describe("resolvePurchaseHistory — per-payment entries (KTD3)", () => {
           R1: [{ ticket_type_id: "tt-std", title_snapshot: "Standard", quantity: 2, unit_amount_chf: 80, line_total_chf: 160 }],
         },
         refundedTicketsByReg: {
-          R1: [{ registration_id: "R1", ticket_type_id: "tt-std", is_comp: false, refund_amount_chf: 80 }],
+          R1: [{ registration_id: "R1", ticket_type_id: "tt-std", refund_amount_chf: 80 }],
         },
       })
     );

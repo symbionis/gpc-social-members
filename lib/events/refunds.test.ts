@@ -44,18 +44,20 @@ describe("ticketRefundValueChf", () => {
       .toBe(80);
   });
 
-  it("falls back to the booking average for legacy rows with no item lines", () => {
+  it("no longer falls back to the booking average when no line resolves (U7/KTD6)", () => {
+    // The booking-average fallback was removed alongside the comp-flag read it used to sit
+    // behind: an unresolved line now settles at zero rather than an averaged guess, so a comp
+    // seat whose type no longer matches any line can never silently refund real money. Every
+    // live paid/pending registration carries item lines that resolve cleanly (verified against
+    // the shared database on 2026-08-15), so this drops no real coverage today.
     expect(ticketRefundValueChf({ registration_id: "r1", ticket_type_id: null }, PAID, []))
-      .toBe(80); // 160 / 2
+      .toBe(0);
   });
 
-  it("is 0 for a comped seat and for any ticket on a free booking", () => {
+  it("is 0 for any ticket on a free booking, with no reference to a comp flag", () => {
     const items: RefundItemLine[] = [
       { registration_id: "r1", ticket_type_id: "tt1", unit_amount_chf: 80 },
     ];
-    expect(
-      ticketRefundValueChf({ registration_id: "r1", ticket_type_id: "tt1", is_comp: true }, PAID, items)
-    ).toBe(0);
     expect(
       ticketRefundValueChf(
         { registration_id: "r1", ticket_type_id: "tt1" },
@@ -63,6 +65,87 @@ describe("ticketRefundValueChf", () => {
         items
       )
     ).toBe(0);
+  });
+
+  it("is 0 for a resolved line priced at zero — a zero-price ticket refunds zero with no comp flag", () => {
+    // Scenario 1: a zero-price ticket (comp-shaped or otherwise) still refunds zero purely from
+    // its own resolved line price.
+    const items: RefundItemLine[] = [
+      { registration_id: "r1", ticket_type_id: "tt1", unit_amount_chf: 0 },
+    ];
+    expect(ticketRefundValueChf({ registration_id: "r1", ticket_type_id: "tt1" }, PAID, items))
+      .toBe(0);
+  });
+
+  it("a comp ticket that resolves to no priced line refunds zero rather than falling through to the booking average", () => {
+    // Scenario 2: even on a hypothetically non-free registration (comp registrations are
+    // always `free` in this codebase, but the function can no longer assume that from a flag),
+    // a ticket whose type resolves no line must not fall through to the booking average — that
+    // fallback is exactly how a comp seat with no matching line would silently refund real
+    // money (KTD6). Two lines, neither matching the ticket's type, so resolveTicketLine's
+    // single-line fallback (for an archived/deleted type) does not apply either — this is a
+    // genuine "no line resolves" case.
+    const items: RefundItemLine[] = [
+      { registration_id: "r1", ticket_type_id: "tt-other-a", unit_amount_chf: 80 },
+      { registration_id: "r1", ticket_type_id: "tt-other-b", unit_amount_chf: 30 },
+    ];
+    expect(
+      ticketRefundValueChf({ registration_id: "r1", ticket_type_id: "tt-comp-type" }, PAID, items)
+    ).toBe(0);
+  });
+
+  // Characterization: every historical comp ticket in the shared database (27 rows, read-only
+  // query on 2026-08-15) is a `free`-status registration whose ticket resolves to exactly one
+  // CHF 0 line. The three real registrations below reproduce that shape (repeated ticket types
+  // collapsed to their distinct (registration, type) pairs, since resolveTicketLine only needs
+  // one line per pair to resolve). Asserts the replacement condition still zeroes every one of
+  // them now that the comp flag is no longer read.
+  describe("all 27 historical comp tickets refund zero under the replacement condition", () => {
+    const COMP_REGISTRATIONS: RefundRegistration[] = [
+      { id: "6f8d6069-32d6-4e3e-bcb1-3b51bbc36b65", status: "free", quantity: 19, total_amount_chf: 0 },
+      { id: "b3ddf36f-6929-42d6-9994-1711c971a04d", status: "free", quantity: 5, total_amount_chf: 0 },
+      { id: "dddddddd-0000-4000-8000-000000000203", status: "free", quantity: 3, total_amount_chf: 0 },
+    ];
+    const COMP_ITEMS: RefundItemLine[] = [
+      { registration_id: "6f8d6069-32d6-4e3e-bcb1-3b51bbc36b65", ticket_type_id: "57ab080d-27b6-4208-bf2a-e395ea3445c6", unit_amount_chf: 0 },
+      { registration_id: "6f8d6069-32d6-4e3e-bcb1-3b51bbc36b65", ticket_type_id: "152b6fbb-e77b-47a7-a648-27309ca4efea", unit_amount_chf: 0 },
+      { registration_id: "b3ddf36f-6929-42d6-9994-1711c971a04d", ticket_type_id: "83cbe85e-4b70-4d78-8db3-028c55973be2", unit_amount_chf: 0 },
+      { registration_id: "dddddddd-0000-4000-8000-000000000203", ticket_type_id: "dddddddd-0000-4000-8000-000000000101", unit_amount_chf: 0 },
+    ];
+    // The 27 (ticket_id, registration_id, ticket_type_id) triples read from `tickets` where the
+    // (now-retired) comp flag was true, ordered by created_at — the real historical rows.
+    const COMP_TICKETS: { id: string; registration_id: string; ticket_type_id: string }[] = [
+      ...Array(19).fill(null).map((_, i) => ({
+        id: `comp-a-${i}`,
+        registration_id: "6f8d6069-32d6-4e3e-bcb1-3b51bbc36b65",
+        // Two distinct types appear across this party's 19 comp tickets in the real data.
+        ticket_type_id: i < 17 ? "57ab080d-27b6-4208-bf2a-e395ea3445c6" : "152b6fbb-e77b-47a7-a648-27309ca4efea",
+      })),
+      ...Array(5).fill(null).map((_, i) => ({
+        id: `comp-b-${i}`,
+        registration_id: "b3ddf36f-6929-42d6-9994-1711c971a04d",
+        ticket_type_id: "83cbe85e-4b70-4d78-8db3-028c55973be2",
+      })),
+      ...Array(3).fill(null).map((_, i) => ({
+        id: `comp-c-${i}`,
+        registration_id: "dddddddd-0000-4000-8000-000000000203",
+        ticket_type_id: "dddddddd-0000-4000-8000-000000000101",
+      })),
+    ];
+
+    it("has exactly 27 rows in the fixture", () => {
+      expect(COMP_TICKETS.length).toBe(27);
+    });
+
+    it.each(COMP_TICKETS.map((t) => [t.id, t]))("%s refunds zero", (_id, t) => {
+      const registration = COMP_REGISTRATIONS.find((r) => r.id === t.registration_id) ?? null;
+      const value = ticketRefundValueChf(
+        { registration_id: t.registration_id, ticket_type_id: t.ticket_type_id },
+        registration,
+        COMP_ITEMS
+      );
+      expect(value).toBe(0);
+    });
   });
 
   it("never returns a negative amount, so a malformed row under-refunds rather than inventing money", () => {
@@ -98,9 +181,10 @@ describe("ticketRefundValueChf", () => {
     const items: RefundItemLine[] = [
       { registration_id: "OTHER", ticket_type_id: "tt1", unit_amount_chf: 999 },
     ];
-    // Falls through to the booking average rather than borrowing another party's price.
+    // No line resolves against this booking, so this settles at zero rather than borrowing
+    // another party's price or falling through to the booking average (U7/KTD6).
     expect(ticketRefundValueChf({ registration_id: "r1", ticket_type_id: "tt1" }, PAID, items))
-      .toBe(80);
+      .toBe(0);
   });
 });
 

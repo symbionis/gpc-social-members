@@ -18,7 +18,8 @@ import {
   ADMISSIBLE_SLOT_STATUSES,
   partitionByCancellation,
 } from "@/lib/events/ticket-admissibility";
-import { splitBookedTickets } from "@/lib/events/booked-tickets";
+import { splitBookedTickets, findGuestListOverlap, cancelledFromSplit } from "@/lib/events/booked-tickets";
+import { fetchGuestLists } from "@/lib/events/guest-lists";
 
 export default async function ManageEventPage({
   params,
@@ -27,6 +28,11 @@ export default async function ManageEventPage({
 }) {
   const { id } = await params;
   const supabase = createAdminClient();
+
+  // Independent of every query below (needs only `supabase`/`id`) — started here rather
+  // than at its first use further down so it overlaps with the sequential chain instead of
+  // adding to the tail of it. Awaited where it's actually consumed.
+  const guestListEntriesPromise = fetchGuestLists(supabase, id);
 
   // A failed query must surface as an error, not silently render as an empty
   // roster of zeros (indistinguishable from a genuinely empty event).
@@ -41,7 +47,7 @@ export default async function ManageEventPage({
   const { data: event } = await supabase
     .from("events")
     .select(
-      "id, title, start_date, seat_cap, reminder_schedule, visibility, registration_enabled, invite_code"
+      "id, title, start_date, seat_cap, reminder_schedule, visibility, registration_enabled, invite_code, max_tickets_invite"
     )
     .eq("id", id)
     .single();
@@ -73,7 +79,7 @@ export default async function ManageEventPage({
     supabase
       .from("event_registrations")
       .select(
-        "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, manage_token, ticket_email_sent_at, stripe_payment_intent_id, is_guest_list, created_at, waitlist_entry_id"
+        "id, name, email, is_member, quantity, total_amount_chf, status, reference_code, manage_token, ticket_email_sent_at, stripe_payment_intent_id, created_at, waitlist_entry_id"
       )
       .eq("event_id", id)
       .in("status", ["paid", "free"])
@@ -138,7 +144,7 @@ export default async function ManageEventPage({
   const { data: attendeeRows, error: attendeeRowsError } = await supabase
     .from("tickets")
     .select(
-      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, is_comp, manage_token, qr_email_sent_at, cancellation_status, cancellation_requested_at, cancellation_refunded_at, refund_amount_chf, stripe_refund_id, waiver_accepted_at, checked_in_at, created_at"
+      "id, registration_id, member_id, name, email, phone_e164, is_lead, slot_status, ticket_type_id, manage_token, qr_email_sent_at, cancellation_status, cancellation_requested_at, cancellation_refunded_at, refund_amount_chf, stripe_refund_id, waiver_accepted_at, checked_in_at, created_at"
     )
     .eq("event_id", id)
     .in("slot_status", [...ADMISSIBLE_SLOT_STATUSES])
@@ -156,7 +162,6 @@ export default async function ManageEventPage({
     is_lead: boolean;
     slot_status: string;
     ticket_type_id: string | null;
-    is_comp: boolean;
     manage_token: string | null;
     qr_email_sent_at: string | null;
     cancellation_status: string | null;
@@ -243,16 +248,13 @@ export default async function ManageEventPage({
       checkedIn: a.checked_in_at !== null,
       arrivedAt: a.checked_in_at,
       createdAt: a.created_at,
-      // A comped seat on a sponsor's guest list. Drives the Special Guest pill; the Guest list
-      // tab is where such a seat is removed (remove_comp_guest), which shrinks the party rather
-      // than reopening the seat publicly.
-      isComp: Boolean(a.is_comp),
       // What this seat cost, shown under its ticket type. The SAME valuation the refund button
       // uses (lib/events/refunds.ts), deliberately: the roster and the refund must never quote
-      // different prices for one seat. Returns 0 for a comp and for any ticket on a `free`
-      // booking, and falls back to the booking average when a repriced top-up makes the seat's
-      // own line ambiguous — so this is what the seat is WORTH, not a lookup of the type's
-      // current list price, which may have changed since checkout.
+      // different prices for one seat. Returns 0 for any ticket on a `free` booking — which
+      // covers a historical comp, since a sponsor guest-list registration is itself `free` — and
+      // falls back to the booking average when a repriced top-up makes the seat's own line
+      // ambiguous — so this is what the seat is WORTH, not a lookup of the type's current list
+      // price, which may have changed since checkout.
       priceChf: a.registration_id
         ? ticketRefundValueChf(
             a,
@@ -260,19 +262,16 @@ export default async function ManageEventPage({
             (ticketItemRows ?? []) as TicketItemRow[]
           )
         : 0,
-      // A comped seat first (a sponsor gave it away even on a paid booking), then the
-      // booking's own status. `free` covers a free event and an admin-comped conversion alike:
-      // both took no money, which is what the pill is answering.
-      paymentState: a.is_comp
-        ? ("comp" as const)
-        : (regForRefundById.get(a.registration_id ?? "")?.status ?? "paid") === "free"
-          ? ("free" as const)
-          : ("paid" as const),
       named,
     };
   });
 
   const checkedInCount = attendees.filter((a) => a.checkedIn).length;
+  // U9/KTD11: the OVERVIEW's check-in rate must stay purely ticketed — a guest-list ticket
+  // has no registration, so counting its arrival here (against activeTickets below, which
+  // structurally excludes guest-list tickets) would push the rate past 100%. checkedInCount
+  // above feeds the Check-in tab's own arrival bar and is a separate, pre-existing surface.
+  const checkedInTickets = attendees.filter((a) => a.checkedIn && a.registrationId !== null).length;
 
   // ---------------------------------------------------------------------------
   // Refunds tab: the cancelled seats, with the charges their money would come back from.
@@ -361,6 +360,65 @@ export default async function ManageEventPage({
       (soldByTicketType.get(item.ticket_type_id) ?? 0) + (item.quantity ?? 0)
     );
   }
+  // The event's guest lists, U5 model (event_guest_lists + tickets.guest_list_id, KD10): a
+  // guest on a list IS a ticket with no registration behind it, so this reads
+  // lib/events/guest-lists.ts rather than anything off `registrations`/`claimedRoster` — the
+  // old is_guest_list-registration read this replaced counted a different, comp-era shape.
+  // Mapped onto GuestList.tsx's own local Props shape (`people`, `ticketTypeTitle`) rather
+  // than the server module's wire shape (`guests`, no title) — see that component's header
+  // for why it declares its own types instead of importing the server module's.
+  const guestListEntries = await guestListEntriesPromise;
+  const guestListsBase = guestListEntries.map((list) => ({
+    id: list.id,
+    listName: list.listName,
+    contactName: list.contactName,
+    contactEmail: list.contactEmail,
+    contactPhone: list.contactPhone,
+    people: list.guests.map((g) => ({
+      ticketId: g.ticketId,
+      name: g.name,
+      email: g.email,
+      ticketTypeId: g.ticketTypeId,
+      ticketTypeTitle: g.ticketTypeId ? ticketTitleById.get(g.ticketTypeId) ?? "" : "",
+      checkedIn: g.checkedIn,
+    })),
+  }));
+
+  // How many sponsors hold a list. The comped TICKET count is derived with the other
+  // categories below, off the same registrations — previously it was counted here off
+  // `guestLists` and excluded cancelled comps, which made it the one figure in the overview
+  // measured after cancellation while the rest were measured before.
+  const guestListCount = guestListsBase.length;
+
+  // U9/AE6: a person can hold both a purchased ticket and a guest-list ticket of the same
+  // type (a sponsor comping someone who already bought) — union the ticket-type totals
+  // rather than double-counting, and flag the overlap on the guest's own row so the admin
+  // sees it (AE6: "the admin list flags them as also holding a ticket"). Matched on the R4
+  // identity key (name + email + ticket type), never email alone (household seatmates
+  // sharing an address must stay two people, not one).
+  const purchasedHolders = claimedRoster.map((a) => ({
+    name: a.name,
+    email: a.email,
+    ticketTypeId: a.ticket_type_id,
+  }));
+  const guestListHolders = guestListsBase.flatMap((list) =>
+    list.people.map((p) => ({
+      ticketId: p.ticketId,
+      name: p.name,
+      email: p.email,
+      ticketTypeId: p.ticketTypeId,
+    }))
+  );
+  const guestListOverlap = findGuestListOverlap(purchasedHolders, guestListHolders);
+
+  const guestLists = guestListsBase.map((list) => ({
+    ...list,
+    people: list.people.map((p) => ({
+      ...p,
+      alreadyHasTicket: guestListOverlap.overlappingTicketIds.has(p.ticketId),
+    })),
+  }));
+
   const ticketTypeSummary = ticketTypes.map((tt) => {
     const typeId = tt.id as string;
     return {
@@ -370,70 +428,33 @@ export default async function ManageEventPage({
       priceNonMember: (tt.price_non_member as number | null) ?? null,
       countsAsSeat: Boolean(tt.counts_as_seat),
       sold: soldByTicketType.get(typeId) ?? 0,
+      guestListSold: guestListOverlap.netNewByTicketType.get(typeId) ?? 0,
     };
   });
 
-  // The event's comp guest lists (is_guest_list registrations) with their tickets — the
-  // Guest list tab maintains these. Both halves are already in hand: `registrations`
-  // holds every paid/free registration of this event, and `claimedRoster` holds every
-  // claimed, non-released ticket of it. Every comp-guest ticket is claimed (a comp seat is
-  // minted named), so the named subset already contains them — no second round trip, and
-  // tombstoned tickets are excluded by the roster query's released_at filter.
-  const rosterByReg = new Map<string, AttendeeRow[]>();
-  for (const a of claimedRoster) {
-    if (!a.registration_id) continue;
-    const list = rosterByReg.get(a.registration_id) ?? [];
-    list.push(a);
-    rosterByReg.set(a.registration_id, list);
-  }
-
-  const guestLists = (registrations ?? [])
-    .filter((r) => r.is_guest_list === true)
-    .map((r) => ({
-      registrationId: r.id,
-      referenceCode: (r.reference_code as string | null) ?? null,
-      leadName: (r.name as string | null) ?? "",
-      leadEmail: (r.email as string | null) ?? "",
-      people: (rosterByReg.get(r.id) ?? [])
-        // COMP tickets only. A comp registration carries a manage_token and the public
-        // top-up route accepts status 'free', so the sponsor lead can buy REAL paid tickets
-        // onto this very registration. Those claimed rows are is_comp = false, and listing
-        // them here would offer the guest-list Remove on a ticket the customer paid for (the
-        // DELETE route refuses them anyway — this is what keeps it from ever appearing).
-        .filter((t) => t.is_comp)
-        // Lead first, then the guests in the order they were added.
-        .slice()
-        .sort((a, b) =>
-          a.is_lead === b.is_lead
-            ? a.created_at.localeCompare(b.created_at)
-            : a.is_lead
-              ? -1
-              : 1
-        )
-        .map((t) => ({
-          ticketId: t.id,
-          name: t.name ?? "",
-          email: t.email ?? null,
-          ticketTypeTitle: t.ticket_type_id ? ticketTitleById.get(t.ticket_type_id) ?? "" : "",
-          isLead: t.is_lead,
-          checkedIn: t.checked_in_at !== null,
-        })),
-    }));
-
-  // How many sponsors hold a list. The comped TICKET count is derived with the other
-  // categories below, off the same registrations — previously it was counted here off
-  // `guestLists` and excluded cancelled comps, which made it the one figure in the overview
-  // measured after cancellation while the rest were measured before.
-  const guestListCount = guestLists.length;
+  // Guests on lists who are admitted (checked in) — the other half of R19's separate pair
+  // (guests on lists, guests admitted), kept apart from the purely-ticketed check-in rate.
+  const guestListAdmitted = guestLists.reduce(
+    (sum, list) => sum + list.people.filter((p) => p.checkedIn).length,
+    0
+  );
 
   // The overview counts TICKETS, split by how they were acquired, so each figure means
   // what its label says:
   //
-  //   paid + free + guest list − cancelled = active
+  //   paid + free + guest list  = booked
+  //   (paid + free) − cancelled = active
+  //
+  // The guest-list bucket is deliberately absent from the second identity: `active` is
+  // `seats_used`, computed from registrations and their line items, and a guest-list
+  // ticket has neither (KD10) — so it never contributed a seat to subtract from (KTD4).
+  // Diffing `booked` against `active` instead would report every guest-list ticket as
+  // cancelled on any event holding one.
   //
   // "Paid" is money taken, so it counts tickets PAID FOR — including ones later
   // cancelled, which the cancelled figure then subtracts. Lumping comps in with sold
-  // (a guest list is a `free` registration) read as revenue the club never took.
+  // (a guest list used to be a `free` registration, before KD10) read as revenue the
+  // club never took.
   //
   // Counted off seat-consuming ITEMS rather than `registration.quantity`, mirroring how
   // `seats_used` counts, so the two agree: a non-seat type (merch) mints a ticket but takes
@@ -449,14 +470,17 @@ export default async function ManageEventPage({
       id: r.id,
       quantity: r.quantity,
       status: r.status,
-      is_guest_list: r.is_guest_list,
     })),
     ticketItemRows.map((i) => ({
       registration_id: i.registration_id,
       ticket_type_id: i.ticket_type_id,
       quantity: i.quantity,
     })),
-    (id) => ticketTypeById.get(id)?.counts_as_seat === true
+    (id) => ticketTypeById.get(id)?.counts_as_seat === true,
+    // Seat-consuming guest-list tickets only, matching how paid/free are counted just above
+    // (a non-seat type mints a ticket but takes no seat) — guestListHolders itself stays
+    // unfiltered for the overlap check below, which applies regardless of type.
+    guestListHolders.filter((g) => g.ticketTypeId && ticketTypeById.get(g.ticketTypeId)?.counts_as_seat === true).length
   );
 
   // Tickets still standing. `seats_used` is the authoritative figure: it subtracts cancelled
@@ -476,10 +500,16 @@ export default async function ManageEventPage({
     // warning errs toward caution.
     console.error("[admin/events/attendees] seat usage failed", { id, err });
   }
-  const cancelledTicketCount = Math.max(0, bookedTickets - activeTickets);
+  const cancelledTicketCount = cancelledFromSplit(
+    { paid: paidTickets, free: freeTickets, guestList: guestListTickets, booked: bookedTickets },
+    activeTickets
+  );
   const seatCap = event.seat_cap as number | null;
   const hasSeatCap = seatCap !== null && seatCap !== undefined;
   const overbooked = hasSeatCap && activeTickets > seatCap;
+  // R7 (U8): editable per event from the settings page. Enforcement against orders is U2's
+  // job, in the register route — this page only surfaces the column for editing.
+  const maxTicketsInvite = (event.max_tickets_invite as number | null) ?? null;
 
   // Widened per U2 of docs/plans/2026-08-11-001-feat-waitlist-paid-offer-flow-plan.md: the
   // admin surface needs what each entry actually asked for (requested type + quantity) and
@@ -594,6 +624,8 @@ export default async function ManageEventPage({
         cancelledSeats={cancelledTicketCount}
         guestListSeats={guestListTickets}
         guestListCount={guestListCount}
+        checkedInTickets={checkedInTickets}
+        guestListAdmitted={guestListAdmitted}
         seatCap={seatCap}
         overbooked={overbooked}
         baseUrl={baseUrl}
@@ -605,6 +637,7 @@ export default async function ManageEventPage({
         ticketTypes={ticketTypes}
         registrationEnabled={Boolean(event.registration_enabled)}
         guestLists={guestLists}
+        maxTicketsInvite={maxTicketsInvite}
       />
     </div>
   );

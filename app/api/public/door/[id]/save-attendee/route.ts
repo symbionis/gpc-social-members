@@ -9,6 +9,10 @@ import { resolveDoorEvent } from "@/lib/events/door-access";
 // (race-checked against the per-type allotment). The EDIT branch requires an email
 // or phone for every slot (R6, app-layer half). The CREATE branch delegates to
 // claim_ticket.
+//
+// The EDIT branch also serves guest-list guests (KD10), who are minted `issued` and
+// named rather than `claimed`; capturing their contact here promotes them. See the
+// comment on the lookup below for why that match is scoped to guest-list rows only.
 
 const MAX_LEN = 200;
 const MAX_EMAIL_LEN = 254;
@@ -61,12 +65,21 @@ export async function POST(
 
   // ----- Edit an existing slot -----
   if (attendeeId) {
+    // Normally only a `claimed` slot is editable here; an `issued` one is an unnamed
+    // open slot and must go through the race-checked create branch below instead.
+    // A guest-list ticket (KD10) is the exception: it is minted `issued` and NAMED,
+    // because `tickets_contact_present` only demands a contact once a row is
+    // `claimed` and a guest-list guest may legitimately arrive with neither email
+    // nor phone. Capturing that contact at the door is the whole point of the guest
+    // list, so these rows must be editable — matched narrowly on having a guest list
+    // behind them, so a registration-backed open slot still cannot bypass
+    // claim_ticket's allotment race check by being addressed directly by id.
     const { data: existing, error: exErr } = await supabase
       .from("tickets")
-      .select("id, checked_in_at")
+      .select("id, checked_in_at, slot_status")
       .eq("id", attendeeId)
       .eq("event_id", eventId)
-      .eq("slot_status", "claimed")
+      .or("slot_status.eq.claimed,and(slot_status.eq.issued,guest_list_id.not.is.null)")
       .is("released_at", null)
       .limit(1)
       .maybeSingle();
@@ -84,9 +97,23 @@ export async function POST(
       return bad("Add an email or phone, or use the QR code", 400);
     }
 
+    // Capturing a contact is what completes a guest-list guest, so promote the row
+    // out of `issued` once it has one. Gated on actually having a contact: flipping
+    // to `claimed` without email or phone would breach tickets_contact_present for
+    // a guest who has not checked in yet.
+    const update: {
+      name: string;
+      email: string | null;
+      phone_e164: string | null;
+      slot_status?: string;
+    } = { name, email: email || null, phone_e164: phone || null };
+    if (existing.slot_status === "issued" && (email || phone)) {
+      update.slot_status = "claimed";
+    }
+
     const { error: upErr } = await supabase
       .from("tickets")
-      .update({ name, email: email || null, phone_e164: phone || null })
+      .update(update)
       .eq("id", attendeeId)
       .eq("event_id", eventId);
     if (upErr) {
