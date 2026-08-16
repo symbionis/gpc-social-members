@@ -16,16 +16,18 @@ A confirmed booking made by one Lead for one Event, holding one or more Tickets.
 A Registration is free when its total is zero (confirmed immediately, no payment) or paid (created as pending, promoted to paid only when checkout completes). Roster slots are seeded on confirmation — immediately for free, after payment for paid.
 
 ### Ticket
-An individual admission slot belonging to a Registration — one per attendee, named and contactable at the moment it is created. The Guest List is the sole exception: an admin may add a Guest List guest with a name alone, and the Door Console asks the missing email as part of that guest's check-in.
+An individual admission slot — one per attendee, named and contactable at the moment it is created. A Ticket normally belongs to a Registration. The Guest List is the sole exception, on both counts: its guests' Tickets belong to no Registration, and an admin may add such a guest with a name alone, the Door Console asking the missing email as part of that guest's check-in.
 *Avoid:* Attendee
 
 ### Lead
 The person who paid for a Registration. Receives its receipts, reaches the Receipt Page, and is notified when a seat they paid for is cancelled by another holder. The Lead holds no management authority beyond that — every holder, the Lead included, manages their own Ticket the same way, through their own Manage Link (see Household). The Lead is not a role a page is built around; it is a mark carried by whichever single Ticket the payer names for themselves at checkout, used to route money-side communication and gate the Receipt Page.
 
 ### Guest List
-A sponsor's comp list, held as a zero-price Registration — a Lead plus any number of named guests, each with a Ticket Type. Built by an admin, never bought.
+A sponsor's comp list for an Event: a named list with a contact person, built by an admin and never bought, holding any number of named guests each with a Ticket Type.
 
-Guests are name-only: contact details and waiver are collected at the door on check-in. Unlike a bought Registration, a Guest List has no quantity ceiling — an admin adds or removes guests at any time, and each addition mints a Ticket. Its guests consume seats and may take an Event past its cap. Because a Guest List is an ordinary Registration underneath, the Door Console sees it as a normal party with no special handling.
+A Guest List is **not** a Registration, and its guests hold the only Tickets that belong to no Registration at all. Guests are name-only — contact details and waiver are collected at the door on check-in — and there is no quantity ceiling: an admin adds or removes guests at any time, and each addition mints a Ticket. Because these Tickets hang off no Registration, they consume no Seats and cannot take an Event past its cap; capacity is counted from Registrations, so guest-list guests are structurally invisible to it rather than filtered out of it.
+
+That same absence is a standing hazard everywhere else. Any surface that reaches Tickets through their Registration will silently drop these guests, or label them with whatever it assumes when the Registration is missing, unless it handles their absence deliberately — which is why the Door Console builds its Guest List view separately from its party roster rather than finding these guests on it.
 
 ### Waitlist Entry
 A name, email, requested Ticket Type, and quantity recorded when someone tries to register for a fully-booked Event. Not a Registration and not a queue position — an admin decides who to Offer a seat to, in any order, whenever capacity frees up.
@@ -48,7 +50,7 @@ Upgrade-only: the target Ticket Type must cost the same or more, and the Lead pa
 ### Cancellation
 A holder's request to void one of their own Tickets from the manage link — final on the holder's side — that frees the Ticket's seat immediately and moves it toward a refund. A Cancellation carries its own status, separate from Slot Status: **requested** (voided, seat released, refund outcome undecided) then **refunded** (settled — an admin has sent the money back through the payment provider from the admin surface itself, and the amount returned is recorded against the Ticket).
 
-A cancelled Ticket keeps its row and its Credential but is void for every purpose. Its seat is subtracted from the Event's usage the instant cancellation is requested — so the place can be resold — and no admission path will admit it: the QR scan and a by-name check-in both refuse it, and the door-facing lists omit it altogether, precisely so a freed-and-resold seat cannot admit two people. A Cancellation is the only way a **paid** seat is freed, which is what keeps every freed paid seat accountable for its money: a seat awaiting a refund still counts as revenue, because the club is still holding it, while a settled one does not. A comped seat can also be freed by removing that guest from a Guest List, where there is no money to account for.
+A cancelled Ticket keeps its row and its Credential but is void for every purpose. Its seat is subtracted from the Event's usage the instant cancellation is requested — so the place can be resold — and no admission path will admit it: the QR scan and a by-name check-in both refuse it, and the door-facing lists omit it altogether, precisely so a freed-and-resold seat cannot admit two people. A Cancellation is the only way a **paid** seat is freed, which is what keeps every freed paid seat accountable for its money: a seat awaiting a refund still counts as revenue, because the club is still holding it, while a settled one does not. Deleting a Guest List is not a Cancellation and frees nothing: its guests never held Seats to give back.
 
 ### Seat
 One unit of an Event's capacity. Most Ticket Types consume a Seat, but not all — a Type may be sold without taking a place, so an Event's Ticket count and its Seat count are not the same number.
@@ -84,7 +86,7 @@ An acceptance belongs to one Ticket and is never re-stamped: a Ticket already ca
 ### Slot Status
 The lifecycle state of a Ticket: **issued** (minted with a credential at purchase, no name yet), **claimed** (filled with a person's name and contact), or **unclaimed** (a legacy open slot predating per-ticket minting).
 
-A Ticket can also be *released* — tombstoned rather than deleted, so the old credential stops admitting anyone while the identity and waiver record survives. Releasing is no longer how a **paid** seat is freed; that is a Cancellation, so the seat and its money are accounted for together. The remaining release path is removing a comped guest from a Guest List, which shrinks the party and returns the seat to the Event. A released row is never a live seat, and anything counting seats or money must exclude it.
+A Ticket can also be *released* — tombstoned rather than deleted, so the old credential stops admitting anyone while the identity and waiver record survives. Releasing is no longer how a **paid** seat is freed; that is a Cancellation, so the seat and its money are accounted for together. No live path releases a Ticket any more: the state survives only on historical rows, which every live-seat count still excludes. Removing guests from a Guest List deletes their Tickets outright rather than releasing them, and returns no Seat, because a Guest List never consumed one. A released row is never a live seat, and anything counting seats or money must exclude it.
 
 Door **roster** surfaces — the lists staff read from — admit **issued** and **claimed** and nothing else. The rule is an allowlist rather than "not unclaimed": a status these surfaces do not recognise must fall off the roster, never onto it as an anonymous line someone could tick off at the door. The QR scan is gated differently, on the Ticket's own Credential and Cancellation rather than on Slot Status.
 
