@@ -442,11 +442,19 @@ export default async function ManageEventPage({
   // The overview counts TICKETS, split by how they were acquired, so each figure means
   // what its label says:
   //
-  //   paid + free + guest list − cancelled = active
+  //   paid + free + guest list  = booked
+  //   (paid + free) − cancelled = active
+  //
+  // The guest-list bucket is deliberately absent from the second identity: `active` is
+  // `seats_used`, computed from registrations and their line items, and a guest-list
+  // ticket has neither (KD10) — so it never contributed a seat to subtract from (KTD4).
+  // Diffing `booked` against `active` instead would report every guest-list ticket as
+  // cancelled on any event holding one.
   //
   // "Paid" is money taken, so it counts tickets PAID FOR — including ones later
   // cancelled, which the cancelled figure then subtracts. Lumping comps in with sold
-  // (a guest list is a `free` registration) read as revenue the club never took.
+  // (a guest list used to be a `free` registration, before KD10) read as revenue the
+  // club never took.
   //
   // Counted off seat-consuming ITEMS rather than `registration.quantity`, mirroring how
   // `seats_used` counts, so the two agree: a non-seat type (merch) mints a ticket but takes

@@ -62,10 +62,22 @@ A Ticket that can still be let through the door: not cancelled, not released, an
 
 Counted in TICKETS, not Seats — the two differ because some Ticket Types take no Seat, so a booking's ticket count can exceed its seat count. Every door surface — the printed sheet, the check-in console, the admin roster — decides who is arriving from this one rule, so they cannot disagree about who is coming. Capacity is the other question and is answered by live Seats instead; mixing the two is what once printed refunded people onto the door sheet.
 
-### Unaccounted
-The door's count of Seats a booking holds that no Ticket row accounts for — a legacy party whose rows were never minted, or a row in a status the door does not recognise. It exists to make that disagreement visible rather than let it inflate a headcount over a list that does not contain those people.
+### Expected
+The headcount the door still anticipates: the Seats every booking holds, less the ones cancelled. The denominator the arrival figures are read against.
 
-Its value is entirely in being rare. An ordinary business event — a cancellation, a released comp — must never land here, because an alarm that fires during normal operation is one nobody reads.
+### Arrived
+The checked-in headcount.
+
+### Outstanding
+The people still to come — defined as the literal length of the not-arrived list, never as Expected minus Arrived. Those two agree only when every booking's Ticket rows exactly match the Seats it holds, and nothing enforces that; deriving the number instead of counting the list would print a total over a list that does not contain that many people.
+
+### Unaccounted
+The door's count of Seats a booking holds that no Ticket row accounts for — a legacy party whose rows were never minted, or a row in a status the door does not recognise. Equivalently, whatever is left of Expected once Arrived and Outstanding are taken out. It exists to make that disagreement visible rather than let it inflate a headcount over a list that does not contain those people.
+
+Its value is entirely in being rare. An ordinary business event — a cancellation, a guest removed from a Guest List — must never land here, because an alarm that fires during normal operation is one nobody reads.
+
+### Orphan
+A Ticket belonging to neither a Registration nor a Guest List — in practice a legacy import, minted before the current booking paths existed. Distinct from a Guest List guest, which also has no Registration but is a deliberate category with a reader built for it: an Orphan is one nothing was designed to cover, which is why it can appear on one door surface and be missing from another.
 
 ### Charge Pool
 The set of payments backing one Registration, treated as a single pot. A Registration that has been topped up or upgraded holds more than one charge — the original checkout plus one per applied Top-up and priced Conversion — so a refund draws across the pool as a whole rather than assuming a single payment.

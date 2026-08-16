@@ -27,10 +27,17 @@ export interface TicketTypeSummaryRow {
 }
 
 /**
- * Everything here counts TICKETS, and the figures reconcile two ways:
+ * Everything here counts TICKETS, and the figures reconcile as:
  *
- *   paid + free + guest list = booked
- *   booked − cancelled       = active
+ *   paid + free + guest list  = booked
+ *   (paid + free) − cancelled = active
+ *
+ * Note what the second identity does NOT include. `active` comes from `seats_used`, which
+ * counts registrations and their line items — a guest-list ticket has neither (KD10), so it
+ * is structurally invisible to that figure (KTD4). `booked − cancelled` would therefore
+ * overshoot `active` by exactly the guest-list count on any event that has one, which is
+ * why the cancelled figure is derived as `(paid + free) − active` and never `booked −
+ * active`. See lib/events/booked-tickets.ts (`cancelledFromSplit`).
  *
  * The split matters because "sold" used to mean "booked" and swept comps in with it, so an
  * event with a guest list reported seats as sold that the club had never been paid for.
