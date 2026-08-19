@@ -126,10 +126,6 @@ export default async function EventDetailPage({
     description: t.description,
     price: t.price_member,
   }));
-  const priceableValues = ticketTypeOptions
-    .map((o) => o.price)
-    .filter((p): p is number => p !== null);
-  const minPrice = priceableValues.length > 0 ? Math.min(...priceableValues) : 0;
 
   // Capacity state. Degrade to uncapped rendering on lookup failure; the
   // register POST handler still recounts before insert.
@@ -244,12 +240,26 @@ export default async function EventDetailPage({
               />
             ) : (
               <>
-                <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-1">
-                  Member price
+                <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-2">
+                  Tickets
                 </p>
-                <p className="font-heading text-2xl font-bold text-marine mb-4">
-                  {priceableValues.length > 1 ? `From ${priceLabel(minPrice)}` : priceLabel(minPrice)}
-                </p>
+                <ul className="mb-4 divide-y divide-border/60">
+                  {ticketTypeOptions
+                    .filter((t): t is typeof t & { price: number } => t.price !== null)
+                    .map((t) => (
+                      <li key={t.id} className="py-2 first:pt-0">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="font-body text-sm font-medium text-marine">{t.title}</span>
+                          <span className="font-heading text-base font-bold text-marine shrink-0">
+                            {priceLabel(t.price)}
+                          </span>
+                        </div>
+                        {t.description && (
+                          <p className="font-body text-xs text-muted-foreground mt-0.5">{t.description}</p>
+                        )}
+                      </li>
+                    ))}
+                </ul>
                 {isLowAvailability && seatsRemaining !== null && (
                   <p className="font-body text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
                     Only {seatsRemaining} {seatsRemaining === 1 ? "ticket" : "tickets"} left
@@ -262,7 +272,7 @@ export default async function EventDetailPage({
                   defaultName={memberFullName}
                   defaultEmail={member.email ?? ""}
                   maxQuantity={maxQuantity}
-                  buttonLabel="Register"
+                  buttonLabel="Book tickets"
                 />
               </>
             )}
