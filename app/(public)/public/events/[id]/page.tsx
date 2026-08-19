@@ -105,17 +105,15 @@ export default async function PublicEventDetailPage({
   const isMembersOnly = event.visibility !== "public";
 
   // Session awareness (additive on this otherwise-public page). A logged-in
-  // active member sees their member price and no nudge. Any failure here
-  // degrades to guest rendering — this route must never redirect to login.
+  // active member sees their member price. Any failure here degrades to guest
+  // rendering — this route must never redirect to login.
   let isActiveMember = false;
-  let isLoggedIn = false;
   try {
     const sessionClient = await createClient();
     const {
       data: { user },
     } = await sessionClient.auth.getUser();
     if (user?.id) {
-      isLoggedIn = true;
       const { data: memberRow } = await supabase
         .from("members")
         .select("id, status")
@@ -169,7 +167,6 @@ export default async function PublicEventDetailPage({
     .map((o) => o.price)
     .filter((p): p is number => p !== null);
   const anyPriceable = priceableValues.length > 0;
-  const minPrice = anyPriceable ? Math.min(...priceableValues) : 0;
 
   // A valid invite only unlocks registration once guest prices exist; otherwise
   // the register API would reject the submit (a null price is misconfigured, not
@@ -334,32 +331,30 @@ export default async function PublicEventDetailPage({
                   <EventFullyBookedBlock eventId={event.id} ticketTypes={waitlistTicketTypes} />
                 ) : (
                   <>
-                    <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-1">
-                      Price
+                    <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-2">
+                      Tickets
                     </p>
-                    <p className="font-heading text-2xl font-bold text-marine mb-4">
-                      {priceableValues.length > 1
-                        ? `From ${priceLabel(minPrice)}`
-                        : priceLabel(minPrice)}
-                    </p>
-                    {isMembersOnly && !isActiveMember && (
-                      <p className="font-body text-sm text-sky-dark bg-sky/5 border border-sky/20 rounded-lg px-3 py-2 mb-3">
-                        {isLoggedIn ? (
-                          <>Renew your membership for the member rate.</>
-                        ) : (
-                          <>
-                            Already a member?{" "}
-                            <Link
-                              href="/login"
-                              className="underline underline-offset-2 hover:text-marine"
-                            >
-                              Log in
-                            </Link>{" "}
-                            for your member rate.
-                          </>
-                        )}
-                      </p>
-                    )}
+                    <ul className="mb-4 divide-y divide-border/60">
+                      {ticketTypeOptions
+                        .filter((t): t is typeof t & { price: number } => t.price !== null)
+                        .map((t) => (
+                          <li key={t.id} className="py-2 first:pt-0">
+                            <div className="flex items-baseline justify-between gap-3">
+                              <span className="font-body text-sm font-medium text-marine">
+                                {t.title}
+                              </span>
+                              <span className="font-heading text-base font-bold text-marine shrink-0">
+                                {priceLabel(t.price)}
+                              </span>
+                            </div>
+                            {t.description && (
+                              <p className="font-body text-xs text-muted-foreground mt-0.5">
+                                {t.description}
+                              </p>
+                            )}
+                          </li>
+                        ))}
+                    </ul>
                     {isLowAvailability && seatsRemaining !== null && (
                       <p className="font-body text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
                         Only {seatsRemaining} {seatsRemaining === 1 ? "ticket" : "tickets"} left
@@ -370,7 +365,7 @@ export default async function PublicEventDetailPage({
                       eventTitle={event.title}
                       ticketTypes={ticketTypeOptions}
                       maxQuantity={maxQuantity}
-                      buttonLabel="Reserve your spot"
+                      buttonLabel="Book tickets"
                       code={isMembersOnly ? suppliedCode : undefined}
                     />
                   </>
