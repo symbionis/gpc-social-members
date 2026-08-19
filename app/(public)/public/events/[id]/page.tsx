@@ -105,17 +105,15 @@ export default async function PublicEventDetailPage({
   const isMembersOnly = event.visibility !== "public";
 
   // Session awareness (additive on this otherwise-public page). A logged-in
-  // active member sees their member price and no nudge. Any failure here
-  // degrades to guest rendering — this route must never redirect to login.
+  // active member sees their member price. Any failure here degrades to guest
+  // rendering — this route must never redirect to login.
   let isActiveMember = false;
-  let isLoggedIn = false;
   try {
     const sessionClient = await createClient();
     const {
       data: { user },
     } = await sessionClient.auth.getUser();
     if (user?.id) {
-      isLoggedIn = true;
       const { data: memberRow } = await supabase
         .from("members")
         .select("id, status")
@@ -342,24 +340,6 @@ export default async function PublicEventDetailPage({
                         ? `From ${priceLabel(minPrice)}`
                         : priceLabel(minPrice)}
                     </p>
-                    {isMembersOnly && !isActiveMember && (
-                      <p className="font-body text-sm text-sky-dark bg-sky/5 border border-sky/20 rounded-lg px-3 py-2 mb-3">
-                        {isLoggedIn ? (
-                          <>Renew your membership for the member rate.</>
-                        ) : (
-                          <>
-                            Already a member?{" "}
-                            <Link
-                              href="/login"
-                              className="underline underline-offset-2 hover:text-marine"
-                            >
-                              Log in
-                            </Link>{" "}
-                            for your member rate.
-                          </>
-                        )}
-                      </p>
-                    )}
                     {isLowAvailability && seatsRemaining !== null && (
                       <p className="font-body text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
                         Only {seatsRemaining} {seatsRemaining === 1 ? "ticket" : "tickets"} left
@@ -370,7 +350,7 @@ export default async function PublicEventDetailPage({
                       eventTitle={event.title}
                       ticketTypes={ticketTypeOptions}
                       maxQuantity={maxQuantity}
-                      buttonLabel="Reserve your spot"
+                      buttonLabel="Book tickets"
                       code={isMembersOnly ? suppliedCode : undefined}
                     />
                   </>

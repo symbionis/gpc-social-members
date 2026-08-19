@@ -183,7 +183,7 @@ describe("step 2 — repeatable guest rows (R20)", () => {
     await user.type(screen.getByLabelText("Guest 3 last name"), "Adult");
     await user.type(screen.getByLabelText("Guest 3 email"), "not-an-email");
     await user.click(screen.getByLabelText("Guest 3 Asado ticket"));
-    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    await user.click(screen.getByRole("button", { name: /Book tickets/ }));
 
     expect(global.fetch).not.toHaveBeenCalled();
     // Guest 1: missing name + missing ticket type.
@@ -209,7 +209,7 @@ describe("step 2 — repeatable guest rows (R20)", () => {
     await user.type(screen.getByLabelText("Guest 2 last name"), "Adult");
     await user.type(screen.getByLabelText("Guest 2 email"), "shared@x.ch");
     await user.click(screen.getByLabelText("Guest 2 Veg ticket"));
-    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    await user.click(screen.getByRole("button", { name: /Book tickets/ }));
     expect(global.fetch).toHaveBeenCalled();
     expect(screen.queryByText(/already have a seat/i)).not.toBeInTheDocument();
   });
@@ -223,7 +223,7 @@ describe("step 2 — repeatable guest rows (R20)", () => {
     await user.type(screen.getByLabelText("Guest 1 last name"), "Sykes");
     await user.type(screen.getByLabelText("Guest 1 email"), "frank@x.ch");
     await user.click(screen.getByLabelText("Guest 1 Asado ticket"));
-    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    await user.click(screen.getByRole("button", { name: /Book tickets/ }));
     expect(screen.getByText(/already holds this ticket type/i)).toBeInTheDocument();
     expect(global.fetch).not.toHaveBeenCalled();
   });
@@ -238,7 +238,7 @@ describe("step 2 — repeatable guest rows (R20)", () => {
     await user.type(screen.getByLabelText("Guest 1 last name"), "Sykes");
     await user.type(screen.getByLabelText("Guest 1 email"), "frank@x.ch");
     await user.click(screen.getByLabelText("Guest 1 Veg ticket"));
-    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    await user.click(screen.getByRole("button", { name: /Book tickets/ }));
     expect(screen.queryByText(/already holds this ticket type/i)).not.toBeInTheDocument();
     expect(global.fetch).toHaveBeenCalled();
   });
@@ -253,7 +253,7 @@ describe("step 2 — repeatable guest rows (R20)", () => {
     await user.type(screen.getByLabelText("Guest 1 last name"), "Adult");
     await user.type(screen.getByLabelText("Guest 1 email"), "ana@x.ch");
     await user.click(screen.getByLabelText("Guest 1 Veg ticket"));
-    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    await user.click(screen.getByRole("button", { name: /Book tickets/ }));
     const body = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
     expect(body.name).toBe("Frank Sykes");
     expect(body.email).toBe("frank@x.ch");
@@ -297,7 +297,7 @@ describe("step 2 — repeatable guest rows (R20)", () => {
     await user.type(screen.getByLabelText("Guest 1 last name"), "Adult");
     await user.type(screen.getByLabelText("Guest 1 email"), "ana@x.ch");
     await user.click(screen.getByLabelText("Guest 1 Asado ticket"));
-    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    await user.click(screen.getByRole("button", { name: /Book tickets/ }));
     expect(await screen.findByText("Server says this email is bad")).toBeInTheDocument();
   });
 
@@ -320,7 +320,7 @@ describe("step 2 — repeatable guest rows (R20)", () => {
     await user.type(screen.getByLabelText("Guest 1 last name"), "Adult");
     await user.type(screen.getByLabelText("Guest 1 email"), "ana@x.ch");
     await user.click(screen.getByLabelText("Guest 1 Asado ticket"));
-    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    await user.click(screen.getByRole("button", { name: /Book tickets/ }));
     expect(await screen.findByText("This invite allows fewer guests than that")).toBeInTheDocument();
     // Rendered exactly once — as the summary banner, not duplicated against the guest row.
     expect(screen.getAllByText("This invite allows fewer guests than that")).toHaveLength(1);
@@ -398,7 +398,7 @@ describe("U7 — offer mode", () => {
     renderForm([asado], { offer });
     await fillBuyer(user, "Jane", "Guest", "e@x.ch");
     await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(screen.getByRole("button", { name: /Reserve your spot/ }));
+    await user.click(screen.getByRole("button", { name: /Book tickets/ }));
     expect(await screen.findByText(/those seats just went/i)).toBeInTheDocument();
     expect(screen.queryByText(/waitlist/i)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /check availability/i })).toHaveAttribute(
