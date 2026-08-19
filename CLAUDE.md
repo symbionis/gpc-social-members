@@ -33,6 +33,27 @@ A migration, an RPC redeclare, or a data fix hits production the moment it runs.
 - After regenerating `types/database.ts`, re-append the hand-written `MemberStatus` and
   `PaymentCaptureStatus` aliases. The generator drops them.
 
+### New tables: schema, grant, RLS
+
+Start from `supabase/MIGRATION_TEMPLATE.sql`. Three decisions, none of them optional.
+
+- **Schema.** `public` if the app queries it through supabase-js. `private` if nothing
+  outside the database ever reads it — sync state, external-id maps, audit trails, job
+  bookkeeping. `private` is not an exposed schema, so PostgREST will not serve it at any
+  grant or policy setting; reach it from SECURITY DEFINER functions in `public`. Schema
+  membership is how a reader learns whether a table has an HTTP surface.
+- **GRANT, explicitly.** Supabase stops auto-granting new public tables on **2026-10-30**
+  (discussion #45329). After that a table with no GRANT is invisible over REST — to
+  `service_role` too, which is the role this whole app uses, so it fails as a permission
+  error on new code and gets debugged in the wrong place. Grant `service_role` only: RLS is
+  on with no policies across this database, so granting `anon`/`authenticated` confers
+  nothing and reads like intent. Existing tables keep their grants; do not opt in early.
+- **RLS on, always.** `broadcast_recipients` sat readable by anyone holding the public anon
+  key, 3,481 member emails, from 2026-05-21 to 2026-08-09.
+
+A table carrying `updated_at` also needs `trg_<table>_updated_at`. Nothing sets that column
+otherwise — `events` went four months with a column that never once changed.
+
 ## Local dev
 
 - `npm run test:unit` is the unit suite (vitest). `npm test` is Playwright e2e and needs
