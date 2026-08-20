@@ -7,7 +7,7 @@
         "POSTMARK_SERVER_TOKEN=$(grep -m1 '^POSTMARK_SERVER_TOKEN=' .env.local | cut -d= -f2-) exec npx -y @activecampaign/postmark-mcp"
       ],
       "env": {
-        "DEFAULT_SENDER_EMAIL": "social@genevapolo.com",
+        "DEFAULT_SENDER_EMAIL": "contact@genevapolo.com",
         "DEFAULT_MESSAGE_STREAM": "outbound",
         "AGENT_LABEL": "gpc-social-members-local",
         "WEBHOOK_URL_ALLOWLIST": "https://social.genevapolo.com/api/webhooks/,https://gpc-social-members-production.up.railway.app/api/webhooks/"
