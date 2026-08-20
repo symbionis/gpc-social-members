@@ -42,6 +42,7 @@ function post(body: unknown, eventId = "e1") {
 }
 
 const eventsAdmin = [{ id: "a1", role: "events_admin" }];
+const teamAdmin = [{ id: "a3", role: "team_admin" }];
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -64,6 +65,14 @@ describe("POST /api/admin/events/[id]/messages/preview", () => {
   it("404s when the event does not exist", async () => {
     mockedCreateAdminClient.mockReturnValue(adminClient(eventsAdmin, null));
     expect((await post({ kind: "event_pre" })).status).toBe(404);
+  });
+
+  // A team_admin already sends member-wide broadcasts from the general Messages
+  // page (requireBroadcastAdmin); excluding them here only pushed a post-event
+  // thank-you into that wrong, unscoped tool. See lib/broadcast/event-auth.ts.
+  it("allows a team_admin", async () => {
+    mockedCreateAdminClient.mockReturnValue(adminClient(teamAdmin, { id: "e1" }));
+    expect((await post({ kind: "event_pre" })).status).toBe(200);
   });
 
   it("does not require subject/body for a preview", async () => {

@@ -49,6 +49,7 @@ function post(body: unknown, eventId = "e1") {
 
 const eventsAdmin = [{ id: "a1", role: "events_admin" }];
 const superAdmin = [{ id: "a2", role: "super_admin" }];
+const teamAdmin = [{ id: "a3", role: "team_admin" }];
 const validBody = {
   kind: "event_pre",
   subject: "Heads up",
@@ -89,6 +90,14 @@ describe("POST /api/admin/events/[id]/messages/send — auth", () => {
 
   it("allows a super_admin to send", async () => {
     mockedCreateAdminClient.mockReturnValue(adminClient(superAdmin, { id: "e1" }));
+    expect((await post(validBody)).status).toBe(200);
+  });
+
+  // A team_admin already sends member-wide broadcasts from the general Messages
+  // page (requireBroadcastAdmin); excluding them here only pushed a post-event
+  // thank-you into that wrong, unscoped tool. See lib/broadcast/event-auth.ts.
+  it("allows a team_admin to send", async () => {
+    mockedCreateAdminClient.mockReturnValue(adminClient(teamAdmin, { id: "e1" }));
     expect((await post(validBody)).status).toBe(200);
   });
 
