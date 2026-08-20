@@ -6,6 +6,7 @@ import type { SeatState } from "@/lib/events/seat-usage";
 import SeatBadges from "@/components/events/SeatBadges";
 
 const APPLY_URL = "/apply/GPC-2026";
+const LOGIN_URL = "/login";
 
 export interface PublicEvent {
   id: string;
@@ -205,12 +206,24 @@ function EventCard({
   const hero = heroImage(event);
 
   const cta = isMembersOnly ? (
-    <Link
-      href={APPLY_URL}
-      className="inline-block mt-4 text-xs font-body font-medium text-marine underline underline-offset-4 hover:text-sky-dark transition-colors"
-    >
-      Apply for membership →
-    </Link>
+    <>
+      <Link
+        href={APPLY_URL}
+        className="inline-block mt-4 text-xs font-body font-medium text-marine underline underline-offset-4 hover:text-sky-dark transition-colors"
+      >
+        Apply for membership →
+      </Link>
+      <p className="mt-1.5 text-xs font-body text-muted-foreground">
+        Already a member?{" "}
+        <Link
+          href={LOGIN_URL}
+          className="font-medium text-marine underline underline-offset-4 hover:text-sky-dark transition-colors"
+        >
+          Log in
+        </Link>{" "}
+        to get your ticket.
+      </p>
+    </>
   ) : (
     <Link
       href={`/public/events/${event.id}`}

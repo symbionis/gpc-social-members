@@ -10,6 +10,7 @@ import { deriveSeatState, getSeatsUsed } from "@/lib/events/seat-usage";
 import { isValidInviteCode } from "@/lib/events/registration";
 
 const APPLY_URL = "/apply/GPC-2026";
+const LOGIN_URL = "/login";
 
 function coerceImages(value: unknown, fallbacks: (string | null | undefined)[]): string[] {
   if (Array.isArray(value)) {
@@ -322,6 +323,16 @@ export default async function PublicEventDetailPage({
                     >
                       Apply for membership →
                     </Link>
+                    <p className="font-body text-sm text-muted-foreground mt-4">
+                      Already a member?{" "}
+                      <Link
+                        href={LOGIN_URL}
+                        className="font-medium text-marine underline underline-offset-4 hover:text-sky-dark transition-colors"
+                      >
+                        Log in
+                      </Link>{" "}
+                      to get your ticket.
+                    </p>
                   </>
                 ) : !event.registration_enabled ? (
                   <p className="font-body text-sm text-muted-foreground">
