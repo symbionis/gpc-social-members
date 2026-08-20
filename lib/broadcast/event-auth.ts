@@ -1,9 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-/** Roles allowed to send event messages. Broader than member broadcasts
- *  (super_admin only) because event admins run the Manage Event page. */
-const ALLOWED_ROLES = ["events_admin", "super_admin"];
+/** Roles allowed to send event messages. Mirrors requireBroadcastAdmin's
+ *  allow-list (super_admin, team_admin) plus events_admin, who runs the
+ *  Manage Event page but has no reason to touch member-wide broadcasts. A
+ *  team_admin who can already send to the whole membership from the general
+ *  Messages page must not be narrower here, or they're pushed into that
+ *  broader tool for what should be an event-scoped message. */
+const ALLOWED_ROLES = ["events_admin", "team_admin", "super_admin"];
 
 export type RequireEventsAdminResult =
   | { ok: true; admin: { id: string; role: string } }
