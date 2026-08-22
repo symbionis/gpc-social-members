@@ -40,7 +40,9 @@ export async function POST(
 
   if (!name) return bad("name is required");
   if (!email || !EMAIL_RE.test(email)) return bad("valid email is required");
-  if (!ticketTypeId) return bad("Please choose a ticket type");
+  // No ticket type is required: the public form stops asking for one, and the invitee
+  // chooses on the offer landing (U5) from whatever is live when a seat is released. A
+  // type that IS sent (older clients, the admin repair path) still has to be real.
   if (quantity !== 1) {
     return bad("The waitlist is one ticket per person — please refresh and try again.");
   }
@@ -112,28 +114,30 @@ export async function POST(
     return bad("Event still has availability");
   }
 
-  // Validate the chosen ticket type belongs to this event, is active, and consumes a
-  // seat. The seat check is the point of the waitlist: a type that takes no seat can
+  // When a ticket type is supplied, it must belong to this event, be active, and consume
+  // a seat. The seat check is the point of the waitlist: a type that takes no seat can
   // never be offered one (deriveWaitlistOfferability rejects it), so accepting the
   // signup would queue someone behind a seat that will never be freed for them, and
   // leave an entry an admin can only ever repair or delete.
-  const { data: ticketType, error: ticketTypeErr } = await supabase
-    .from("event_ticket_types")
-    .select("id")
-    .eq("id", ticketTypeId)
-    .eq("event_id", eventId)
-    .is("archived_at", null)
-    .eq("counts_as_seat", true)
-    .maybeSingle();
-  if (ticketTypeErr) {
-    // Not the same as "no such type": telling someone their ticket type is unavailable when
-    // the lookup simply failed sends them to refresh, see it still offered, and give up —
-    // with nothing logged anywhere. Match the two guards below and fail loudly.
-    console.error("[event-waitlist] ticket type lookup failed", { eventId, ticketTypeId, err: ticketTypeErr });
-    return bad("Could not verify availability", 500);
-  }
-  if (!ticketType) {
-    return bad("That ticket type is no longer available — please refresh and try again.");
+  if (ticketTypeId) {
+    const { data: ticketType, error: ticketTypeErr } = await supabase
+      .from("event_ticket_types")
+      .select("id")
+      .eq("id", ticketTypeId)
+      .eq("event_id", eventId)
+      .is("archived_at", null)
+      .eq("counts_as_seat", true)
+      .maybeSingle();
+    if (ticketTypeErr) {
+      // Not the same as "no such type": telling someone their ticket type is unavailable
+      // when the lookup simply failed sends them to refresh, see it still offered, and give
+      // up — with nothing logged anywhere. Match the two guards below and fail loudly.
+      console.error("[event-waitlist] ticket type lookup failed", { eventId, ticketTypeId, err: ticketTypeErr });
+      return bad("Could not verify availability", 500);
+    }
+    if (!ticketType) {
+      return bad("That ticket type is no longer available — please refresh and try again.");
+    }
   }
 
   // Already holding a seat? Then there is nothing to queue for. The register route's
@@ -183,7 +187,7 @@ export async function POST(
       event_id: eventId,
       name,
       email,
-      ticket_type_id: ticketTypeId,
+      ticket_type_id: ticketTypeId || null,
       quantity,
     });
 

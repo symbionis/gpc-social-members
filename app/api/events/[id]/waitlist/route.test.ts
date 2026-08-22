@@ -223,14 +223,16 @@ describe("POST /api/events/[id]/waitlist — quantity", () => {
     expect(cfg.captured).toBeUndefined();
   });
 
-  it("rejects a missing ticket type", async () => {
+  // The public form no longer asks for a ticket: the invitee chooses on the offer
+  // landing when a seat is released. A missing type is stored as null, not refused.
+  it("accepts a missing ticket type and stores null", async () => {
     const cfg: Cfg = { ticketTypes: [seatType] };
     mockedAdmin.mockReturnValue(adminClient(cfg));
 
     const res = await post({ ...VALID });
 
-    expect(res.status).toBe(400);
-    expect(cfg.captured).toBeUndefined();
+    expect(res.status).toBe(200);
+    expect(cfg.captured).toMatchObject({ ticket_type_id: null, quantity: 1 });
   });
 });
 

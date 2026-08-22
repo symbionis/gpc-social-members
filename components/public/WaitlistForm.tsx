@@ -5,21 +5,18 @@ import posthog from "posthog-js";
 
 interface Props {
   eventId: string;
-  /** Active ticket types the waitlister can request (id + title only). */
-  ticketTypes: { id: string; title: string }[];
   defaultName?: string;
   defaultEmail?: string;
 }
 
-export default function WaitlistForm({
-  eventId,
-  ticketTypes,
-  defaultName = "",
-  defaultEmail = "",
-}: Props) {
+/**
+ * Name + contact only. The waitlist deliberately does not ask which ticket someone
+ * wants: the offer email sends them to a landing page where they choose from whatever
+ * is live at that moment, so a choice made weeks earlier cannot go stale.
+ */
+export default function WaitlistForm({ eventId, defaultName = "", defaultEmail = "" }: Props) {
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
-  const [ticketTypeId, setTicketTypeId] = useState(ticketTypes[0]?.id ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -36,10 +33,6 @@ export default function WaitlistForm({
       setError("Please enter your email.");
       return;
     }
-    if (!ticketTypeId) {
-      setError("Please choose a ticket type.");
-      return;
-    }
 
     setSubmitting(true);
     try {
@@ -49,7 +42,6 @@ export default function WaitlistForm({
         body: JSON.stringify({
           name: name.trim(),
           email: email.trim(),
-          ticket_type_id: ticketTypeId,
           // One ticket per person: a waitlist request for several seats has no names or
           // emails for the extra people, which is how unnamed tickets got back into the
           // flow. Whoever joins names themselves, and only themselves.
@@ -123,26 +115,6 @@ export default function WaitlistForm({
           autoComplete="email"
         />
       </div>
-
-      {ticketTypes.length > 1 && (
-        <div>
-          <label className="block text-xs font-body text-muted-foreground mb-1">
-            Ticket type
-          </label>
-          <select
-            required
-            value={ticketTypeId}
-            onChange={(e) => setTicketTypeId(e.target.value)}
-            className={inputClass}
-          >
-            {ticketTypes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.title}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
 
       {error && (
         <p className="text-sm font-body text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">

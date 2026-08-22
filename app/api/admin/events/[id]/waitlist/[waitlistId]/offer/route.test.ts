@@ -165,17 +165,19 @@ describe("POST offer/resend", () => {
     expect((await offer()).status).toBe(403);
   });
 
-  it("rejects an entry with a null ticket type", async () => {
+  // The public waitlist stores no ticket type; the invitee picks on the offer landing.
+  it("offers an entry with a null ticket type", async () => {
     mockedAdmin.mockReturnValue(
       adminClient({
         admins: superAdmin,
-        entry: { id: "wl-1", email: "a@x.com", ticket_type_id: null, quantity: 2 },
+        entry: { id: "wl-1", email: "a@x.com", ticket_type_id: null, quantity: 2, offer_token: null, offer_sent_count: 0 },
         event: openEvent,
+        registrations: [],
       })
     );
     const res = await offer();
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/ticket type/i);
+    expect(res.status).toBe(200);
+    expect(mockedSendOffer).toHaveBeenCalledWith("wl-1");
   });
 
   it("rejects an entry whose type is archived", async () => {

@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import EventRegistrationDrawer from "@/components/public/EventRegistrationDrawer";
+import TicketPriceList from "@/components/events/TicketPriceList";
 import EventFullyBookedBlock from "@/components/public/EventFullyBookedBlock";
 import EventGallery from "@/components/EventGallery";
 import SeatBadges from "@/components/events/SeatBadges";
@@ -57,10 +58,6 @@ function formatDateRange(startDate: string, endDate: string | null) {
   return `${startDay} ${startMonth} ${startYear} – ${endDay} ${endMonth} ${endYear}`;
 }
 
-function priceLabel(value: number): string {
-  return value === 0 ? "Free" : `CHF ${value.toFixed(2)}`;
-}
-
 export default async function EventDetailPage({
   params,
   searchParams,
@@ -110,16 +107,10 @@ export default async function EventDetailPage({
   // its member price; a null member price means "not open yet".
   const { data: rawTicketTypes } = await adminClient
     .from("event_ticket_types")
-    .select("id, title, price_member, description, sort_order, counts_as_seat")
+    .select("id, title, price_member, description, sort_order")
     .eq("event_id", id)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
-  // Seat-consuming types only for the waitlist — a type that takes no seat can never be
-  // offered one. Mirrors the public event page and the signup API's own check.
-  const waitlistTicketTypes = (rawTicketTypes ?? [])
-    .filter((t) => t.counts_as_seat)
-    .map((t) => ({ id: t.id, title: t.title }));
-
   const ticketTypeOptions = (rawTicketTypes ?? []).map((t) => ({
     id: t.id,
     title: t.title,
@@ -234,32 +225,14 @@ export default async function EventDetailPage({
             ) : isFullyBooked ? (
               <EventFullyBookedBlock
                 eventId={event.id}
-                ticketTypes={waitlistTicketTypes}
+                eventTitle={event.title}
+                ticketTypes={ticketTypeOptions}
                 defaultName={memberFullName}
                 defaultEmail={member.email ?? ""}
               />
             ) : (
               <>
-                <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-2">
-                  Tickets
-                </p>
-                <ul className="mb-4 divide-y divide-border/60">
-                  {ticketTypeOptions
-                    .filter((t): t is typeof t & { price: number } => t.price !== null)
-                    .map((t) => (
-                      <li key={t.id} className="py-2 first:pt-0">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="font-body text-sm font-medium text-marine">{t.title}</span>
-                          <span className="font-heading text-base font-bold text-marine shrink-0">
-                            {priceLabel(t.price)}
-                          </span>
-                        </div>
-                        {t.description && (
-                          <p className="font-body text-xs text-muted-foreground mt-0.5">{t.description}</p>
-                        )}
-                      </li>
-                    ))}
-                </ul>
+                <TicketPriceList ticketTypes={ticketTypeOptions} />
                 {isLowAvailability && seatsRemaining !== null && (
                   <p className="font-body text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
                     Only {seatsRemaining} {seatsRemaining === 1 ? "ticket" : "tickets"} left
