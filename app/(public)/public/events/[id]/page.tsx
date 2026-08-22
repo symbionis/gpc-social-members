@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import EventRegistrationDrawer from "@/components/public/EventRegistrationDrawer";
+import TicketPriceList from "@/components/events/TicketPriceList";
 import EventFullyBookedBlock from "@/components/public/EventFullyBookedBlock";
 import EventGallery from "@/components/EventGallery";
 import SeatBadges from "@/components/events/SeatBadges";
@@ -78,10 +79,6 @@ function formatMonthOnly(startDate: string, endDate: string | null) {
   return `${startMonth} ${startYear} – ${endMonth} ${endYear}`;
 }
 
-function priceLabel(value: number): string {
-  return value === 0 ? "Free" : `CHF ${value.toFixed(2)}`;
-}
-
 export default async function PublicEventDetailPage({
   params,
   searchParams,
@@ -142,17 +139,10 @@ export default async function PublicEventDetailPage({
   // resolved price means "not open yet" (the register API is authoritative).
   const { data: rawTicketTypes } = await supabase
     .from("event_ticket_types")
-    .select("id, title, price_member, price_non_member, invite_price, description, sort_order, counts_as_seat")
+    .select("id, title, price_member, price_non_member, invite_price, description, sort_order")
     .eq("event_id", id)
     .is("archived_at", null)
     .order("sort_order", { ascending: true });
-
-  // The waitlist only ever offers seat-consuming types: a type that takes no seat can
-  // never be offered one, so listing it would queue someone for something they can never
-  // be given. The register API applies the same rule server-side.
-  const waitlistTicketTypes = (rawTicketTypes ?? [])
-    .filter((t) => t.counts_as_seat)
-    .map((t) => ({ id: t.id, title: t.title }));
 
   const ticketTypeOptions = (rawTicketTypes ?? []).map((t) => ({
     id: t.id,
@@ -339,33 +329,14 @@ export default async function PublicEventDetailPage({
                     Information only — registration is not open for this event.
                   </p>
                 ) : isFullyBooked ? (
-                  <EventFullyBookedBlock eventId={event.id} ticketTypes={waitlistTicketTypes} />
+                  <EventFullyBookedBlock
+                    eventId={event.id}
+                    eventTitle={event.title}
+                    ticketTypes={ticketTypeOptions}
+                  />
                 ) : (
                   <>
-                    <p className="text-xs font-body text-muted-foreground uppercase tracking-wide mb-2">
-                      Tickets
-                    </p>
-                    <ul className="mb-4 divide-y divide-border/60">
-                      {ticketTypeOptions
-                        .filter((t): t is typeof t & { price: number } => t.price !== null)
-                        .map((t) => (
-                          <li key={t.id} className="py-2 first:pt-0">
-                            <div className="flex items-baseline justify-between gap-3">
-                              <span className="font-body text-sm font-medium text-marine">
-                                {t.title}
-                              </span>
-                              <span className="font-heading text-base font-bold text-marine shrink-0">
-                                {priceLabel(t.price)}
-                              </span>
-                            </div>
-                            {t.description && (
-                              <p className="font-body text-xs text-muted-foreground mt-0.5">
-                                {t.description}
-                              </p>
-                            )}
-                          </li>
-                        ))}
-                    </ul>
+                    <TicketPriceList ticketTypes={ticketTypeOptions} />
                     {isLowAvailability && seatsRemaining !== null && (
                       <p className="font-body text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
                         Only {seatsRemaining} {seatsRemaining === 1 ? "ticket" : "tickets"} left

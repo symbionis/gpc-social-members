@@ -45,9 +45,11 @@ export interface WaitlistOfferabilityResult {
 }
 
 /**
- * R13/R14: an offerable entry needs a live, non-archived, seat-counting ticket type
- * (KTD6) and a quantity between 1 and 10. Ticket-type problems are reported before
- * quantity problems, matching the order the plan states them in.
+ * R13/R14: an offerable entry needs a quantity between 1 and 10 and, IF it names a
+ * ticket type, a live, non-archived, seat-counting one (KTD6). A null ticket type is
+ * offerable: the public waitlist no longer asks for one, and the invitee chooses on the
+ * offer landing from whatever is live at that moment. Ticket-type problems are reported
+ * before quantity problems, matching the order the plan states them in.
  *
  * An email that already holds a registration is reported before either: it is the
  * decisive fact about the entry, and fixing the ticket type would not make it
@@ -63,20 +65,17 @@ export function deriveWaitlistOfferability(
       reason: "Already registered for this event",
     };
   }
-  if (!entry.ticket_type_id) {
-    return { offerable: false, repairable: true, reason: "No ticket type is set for this entry" };
-  }
-  if (!entry.ticketType) {
+  if (entry.ticket_type_id && !entry.ticketType) {
     return { offerable: false, repairable: true, reason: "The requested ticket type no longer exists" };
   }
-  if (entry.ticketType.archived_at) {
+  if (entry.ticketType?.archived_at) {
     return {
       offerable: false,
       repairable: true,
       reason: `"${entry.ticketType.title}" has been archived`,
     };
   }
-  if (!entry.ticketType.counts_as_seat) {
+  if (entry.ticketType && !entry.ticketType.counts_as_seat) {
     return {
       offerable: false,
       repairable: true,

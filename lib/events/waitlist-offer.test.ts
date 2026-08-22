@@ -48,14 +48,15 @@ describe("deriveWaitlistOfferability", () => {
     expect(result.repairable).toBe(false);
   });
 
-  it("flags a null ticket type, naming the missing type", () => {
+  // The public waitlist stores no ticket type; the invitee picks on the offer landing.
+  it("is offerable with a null ticket type", () => {
     const result = deriveWaitlistOfferability({
       ticket_type_id: null,
       quantity: 2,
       ticketType: null,
     });
-    expect(result.offerable).toBe(false);
-    expect(result.reason).toMatch(/ticket type/i);
+    expect(result.offerable).toBe(true);
+    expect(result.reason).toBeNull();
   });
 
   it("flags a dangling ticket_type_id (no matching row)", () => {

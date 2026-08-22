@@ -484,7 +484,8 @@ export default function ManageEventTabs({
                           <td className="px-4 py-2 text-marine">{entry.name}</td>
                           <td className="px-4 py-2 text-muted-foreground">{entry.email}</td>
                           <td className="px-4 py-2 text-muted-foreground">
-                            {entry.ticket_type_title ?? "—"}
+                            {/* No requested type: the invitee picks on the offer landing. */}
+                            {entry.ticket_type_title ?? "Any ticket"}
                             {entry.quantity ? ` × ${entry.quantity}` : ""}
                             {!entry.offerable && (
                               <>
